@@ -97,7 +97,7 @@ import { inRangeShown, overviewMisc } from "./overviewMisc.ts";
 import { fmtDist as fmtDistance } from "../space/overview.ts";
 import { DScanWindow } from "./dscan.ts";
 import { SolarSystemMapWindow, MARKER_GROUPS, type MapScanResult } from "./solarSystemMap.ts";
-import { Neocom, type NeocomSkillState } from "./neocom.ts";
+import { Neocom, type ChatRailEntry, type NeocomSkillState } from "./neocom.ts";
 import { bracketIcon, hasBracketData, loadBrackets } from "./brackets.ts";
 import { PROXIMITY_TRAP_RANGES } from "./proximityTraps.ts";
 import { probeNumber } from "../bridge/scannerWrites.ts";
@@ -201,6 +201,7 @@ export interface SpaceViewOptions {
   jumpBridge?: (itemID: number) => Promise<void>;
   wormholePolarization?: (itemID: number) => Promise<WormholePolarization | null>;
   onNeocom?: (id: string) => void;
+  chatRailEntries?: () => readonly ChatRailEntry[];
   /** The system the view is in, with its security, as its scene is loaded (the music's switch). */
   onSystem?: (solarSystemID: number, security: number | null) => void;
   rack?: {
@@ -2079,7 +2080,7 @@ export class SpaceView {
     for (const id of this.overview.storedWindowIDs()) this.addOverviewWindow(this.makeOverview!, id);
     // Brackets drawn before the client's tables are here are drawn again with the client's icons.
     void loadBrackets().then(() => { for (const el of this.bracketEls.values()) el.remove(); this.bracketEls.clear(); });
-    this.neocom = new Neocom((id) => (this.options.onNeocom ? this.options.onNeocom(id) : this.toast(`${id[0]!.toUpperCase()}${id.slice(1)} is not on the play page yet.`)));
+    this.neocom = new Neocom((id) => (this.options.onNeocom ? this.options.onNeocom(id) : this.toast(`${id[0]!.toUpperCase()}${id.slice(1)} is not on the play page yet.`)), this.options.chatRailEntries);
     this.root.appendChild(this.neocom.root);
     this.renderer.domElement.addEventListener("dblclick", (e) => this.doubleClick(e));
     // a right-click in space (navigation.OnMouseUp, GetMenu): the thing under it (its pick) its CelestialMenu, else the
@@ -2184,6 +2185,7 @@ export class SpaceView {
 
   dispose(): void {
     this.offHudTop?.();
+    this.neocom?.dispose();
     for (const panel of this.jumpBridgePanels.values()) panel.destroy();
     this.jumpBridgePanels.clear();
     // the ambient sound let go with the view (the ship docked, the session gone)

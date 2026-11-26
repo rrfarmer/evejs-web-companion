@@ -58,7 +58,6 @@ const NEOCOM_TOOLTIPS: Readonly<Record<string, { cmd: string | null; name: strin
   log: { cmd: "OpenLog", name: "Log and Messages", description: "" },
   // ButtonReward (loginRewards): OpenLoginRewardWindow, Daily Login Campaigns (the live client, gridcheck g291 / g292)
   loginRewards: { cmd: "OpenLoginRewardWindow", name: "Daily Login Campaigns", description: "Log in daily during active campaigns to receive your rewards" },
-  chat: { cmd: null, name: "Chat", description: "" },
   channels: { cmd: "OpenChannels", name: "Chat Channels", description: "Browse available chat channels or create your own channel" },
   // the EVE menu's Calendar (groupSocial): OpenCalendar, no description, no shortcut (the live client, g297)
   calendar: { cmd: "OpenCalendar", name: "Calendar", description: "" },
@@ -93,6 +92,7 @@ function neocomTipOff(): void {
 }
 
 export interface NeocomButton { id: string; label: string; icon: string }
+export interface ChatRailEntry { label: string; select: () => void }
 
 const icon = (name: string) => clientTexture(`res:/UI/Texture/WindowIcons/${name}.png`);
 
@@ -396,10 +396,12 @@ export class Neocom {
   walletTip: NeocomTipDetails | null = null;
   /** The EVE menu's panels, on the page's body. */
   private menuParts: HTMLElement[] = [];
+  private readonly listeners = new AbortController();
   /** Takes the EVE menu's panels off the page. */
   walletBalanceUpdate(change: WalletBalanceUpdate): void { this.walletPopup.add(change); }
   dispose(): void {
     this.walletPopup.dispose();
+    this.listeners.abort();
     for (const el of this.menuParts) el.remove();
     if (this.pulseTimer) clearInterval(this.pulseTimer);
   }
@@ -446,7 +448,8 @@ export class Neocom {
     this.portrait.style.visibility = url ? "" : "hidden";
   }
 
-  constructor(open: (id: string) => void) {
+  constructor(open: (id: string) => void, chatEntries?: () => readonly ChatRailEntry[]) {
+    const { signal } = this.listeners;
     this.root.className = "neocom";
     this.root.innerHTML = `<div class="eve" title="EVE Menu"></div><div class="nc-buttons"></div><div class="nc-fill"></div>`;
     const list = this.root.querySelector(".nc-buttons")!;
@@ -511,15 +514,76 @@ export class Neocom {
     menu.appendChild(footer);
     document.body.appendChild(menu);
     document.body.appendChild(sub);
-    this.menuParts = [menu, sub];
+    const chatPanel = document.createElement("div");
+    chatPanel.className = "eve-menu-sub nc-chat-panel";
+    chatPanel.setAttribute("role", "group");
+    chatPanel.setAttribute("aria-label", "Chat channels");
+    chatPanel.hidden = true;
+    let chatTrigger: HTMLElement | null = null;
+    let chatContext = false;
+    const closeChat = (focus = false) => {
+      chatPanel.hidden = true;
+      chatTrigger?.setAttribute("aria-expanded", "false");
+      if (focus) chatTrigger?.focus();
+      chatTrigger = null;
+    };
+    const showChat = (trigger: HTMLElement, context?: MouseEvent) => {
+      const toggle = chatTrigger === trigger && chatContext === Boolean(context);
+      closeChat();
+      close();
+      const fromOverflow = panel.contains(trigger);
+      if (!fromOverflow) panel.hidden = true;
+      neocomTipOff();
+      if (toggle) return;
+      chatTrigger = trigger;
+      chatContext = Boolean(context);
+      const directory = { label: chatContext ? "Open Channels" : NEOCOM_TOOLTIPS.channels!.name, select: () => open("channels") };
+      const rows = chatContext ? [directory] : [directory, ...(chatEntries?.() ?? [])];
+      chatPanel.replaceChildren(...rows.map((row, index) => {
+        const button = entry(row.label, index === 0 ? icon("chatchannels") :
+          clientTexture("res:/UI/Texture/eveicon/system_icons/chat_bubble_16px.png"), false);
+        if (index > 0) {
+          button.classList.add("nc-chat-channel");
+          button.title = row.label;
+        }
+        button.addEventListener("click", () => {
+          if (fromOverflow) { panel.hidden = true; overflow.focus(); }
+          closeChat(!fromOverflow);
+          row.select();
+        });
+        return button;
+      }));
+      const rect = trigger.getBoundingClientRect();
+      const pointer = context && (context.clientX !== 0 || context.clientY !== 0) ? context : null;
+      chatPanel.hidden = false;
+      chatPanel.style.left = `${Math.max(0, Math.min(pointer?.clientX ?? rect.right, innerWidth - chatPanel.offsetWidth))}px`;
+      chatPanel.style.top = `${Math.max(0, Math.min(pointer?.clientY ?? rect.top, innerHeight - chatPanel.offsetHeight))}px`;
+      trigger.setAttribute("aria-expanded", "true");
+      chatPanel.querySelector("button")?.focus();
+    };
+    document.body.appendChild(chatPanel);
+    this.menuParts = [menu, sub, chatPanel];
     this.root.querySelector(".eve")!.addEventListener("click", (e) => {
+      closeChat();
       e.stopPropagation(); menu.hidden = !menu.hidden; sub.hidden = true;
       const r = this.root.getBoundingClientRect();
       menu.style.left = `${r.right}px`; menu.style.top = `${r.top}px`; menu.style.height = `${r.height}px`;
     });
     menu.addEventListener("click", (e) => e.stopPropagation());
     sub.addEventListener("click", (e) => e.stopPropagation());
-    document.addEventListener("click", close);
+    document.addEventListener("click", () => { close(); closeChat(); }, { signal });
+    document.addEventListener("contextmenu", () => closeChat(), { signal });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || chatPanel.hidden) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeChat(true);
+    }, { capture: true, signal });
+    const wireChatTrigger = (button: HTMLButtonElement) => {
+      button.setAttribute("aria-expanded", "false");
+      button.addEventListener("click", (event) => { event.stopPropagation(); showChat(button); });
+      button.addEventListener("contextmenu", (event) => { event.preventDefault(); event.stopPropagation(); showChat(button, event); });
+    };
     // ButtonCharacterIcon: first under the EVE button (the live client, gridcheck g250: charSheetBtn at 48, its charPic
     // 48 x 48, OpenCharactersheet); ButtonSkills follows it
     const sheet = document.createElement("button");
@@ -587,11 +651,13 @@ export class Neocom {
       el.innerHTML = `<img src="${b.icon}" alt="">`;
       el.append(this.indicator(b.id));
       this.buttons.set(b.id, el);
-      el.addEventListener("click", () => { neocomTipOff(); open(b.id); });
+      if (b.id === "chat") wireChatTrigger(el);
+      else el.addEventListener("click", () => { neocomTipOff(); open(b.id); });
       el.addEventListener("mouseenter", () => {
         const bl = this.blinks.get(b.id);
         // GetBlinkHint: the blink hint, then the unseen items' hint under it
-        neocomTipOn(el, b.id, [bl?.hint ?? "", this.unseen.get(b.id) ?? ""].filter(Boolean).join("\n"), b.id === "wallet" ? this.walletTip : null);
+        if (b.id !== "chat" || chatPanel.hidden) neocomTipOn(el, b.id === "chat" ? "channels" : b.id,
+          [bl?.hint ?? "", this.unseen.get(b.id) ?? ""].filter(Boolean).join("\n"), b.id === "wallet" ? this.walletTip : null);
         if (bl) { bl.left = 0; bl.newUntil = 0; this.paintIndicators(); }
       });
       el.addEventListener("mouseleave", () => {
@@ -633,6 +699,7 @@ export class Neocom {
       if (!hidden.length) panel.hidden = true;
     };
     overflow.addEventListener("click", (e) => {
+      closeChat();
       e.stopPropagation();
       void playUiEvent("ui_button_soft4_play");
       if (!panel.hidden) { panel.hidden = true; return; }
@@ -643,7 +710,8 @@ export class Neocom {
         c.className = "eve-menu-entry";
         c.innerHTML = `<img src="${b.icon}" alt=""><span></span>`;
         c.querySelector("span")!.textContent = b.label;
-        c.addEventListener("click", () => { panel.hidden = true; open(id); });
+        if (id === "chat") wireChatTrigger(c);
+        else c.addEventListener("click", () => { panel.hidden = true; open(id); });
         panel.appendChild(c);
       }
       const r = overflow.getBoundingClientRect();
@@ -651,8 +719,10 @@ export class Neocom {
       panel.hidden = false;
       panel.style.top = `${Math.max(0, r.bottom - panel.getBoundingClientRect().height)}px`;
     });
-    document.addEventListener("click", () => { panel.hidden = true; });
-    new ResizeObserver(check).observe(list as HTMLElement);
+    document.addEventListener("click", () => { panel.hidden = true; }, { signal });
+    const observer = new ResizeObserver(check);
+    observer.observe(list as HTMLElement);
+    signal.addEventListener("abort", () => observer.disconnect(), { once: true });
     requestAnimationFrame(check);
     const fixed = document.createElement("div");
     fixed.className = "nc-fixed";

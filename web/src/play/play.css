@@ -185,9 +185,13 @@ button { font: inherit; color: inherit; }
 .eve-menu { overflow: auto; }
 .eve-menu-footer { margin-top: 30px; }
 .eve-menu-sub { padding: 0; }
+.nc-chat-panel { width: min(220px, 100vw); max-height: 100vh; overflow: auto; }
 .eve-menu-entry { position: relative; display: flex; align-items: center; width: 100%; height: 48px; padding: 0 28px 0 8px; gap: 12px;
   background: none; border: none; color: #9aa0a6; font-size: 13px; text-align: left; cursor: pointer; }
 .eve-menu-entry img { width: 32px; height: 32px; mix-blend-mode: plus-lighter; }
+.eve-menu-entry.nc-chat-channel { height: 28px; min-height: 0; }
+.eve-menu-entry.nc-chat-channel img { width: 16px; height: 16px; flex: none; }
+.eve-menu-entry.nc-chat-channel > span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .eve-menu-entry:hover:not(:disabled) { background: url(/client-res/ui/texture/classes/neocom/panelentrybg.png) center / 100% 100% no-repeat; color: #fff; }
 .eve-menu-entry.group::after { content: "\203A"; position: absolute; right: 16px; color: #9aa0a6; }
 .eve-menu-entry:disabled { opacity: 0.4; cursor: default; }

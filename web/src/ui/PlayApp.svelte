@@ -170,7 +170,7 @@
   import { hangarGraphics } from "../play/hangarRegistry.ts";
   import { HangarView } from "../play/hangarView.ts";
   import { dirtLevelFromTime } from "../three/hullModel.ts";
-  import { Neocom, neocomSkillState } from "../play/neocom.ts";
+  import { Neocom, neocomSkillState, type ChatRailEntry } from "../play/neocom.ts";
   import { clientTexture } from "../play/window.ts";
   import { techLevelIcon } from "../play/techLevelIcon.ts";
   import { raiseClientNotification } from "./clientNotifications.ts";
@@ -1056,7 +1056,7 @@
   });
   $effect(() => {
     if (!neocomHost) return;
-    const neocom = new Neocom(neocomOpen);
+    const neocom = new Neocom(neocomOpen, chatRailEntries);
     neocomHost.appendChild(neocom.root);
     neocomInst = neocom;
     return () => { neocomInst = null; neocom.root.remove(); neocom.dispose(); };
@@ -2141,6 +2141,29 @@
     if (restoreFocus && trigger?.isConnected) requestAnimationFrame(() => trigger.focus());
   }
 
+
+  function chatRailEntries(): readonly ChatRailEntry[] {
+    const pilot = session;
+    if (!pilot) return [];
+    const { flow } = pilot;
+    const selectBase = (channel: "local" | "corp") => {
+      if (session !== pilot) return;
+      flow.setChatChannel(channel);
+      open("chat");
+      void flow.loadChat(channel).catch(() => {});
+    };
+    const rooms = flow.conversations.state.get().rooms;
+    const entries: ChatRailEntry[] = [
+      { label: "Local", select: () => selectBase("local") },
+      { label: "Corp", select: () => selectBase("corp") },
+      ...rooms.map(room => ({ label: room.title, select: () => {
+        if (session !== pilot || !flow.conversations.state.get().rooms.some(entry => entry.channel === room.channel)) return;
+        flow.conversations.select(room.channel);
+        open("chat");
+      } })),
+    ];
+    return entries.sort((left, right) => left.label.localeCompare(right.label));
+  }
 
   function neocomOpen(id: string) {
     if (id === "map") { toggleStarMap(); return; }
@@ -3948,6 +3971,7 @@
       covered: () => planetInMode !== null,
       mapInFront: () => !!starMap,
       onNeocom: neocomOpen,
+      chatRailEntries,
       flightSnapshot: () => s.store.space.get().snapshot,
       warpSpeedMultiplier: (typeID) => factsOf(typeID)?.attributes.find(([id]) => id === WARP_SPEED_MULTIPLIER_ATTRIBUTE)?.[1] ?? null,
       targeting: {
