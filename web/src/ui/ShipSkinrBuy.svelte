@@ -20,6 +20,11 @@
     activate: [prefix + "Store/ActivateNow", "Activate Now"],
     activateHint: [prefix + "Store/ActivateNowHint", "Add the licenses to Collection immediately."],
     delivery: [prefix + "ItemDeliveryNotice", "If you have no space in your inventory on purchase this item will be delivered to your home station."],
+    brandListing: [prefix + "BrandManagerListing", "Brand Manager Listing"],
+    brandInfo: [prefix + "BrandManagerListingInfo", "This SKIN was listed by a Brand Manager."],
+    buyerFee: [prefix + "BuyerEverMarkFee", "Buyer EverMarks Fee"],
+    feeHint: [prefix + "BuyersFeeHint", "This fee is paid in EverMarks."],
+    evermarks: ["UI/Wallet/WalletWindow/EM", "EverMarks"],
     buy: [prefix + "Store/Buy", "Buy"],
     funds: [prefix + "Studio/ListingErrors/InsufficientFunds", "Insufficient funds"],
     quantity: ["UI/Common/Quantity", "Quantity"],
@@ -52,7 +57,7 @@
   const fee = $derived((quote?.evermarks ?? 0) * (count ?? 0));
   const short = $derived(funds && validCount ? [
     ...(funds.balance < cost ? [listing.currency] : []),
-    ...(funds.evermarks < fee ? ["EverMarks"] : []),
+    ...(funds.evermarks < fee ? [word("evermarks")] : []),
   ] : []);
   const ready = $derived(!!pilot && (!!component || !!quote) && !!funds && validCount && !short.length && !expired &&
     !duplicate && (!unlimited || !activate || component?.bundle === 1) &&
@@ -157,10 +162,16 @@
     <dl>
       <dt>{word("price")}</dt><dd>{amount(listing.amount)}</dd>
       <dt>Total</dt><dd data-purchase-total>{validCount ? amount(cost) : "—"}</dd>
-      {#if quote && quote.evermarks > 0}
-        <dt>Buyer fee</dt><dd data-purchase-fee>{validCount ? `${fee.toLocaleString()} EverMarks` : "—"}</dd>
-      {/if}
     </dl>
+    {#if quote && quote.evermarks > 0}
+      <section class="buyer-fee">
+        <h4 title={word("brandInfo")}>{word("brandListing")}</h4>
+        <dl>
+          <dt>{word("buyerFee")}</dt>
+          <dd title={word("feeHint")} data-purchase-fee>{validCount ? `${fee.toLocaleString()} ${word("evermarks")}` : "—"}</dd>
+        </dl>
+      </section>
+    {/if}
     {#if component}
       <label class="activate" title={word("activateHint")}>
         <input type="checkbox" bind:checked={activate} disabled={busy || !!receipt} /> {word("activate")}
@@ -189,10 +200,11 @@
     background: var(--color-bg, #0b1119); border: 1px solid var(--color-accent); }
   .skinr-buy::backdrop { background: #0009; }
   form { display: grid; gap: 10px; }
-  h3, dl, dd, p { margin: 0; }
+  h3, h4, dl, dd, p { margin: 0; }
   label, footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   input[type="number"] { width: 7em; }
   .activate { justify-content: flex-start; }
+  .buyer-fee { display: grid; gap: 6px; padding: 8px; background: #59ac791c; }
   dl { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
   dd { text-align: end; }
   footer { justify-content: flex-end; flex-wrap: wrap; }
