@@ -4601,6 +4601,7 @@ export interface AppFlow {
   assignStructureProfile(structureIDs: readonly number[], profileID: number): Promise<void>;
   createStructureProfile(name: string, description: string): Promise<number>;
   updateStructureProfile(profileID: number, name: string, description: string): Promise<void>;
+  duplicateStructureProfile(profileID: number): Promise<void>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
   loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
@@ -29086,6 +29087,16 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     scope.current();
   }
 
+  async function duplicateStructureProfile(profileID: number): Promise<void> {
+    const scope = captureMemberOperation();
+    requireStructureProfileManager(scope);
+    const reply = await scope.write("structureProfiles", "DuplicateProfile", [profileID]);
+    scope.current();
+    if (typeof reply !== "number" || !Number.isSafeInteger(reply) || reply <= 0 || reply === profileID) {
+      throw new Error("The server did not return a new profile ID.");
+    }
+  }
+
   async function assignStructureProfile(structureIDs: readonly number[], profileID: number): Promise<void> {
     const scope = captureMemberOperation();
     const ids = new Set(structureIDs);
@@ -40934,6 +40945,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     assignStructureProfile,
     createStructureProfile,
     updateStructureProfile,
+    duplicateStructureProfile,
     startMoonPull,
     controlMoonPull,
     loadCorporationMiningObservers,

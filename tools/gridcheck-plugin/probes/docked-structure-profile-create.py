@@ -5,6 +5,7 @@ result = dict(station=session.stationid, caption=GetByLabel(CreateProfileWnd.def
               confirm=GetByLabel(CreateProfileWnd.confirmLabelPath), name=GetByLabel(CreateProfileWnd.nameLabelPath),
               description=GetByLabel(CreateProfileWnd.descriptionLabelPath),
               newProfile=GetByLabel('UI/StructureProfiles/NewProfile'),
+              duplicateAction=GetByLabel('UI/StructureBrowser/DuplicateProfile'),
               editAction=GetByLabel('UI/StructureBrowser/EditNameAndDescription'),
               editCaption=GetByLabel(EditProfileNameAndDescriptionWnd.default_captionLabelPath, oldGroupName='Industrial'),
               editConfirm=GetByLabel(EditProfileNameAndDescriptionWnd.confirmLabelPath))
