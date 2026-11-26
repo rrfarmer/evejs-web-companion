@@ -257,8 +257,11 @@
   function deleteChannel(channel: DirectoryRow) {
     void changeMembership(async () => {
       const serial = request;
-      if (!await flow.askClientDialogWith("LSCConfirmDestroyChannel", { displayName: channel.label },
-        `Permanently delete the channel “${channel.label}”?`) || request !== serial) return;
+      const elevated = flow.conversations.isElevatedPlayer();
+      const dialog = elevated ? "LSCConfirmDestroyChannelElevatedPlayer" : "LSCConfirmDestroyChannel";
+      const question = `Are you sure you want to delete ${channel.label}?`;
+      const fallback = elevated ? `Warning: Your elevated role might let you delete channels you should not be touching. The channel will be permanently deleted if you continue.\n${question}` : question;
+      if (!await flow.askClientDialogWith(dialog, { displayName: channel.label }, fallback) || request !== serial) return;
       await flow.conversations.destroyDirectoryChannel(channel.roomName);
       channels = channels.filter(row => row.roomName !== channel.roomName);
       if (exact !== null) exact = exact.filter(row => row.roomName !== channel.roomName);

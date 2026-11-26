@@ -28,6 +28,8 @@ interface Hooks {
 const record = (value: JsonValue | undefined): Record<string, JsonValue> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, JsonValue> : {};
 const retired = (error: unknown): boolean => (error as { code?: string })?.code === "SESSION_REQUEST_RETIRED";
 const ENGLISH_HELP_ROOM = "system_263238_263262";
+// 3698585 carbon/common/script/sys/serviceConst.py ROLEMASK_ELEVATEDPLAYER.
+const ELEVATED_PLAYER_ROLES = 0x959c3fff7effffdfn;
 
 export function createChatConversations(hooks: Hooks) {
   let generation = 0, serial = 0, contactSerial = 0;
@@ -270,6 +272,7 @@ export function createChatConversations(hooks: Hooks) {
       await applyRoom(scope, await api.readChat(room, scope.options));
     }); },
     async close(room: string) { await task(scope => close(scope, room)); },
+    isElevatedPlayer() { return (capture().role & ELEVATED_PLAYER_ROLES) !== 0n; },
     async destroyDirectoryChannel(room: string) {
       await task(async scope => {
         await api.destroyChatChannel(room, scope.options);

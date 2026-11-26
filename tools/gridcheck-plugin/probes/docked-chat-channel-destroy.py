@@ -1,6 +1,7 @@
 import uthread2
 from carbonui import const as uiconst
 from carbonui.util.bunch import Bunch
+from carbon.common.script.sys import service
 from eveservices.xmppchat import GetChatService
 from localization import GetByLabel
 from xmppchatclient import xmppchannelfield, xmppchatsvc
@@ -22,10 +23,15 @@ def observe():
         return {'fixtureNameInUse': True}
     room = chat.CreateChannel(name)
     prompts = []
+    confirmations = {}
     accepted = [False]
 
     def answer(key, values=None, buttons=None):
         prompts.append(key)
+        if key.startswith('LSCConfirmDestroyChannel'):
+            message = cfg.GetMessage(key, values, onNotFound='raise')
+            confirmations[key] = dict(text=message.text, title=message.title, type=message.type,
+                                      displayName=values['displayName'], yesNo=buttons == uiconst.YESNO)
         return uiconst.ID_YES if accepted[0] else uiconst.ID_NO
 
     original = xmppchatsvc.prompt_player_fsd_dialog
@@ -47,7 +53,10 @@ def observe():
         owned = menu_actions(room)
         accepted[0] = True
         chat.DeleteChannel(room)
-        return dict(station=session.stationid, room=room, joined=joined, owned=owned,
+        regular = cfg.GetMessage('LSCConfirmDestroyChannel', {'displayName': name}, onNotFound='raise')
+        return dict(station=session.stationid, room=room, role=str(session.role),
+                    elevatedMask=str(service.ROLEMASK_ELEVATEDPLAYER), confirmations=confirmations,
+                    regularText=regular.text, joined=joined, owned=owned,
                     retained=retained, deleted=not chat.GetChannelByDisplayName(name), prompts=list(prompts),
                     label=GetByLabel('UI/Chat/ChannelWindow/DeleteChannel'))
     finally:
