@@ -12390,6 +12390,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       refs.push({ kind: "type", id: row.typeID });
       refs.push({ kind: "station", id: row.stationID });
       refs.push({ kind: "system", id: row.solarSystemID });
+      if (row.regionID) refs.push({ kind: "region", id: row.regionID });
       if (row.issuerID) refs.push({ kind: "owner", id: row.issuerID });
     }
     requestNames(refs);

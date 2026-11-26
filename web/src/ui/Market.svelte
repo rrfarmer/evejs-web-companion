@@ -549,6 +549,11 @@
     "Tooltips/Market/MarketMyOrdersExportButton", "Tooltips/Market/MarketCorpOrdersExport", "UI/Market/MarketWindow/ExportNoData",
     "UI/Market/MarketQuote/headerIssuedBy", "UI/Market/MarketQuote/headerWalletDivision", "UI/Corporations/Common/CorporateDivisionMasterWallet",
     "UI/Market/Orders/CancelOrder", "UI/Market/Orders/ModifyOrder", "UI/Inventory/ItemActions/ViewTypesMarketDetails", "UI/Commands/ShowInfo",
+    "UI/Market/Orders/Selling", "UI/Market/Orders/Buying", "UI/Market/Orders/FilterTypes", "UI/Market/Orders/NoOrdersFound",
+    "UI/Market/Marketbase/NoOrdersMatched", "UI/Common/Type", "UI/Common/Quantity", "UI/Market/MarketQuote/headerPrice",
+    "UI/Common/Station", "UI/Common/LocationTypes/Region", "UI/Common/Range", "UI/Market/MarketQuote/HeaderMinVolumn",
+    "UI/Market/Marketbase/ExpiresIn", "UI/Market/MarketQuote/Expired", "UI/Common/LocationTypes/Station",
+    "UI/Common/LocationTypes/SolarSystem", "UI/Market/MarketQuote/NumberOfJumps",
   ];
   $effect(() => { if (orderPage === "corporation" && !canExportCorpOrders) orderPage = "orders"; });
   $effect(() => {
@@ -723,14 +728,14 @@
     return String(order.jumps);
   }
   /** quote.py GetRange: rangeStation -1, rangeSolarSystem 0, rangeRegion 32767, else NumberOfJumps. */
-  function quoteRange(order: MarketOrderRow): string {
+  function quoteRange(order: Pick<MarketOrderRow, "range">): string {
     if (order.range === -1) return qbWord("UI/Common/LocationTypes/Station");
     if (order.range === 0) return qbWord("UI/Common/LocationTypes/SolarSystem");
     if (order.range === 32767) return qbWord("UI/Common/LocationTypes/Region");
     return qbWord("UI/Market/MarketQuote/NumberOfJumps", { num: order.range });
   }
   /** quote.py GetExpiresIn: the issue date plus the duration less now, Expired below nought, else FmtDate(exp, 'ss') (days, hours, minutes, seconds). */
-  function quoteExpires(order: MarketOrderRow): string {
+  function quoteExpires(order: Pick<MarketOrderRow, "issuedAt" | "durationDays">): string {
     if (order.issuedAt === null) return "—";
     const issuedMs = Number(order.issuedAt / 10000n - 11644473600000n);
     const left = issuedMs + order.durationDays * 86_400_000 - Date.now();
@@ -871,6 +876,73 @@
   );
   const displayedOpenOrders = $derived(corporationOrderPage ? (readCorporationID === corporationID ? corporateOrders ?? [] : []) : openOrders);
   const openOrdersError = $derived(corporationOrderPage ? corporateOrderError : $market.ownOrdersError);
+  const orderColumns = {
+    type: ["UI/Common/Type", "Type"],
+    quantity: ["UI/Common/Quantity", "Quantity"],
+    price: ["UI/Market/MarketQuote/headerPrice", "Price"],
+    station: ["UI/Common/Station", "Station"],
+    region: ["UI/Common/LocationTypes/Region", "Region"],
+    range: ["UI/Common/Range", "Range"],
+    minimum: ["UI/Market/MarketQuote/HeaderMinVolumn", "Min volume"],
+    expires: ["UI/Market/Marketbase/ExpiresIn", "Expires in"],
+    issuer: ["UI/Market/MarketQuote/headerIssuedBy", "Issued by"],
+    division: ["UI/Market/MarketQuote/headerWalletDivision", "Wallet Division"],
+  } as const;
+  type OrderColumn = keyof typeof orderColumns;
+  const sellOrderColumns: readonly OrderColumn[] = ["type", "quantity", "price", "station", "region", "expires"];
+  const buyOrderColumns: readonly OrderColumn[] = ["type", "quantity", "price", "station", "region", "range", "minimum", "expires"];
+  const corporateOrderColumns = $derived(corporationOrderPage ? ["issuer", "division"] as const : []);
+  type OrderListControls = { filter: string; sort: { key: OrderColumn; up: boolean } | null };
+  const orderListControls = $state<Record<"personal" | "corporation", Record<MarketSide, OrderListControls>>>({
+    personal: { sell: { filter: "", sort: null }, buy: { filter: "", sort: null } },
+    corporation: { sell: { filter: "", sort: null }, buy: { filter: "", sort: null } },
+  });
+  const activeOrderControls = $derived(orderListControls[corporationOrderPage ? "corporation" : "personal"]);
+  function orderColumnLabel(key: OrderColumn): string {
+    const [label, fallback] = orderColumns[key];
+    return qbWord(label) || fallback;
+  }
+  function orderRegion(order: MarketOwnOrderRow): string {
+    return order.regionID ? resolvedName($names.resolved, "region", order.regionID, "—") : "—";
+  }
+  function orderIssuer(order: MarketOwnOrderRow): string {
+    return order.issuerID ? resolvedName($names.resolved, "owner", order.issuerID, "") : "";
+  }
+  function orderCell(order: MarketOwnOrderRow, key: OrderColumn): string {
+    switch (key) {
+      case "type": return typeName(order.typeID);
+      case "quantity": return `${order.volumeRemaining.toLocaleString()}/${order.volumeEntered.toLocaleString()}`;
+      case "price": return formatIsk(order.price);
+      case "station": return stationName(order.stationID);
+      case "region": return orderRegion(order);
+      case "range": return quoteRange(order);
+      case "minimum": return Math.min(order.volumeRemaining, order.minimumVolume).toLocaleString();
+      case "expires": return quoteExpires(order);
+      case "issuer": return orderIssuer(order);
+      case "division": return corporateOrderDivision(order.walletDivision);
+    }
+  }
+  function compareOwnOrders(a: MarketOwnOrderRow, b: MarketOwnOrderRow, key: OrderColumn): number {
+    switch (key) {
+      case "quantity": return a.volumeRemaining - b.volumeRemaining || a.volumeEntered - b.volumeEntered;
+      case "price": {
+        const delta = iskDelta(a.price, b.price);
+        return Math.sign(Number(delta ?? 0));
+      }
+      case "range": return a.range - b.range;
+      case "minimum": return Math.min(a.volumeRemaining, a.minimumVolume) - Math.min(b.volumeRemaining, b.minimumVolume);
+      case "expires": return (Number(a.issuedAt) - Number(b.issuedAt)) + (a.durationDays - b.durationDays) * 864_000_000_000;
+      default: return orderCell(a, key).localeCompare(orderCell(b, key), undefined, { sensitivity: "base" });
+    }
+  }
+  function orderList(rows: readonly MarketOwnOrderRow[], controls: OrderListControls) {
+    const query = controls.filter.trim().toLowerCase();
+    const result = query ? rows.filter(order => typeName(order.typeID).toLowerCase().includes(query)) : [...rows];
+    const sort = controls.sort;
+    return sort ? result.sort((a, b) => compareOwnOrders(a, b, sort.key) * (sort.up ? 1 : -1)) : result;
+  }
+  const displayedSellOrders = $derived(displayedOpenOrders.filter(order => order.side === "sell"));
+  const displayedBuyOrders = $derived(displayedOpenOrders.filter(order => order.side === "buy"));
   /**
    * What the pilot's own open orders have tied up, totalled from the orders as the client's orders panel totals them
    * (personalMarketOrders.py UpdateOrderTotals, 32 to 49: each open buy order's escrow), and the goods each open sell
@@ -2190,16 +2262,160 @@
 {/if}
 {/if}
 
+{#snippet openOrderActions(order: MarketOwnOrderRow)}
+  <div class="row-actions">
+    {#if (!corporationOrderPage || order.issuerID === $station.online?.characterID) && modifyingOrderID === order.orderID}
+      <input
+        type="number"
+        min="0.01"
+        step="0.01"
+        bind:value={modifyPrice}
+        aria-label="New price for each one"
+      />
+      {#if confirmingModify}
+        <button
+          type="button"
+          class="danger"
+          disabled={busy || modifyCheck?.ok !== true}
+          onclick={() => applyModify(order)}
+        >
+          Yes, change the price
+        </button>
+        <button
+          type="button"
+          class="minor"
+          disabled={busy}
+          onclick={() => (confirmingModify = false)}
+        >
+          Go back
+        </button>
+      {:else}
+        <button
+          type="button"
+          disabled={busy || modifyCheck?.ok !== true}
+          onclick={() => (confirmingModify = true)}
+        >
+          Check this change…
+        </button>
+        <button type="button" class="minor" disabled={busy} onclick={closeModify}>
+          Never mind
+        </button>
+      {/if}
+    {:else if (!corporationOrderPage || order.issuerID === $station.online?.characterID) && cancellingOrderID === order.orderID}
+      <button
+        type="button"
+        class="danger"
+        disabled={busy}
+        onclick={() => cancelOrder(order)}
+      >
+        Yes, take this order down
+      </button>
+      <button
+        type="button"
+        class="minor"
+        disabled={busy}
+        onclick={() => (cancellingOrderID = null)}
+      >
+        Leave it up
+      </button>
+    {:else if !corporationOrderPage || order.issuerID === $station.online?.characterID}
+      <button
+        type="button"
+        class="minor"
+        disabled={busy}
+        onclick={() => startModify(order)}
+      >
+        {corporationOrderPage ? qbWord("UI/Market/Orders/ModifyOrder") || "Modify Order" : "Change the price…"}
+      </button>
+      <button
+        type="button"
+        class="minor"
+        disabled={busy}
+        onclick={() => (cancellingOrderID = order.orderID)}
+      >
+        {corporationOrderPage ? qbWord("UI/Market/Orders/CancelOrder") || "Cancel Order" : "Take it down…"}
+      </button>
+    {/if}
+    {#if corporationOrderPage}
+      <button type="button" class="minor" onclick={() => showMarketDetails(order.typeID)}>{qbWord("UI/Inventory/ItemActions/ViewTypesMarketDetails") || "View Market Details"}</button>
+      <button type="button" class="minor" onclick={() => showInfo({kind: "type", typeID: order.typeID})}>{qbWord("UI/Commands/ShowInfo") || "Show Info"}</button>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet activeOrderList(side: MarketSide, rows: readonly MarketOwnOrderRow[], columns: readonly OrderColumn[])}
+  {@const controls = activeOrderControls[side]}
+  {@const visible = orderList(rows, controls)}
+  {@const title = side === "sell" ? qbWord("UI/Market/Orders/Selling") || "Selling" : qbWord("UI/Market/Orders/Buying") || "Buying"}
+  {@const filterLabel = qbWord("UI/Market/Orders/FilterTypes") || "Filter on Type"}
+  <section class="active-order-list" data-order-side={side} aria-label={title}>
+    <div class="active-order-tools">
+      <h3>{title}</h3>
+      <input
+        type="search"
+        aria-label={`${title} · ${filterLabel}`}
+        placeholder={filterLabel}
+        bind:value={controls.filter}
+      />
+    </div>
+    <div class="table-wrap overflow-x-auto">
+      <table class="guests active-order-table">
+        <thead>
+          <tr>
+            {#each columns as key (key)}
+              {@const direction = controls.sort?.key === key ? (controls.sort.up ? "ascending" : "descending") : undefined}
+              <th scope="col" aria-sort={direction} class:num={key === "price" || key === "quantity" || key === "minimum"}>
+                <button type="button" onclick={() => (controls.sort = { key, up: direction !== "ascending" })}>
+                  {orderColumnLabel(key)}{direction ? (direction === "ascending" ? " ▲" : " ▼") : ""}
+                </button>
+              </th>
+            {/each}
+            <th scope="col">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each visible as order (order.orderID)}
+            <tr data-open-order={order.orderID} data-corporation-order={corporationOrderPage ? order.orderID : undefined}>
+              {#each columns as key (key)}
+                {@const value = orderCell(order, key)}
+                <td class:num={key === "price" || key === "quantity" || key === "minimum"}>
+                  {#if key === "type"}
+                    <span class="cell-item"><TypeIcon typeID={order.typeID} name={value} />{value}</span>
+                  {:else}
+                    {value}
+                    {#if key === "station" && order.stationID}
+                      <PlaceRouteMenu {store} {flow} placeID={order.stationID} />
+                    {/if}
+                  {/if}
+                </td>
+              {/each}
+              <td>{@render openOrderActions(order)}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+    {#if !visible.length}
+      <p class="empty">{rows.length ? qbWord("UI/Market/Marketbase/NoOrdersMatched") || "No Orders Found Matching Your Search Criteria" : qbWord("UI/Market/Orders/NoOrdersFound") || "No orders found"}</p>
+    {/if}
+  </section>
+{/snippet}
+
 {#if ordersOnly ? corporationOrderPage || ordersReady && orderPage === "orders" : $market.loaded && tab === "orders"}
   <section>
-    <h2>{corporationOrderPage ? qbWord("UI/Market/Orders/CorporationOrders") || "Corporation Orders" : "Orders you have open"}</h2>
+    {#if !ordersOnly}<h2>Orders you have open</h2>{/if}
     {#if openOrdersError}
       <p class="error">{corporationOrderPage ? openOrdersError : `Your orders could not be read: ${openOrdersError}`}</p>
     {/if}
     {#if corporationOrderPage && (corporateOrders === null || readCorporationID !== corporationID)}
       <p role="status">Reading corporation orders…</p>
-    {:else if displayedOpenOrders.length === 0}
-      {#if !openOrdersError}<p class="empty">{corporationOrderPage ? "Your corporation has no open orders." : "You have no orders open right now."}</p>{/if}
+    {:else if ordersOnly}
+      {#if !openOrdersError}
+        {@render activeOrderList("sell", displayedSellOrders, [...sellOrderColumns, ...corporateOrderColumns])}
+        {@render activeOrderList("buy", displayedBuyOrders, [...buyOrderColumns, ...corporateOrderColumns])}
+      {/if}
+    {:else if openOrders.length === 0}
+      {#if !openOrdersError}<p class="empty">You have no orders open right now.</p>{/if}
     {:else}
       <div class="table-wrap overflow-x-auto">
         <table class="guests reflow">
@@ -2211,16 +2427,12 @@
               <th class="num">Left</th>
               <th>Where</th>
               <th class="num">Tied up</th>
-              {#if corporationOrderPage}
-                <th>{qbWord("UI/Market/MarketQuote/headerIssuedBy") || "Issued by"}</th>
-                <th>{qbWord("UI/Market/MarketQuote/headerWalletDivision") || "Wallet Division"}</th>
-              {/if}
               <th>Action</th>
             </tr>
           </thead>
           <tbody>
-            {#each displayedOpenOrders as order (order.orderID)}
-              <tr data-corporation-order={corporationOrderPage ? order.orderID : undefined}>
+            {#each openOrders as order (order.orderID)}
+              <tr>
                 <td data-label="Item">
                   <span class="cell-item">
                     <TypeIcon typeID={order.typeID} name={typeName(order.typeID)} />
@@ -2236,111 +2448,28 @@
                 <td class="num" data-label="Tied up">
                   {order.side === "buy" ? formatIsk(order.escrow) : "—"}
                 </td>
-                {#if corporationOrderPage}
-                  <td data-label="Issued by">{order.issuerID ? resolvedName($names.resolved, "owner", order.issuerID, "") : ""}</td>
-                  <td data-label="Wallet Division">{corporateOrderDivision(order.walletDivision)}</td>
-                {/if}
-                <td data-label="Action">
-                  <div class="row-actions">
-                    {#if (!corporationOrderPage || order.issuerID === $station.online?.characterID) && modifyingOrderID === order.orderID}
-                      <input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        bind:value={modifyPrice}
-                        aria-label="New price for each one"
-                      />
-                      {#if confirmingModify}
-                        <button
-                          type="button"
-                          class="danger"
-                          disabled={busy || modifyCheck?.ok !== true}
-                          onclick={() => applyModify(order)}
-                        >
-                          Yes, change the price
-                        </button>
-                        <button
-                          type="button"
-                          class="minor"
-                          disabled={busy}
-                          onclick={() => (confirmingModify = false)}
-                        >
-                          Go back
-                        </button>
-                      {:else}
-                        <button
-                          type="button"
-                          disabled={busy || modifyCheck?.ok !== true}
-                          onclick={() => (confirmingModify = true)}
-                        >
-                          Check this change…
-                        </button>
-                        <button type="button" class="minor" disabled={busy} onclick={closeModify}>
-                          Never mind
-                        </button>
-                      {/if}
-                    {:else if (!corporationOrderPage || order.issuerID === $station.online?.characterID) && cancellingOrderID === order.orderID}
-                      <button
-                        type="button"
-                        class="danger"
-                        disabled={busy}
-                        onclick={() => cancelOrder(order)}
-                      >
-                        Yes, take this order down
-                      </button>
-                      <button
-                        type="button"
-                        class="minor"
-                        disabled={busy}
-                        onclick={() => (cancellingOrderID = null)}
-                      >
-                        Leave it up
-                      </button>
-                    {:else if !corporationOrderPage || order.issuerID === $station.online?.characterID}
-                      <button
-                        type="button"
-                        class="minor"
-                        disabled={busy}
-                        onclick={() => startModify(order)}
-                      >
-                        {corporationOrderPage ? qbWord("UI/Market/Orders/ModifyOrder") || "Modify Order" : "Change the price…"}
-                      </button>
-                      <button
-                        type="button"
-                        class="minor"
-                        disabled={busy}
-                        onclick={() => (cancellingOrderID = order.orderID)}
-                      >
-                        {corporationOrderPage ? qbWord("UI/Market/Orders/CancelOrder") || "Cancel Order" : "Take it down…"}
-                      </button>
-                    {/if}
-                    {#if corporationOrderPage}
-                      <button type="button" class="minor" onclick={() => showMarketDetails(order.typeID)}>{qbWord("UI/Inventory/ItemActions/ViewTypesMarketDetails") || "View Market Details"}</button>
-                      <button type="button" class="minor" onclick={() => showInfo({kind: "type", typeID: order.typeID})}>{qbWord("UI/Commands/ShowInfo") || "Show Info"}</button>
-                    {/if}
-                  </div>
-                </td>
+                <td data-label="Action">{@render openOrderActions(order)}</td>
               </tr>
             {/each}
           </tbody>
         </table>
       </div>
-      {#if modifyingOrderID !== null && confirmingModify}
-        <p class="note">
-          Changing the price of an order costs a fee, and on a buy order it also
-          changes how much ISK is tied up. The exact amount is worked out by the
-          server, and what you were actually charged is shown once it goes
-          through.
-        </p>
-      {/if}
-      {#if cancellingOrderID !== null}
-        <p class="note">
-          {cancellingSide === "sell"
-            ? corporationOrderPage ? "Taking a sell order down returns the goods it still holds." : "Taking a sell order down puts the goods it still holds back in your hangar at its station."
-            : "Taking a buy order down returns the ISK it had tied up."}
-          The fee you paid to place it is not returned.
-        </p>
-      {/if}
+    {/if}
+    {#if modifyingOrderID !== null && confirmingModify}
+      <p class="note">
+        Changing the price of an order costs a fee, and on a buy order it also
+        changes how much ISK is tied up. The exact amount is worked out by the
+        server, and what you were actually charged is shown once it goes
+        through.
+      </p>
+    {/if}
+    {#if cancellingOrderID !== null}
+      <p class="note">
+        {cancellingSide === "sell"
+          ? corporationOrderPage ? "Taking a sell order down returns the goods it still holds." : "Taking a sell order down puts the goods it still holds back in your hangar at its station."
+          : "Taking a buy order down returns the ISK it had tied up."}
+        The fee you paid to place it is not returned.
+      </p>
     {/if}
   </section>
 
@@ -2498,6 +2627,14 @@
   .mkt-group-actions { display: flex; flex-wrap: wrap; gap: 6px; }
   .mkt-order-controls { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 8px; }
   .mkt-order-controls button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 #b8c0c1; }
+  .active-order-list + .active-order-list { margin-top: 12px; }
+  .active-order-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .active-order-tools h3 { margin: 0; }
+  .active-order-tools input { width: min(150px, 60%); }
+  .active-order-table th { white-space: nowrap; }
+  .active-order-table th button { border: 0; background: transparent; padding: 3px 0; font: inherit; color: inherit; }
+  .active-order-table td { min-width: max-content; }
+  .active-order-table td.num { white-space: nowrap; }
   .mkt-variant-folder summary { cursor: pointer; }
   .mkt-variant-folder > ul { margin-left: 16px; }
   .mkt-variant-folder[open] > summary .mkt-expander { transform: none; }
