@@ -1193,6 +1193,7 @@ import { fittingEftString } from "../bridge/fittingExport.ts";
 import { parseFittingFile, reserveImportedFittingName, resolveFittingFileProfile, type FittingFileEntry, type FittingFileType } from "../bridge/fittingFileImport.ts";
 import { decodeAllianceInfo, decodeRankedAlliances, toStr as allianceText, type AllianceInfo, type AllianceInfoExtra } from "../bridge/allianceInfo.ts";
 import { canUseCorporationWalletCurrency, CORPORATION_EVERMARK_MIN_DAYS, EVERMARK_ISSUER } from "../bridge/corporationWalletCurrencies.ts";
+import { readCorporationBills, type CorporationBill, type CorporationBillsView } from "../bridge/corporationBills.ts";
 import { aggressionSettingsOf, type AggressionSettings, assertCorpAggressionStatusMethod, corporationPublicInfoOf, enlistmentFactionsOf, isNpcCorporation, type CorporationPublicInfo, type CorporationShowInfo } from "../bridge/ownerInfo.ts";
 import { toNumOrNull as corporationShareNumber } from "../bridge/allianceInfo.ts";
 import { BULK_FIT_SHIPS_CONFIG, fitShips, isShipAssembled, listPlace, maxAvailableAndMissing, maxShipsToFit, personalContainers, qtyInPlaceByTypeIDs } from "../bridge/multiFit.ts";
@@ -3849,6 +3850,8 @@ export interface AppFlow {
   pilotWealth(): Promise<number | null>;
   readonly personalWalletChanged: ReadableSignal<{ readonly characterID: number; readonly balance: number; readonly difference: number } | null>;
   readonly walletBlink: ReadableSignal<WalletBlink | null>;
+  readonly corporationBillsChanged: ReadableSignal<number>;
+  corporationBills(view: CorporationBillsView): Promise<readonly CorporationBill[]>;
   readonly walletLpChanged: ReadableSignal<WalletLpChange | null>;
   readonly corporationWalletLpChanged: ReadableSignal<number>;
   /** walletSvc.GetCorpWealth: fresh, None for active division; native UserError becomes0. */
@@ -8297,6 +8300,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     if (method === "OnBillReceived") {
       const online = store.station.get().online;
+      if (online && canViewCorporateJournal(online.corpRole)) corporationBillsChanged.update(revision => revision + 1);
       if (online && hasAccessToCorporationWallet(online.corpRole)) {
         walletBlinkSignal.set({ characterID: online.characterID, kind: "corporationBill" });
       }
@@ -19510,8 +19514,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // service keeps them (marketSvc.GetPersonalMarketTransactions, 20 to 26): read for the pilot and kept, let go when the
   // pilot's own orders change (OnOwnOrdersChanged, 33 to 35) and read again when the tab is next chosen.
   const marketTransactionsSignal = createSignal<MarketTransactionsRead>({ loaded: false, transactions: [], error: null });
+  const corporationBillsChanged = createSignal(0);
   const corporationMarketChanged = createSignal(0);
   let marketTransactionsFor: number | null = null;
+
+  async function corporationBills(view: CorporationBillsView): Promise<readonly CorporationBill[]> {
+    const { online, ask, current } = captureMemberOperation();
+    if (!canViewCorporateJournal(online.corpRole)) throw new Error("Your corporation roles do not allow viewing bills.");
+    const bills = await readCorporationBills(ask, view, online.allianceID);
+    current();
+    const latest = store.station.get().online;
+    if (!latest || latest.allianceID !== online.allianceID || !canViewCorporateJournal(latest.corpRole)) return [];
+    return bills;
+  }
 
   async function corporationMarketTransactions(accountKey: number | null): Promise<MarketTransactionsRead["transactions"]> {
     const { online, ask, current } = captureMemberOperation();
@@ -40371,6 +40386,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     pilotWealth,
     personalWalletChanged: readonlySignal(personalWalletSignal),
     walletBlink: readonlySignal(walletBlinkSignal),
+    corporationBillsChanged: readonlySignal(corporationBillsChanged),
+    corporationBills,
     walletLpChanged: readonlySignal(walletLpSignal),
     corporationWalletLpChanged: readonlySignal(corporationWalletLpSignal),
     corporationWealth: accountKey => corporationWealthReads.fresh(accountKey),

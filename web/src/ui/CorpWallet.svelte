@@ -22,6 +22,7 @@
   import WalletShares from "./WalletShares.svelte";
   import WalletJournal from "./WalletJournal.svelte";
   import WalletMarketTransactions from "./WalletMarketTransactions.svelte";
+  import CorporationBills from "./CorporationBills.svelte";
   import WalletTransferRecipient from "./WalletTransferRecipient.svelte";
   import { canViewCorporateJournal } from "../bridge/walletJournal.ts";
   import { canViewCorporateMarketTransactions } from "../bridge/marketTransactions.ts";
@@ -42,7 +43,8 @@
   const takeKeys = $derived(corporationWalletTakeKeys(role));
   const marketAllowed = $derived(canViewCorporateMarketTransactions($station.online?.corpRole) &&
     (journalAllowed || takeKeys.length > 0));
-  let tab = $state<"divisions" | "shares" | "transactions" | "market">("divisions");
+  let tab = $state<"bills" | "divisions" | "shares" | "transactions" | "market">("divisions");
+  let billsRevision = $state(0);
   let marketDivision = $state<number>();
   let marketRevision = $state(0);
   let divisionMenu = $state<number | null>(null);
@@ -62,6 +64,7 @@
   const activeName = $derived(activeKey === null ? "" : knownNames[String(activeKey - 999)] ??
     $wallet.corpDivisions?.find(row => row.key === activeKey)?.name ?? defaultDivisionName(activeKey));
   const labels = {
+    bills: "UI/Wallet/WalletWindow/TabBills",
     shares: "UI/Corporations/CorpUIHome/Shares",
     divisions: "UI/Wallet/WalletWindow/TabWalletDivisions",
     owned: "UI/Wallet/WalletWindow/TabOwnedByCorp",
@@ -106,6 +109,10 @@
   // The button asks the server again; the window opening takes what is kept (bridge/walletReads.ts).
   function refresh(): void {
     if (divisionReadable) divisionRefresh++;
+    if (selectedTab === "bills" && journalAllowed) {
+      billsRevision++;
+      return;
+    }
     if (selectedTab === "market") {
       marketRevision++;
       return;
@@ -123,7 +130,7 @@
   }
 
   onMount(() => {
-    if (embedded) tab = "transactions";
+    if (embedded) tab = "bills";
     else void run(() => flow.loadWallet());
   });
   $effect(() => {
@@ -223,6 +230,8 @@
   {#if journalAllowed || sharesAllowed || marketAllowed}
   <nav class="tabs" aria-label="Corporation wallet">
     {#if journalAllowed}
+      <button type="button" class:active={selectedTab === "bills"} aria-pressed={selectedTab === "bills"}
+        onclick={() => (tab = "bills")}>{word(labels.bills, "Bills")}</button>
       <button type="button" class:active={selectedTab === "transactions"} aria-pressed={selectedTab === "transactions"}
         onclick={() => (tab = "transactions")}>{word(labels.transactions, "Transactions")}</button>
     {/if}
@@ -247,6 +256,8 @@
     {/key}
   {:else if !journalAllowed && !(embedded && divisionReadable)}
     <p class="empty">Your corporation roles do not allow viewing wallet records.</p>
+  {:else if journalAllowed && selectedTab === "bills"}
+    <CorporationBills {store} {flow} refresh={billsRevision} />
   {:else if journalAllowed && selectedTab === "transactions"}
     <WalletJournal {store} {flow} corporate />
   {:else if selectedTab === "shares" && sharesAllowed}

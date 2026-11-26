@@ -790,6 +790,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "corpRecProxy.UpdateRecruitmentAd",
   // WarLandingPage.GetLandingPageInfo: war.GetPeaceTreaties (peaceTreatyMgr) and the corporation's war bills (billMgr).
   "peaceTreatyMgr.GetPeaceTreatiesForSession", "billMgr.GetCorporationBills",
+  "billMgr.GetCorporationBillsReceivable", "billMgr.GetAutomaticPaySettings", "allianceRegistry.GetBillsReceivable",
   // WarDeclareWnd._DoDeclareMutualWar: mutualWarInvites.SendInvite.
   "mutualWarInviteMgr.SendInviteByPlayer",
   // MutualWarInvites (Administration > Wars): the invites to and from the pilot's owner, withdrawing one, answering
@@ -3259,6 +3260,7 @@ const RETAIL_CALLS = Object.freeze({
   "allianceRegistry.GetApplications": same(`${ALLIANCE_SVC}/all_cso_applications.py:26`, "GetMoniker().GetApplications(), no arguments, on the alliance's moniker, kept"),
   "allianceRegistry.GetBulletins": same(`${ALLIANCE_SVC}/all_cso.py:231`, "GetMoniker().GetBulletins(), no arguments, on the alliance's moniker, kept for fifteen minutes"),
   "allianceRegistry.GetBills": same(`${ALLIANCE_SVC}/all_cso.py:217`, "GetMoniker().GetBills(), no arguments, on the alliance's moniker, by an accountant"),
+  "allianceRegistry.GetBillsReceivable": same(`${ALLIANCE_SVC}/all_cso.py:227`, "GetMoniker().GetBillsReceivable(), no arguments for the pilot's alliance"),
   "allianceRegistry.GetPrimeTimeInfo": same(`${ALLIANCE_SVC}/all_cso.py:288`, "GetMoniker().GetPrimeTimeInfo(), no arguments, on the alliance's moniker"),
   "allianceRegistry.GetCapitalSystemInfo": same(`${ALLIANCE_SVC}/all_cso.py:295`, "GetMoniker().GetCapitalSystemInfo(), no arguments, on the alliance's moniker"),
   "allianceRegistry.GetRelationships": same(`${ALLIANCE_SVC}/all_cso_relationships.py:25`, "GetMoniker().GetRelationships(), no arguments, on the alliance's moniker, kept"),
