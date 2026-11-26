@@ -561,6 +561,19 @@
     stationServicesPlace = pilot ? untrack(() => keptPlace(stationServicesID)) : null;
   });
   const dockedStructureID = $derived(docked ? ($flight?.status ? $flight.status.structureID : $station?.online?.structureID) ?? null : null);
+  let dockedHangarStructure = $state<{ id: number; typeID: number | null } | null>(null);
+  $effect(() => {
+    const id = dockedStructureID;
+    const flow = session?.flow;
+    dockedHangarStructure = null;
+    if (id === null || !flow) return;
+    let stale = false;
+    // EveJS may allocate a removed structure's ID again. Read the type once on each docking entry.
+    void flow.structureInfo(id, true).catch(() => null).then(info => {
+      if (!stale) dockedHangarStructure = { id, typeID: info?.typeID ?? null };
+    });
+    return () => { stale = true; };
+  });
   const controllingStructure = $derived(dockedStructureID !== null && $flight?.status?.shipID === dockedStructureID);
   const dockedViewPreference = $derived($station?.online ? `evejs.user.${session?.store.session.get().accountID ?? "local"}.defaultStructureView` : null);
   let dockedView = $state<"hangar" | "exterior">("hangar");
@@ -1058,16 +1071,18 @@
         const status = $flight?.status;
         const shipTypeID = status?.shipTypeID ?? row?.shipTypeID ?? null;
         const st = $station?.station ?? null;
-        const structureID = status?.structureID ?? null;
+        const structureID = dockedStructureID;
+        const structure = dockedHangarStructure;
+        if (structureID !== null && structure?.id !== structureID) return;
         const solarSystemID = status?.solarSystemID ?? null;
-        const flow = session.flow;
+        const flow = session?.flow;
         const knownSecurity = solarSystemID === null ? null : $hudNames?.systemSecurity[solarSystemID] ?? null;
         let stale = false;
-        void Promise.all([typeData(), structureID ? flow.structureInfo(structureID).catch(() => null) : null]).then(([names, structure]) => {
+        void typeData().then((names) => {
           if (stale) return;
           if (structureID) {
             const shipGroup = status?.shipGroupID ?? names?.types[String(shipTypeID)]?.[1] ?? null;
-            const security = knownSecurity ?? (solarSystemID === null ? null : flow.systemSecurity(solarSystemID));
+            const security = knownSecurity ?? (solarSystemID === null ? null : flow?.systemSecurity(solarSystemID) ?? null);
             return hangar.show(shipTypeID, upwellHangarGraphics(structure?.typeID ?? null, shipGroup, security));
           }
           const t = st?.stationTypeID != null ? names?.types[String(st.stationTypeID)] : undefined;

@@ -3206,7 +3206,7 @@ export interface AppFlow {
   askClientDialog(dialog: string, fallback: string, suppressYes?: boolean): Promise<boolean>;
   /** A solar system's security status from the route graph, null until the graph is read (asked for then). */
   systemSecurity(solarSystemID: number): number | null;
-  structureInfo(structureID: number): Promise<{ readonly solarSystemID: number | null; readonly typeID: number | null } | null>;
+  structureInfo(structureID: number, refresh?: boolean): Promise<{ readonly solarSystemID: number | null; readonly typeID: number | null } | null>;
   /**
    * InBayDroneDamageTracker.FetchInBayDroneDamageToServer: the bay drones' layers (dogmaLM.GetLayerDamageValuesByItems),
    * each [shield, armor, structure] as fractions left; drones the answer has not, left out.
@@ -31851,9 +31851,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * A read that fails is not kept.
    */
   const knownStructures = new Map<number, { readonly solarSystemID: number | null; readonly typeID: number | null } | null>();
-  async function structureInfo(structureID: number): Promise<{ readonly solarSystemID: number | null; readonly typeID: number | null } | null> {
+  async function structureInfo(structureID: number, refresh = false): Promise<{ readonly solarSystemID: number | null; readonly typeID: number | null } | null> {
     const kept = knownStructures.get(structureID);
-    if (kept !== undefined) return kept;
+    if (!refresh && kept !== undefined) return kept;
     const info = await bridgeAsk("structureDirectory", "GetStructureInfo", [structureID]);
     const idOf = (key: string): number | null => {
       const value = Number(readKeyVal(info, key));
