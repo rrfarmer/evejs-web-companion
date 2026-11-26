@@ -166,7 +166,15 @@
     "UI/Market/Marketbase/SelectGroupToBrowse": "Select a market group to browse.",
     "UI/Market/Marketbase/NoItemsAvailable": "There are no items available in this market group.",
     "UI/Market/Marketbase/DisableShowOnlyAvailable": 'Try to turn off the "Show only available" check box on the left if you want to browse the items that are in this market group.',
-    "UI/Market/ShowOnlyAvailable": "Show Only Available",
+    "UI/Market/ShowOnlyAvailable": "Show only available",
+    "UI/Market/RangeFilter": "Range Filter",
+    "UI/Market/FiltersDontApply": "Filters don't apply when search is active",
+    "UI/Market/Marketbase/BrowseFilters": "Browse Filters",
+    "UI/Common/Show all": "Show all",
+    "UI/Market/Marketbase/FilterBySkills": "Filter by skills",
+    "UI/Market/Marketbase/FilterByCPUAndPowergrid": "Filter by CPU and powergrid",
+    "UI/Market/Marketbase/FilterByUntrainedSkills": "Filter by untrained skills",
+    "UI/Browser/BrowserSettings/ResetCacheLocation": "Reset",
     "UI/Common/LocationTypes/Station": "Station",
     "UI/Common/LocationTypes/SolarSystem": "Solar System",
     "UI/Common/LocationTypes/Region": "Region",
@@ -737,6 +745,7 @@
   // --- Item search ---------------------------------------------------------
   let query = $state("");
   let matches = $state<readonly MarketTypeMatch[]>([]);
+  let searchActive = $state(false);
   let focusedBrowseType = $state<number | null>(null);
   let browseItems: HTMLElement;
   let chosenName = $state("");
@@ -910,9 +919,15 @@
   }
 
   function search(): void {
+    if (query.trim().length < 2) {
+      searchActive = false;
+      matches = [];
+      return;
+    }
     focusedBrowseType = null;
     void run(async () => {
       matches = await flow.findMarketTypes(query);
+      searchActive = true;
     });
   }
 
@@ -922,6 +937,7 @@
     exportNote = "";
     matches = [];
     query = "";
+    searchActive = false;
     closeDraft();
     void run(async () => {
       await flow.loadMarket(match.typeID);
@@ -1537,7 +1553,7 @@
   }
 
   $effect(() => {
-    if (tab !== "groups") return;
+    if (tab !== "groups" && (!retail || !anyBrowseRequirement)) return;
     const online = $station.online;
     if (!online) return;
     if ($skills.skills === null && !$skills.error) void flow.loadSkills().catch(() => {});
@@ -1547,7 +1563,7 @@
   });
 
   $effect(() => {
-    if (tab !== "groups" || browsing || !groupFacts) return;
+    if ((tab !== "groups" && (!retail || !browseFilters.showonlyskillsfor)) || browsing || !groupFacts) return;
     const ids = groupTypes.map(item => item.typeID);
     const modules = ids.filter(id => [7, 66].includes(groupFacts?.get(id)?.categoryID ?? 0));
     let current = true;
@@ -1576,8 +1592,7 @@
     }
     return () => { current = false; };
   });
-  const groupAtStation = $derived($station.online?.stationID != null);
-  const groupDocked = $derived(groupAtStation || $station.online?.structureID != null);
+  const groupDocked = $derived($station.online?.stationID != null || $station.online?.structureID != null);
   const scopeLabels: Record<MarketGroupScope, string> = {
     station: "UI/Common/LocationTypes/Station",
     system: "UI/Common/LocationTypes/SolarSystem",
@@ -1587,7 +1602,25 @@
   const groupScopeKey = $derived(`${groupPreferenceKey}.${groupDocked ? "marketRangeFilterStation" : "marketRangeFilterSpace"}`);
   let savedGroupScope = $state<MarketGroupScope>("region");
   let showOnlyAvailable = $state(true);
-  const groupScope = $derived(savedGroupScope === "station" && !groupAtStation ? "region" : savedGroupScope);
+  const groupScope = $derived(savedGroupScope === "station" && !groupDocked ? "region" : savedGroupScope);
+  const browseFilterWords = {
+    showonlyskillsfor: "UI/Market/Marketbase/FilterBySkills",
+    showhavecpuandpower: "UI/Market/Marketbase/FilterByCPUAndPowergrid",
+    shownewskills: "UI/Market/Marketbase/FilterByUntrainedSkills",
+  } as const;
+  type BrowseFilter = keyof typeof browseFilterWords;
+  const browseFilterKeys = Object.keys(browseFilterWords) as BrowseFilter[];
+  let browseFilters = $state({ showonlyskillsfor: false, showhavecpuandpower: false, shownewskills: false });
+  const anyBrowseRequirement = $derived(browseFilterKeys.some(key => browseFilters[key]));
+  const browseSettings = new ContextMenu();
+  onDestroy(() => browseSettings.close());
+
+  function browseSettingsHint() {
+    if (searchActive) return qbWord("UI/Market/FiltersDontApply");
+    const names = browseFilterKeys.filter(key => browseFilters[key]).map(key => qbWord(browseFilterWords[key]));
+    if (showOnlyAvailable) names.unshift(qbWord("UI/Market/ShowOnlyAvailable"));
+    return [qbWord("UI/Market/Marketbase/BrowseFilters"), ...(names.length ? names : [qbWord("UI/Common/Show all")])].join("\n");
+  }
 
   $effect(() => {
     let value: string | null = null;
@@ -1599,6 +1632,10 @@
     let value: string | null = null;
     try { value = localStorage.getItem(`${groupPreferenceKey}.showonlyavailable`); } catch { /* defaults */ }
     showOnlyAvailable = value !== "0";
+    for (const key of browseFilterKeys) {
+      try { browseFilters[key] = localStorage.getItem(`${groupPreferenceKey}.${key}`) === "1"; }
+      catch { browseFilters[key] = false; }
+    }
   });
 
   function setGroupScope(scope: MarketGroupScope) {
@@ -1611,7 +1648,62 @@
     try { localStorage.setItem(`${groupPreferenceKey}.showonlyavailable`, available ? "1" : "0"); } catch { /* lasts the window */ }
   }
 
-  const groupCards = $derived(groupTypes.filter(item => !showOnlyAvailable || !groupAsks || groupAsks.asks.has(item.typeID)).sort((a, b) =>
+  function setBrowseFilter(key: BrowseFilter, on: boolean) {
+    browseFilters[key] = on;
+    try { localStorage.setItem(`${groupPreferenceKey}.${key}`, on ? "1" : "0"); } catch { /* lasts the window */ }
+  }
+
+  function openBrowseSettings(event: MouseEvent) {
+    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const scopes: MarketGroupScope[] = groupDocked ? ["station", "system", "region"] : ["system", "region"];
+    browseSettings.open(bounds.left, bounds.bottom, [
+      { label: qbWord("UI/Market/ShowOnlyAvailable"), checked: showOnlyAvailable, checkbox: true,
+        run: () => setAvailability(!showOnlyAvailable) },
+      null,
+      { label: qbWord("UI/Market/RangeFilter"), caption: true },
+      ...scopes.map(scope => ({ label: qbWord(scopeLabels[scope]), checked: groupScope === scope, run: () => setGroupScope(scope) })),
+      null,
+      ...browseFilterKeys.map(key => ({ label: qbWord(browseFilterWords[key]), checked: browseFilters[key], checkbox: true,
+        run: () => setBrowseFilter(key, !browseFilters[key]) })),
+      null,
+      { label: qbWord("UI/Browser/BrowserSettings/ResetCacheLocation"), run: () => {
+        for (const key of browseFilterKeys) setBrowseFilter(key, false);
+        setAvailability(true);
+      } },
+    ]);
+  }
+
+  let browseDogma = $state.raw<Awaited<ReturnType<AppFlow["marketBrowseDogma"]>> | null>(null);
+  $effect(() => {
+    const ids = groupTypes.map(item => item.typeID);
+    browseDogma = null;
+    if (!retail || !browseFilters.showhavecpuandpower || !ids.length || browsing) return;
+    let current = true;
+    void flow.marketBrowseDogma(ids).then(rows => { if (current) browseDogma = rows; }).catch(() => {});
+    void flow.loadFitting().catch(() => {});
+    return () => { current = false; };
+  });
+
+  function passesBrowseRequirements(typeID: number) {
+    if (!anyBrowseRequirement) return true;
+    const category = groupFacts?.get(typeID)?.categoryID;
+    if (browseFilters.shownewskills && category === 16 && marketSkills?.has(typeID)) return false;
+    if (browseFilters.showonlyskillsfor && marketSkills && groupSkillNeeds?.[typeID]?.some(([id, level]) =>
+      (marketSkills.get(id)?.level ?? -1) < level)) return false;
+    const facts = browseDogma?.[typeID];
+    if (!browseFilters.showhavecpuandpower || !facts || ![7, 20, 32, 66].includes(facts.categoryID ?? 0) ||
+        !facts.effects.some(id => id === 11 || id === 12 || id === 13)) return true;
+    const cpu = fittingResources?.cpu;
+    const grid = fittingResources?.powergrid;
+    const attrs = new Map(facts.attributes);
+    const cpuLoad = (attrs.get(CPU) ?? 0) + (attrs.get(49) ?? 0);
+    const gridLoad = (attrs.get(POWER) ?? 0) + (attrs.get(15) ?? 0);
+    return (!cpu?.known || cpu.total > cpuLoad) && (!grid?.known || grid.total > gridLoad);
+  }
+
+  const browseTypes = $derived(groupTypes.filter(item => (!showOnlyAvailable || !groupAsks || groupAsks.asks.has(item.typeID) ||
+    item.typeID === 44992) && passesBrowseRequirements(item.typeID)));
+  const groupCards = $derived([...browseTypes].sort((a, b) =>
     (a.variantGroup?.metaGroupID ?? 0) - (b.variantGroup?.metaGroupID ?? 0) || a.name.localeCompare(b.name)));
 
   $effect(() => {
@@ -1639,10 +1731,11 @@
   }
 
   $effect(() => {
-    if (tab !== "groups" || $station.online?.solarSystemID == null) return;
+    if ((tab !== "groups" && (!retail || leftTab !== "browse" || !showOnlyAvailable)) || $station.online?.solarSystemID == null) return;
     const scope = groupScope;
     // The station-scoped answer also changes when docking at another station in this system.
     void $station.online.stationID;
+    void $station.online.structureID;
     let current = true;
     groupAsks = null;
     groupAsksError = false;
@@ -1655,7 +1748,7 @@
   });
 
   $effect(() => {
-    if (tab !== "groups" || browsing || !groupTypes.length) return;
+    if ((tab !== "groups" && (!retail || !anyBrowseRequirement)) || browsing || !groupTypes.length) return;
     let current = true;
     groupFacts = null;
     void flow.typeFacts(groupTypes.map(item => item.typeID)).then(facts => {
@@ -1737,7 +1830,9 @@
     if (!location || location.item.typeID !== $market.typeID) return;
     query = "";
     matches = [];
+    searchActive = false;
     leftTab = "browse";
+    if (!groupsPage && showOnlyAvailable) setAvailability(false);
     focusedBrowseType = groupsPage ? null : location.item.typeID;
     crumbs = [...location.groups];
     if (groupsPage) tab = "groups";
@@ -1806,8 +1901,16 @@
         type="search"
         bind:value={query}
         placeholder="Search for an item to trade"
+        oninput={(event) => { if (!event.currentTarget.value.trim()) { searchActive = false; matches = []; } }}
         onkeydown={(event) => event.key === "Enter" && search()}
       />
+      {#if retail && leftTab === "browse"}
+        <button type="button" class="mkt-browse-settings" data-ui-pointer={MARKET_POINTERS.browseSettings}
+          aria-label="Browse settings" title={browseSettingsHint()}
+          disabled={searchActive} onclick={openBrowseSettings}>
+          <img src="/client-res/ui/texture/eveicon/system_icons/tune_16px.png" alt="" />
+        </button>
+      {/if}
       <button type="button" class="primary" disabled={busy || query.trim().length < 2} onclick={search}>
         Search
       </button>
@@ -1993,17 +2096,19 @@
     {/each}
   </nav>
 
-  {#if matches.length > 0}
+  {#if searchActive}
     <!-- A search is showing: its results replace the branch, and the breadcrumb
          above is still the way back to browsing. -->
     <h3>Search results</h3>
-    <ul class="market-picker">
-      {@render marketItems(matches, true)}
-    </ul>
+    {#if matches.length}
+      <ul class="market-picker">{@render marketItems(matches, true)}</ul>
+    {:else}
+      <p class="empty">{qbWord("UI/Common/NothingFound")}</p>
+    {/if}
   {:else if browsing}
     <p class="note">Opening…</p>
   {:else}
-    {#if groups.length === 0 && groupTypes.length === 0}
+    {#if groups.length === 0 && (retail ? browseTypes : groupTypes).length === 0}
       <p class="empty">This part of the market holds nothing.</p>
     {/if}
     <ul class="market-picker" bind:this={browseItems}>
@@ -2023,7 +2128,7 @@
           </button>
         </li>
       {/each}
-      {@render marketItems(groupTypes, false)}
+      {@render marketItems(retail ? browseTypes : groupTypes, false)}
     </ul>
     {#if groupTypesCapped}
       <!-- Never a silent slice: the panel says it capped so a player can narrow
@@ -2097,7 +2202,7 @@
     <div class="mkt-group-filters">
       <label>Market scope
         <select value={groupScope} onchange={(event) => setGroupScope(event.currentTarget.value as MarketGroupScope)}>
-          {#if groupAtStation}<option value="station">{qbWord(scopeLabels.station)}</option>{/if}
+          {#if groupDocked}<option value="station">{qbWord(scopeLabels.station)}</option>{/if}
           <option value="system">{qbWord(scopeLabels.system)}</option>
           <option value="region">{qbWord(scopeLabels.region)}</option>
         </select>

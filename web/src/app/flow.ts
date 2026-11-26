@@ -2798,6 +2798,7 @@ export interface AppFlow {
    */
   loadMarketGroups(parentGroupID: number): Promise<readonly api.MarketGroupNode[]>;
   loadMarketTypeLocation(typeID: number): Promise<api.MarketTypeLocation | null>;
+  marketBrowseDogma(typeIDs: readonly number[]): Promise<import("../bridge/dogma/location.ts").DogmaStatic["types"]>;
   loadMarketGroupTypes(
     marketGroupID: number,
   ): Promise<{ readonly types: readonly api.MarketTypeMatch[]; readonly total: number; readonly capped: boolean }>;
@@ -12357,7 +12358,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   async function marketGroupAsks(scope: MarketGroupScope) {
     const online = store.station.get().online;
-    if (scope === "station" && online?.stationID == null) scope = "region";
+    if (scope === "station" && online?.stationID == null && online?.structureID == null) scope = "region";
     if (scope === "region" && online?.solarSystemID != null) {
       const { regionID } = await api.getSystemStations(online.solarSystemID, callOptions);
       // MarketBase._GetAsksForRange uses system asks in wormhole regions.
@@ -39757,6 +39758,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     listOreFamilies: () => api.listOreFamilies(callOptions),
     loadMarketGroups: (parentGroupID: number) => api.loadMarketGroups(parentGroupID, callOptions),
     loadMarketTypeLocation: (typeID: number) => api.loadMarketTypeLocation(typeID, callOptions),
+    async marketBrowseDogma(typeIDs) {
+      const chunks = [];
+      for (let at = 0; at < typeIDs.length; at += 50) chunks.push(await infoTypeFacts(typeIDs.slice(at, at + 50)));
+      return Object.assign({}, ...chunks);
+    },
     loadMarketGroupTypes: (marketGroupID: number) =>
       api.loadMarketGroupTypes(marketGroupID, callOptions),
     async placeMarketOrder(request) {

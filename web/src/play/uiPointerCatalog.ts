@@ -42,6 +42,8 @@ export const INTERFACE_POINTERS: readonly UiPointerTarget[] = [
   { name: INDUSTRY_LOCATION_POINTERS.input, label: "Industry - Input material location" },
   { name: INDUSTRY_LOCATION_POINTERS.output, label: "Industry - Output location" },
   { name: MARKET_POINTERS.details, label: "Market - Details", icon: tabIcon, parent: neocomPointerName("market") },
+  { name: MARKET_POINTERS.browseSettings, label: "Market - Browse settings",
+    icon: clientTexture("res:/UI/Texture/eveicon/system_icons/tune_16px.png"), parent: neocomPointerName("market") },
   { name: MARKET_POINTERS.findInBrowse, label: "Market - Find type in Browse",
     icon: clientTexture("res:/UI/Texture/classes/MapView/focusIcon.png"), parent: MARKET_POINTERS.details },
   { name: MARKET_POINTERS.data, label: "Market Data", icon: tabIcon, parent: MARKET_POINTERS.details },

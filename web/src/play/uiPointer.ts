@@ -33,6 +33,7 @@ export const INDUSTRY_LOCATION_POINTERS = {
 } as const;
 
 export const MARKET_POINTERS = {
+  browseSettings: "unique_UI_marketBrowseSettings",
   details: "unique_UI_marketDetailsTab",
   findInBrowse: "unique_UI_findTypeInBrowser",
   data: "unique_UI_marketDataTab",
