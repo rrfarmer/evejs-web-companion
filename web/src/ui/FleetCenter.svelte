@@ -49,6 +49,11 @@
   let finderBusy = $state(false);
   let finderScope = $state<number | null>(null);
   let finderSelected = $state<number | null>(null);
+  const INVITE_CORP = 1, INVITE_ALLIANCE = 2, INVITE_MILITIA = 4, INVITE_PUBLIC_OPEN = 16;
+  // svelte-ignore state_referenced_locally
+  const groupFilterKey = `evejs.character.${store.station.get().online?.characterID ?? 0}.fleetfinder_showGroupAndHighStandingsFleets`;
+  let groupFilter = $state(localStorage.getItem(groupFilterKey) === "true");
+  let appliedGroupFilter = $state(false);
   const finderRanges = [
     { value: null, label: "UI/Agency/ContentOfAnyDistance", fallback: "Any Distance" },
     { value: 5, label: "UI/Common/WithinJumps", fallback: "Within 5 jumps" },
@@ -86,9 +91,15 @@
     finderStanding = finderStandings.find(option => (option.value === null ? "" : String(option.value)) === value)?.value ?? null;
     localStorage.setItem(standingKey, finderStanding === null ? "" : String(finderStanding));
   }
+  function selectGroupFilter(checked: boolean) {
+    groupFilter = checked;
+    localStorage.setItem(groupFilterKey, String(checked));
+    void findFleets();
+  }
   async function findFleets(): Promise<void> {
     const range = finderRange;
     const standing = finderStanding;
+    const groups = groupFilter;
     const origin = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
     finderBusy = true;
     finderError = null;
@@ -103,6 +114,7 @@
       rangeFacts = facts;
       appliedStanding = standing;
       bossStandings = standings;
+      appliedGroupFilter = groups;
       finderAds = ads;
       flow.requestNames(ads.flatMap((ad) => [
         ...(ad.leader.charID ? [{ kind: "character" as const, id: ad.leader.charID }] : []),
@@ -121,9 +133,18 @@
       if (!facts || (appliedRange === -1 ? !facts.sameRegion : facts.jumps === null || facts.jumps > appliedRange)) return false;
     }
     if (appliedStanding !== null && (bossStandings.get(ad.leader.charID ?? 0) ?? CONTACT_STANDING.neutral) < appliedStanding) return false;
+    if (appliedGroupFilter && (ad.inviteScope & INVITE_PUBLIC_OPEN) && (ad.public_minStanding ?? 0) <= 0) {
+      const pilot = $station.online;
+      const own = pilot?.characterID === ad.leader.charID;
+      const inGroup =
+        ((ad.inviteScope & INVITE_CORP) && pilot?.corporationID != null && pilot.corporationID === ad.leader.corpID) ||
+        ((ad.inviteScope & INVITE_ALLIANCE) && pilot?.allianceID != null && pilot.allianceID === ad.leader.allianceID) ||
+        ((ad.inviteScope & INVITE_MILITIA) && pilot?.warFactionID != null && pilot.warFactionID === ad.leader.warFactionID);
+      if (!own && !inGroup) return false;
+    }
     if (finderScope === null) return true;
     if ((ad.inviteScope & finderScope) === 0) return false;
-    if (finderScope === 1 && ad.leader.corpID !== ($station.online?.corporationID ?? null)) return false;
+    if (finderScope === INVITE_CORP && ad.leader.corpID !== ($station.online?.corporationID ?? null)) return false;
     return true;
   }));
   const selectedAd = $derived(shownAds.find((ad) => ad.fleetID === finderSelected) ?? null);
@@ -388,7 +409,7 @@
         <div class="fl-finder-filters">
           <select bind:value={finderScope}>
             <option value={null}>{fleetWord("UI/Fleet/FleetRegistry/MyAvailableFleets") || "My Available Fleets"}</option>
-            <option value={1}>{fleetWord("UI/Fleet/FleetRegistry/MyCorpFleets") || "My Corp Fleets"}</option>
+            <option value={INVITE_CORP}>{fleetWord("UI/Fleet/FleetRegistry/MyCorpFleets") || "My Corp Fleets"}</option>
             <option value={24}>{fleetWord("UI/Fleet/FleetRegistry/BasedOnStandings") || "Based On Standings"}</option>
           </select>
           <select aria-label="Distance" value={finderRange ?? ""} onchange={(event) => selectRange(event.currentTarget.value)}>
@@ -403,7 +424,7 @@
           </select>
           <button type="button" disabled={finderBusy} onclick={() => void findFleets()}>{fleetWord("UI/Fleet/FleetRegistry/FindFleets") || "Find Fleets"}</button>
         </div>
-        <label class="fl-finder-check"><input type="checkbox" disabled /> {fleetWord("UI/Fleet/FleetRegistry/ShowGroupAndHighStandingsFleets") || "Show group and high standings fleets"}</label>
+        <label class="fl-finder-check"><input type="checkbox" checked={groupFilter} disabled={finderBusy} onchange={(event) => selectGroupFilter(event.currentTarget.checked)} /> {fleetWord("UI/Fleet/FleetRegistry/ShowGroupAndHighStandingsFleets") || "Only show adverts from your groups and public fleets requiring positive standings"}</label>
         {#if finderError}<p class="error">{finderError}</p>{/if}
         <div class="fl-finder-scroll">
           <table>
