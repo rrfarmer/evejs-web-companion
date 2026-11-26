@@ -570,7 +570,9 @@
     let stale = false;
     // EveJS may allocate a removed structure's ID again. Read the type once on each docking entry.
     void flow.structureInfo(id, true).catch(() => null).then(info => {
-      if (!stale) dockedHangarStructure = { id, typeID: info?.typeID ?? null };
+      if (stale) return;
+      if (info?.solarSystemID != null) flow.requestSystemSecurity([info.solarSystemID]);
+      dockedHangarStructure = { id, typeID: info?.typeID ?? null };
     });
     return () => { stale = true; };
   });
