@@ -1,5 +1,6 @@
 <script lang="ts">
   import PlexVaultBalance from "./PlexVaultBalance.svelte";
+  import { PLEX_TYPE_ID } from "../bridge/plexVault.ts";
   // THE STATION PANEL — the right-hand dock panel while DOCKED.
   //
   // Everything a docked pilot reaches for, as table rows rather than tiles: the
@@ -194,6 +195,7 @@
   const SPLIT_STACK_LABEL = "UI/Inventory/ItemActions/SplitStack";
   const MARKET_DETAILS_LABEL = "UI/Inventory/ItemActions/ViewTypesMarketDetails";
   const SELL_ITEM_LABEL = "UI/Inventory/ItemActions/SellThisItem";
+  const MOVE_TO_PLEX_VAULT = "UI/Inventory/ItemActions/RedeemCurrency";
   const SELL_ITEMS_LABEL = "UI/Inventory/ItemActions/MultiSell";
   $effect(() => { if (lobbyHangars) flow.requestWords(["UI/Station/Ships", "UI/Station/Items"]); });
 
@@ -621,7 +623,7 @@
   onMount(() => {
     flow.requestWords([ABYSS_WINDOW_LABELS.activateKey, CONFIRM_MOVE_TO_NEWBIE_SHIP, ASSEMBLE_CONTAINER_LABEL,
       "UI/Inventory/AssetSafety/AssetSafetyDeliveries", REPAIR_QUOTE_LABEL, REPACKAGE_LABEL, SPLIT_STACK_LABEL,
-      MARKET_DETAILS_LABEL, SELL_ITEM_LABEL, SELL_ITEMS_LABEL]);
+      MARKET_DETAILS_LABEL, SELL_ITEM_LABEL, SELL_ITEMS_LABEL, MOVE_TO_PLEX_VAULT]);
     void run(async () => {
       await flow.loadInventory();
       if (lobbyHangars) return;
@@ -1007,6 +1009,32 @@
     selectionPlace = payload.from;
     for (const row of sourceRows) flow.toggleSelection(row.itemID);
     pending = { kind: "move", place, label };
+  }
+
+  function plexDepositSource(place: InventoryPlace): "hangar" | "cargo" | null {
+    if (!isDocked) return null;
+    if (place.kind === "hangar" || place.kind === "cargo") return place.kind;
+    return null;
+  }
+
+  function overPlexVault(event: DragEvent): void {
+    if (!isDocked || busy || !carriesOurPayload(event.dataTransfer?.types)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  }
+
+  function dropInPlexVault(event: DragEvent): void {
+    if (!isDocked || busy) return;
+    const payload = decodeDrag(event.dataTransfer?.getData(DRAG_MIME));
+    if (payload?.kind !== "inventoryItem") return;
+    event.preventDefault();
+    const source = plexDepositSource(payload.from);
+    if (source === null) return;
+    const dragged = new Set([payload.itemID, ...(payload.itemIDs ?? [])]);
+    const stacks = $inventory[source].rows.filter(row => row.typeID === PLEX_TYPE_ID && dragged.has(row.itemID));
+    if (stacks.length === 0) return;
+    if (view !== "plexVault") goTo("plexVault");
+    void run(() => flow.depositVaultPlex(source, stacks));
   }
 
   // --- the groups a location is made of -------------------------------------
@@ -2023,9 +2051,13 @@
           aria-selected={view === location.id}
           aria-controls="{panelID}-view-{location.id}"
           onclick={() => goTo(location.id)}
-          ondragover={(event) => { if (lobbyHangars && location.id === "hangar") overPlace(event, { kind: "hangar" }); }}
+          ondragover={(event) => {
+            if (location.id === "plexVault") overPlexVault(event);
+            else if (lobbyHangars && location.id === "hangar") overPlace(event, { kind: "hangar" });
+          }}
           ondragleave={() => (dropPlaceKey = null)}
           ondrop={(event) => {
+            if (location.id === "plexVault") { dropInPlexVault(event); return; }
             if (!lobbyHangars || location.id !== "hangar" || !carriesOurPayload(event.dataTransfer?.types)) return;
             if (view !== "hangar") goTo("hangar");
             dropOnPlace(event, { kind: "hangar" }, "Item hangar");
@@ -2077,7 +2109,8 @@
   <!-- ============================================================= content -->
   <div class="stn-content" onscroll={() => (menu = null)}>
     {#if view === "plexVault"}
-      <section class="stn-view" id="{panelID}-view-plexVault" role="tabpanel" aria-labelledby="{panelID}-tab-plexVault">
+      <section class="stn-view" id="{panelID}-view-plexVault" role="tabpanel" aria-labelledby="{panelID}-tab-plexVault"
+        ondragover={overPlexVault} ondrop={dropInPlexVault}>
         <PlexVaultBalance {flow} {store} />
       </section>
     {/if}
@@ -2497,6 +2530,7 @@
        is absolute rather than fixed. -->
   {#if menu}
     {@const repairItems = repairSelection(menu.row, menu.place)}
+    {@const plexSource = plexDepositSource(menu.place)}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="stn-menu-shade" onclick={() => (menu = null)}></div>
     <div class="stn-menu" class:stn-context-menu={menu.contextAnchor !== undefined}
@@ -2614,6 +2648,15 @@
       {#if menu.marketDetails}
         <button type="button" class="stn-menu-item" onclick={() => contextAction(row => showMarketDetails(row.typeID))}>
           {plainText($words.templates[MARKET_DETAILS_LABEL] ?? "") || "View Market Details"}
+        </button>
+      {/if}
+      {#if menu.contextAnchor && plexSource && menu.row.typeID === PLEX_TYPE_ID}
+        <button type="button" class="stn-menu-item" disabled={busy}
+          onclick={() => {
+            const source = plexSource;
+            contextAction(row => void run(() => flow.depositVaultPlex(source, [row])));
+          }}>
+          {plainText($words.templates[MOVE_TO_PLEX_VAULT] ?? "") || "Move to PLEX Vault"}
         </button>
       {/if}
       {#if menu.sellItems?.length}

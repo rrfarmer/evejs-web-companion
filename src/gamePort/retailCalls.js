@@ -676,7 +676,7 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
  * (importExportUI.py 549), and the gateway never had it.
  */
 const GAME_PORT_ONLY_CALLS = Object.freeze([
-  "invbroker.WithdrawPlexFromVault", "marketProxy.GetPlexOrders", "marketProxy.PlacePlexSellOrder",
+  "invbroker.WithdrawPlexFromVault", "invbroker.DepositPlexToVault", "marketProxy.GetPlexOrders", "marketProxy.PlacePlexSellOrder",
   // Revisions of the gateway contract without the read-only NES catalogue.
   "storeManager.get_categories", "storeManager.get_offers",
   "crimewatch.ApplyTagsForSecStatus",
@@ -3134,6 +3134,7 @@ const RETAIL_CALLS = Object.freeze({
     },
   }), "sale"),
   "invbroker.WithdrawPlexFromVault": same("eve/client/script/ui/shared/market/sellMulti.py:509", "Quantity, docked location, VaultToMarket invoice and personal hangar flag on the inventory manager"),
+  "invbroker.DepositPlexToVault": same("eve/client/script/ui/shared/inventory/plexVault.py:60-63", "Docked location, PLEX item, stack quantity and InventoryToVault invoice on the inventory manager"),
   "marketProxy.CancelCharOrder": needing(Object.freeze({
     status: "same",
     source: `${MARKET_QUOTE}:282`,

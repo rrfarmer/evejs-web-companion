@@ -1691,8 +1691,16 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       // port makes it the client's own, Moniker('invbroker', the session's place) as eveMoniker.GetInventoryMgr has
       // it. boundCall reads the pilot's place again before TrashItems, as before every inventory write.)
       : objectKind === "inventoryManager"
-      ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => boundCall(
-        heldBridgeSession, req.webSessionID, inventoryManagerBindSpec(heldBridgeSession), body.method, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)) }
+      ? { service: body.service, method: body.method, ...await heldRequest(heldBridgeSession, req.webSessionID, write, async () => {
+        const args = Array.isArray(body.args) ? body.args : [];
+        if (body.method === "DepositPlexToVault") {
+          const dock = await readHeldFlight(heldBridgeSession, req.webSessionID);
+          if (!dock.flight?.docked || args[0] !== inventoryLocationID(heldBridgeSession)) {
+            throw Object.assign(new Error("Dock at the location of the PLEX stack."), { code: "NOT_DOCKED", statusCode: 409 });
+          }
+        }
+        return boundCall(heldBridgeSession, req.webSessionID, inventoryManagerBindSpec(heldBridgeSession), body.method, args, body.kwargs ?? null);
+      }) }
       // (And a call on the refinery of where the pilot is docked, by the object its route went by: a structure's
       // hangar access asked first, as the route asked it.)
       : objectKind === "refinery"

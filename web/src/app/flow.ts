@@ -2798,6 +2798,7 @@ export interface AppFlow {
   readonly assetSaleAsked: ReadableSignal<AssetSaleAsk | null>;
   openAssetSale(items: readonly PersonalAssetSelection[]): Promise<void>;
   openVaultPlexSale(): Promise<void>;
+  depositVaultPlex(source: "hangar" | "cargo", items: readonly Pick<InventoryItemRow, "itemID" | "quantity">[]): Promise<void>;
   readonly plexVaultChanged: ReadableSignal<number>;
   repackageAssets(items: readonly PersonalAssetSelection[]): Promise<void>;
   repackableAssetTypes(typeIDs: readonly number[]): Promise<ReadonlySet<number>>;
@@ -7718,8 +7719,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     receivedAtMs: number,
     insideMultiEvent = false,
   ): void {
-    if (method === "OnPlexItemAddedToInventory" || method === "OnPlexWithdrawFailed") {
-      receivePlexWithdrawal?.(method === "OnPlexItemAddedToInventory", args);
+    if (method === "OnPlexItemAddedToInventory" || method === "OnPlexWithdrawFailed" ||
+        method === "OnPlexDeposited" || method === "OnPlexDepositFailed") {
+      for (const listener of plexTransferListeners) listener(method, args);
     }
     if (method === "OnMoonExtractionUpdate") moonExtractionChanged.update(revision => revision + 1);
     if (method === "OnCargoScanComplete" || method === "OnShipScanCompleted") {
@@ -12523,7 +12525,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
   let assetSaleRevision = 0;
-  let receivePlexWithdrawal: ((success: boolean, args: readonly unknown[]) => void) | null = null;
+  const plexTransferListeners = new Set<(method: string, args: readonly unknown[]) => void>();
+  let depositPlexGeneration: number | null = null;
 
   function plexVaultBids(reads: api.RawMarketReads, stationID: number, quantity: number) {
     return decodeOrderBook(reads.book.result).buys.filter(row => row.minimumVolume <= quantity && (row.stationID === stationID ||
@@ -12531,37 +12534,88 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       (row.jumps >= 1 && row.jumps <= row.range)));
   }
 
-  async function withdrawPlexForSale(stationID: number, quantity: number): Promise<number> {
+  async function requestPlexTransfer(deposit: boolean, args: JsonValue[]): Promise<unknown> {
     const results = new Map<string, { success: boolean; value: unknown }>();
     let resolveResult: (() => void) | undefined;
     let reference: string | null = null;
-    receivePlexWithdrawal = (success, [value, ref]) => {
+    const successMethod = deposit ? "OnPlexDeposited" : "OnPlexItemAddedToInventory";
+    const failureMethod = deposit ? "OnPlexDepositFailed" : "OnPlexWithdrawFailed";
+    const action = deposit ? "deposit" : "withdrawal";
+    const listener = (method: string, [value, other]: readonly unknown[]) => {
+      const success = method === successMethod;
+      if (!success && method !== failureMethod) return;
+      const ref = deposit && success ? value : other;
       if (typeof ref !== "string") return;
       results.set(ref, { success, value });
       if (ref === reference) resolveResult?.();
     };
+    plexTransferListeners.add(listener);
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const reply = await bridgeDo("invbroker", "WithdrawPlexFromVault", [quantity, stationID, "VaultToMarket", 4]);
-      if (typeof reply !== "string" || !reply) throw new Error("The vault returned no withdrawal reference.");
+      const reply = await bridgeDo("invbroker", deposit ? "DepositPlexToVault" : "WithdrawPlexFromVault", args);
+      if (typeof reply !== "string" || !reply) throw new Error(`The vault returned no ${action} reference.`);
       reference = reply;
       if (!results.has(reply)) {
         await new Promise<void>((resolve, reject) => {
           resolveResult = resolve;
-          timer = setTimeout(() => reject(new Error("Timed out waiting for the PLEX withdrawal.")), 10_000);
+          timer = setTimeout(() => reject(new Error(`Timed out waiting for the PLEX ${action}.`)), 10_000);
         });
       }
       const result = results.get(reply)!;
       if (!result.success) {
-        const refusal = typeof result.value === "string" ? result.value : "PlexWithdrawalInternalError";
-        throw new Error(templateWords("UI/PlexVault/" + refusal, {}, "The PLEX vault refused the withdrawal."));
+        const label = typeof result.value === "string" ? "UI/PlexVault/" + result.value : "";
+        throw new Error(templateWords(label, {}, `The PLEX vault refused the ${action}.`));
       }
-      const itemID = Number(unwrapLong(result.value) ?? result.value);
-      if (!Number.isSafeInteger(itemID) || itemID <= 0) throw new Error("The vault did not identify the withdrawn stack.");
-      return itemID;
+      return result.value;
     } finally {
       clearTimeout(timer);
-      receivePlexWithdrawal = null;
+      plexTransferListeners.delete(listener);
+    }
+  }
+
+  async function withdrawPlexForSale(stationID: number, quantity: number): Promise<number> {
+    const result = await requestPlexTransfer(false, [quantity, stationID, "VaultToMarket", 4]);
+    const itemID = Number(unwrapLong(result) ?? result);
+    if (!Number.isSafeInteger(itemID) || itemID <= 0) throw new Error("The vault did not identify the withdrawn stack.");
+    return itemID;
+  }
+
+  async function depositVaultPlex(source: "hangar" | "cargo", items: readonly Pick<InventoryItemRow, "itemID" | "quantity">[]): Promise<void> {
+    const stationID = dockedNow();
+    const generation = requestGeneration;
+    if (stationID === null || items.length === 0 || depositPlexGeneration === generation) return;
+    const current = callOptions.captureRequestGuard!();
+    const shipID = store.inventory.get().activeShipID;
+    depositPlexGeneration = generation;
+    let sent = false;
+    try {
+      await loadInventory();
+      current();
+      const inventory = store.inventory.get();
+      if ((inventory.structureID ?? inventory.stationID) !== stationID || dockedNow() !== stationID ||
+          (source === "cargo" && inventory.activeShipID !== shipID)) {
+        throw new Error("The docked inventory has changed. Select the stacks again.");
+      }
+      const available = new Map(inventory[source].rows.filter(row => row.typeID === PLEX_TYPE_ID &&
+        row.locationID === (source === "cargo" ? shipID : stationID)).map(row => [row.itemID, row.quantity]));
+      const stacks = [...new Map(items.map(row => [row.itemID, row.quantity]))];
+      if (stacks.some(([itemID, quantity]) => !Number.isSafeInteger(quantity) || quantity <= 0 || available.get(itemID) !== quantity)) {
+        throw new Error("A selected PLEX stack has changed. Select the stacks again.");
+      }
+      for (const [itemID, quantity] of stacks) {
+        current();
+        if (dockedNow() !== stationID) throw new Error("Dock to finish depositing PLEX.");
+        sent = true;
+        await requestPlexTransfer(true, [stationID, itemID, quantity, "InventoryToVault"]);
+      }
+    } finally {
+      if (depositPlexGeneration === generation) depositPlexGeneration = null;
+      if (sent && requestGeneration === generation && dockedNow() === stationID) {
+        plexVaultChanged.update(revision => revision + 1);
+        await Promise.allSettled([loadInventory(), loadPersonalAssets(),
+          ...(source === "cargo" && shipID !== null && store.inventory.get().openShip?.itemID === shipID
+            ? [openShipBays(shipID)] : [])]);
+      }
     }
   }
 
@@ -39301,6 +39355,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     closeAssetContainerContents,
     openAssetSale,
     openVaultPlexSale,
+    depositVaultPlex,
     plexVaultChanged: readonlySignal(plexVaultChanged),
     repackageAssets,
     repackableAssetTypes,
