@@ -1,6 +1,8 @@
 from datetime import timedelta
-from eveProto.generated.eve_public.sovereignty.mercenaryden.activity.api.notices_pb2 import AddedNotice, ExpiryChangedNotice, RemovedNotice
+from eveProto.generated.eve_public.sovereignty.mercenaryden.activity.api.notices_pb2 import AddedNotice, CompletedNotice, ExpiryChangedNotice, RemovedNotice
 from eveProto.generated.eve_public.sovereignty.mercenaryden.api.notices_pb2 import DefinitionsUpdatedNotice, EvolutionStateChangedNotice
+from jobboard.client.job import BaseJob
+from jobboard.client.features.mercenary_tactical_operations.job import MTOJob
 from sovereignty.mercenaryden.client.activity_cache import ActivityCache
 from sovereignty.mercenaryden.client.data.evolution_simulation import EvolutionSimulationInfo
 from sovereignty.mercenaryden.client.mocks.data import create_evolution_definition_mock, create_infomorphs_mock
@@ -91,5 +93,30 @@ stage2_band.lower_band = 90
 stage2_band.upper_band = 130
 registry.receive(DefinitionsUpdatedNotice(mercenary_den=sample.attributes.mercenary_den,
                                           evolution=evolution.get_proto(), infomorphs=infomorphs))
+completion = {}
+
+class OpenOperation(object):
+    _is_completed = False
+    active_dungeon = None
+    active_dungeon_objective_chain = None
+    is_completed = MTOJob.is_completed
+    objective_chain = MTOJob.objective_chain
+
+    def update(self):
+        return
+
+def on_completed(activity):
+    cache.remove_activity_by_id(activity.activity_id)
+    page = OpenOperation()
+    MTOJob.mark_completed.im_func(page)
+    completion.update(id=str(activity.activity_id), denID=activity.den_id, development=activity.development_impact,
+                      anarchy=activity.anarchy_impact, bonus=activity.infomorph_bonus,
+                      completed=page.is_completed, status=BaseJob.get_state_info.im_func(page)['text'],
+                      actionCount=len(MTOJob.get_cta_buttons.im_func(page)), cacheCount=len(cache.get_activities()))
+
+listener.on_completed_notice.connect(on_completed)
+registry.receive(CompletedNotice(id=sample.id, mercenary_den=sample.attributes.mercenary_den,
+                                 development_impact=10, anarchy_impact=-10, infomorph_bonus=100))
 result = dict(station=session.stationid, notices=registry.types, callbacks=callbacks,
-              expiryChange=expiry_change, evolutionChange=evolution_change, definitionChange=definition_change)
+              expiryChange=expiry_change, evolutionChange=evolution_change, definitionChange=definition_change,
+              completion=completion)

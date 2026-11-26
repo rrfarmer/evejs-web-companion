@@ -15,9 +15,10 @@
   import MercenaryOperationTravel from "./MercenaryOperationTravel.svelte";
   import { showInfo } from "./showInfo.ts";
 
-  let { store, flow, operation, name, onBack, onShowSystem }: {
+  let { store, flow, operation, name, onBack, onShowSystem, completed = false }: {
     store: ClientStore; flow: AppFlow; operation: MercenaryDenActivity; name: string; onBack: () => void;
     onShowSystem?: (systemID: number) => void;
+    completed?: boolean;
   } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
@@ -38,6 +39,7 @@
     status: ["UI/Agency/MercDen/Status", "Status"],
     ready: ["UI/Agency/MercDen/ReadyToStart", "Ready to Start"],
     started: ["UI/Agency/MercDen/InProgress", "In Progress"],
+    completed: ["UI/Generic/Completed", "Completed"],
     intel: ["UI/Dungeons/GameplayDescriptionHeader", "Operational Intel"],
     description: ["UI/Common/Description", "Description"],
     impacts: ["UI/Agency/MercDen/JobDetailHeader", "Mercenary Den"],
@@ -64,7 +66,7 @@
     systemMenu.open(x, y, mercenarySystemMenu(store, flow, id, () => name, place => { bookmark = place; }, onShowSystem));
   }
   async function startOperation() {
-    if (starting || started) return;
+    if (starting || started || completed) return;
     const selected = operation;
     starting = true;
     failure = null;
@@ -113,19 +115,23 @@
     <small>{word("category")}</small>
     <h2>{name}</h2>
     <div class="mto-header-details">
-      <span>{word(started ? "started" : "ready")}</span>
-      {#if operation.expiresAt > now}
-        <time datetime={new Date(operation.expiresAt).toISOString()}>
-          {word("expires")} {formatInterval((operation.expiresAt - now) * 10_000)}
-        </time>
-      {/if}
-      <MercenaryOperationTrackButton {store} {flow} id={operation.id} eligible={!operation.expiresAt || operation.expiresAt > now} />
-      <MercenaryOperationTravel {store} {flow} solarSystemID={operation.solarSystemID} />
-      {#if !started && (!operation.expiresAt || operation.expiresAt > now)}
-        <button type="button" class="mto-start" title={word("startHint")} disabled={starting} onclick={() => void startOperation()}>{word("start")}</button>
+      {#if completed}
+        <span class="mto-completed" role="status">{word("completed")}</span>
+      {:else}
+        <span>{word(started ? "started" : "ready")}</span>
+        {#if operation.expiresAt > now}
+          <time datetime={new Date(operation.expiresAt).toISOString()}>
+            {word("expires")} {formatInterval((operation.expiresAt - now) * 10_000)}
+          </time>
+        {/if}
+        <MercenaryOperationTrackButton {store} {flow} id={operation.id} eligible={!operation.expiresAt || operation.expiresAt > now} />
+        <MercenaryOperationTravel {store} {flow} solarSystemID={operation.solarSystemID} />
+        {#if !started && (!operation.expiresAt || operation.expiresAt > now)}
+          <button type="button" class="mto-start" title={word("startHint")} disabled={starting} onclick={() => void startOperation()}>{word("start")}</button>
+        {/if}
       {/if}
     </div>
-    {#if failure?.id === operation.id}<p role="alert">{failure.message}</p>{/if}
+    {#if !completed && failure?.id === operation.id}<p role="alert">{failure.message}</p>{/if}
   </header>
   {#if description}<section><h3>{word("description")}</h3><p>{description}</p></section>{/if}
   <section class="mto-intel">
@@ -135,7 +141,7 @@
     {/if}
     {#if gameplay}<p>{gameplay}</p>{/if}
     <dl>
-      <dt>{word("status")}</dt><dd>{word(started ? "started" : "ready")}</dd>
+      {#if !completed}<dt>{word("status")}</dt><dd>{word(started ? "started" : "ready")}</dd>{/if}
       {#if intel?.difficulty}<dt>{word("difficulty")}</dt><dd>{word("level", { level: intel.difficulty })}</dd>{/if}
       {#if enemy}<dt>{word("enemy")}</dt><dd>{enemy}</dd>{/if}
     </dl>
@@ -177,6 +183,7 @@
   section { display: grid; gap: 6px; }
   .mto-header-details, ul { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
   .mto-header-details button:first-of-type { margin-left: auto; }
+  .mto-completed { color: #8dd9a5; }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; }
   ul { list-style: none; padding: 0; }
   li { padding: 5px 8px; background: #ffffff0d; }

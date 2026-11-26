@@ -47,7 +47,7 @@
   import DungeonPage from "./DungeonPage.svelte";
   import MercenaryOperationPage from "./MercenaryOperationPage.svelte";
   import MercenaryOperationTrackButton from "./MercenaryOperationTrackButton.svelte";
-  import { mercenaryDenNotice, type MercenaryDenActivity } from "../bridge/mercenaryDens.ts";
+  import { completedMercenaryOperationID, mercenaryDenNotice, type MercenaryDenActivity } from "../bridge/mercenaryDens.ts";
   import { ARC_AVAILABLE, ARC_STARTED } from "../bridge/epicArcs.ts";
   import type { JournalMission } from "../store/types.ts";
   import { jobBoardRequests, serveJobBoardRequest } from "./jobBoardRequests.ts";
@@ -109,8 +109,11 @@
   let operationsCharacter: number | null = null;
   let operationID = $state<string | null>(null);
   let operationsRevision = $state(0);
+  let completedPage = $state.raw<{ operation: MercenaryDenActivity; name: string; characterID: number } | null>(null);
   const shownOperations = $derived(tab === "browse" ? operations ?? [] : []);
-  const operationOpen = $derived(operations?.find(operation => operation.id === operationID) ?? null);
+  const completed = $derived(completedPage?.operation.id === operationID && completedPage?.characterID === $station.online?.characterID
+    ? completedPage : null);
+  const operationOpen = $derived(completed?.operation ?? operations?.find(operation => operation.id === operationID) ?? null);
   function operationName(row: MercenaryDenActivity) {
     const index = operations?.filter(operation => operation.denID === row.denID).findIndex(operation => operation.id === row.id) ?? 0;
     return word(`#${row.nameID}`) || `${word(MTO) || "Mercenary Tactical Operations"} ${index + 1}`;
@@ -126,6 +129,9 @@
     let current = true;
     void flow.loadMercenaryOperations().then(rows => { if (current) operations = rows; }, () => { if (current) operations = null; });
     return () => { current = false; };
+  });
+  $effect(() => {
+    if (completedPage && !completed) completedPage = null;
   });
   const dailyDone = (d: DailyGoal) => d.target > 0 && d.current >= d.target;
   const dailyExpired = (d: DailyGoal) => d.activeUntilMs !== null && d.activeUntilMs <= Date.now();
@@ -233,6 +239,11 @@
     const stop = notices.subscribe(next => {
       if (!next || next.n === lastSeen) return;
       lastSeen = next.n;
+      const completedID = completedMercenaryOperationID(next.typeName, next.payload);
+      const characterID = $station.online?.characterID;
+      if (completedID && characterID && operationOpen?.id === completedID && !completed) {
+        completedPage = { operation: operationOpen, name: operationName(operationOpen), characterID };
+      }
       if (mercenaryDenNotice(next.typeName, next.payload)?.operations) operationsRevision++;
       if (!DAILY_GOAL_NOTICES.has(next.typeName)) return;
       // Two daily completions can also progress the bonus and all eight milestones in one burst.
@@ -292,7 +303,8 @@
   </div>
   <div class="jb-body">
     {#if operationOpen}
-      <MercenaryOperationPage {store} {flow} {onShowSystem} operation={operationOpen} name={operationName(operationOpen)} onBack={() => { operationID = null; }} />
+      <MercenaryOperationPage {store} {flow} {onShowSystem} operation={operationOpen} name={completed?.name ?? operationName(operationOpen)}
+        completed={completed !== null} onBack={() => { operationID = null; }} />
     {:else if operationID !== null}
       <button type="button" onclick={() => { operationID = null; }}>{word("UI/Commands/Back") || "Back"}</button>
       <p class="jb-hint" role="status">{operations === undefined ? "Loading operation…" : "This operation is unavailable."}</p>

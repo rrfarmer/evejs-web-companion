@@ -78,6 +78,12 @@ export function mercenaryDenID(value: unknown): number {
 
 const NOTICE_PREFIX = "eve_public.sovereignty.mercenaryden.";
 
+export function completedMercenaryOperationID(typeName: string, payload: unknown): string | null {
+  if (typeName !== NOTICE_PREFIX + "activity.api.CompletedNotice") return null;
+  const uuid = mercenaryDenRecord(mercenaryDenRecord(payload).id).uuid;
+  return typeof uuid === "string" ? uuidFromBytes(uuid) : null;
+}
+
 export function mercenaryDenNotice(typeName: string, payload: unknown) {
   if (!typeName.startsWith(NOTICE_PREFIX)) return null;
   const body = mercenaryDenRecord(payload);
