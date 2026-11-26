@@ -8436,6 +8436,20 @@
     }
    ]
   },
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.DeleteRequest": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.draft.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.DeleteResponse": {
+   "fields": []
+  },
   "eve_public.cosmetic.ship.skin.thirdparty.draft.api.UpdateRequest": {
    "fields": [
     {

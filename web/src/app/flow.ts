@@ -4593,6 +4593,7 @@ export interface AppFlow {
   loadShipSkinrStudio(): Promise<ShipSkinrStudio>;
   loadShipSkinrDesign(skin: string): Promise<ShipSkinrDesign | null>;
   updateShipSkinrDesign(entry: ShipSkinrEntry, design: ShipSkinrDesign, name: string, lineName: string): Promise<ShipSkinrEntry>;
+  deleteShipSkinrDesign(id: string): Promise<void>;
   reloadMercenaryDen(denID: number): Promise<MercenaryDenRow | null>;
   loadMercenaryDenActivities(denID: number): Promise<MercenaryDenActivities>;
   loadMercenaryOperations(): Promise<readonly MercenaryDenActivity[]>;
@@ -28911,6 +28912,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return updated;
   }
 
+  async function deleteShipSkinrDesign(id: string): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    await gatewayAsk(SHIP_SKINR_GATEWAY + "draft.api.DeleteRequest", { id: { uuid: id } }, true);
+    current();
+  }
+
   async function loadMyMercenaryDens(): Promise<MercenaryDensRead> {
     const current = callOptions.captureRequestGuard!();
     const [ownedReply, capacityReply] = await Promise.all([
@@ -41271,6 +41278,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadShipSkinrStudio,
     loadShipSkinrDesign,
     updateShipSkinrDesign,
+    deleteShipSkinrDesign,
     reloadMercenaryDen,
     loadMercenaryDenActivities,
     loadMercenaryOperations,
