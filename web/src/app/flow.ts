@@ -8,6 +8,9 @@ import { getCharacterSelectionData } from "../bridge/characterSelection.ts";
 import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, decodeShipSkinrEntries, decodeShipSkinrEntry,
   decodeShipSkinrEarlyPricing, shipSkinrSequencingCapacity, type ShipSkinrDesign, type ShipSkinrEarlyPrice,
   type ShipSkinrEntry, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
+import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
+  type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
+import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
 import { setSessionToken } from "./sessionToken.ts";
 import { pageFetch } from "./pageFetch.ts";
 import {
@@ -4595,6 +4598,10 @@ export interface AppFlow {
   loadShipSkinrJobs(): Promise<readonly ShipSkinrEntry[]>;
   loadShipSkinrEarlyPricing(): Promise<readonly ShipSkinrEarlyPrice[]>;
   completeShipSkinrJob(id: string): Promise<void>;
+  loadShipSkinrStartTerms(tier: number): Promise<ReturnType<typeof shipSkinrSequenceTerms>>;
+  loadShipSkinrComponentLicense(component: ShipSkinrSequenceComponent): Promise<ShipSkinrSequenceLicense>;
+  startShipSkinrJob(design: { name: string; lineName: string; layout: Record<string, JsonValue> },
+    quantity: number, licenses: readonly JsonValue[]): Promise<ShipSkinrEntry>;
   loadShipSkinrSequencingCapacity(): Promise<ReturnType<typeof shipSkinrSequencingCapacity>>;
   readonly shipSkinrSkillsChanged: ReadableSignal<number>;
   loadShipSkinrDesign(skin: string): Promise<ShipSkinrDesign | null>;
@@ -28918,6 +28925,46 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     current();
   }
 
+  async function loadShipSkinrStartTerms(tier: number): Promise<ReturnType<typeof shipSkinrSequenceTerms>> {
+    const current = callOptions.captureRequestGuard!();
+    const [pricing, durations, skills] = await Promise.all([
+      gatewayAsk(SHIP_SKINR_GATEWAY + "sequencing.api.GetTierPricingRequest"),
+      gatewayAsk(SHIP_SKINR_GATEWAY + "sequencing.api.GetTierDurationsRequest"),
+      bridgeAsk("skillHandler", "GetSkills", []),
+    ]);
+    current();
+    return shipSkinrSequenceTerms(pricing, durations, skills, tier);
+  }
+
+  async function loadShipSkinrComponentLicense(component: ShipSkinrSequenceComponent): Promise<ShipSkinrSequenceLicense> {
+    const current = callOptions.captureRequestGuard!();
+    const pilot = store.station.get().online?.characterID;
+    if (!pilot) throw new Error("Select a pilot to read design element licenses.");
+    const license = { character: { sequential: pilot }, component: shipSkinrSequenceIdentifier(component) };
+    const prefix = SHIP_SKINR_GATEWAY + "component.license.";
+    const [finite, infinite] = await Promise.all((["finite", "infinite"] as const).map(async kind => {
+      const answer = await api.publicGatewayRequest(prefix + kind + ".api.GetRequest", { license }, callOptions);
+      if (answer.statusCode === 404) return null;
+      if (answer.statusCode !== 200) throw new Error("The design element license could not be read.");
+      return shipSkinrRecord(shipSkinrRecord(answer.payload ?? undefined)?.license);
+    }));
+    current();
+    const capacity = Number(finite?.capacity ?? 0);
+    return { finite: Number.isSafeInteger(capacity) && capacity > 0 ? capacity : 0, infinite: Boolean(infinite) };
+  }
+
+  async function startShipSkinrJob(design: { name: string; lineName: string; layout: Record<string, JsonValue> },
+    quantity: number, licenses: readonly JsonValue[]): Promise<ShipSkinrEntry> {
+    const current = callOptions.captureRequestGuard!();
+    const answer = await gatewayAsk(SHIP_SKINR_GATEWAY + "sequencing.job.api.InitiateRequest", {
+      name: design.name, line_name: design.lineName, layout: design.layout, licenses: quantity, component_licenses: [...licenses],
+    }, true);
+    current();
+    const job = decodeShipSkinrEntry(answer);
+    if (!job) throw new Error("The server could not confirm the sequencing job. Check Studio before trying again.");
+    return job;
+  }
+
   async function loadShipSkinrSequencingCapacity(): Promise<ReturnType<typeof shipSkinrSequencingCapacity>> {
     const current = callOptions.captureRequestGuard!();
     const skills = await bridgeAsk("skillHandler", "GetSkills", []);
@@ -41318,6 +41365,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadShipSkinrJobs,
     loadShipSkinrEarlyPricing,
     completeShipSkinrJob,
+    loadShipSkinrStartTerms,
+    loadShipSkinrComponentLicense,
+    startShipSkinrJob,
     loadShipSkinrSequencingCapacity,
     shipSkinrSkillsChanged: readonlySignal(shipSkinrSkillsChanged),
     loadShipSkinrDesign,

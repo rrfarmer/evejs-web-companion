@@ -9,6 +9,7 @@
   import { coatingFits, shipSkinrCoatingID, shipSkinrCoatingSlot, shipSkinrCoatingMaterials, shipSkinrLayoutSlots, shipSkinrSlotID,
     type ShipSkinrCoating, type ShipSkinrCoatingCatalogue } from "../bridge/shipSkinrCoatings.ts";
   import { SKINR_HULL_RULES } from "../bridge/shipSkinrHullRules.ts";
+  import { shipSkinrSequenceLayers } from "../bridge/shipSkinrSequencing.ts";
   import { DEFAULT_PATTERN_CONTROLS, SHIP_SKINR_BLEND_MODES, applyShipSkinrProjectorGesture,
     isPatternSlot, isPatternMaterial, loadShipSkinrProjector, readShipSkinrPatternControls,
     shipSkinrBlendMode, shipSkinrPatternID, shipSkinrPatternPreview, shipSkinrPatternSettings, shipSkinrPatternSlot, shipSkinrProjection,
@@ -20,12 +21,14 @@
   import { resolvedName } from "../store/names.ts";
   import ShipInfoPreview from "./ShipInfoPreview.svelte";
   import ShipSkinrProjectorControls from "./ShipSkinrProjectorControls.svelte";
+  import ShipSkinrSequence from "./ShipSkinrSequence.svelte";
   import { typeIconUrl } from "./typeIcons.ts";
 
-  let { store, flow, atSaveLimit, saveLimit, saved, onBack, onSaved, registerBeforeClose }: {
-    store: ClientStore; flow: AppFlow; atSaveLimit: boolean; saveLimit: string;
+  let { store, flow, atSaveLimit, saveLimit, atJobCapacity, saved, onBack, onSaved, onSequenced, registerBeforeClose }: {
+    store: ClientStore; flow: AppFlow; atSaveLimit: boolean; saveLimit: string; atJobCapacity: boolean;
     saved: { entry: ShipSkinrEntry; design: ShipSkinrDesign } | null;
     onBack: () => void; onSaved: (entry: ShipSkinrEntry) => void;
+    onSequenced: (job: ShipSkinrEntry) => void;
     registerBeforeClose?: (guard: () => Promise<boolean>) => () => void;
   } = $props();
   const original = untrack(() => saved);
@@ -49,6 +52,7 @@
     search: ["UI/Common/Search", "Search"],
     empty: ["UI/Wallet/WalletWindow/SearchNoResults", "No results"],
     blend: [prefix + "BlendModes", "Blend Modes"],
+    finalize: [prefix + "FinalizeDesign", "Finalize Design"],
   } as const;
   const factions = SKINR_HULL_RULES.factions.flatMap(id => shipTreeFaction(id) ?? []);
   const excluded = new Set(SKINR_HULL_RULES.excluded);
@@ -69,6 +73,8 @@
   let name = $state("");
   let line = $state("");
   let saving = $state(false);
+  let sequencing = $state(false);
+  let startingSequence = $state(false);
   let saveError = $state("");
   let destroyed = false;
   let leaveDecision: Promise<boolean> | null = null;
@@ -113,6 +119,13 @@
   const incomplete = $derived(layoutSlots.has(5) !== layoutSlots.has(6) ||
     (secondaryMaterial && layoutSlots.has(7) !== layoutSlots.has(8)));
   const canSave = $derived(layoutSlots.size > 0 && !incomplete && (!!original || !atSaveLimit));
+  const preparedLayout = $derived({
+    ...original?.design.layout,
+    ship_type: { sequential: selectedTypeID ?? 0 },
+    pattern_blend_mode: blend,
+    slots: [...layoutSlots].filter(([slotID]) => slotID !== 8 || secondaryMaterial).map(([, row]) => row),
+  });
+  const sequence = $derived(selected && !incomplete ? shipSkinrSequenceLayers(preparedLayout, selected.shipGroupID) : null);
   const validName = $derived(validShipSkinrName(name, line));
   const pickerOpen = $derived(pickerOverride ?? !active);
   const search = $derived(query.trim().toLocaleLowerCase());
@@ -162,7 +175,7 @@
   });
 
   function canLeave(): Promise<boolean> {
-    if (saving) return Promise.resolve(false);
+    if (saving || startingSequence) return Promise.resolve(false);
     if (!dirty) return Promise.resolve(true);
     leaveDecision ??= flow.askClientDialogWith("SKINRUnsavedDesign", {}, "Discard the unsaved design?")
       .finally(() => { leaveDecision = null; });
@@ -259,12 +272,6 @@
     saving = true;
     saveError = "";
     try {
-      const layout = {
-        ...original?.design.layout,
-        ship_type: { sequential: selectedTypeID },
-        pattern_blend_mode: blend,
-        slots: [...layoutSlots].filter(([slotID]) => slotID !== 8 || secondaryMaterial).map(([, row]) => row),
-      };
       const editor = new Map([...initialEditor].filter(([slotID]) => configuration.slots.includes(slotID)));
       if (!original) {
         for (const slotID of configuration.slots.filter(isPatternSlot)) {
@@ -274,7 +281,7 @@
       for (const [slotID, controls] of editedProjectors) {
         if (layoutSlots.has(slotID)) editor.set(slotID, { id: { sequential: slotID }, config: { ...controls } });
       }
-      const entry = await flow.saveShipSkinrDraft(layout, [...editor.values()], name, line, id);
+      const entry = await flow.saveShipSkinrDraft(preparedLayout, [...editor.values()], name, line, id);
       if (!destroyed) onSaved(entry);
     } catch (cause) {
       if (!destroyed) saveError = panelErrorWords(cause);
@@ -338,12 +345,19 @@
 {/snippet}
 
 <div class="skinr-designer">
+  {#if sequencing && sequence}
+    <ShipSkinrSequence {flow} {store} layout={preparedLayout} tier={sequence.tier} slots={sequence.slots}
+      initialName={original?.design.name ?? ""} initialLine={original?.design.lineName ?? ""} atCapacity={atJobCapacity}
+      componentName={slot => message((slot.kind === "coating" ? coatingIndex.get(slot.id) : patternIndex.get(slot.id))?.nameID ?? 0) || String(slot.id)}
+      onBack={() => sequencing = false} onBusy={busy => startingSequence = busy} onStarted={onSequenced} />
+  {:else}
   <div class="designer-toolbar">
     <button type="button" disabled={saving} onclick={() => void back()}>{word("back")}</button>
     {#if catalogue}
       <button type="button" aria-expanded={pickerOpen} onclick={() => pickerOverride = !pickerOpen}>{word("hull")}</button>
       <button type="button" disabled={!canSave || !!naming} aria-describedby={!canSave ? "skinr-blank" : undefined}
         onclick={() => openName("save")}>{word("save")}</button>
+      <button type="button" disabled={!sequence || !!naming} onclick={() => sequencing = true}>{word("finalize")}</button>
       {#if original}
         <button type="button" disabled={!canSave || atSaveLimit || !!naming} aria-describedby={atSaveLimit ? "skinr-blank" : undefined}
           onclick={() => openName("copy")}>{word("saveAs")}</button>
@@ -476,6 +490,7 @@
         </section>
       {/if}
     </div>
+  {/if}
   {/if}
 </div>
 

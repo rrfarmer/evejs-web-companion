@@ -15842,6 +15842,297 @@
      "typeName": "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.Identifier"
     }
    ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.api.GetTierPricingRequest": {
+   "fields": []
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.api.GetTierPricingResponse": {
+   "fields": [
+    {
+     "name": "prices",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.sequencing.api.GetTierPricingResponse.Price"
+    },
+    {
+     "name": "discount_percentage_applied",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.api.GetTierPricingResponse.Price": {
+   "fields": [
+    {
+     "name": "tier",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.Tier"
+    },
+    {
+     "name": "plex",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.plex.Currency"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.api.GetTierDurationsRequest": {
+   "fields": []
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.api.GetTierDurationsResponse": {
+   "fields": [
+    {
+     "name": "durations",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.sequencing.api.GetTierDurationsResponse.Duration"
+    },
+    {
+     "name": "discount_percentage_applied",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.api.GetTierDurationsResponse.Duration": {
+   "fields": [
+    {
+     "name": "tier",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.Tier"
+    },
+    {
+     "name": "duration",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Duration"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.api.InitiateRequest": {
+   "fields": [
+    {
+     "name": "name",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "line_name",
+     "number": 2,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "layout",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.Layout"
+    },
+    {
+     "name": "component_licenses",
+     "number": 4,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.license.Kind"
+    },
+    {
+     "name": "licenses",
+     "number": 5,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.license.Kind": {
+   "fields": [
+    {
+     "name": "component",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.Identifier"
+    },
+    {
+     "name": "infinite",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "quantity"
+    },
+    {
+     "name": "finite",
+     "number": 3,
+     "type": 4,
+     "label": 1,
+     "oneof": "quantity"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.Identifier": {
+   "fields": [
+    {
+     "name": "coating",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.coating.Identifier",
+     "oneof": "kind"
+    },
+    {
+     "name": "pattern",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.pattern.Identifier",
+     "oneof": "kind"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.api.InitiateResponse": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.Attributes"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.license.finite.api.GetRequest": {
+   "fields": [
+    {
+     "name": "license",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.license.finite.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.license.finite.Identifier": {
+   "fields": [
+    {
+     "name": "character",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "component",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.license.finite.api.GetResponse": {
+   "fields": [
+    {
+     "name": "license",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.license.finite.Attributes"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.license.finite.Attributes": {
+   "fields": [
+    {
+     "name": "first_acquired",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "capacity",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.license.infinite.api.GetRequest": {
+   "fields": [
+    {
+     "name": "license",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.license.infinite.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.license.infinite.Identifier": {
+   "fields": [
+    {
+     "name": "character",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "component",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.license.infinite.api.GetResponse": {
+   "fields": [
+    {
+     "name": "license",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.license.infinite.Attributes"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.license.infinite.Attributes": {
+   "fields": [
+    {
+     "name": "first_acquired",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp",
+     "oneof": "acquisition"
+    },
+    {
+     "name": "free",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "acquisition"
+    }
+   ]
   }
  },
  "enums": {

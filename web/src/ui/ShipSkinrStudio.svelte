@@ -256,7 +256,8 @@
   <h2 id="ship-skinr-studio">{word(designer === "new" ? "create" : designer ? "edit" : "studio")}</h2>
   {#if designer}
     <ShipSkinrDesigner {store} {flow} {atSaveLimit} {saveLimit} {registerBeforeClose}
-      saved={designer === "new" ? null : designer} onBack={() => designer = null} onSaved={designSaved} />
+      atJobCapacity={sequencingCapacity !== null && (studio?.jobs.length ?? 0) >= sequencingCapacity.maximum}
+      saved={designer === "new" ? null : designer} onBack={() => designer = null} onSaved={designSaved} onSequenced={designSaved} />
   {:else if error}
     <p role="alert">{error}</p>
     <button type="button" onclick={() => attempt++}>Retry</button>
