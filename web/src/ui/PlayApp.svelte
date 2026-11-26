@@ -234,6 +234,7 @@
     help: "help",
     auraGuidance: "auraGuidance",
     newEdenStore: "newEdenStore",
+    projectDiscovery: "projectDiscovery",
     omegaUpsell: "omegaUpsell",
   };
 
@@ -1660,6 +1661,7 @@
    */
   const CLIENT_SIZES: Partial<Record<TabID, { w: number; h: number }>> = {
     newEdenStore: { w: 960, h: 620 },
+    projectDiscovery: { w: 1268, h: 726 },
     omegaUpsell: { w: 960, h: 590 },
     plexCheckout: { w: 660, h: 460 },
     help: { w: 400, h: 275 },
@@ -1684,6 +1686,7 @@
     characterRecustomization: { w: 610, h: 442 },
   };
   const FLIGHT_MINIMUMS: Partial<Record<TabID, { w: number; h: number }>> = {
+    projectDiscovery: { w: 1268, h: 726 },
     pointerWindow: { w: 300, h: 300 },
     auraGuidance: { w: 270, h: 300 },
     fittingManagement: { w: 525, h: 400 },
@@ -1885,6 +1888,7 @@
   const CAPTION_LABELS: Partial<Record<TabID, string>> = {
     auraGuidance: "UI/Accessories/AuraGuidance/WindowTitle",
     newEdenStore: "UI/VirtualGoodsStore/VgsName",
+    projectDiscovery: "UI/ProjectDiscovery/ProjectName",
     omegaUpsell: "UI/CloneState/UpgradeToOmegaTitle",
     plexCheckout: "UI/VirtualGoodsStore/Buttons/BuyPlex",
     fittingManagement: "UI/Fitting/FittingWindow/FittingManagement/WindowCaption",
@@ -2062,6 +2066,7 @@
     OpenAccessGroupsWindow: "accessGroups", OpenChannels: "channels",
     OpenHelp: "help",
     OpenPointerWnd: "pointerWindow",
+    ToggleProjectDiscovery: "projectDiscovery",
     OpenOmegaUpsellWindow: "omegaUpsell",
     ToggleTheatersOfWarWindow: "theatersOfWar", CmdToggleShipTree: "shipTree",
     // (ToggleOpenClose in the client too: ContractsWindow, CorporationWindow, NotepadWindow, PlanetWindow, the comparison
@@ -2217,7 +2222,7 @@
       return;
     }
     const tab = NEOCOM_TABS[id];
-    if ((tab === "shipTree" || tab === "marketOrders" || tab === "help" || tab === "newEdenStore" || tab === "omegaUpsell") &&
+    if ((tab === "shipTree" || tab === "marketOrders" || tab === "help" || tab === "newEdenStore" || tab === "omegaUpsell" || tab === "projectDiscovery") &&
         wins.some(win => win.id === tab && !win.minimized)) wins = closeWindow(wins, tab);
     else if (tab) open(tab);
   }

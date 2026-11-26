@@ -54,6 +54,7 @@ const NEOCOM_TOOLTIPS: Readonly<Record<string, { cmd: string | null; name: strin
   shipTree: { cmd: "CmdToggleShipTree", name: "Ship Tree", description: "Browse each faction's ships using the Ship Tree" },
   fitting: { cmd: "OpenFitting", name: "Fitting", description: "Fit your ship or structure with different equipment, or personalize its appearance" },
   map: { cmd: "CmdToggleMap", name: "Map", description: "View star and solar system maps in many information modes" },
+  projectDiscovery: { cmd: "ToggleProjectDiscovery", name: "Project Discovery", description: "CONCORD research project" },
   charactersheet: { cmd: "OpenCharactersheet", name: "Character Sheet", description: "Manage your Augmentations, Clones, Pilot's Services, Standings and more" },
   // ButtonChat.LoadTooltipPanel: AddCommandTooltip(OpenChannels) - UI/Neocom/ChatChannelsBtn, Tooltips/Neocom/ChatChannels_description (g241)
   log: { cmd: "OpenLog", name: "Log and Messages", description: "" },
@@ -97,8 +98,7 @@ export interface ChatRailEntry { channel: string; label: string; select: () => v
 
 const icon = (name: string) => clientTexture(`res:/UI/Texture/WindowIcons/${name}.png`);
 
-// RAWDATA_NEOCOMDEFAULT, as far as the play page goes: Project Discovery and the like are left out until there is
-// something behind them. 24.02 puts Achievements first (BTNTYPE_ACHIEVEMENTS, type 25).
+// RAWDATA_NEOCOMDEFAULT puts Achievements first (BTNTYPE_ACHIEVEMENTS, type 25).
 export const NEOCOM_DEFAULT: readonly NeocomButton[] = [
   { id: "achievements", label: "Achievements", icon: icon("achievements") },
   { id: "agency", label: "Agency", icon: icon("agentfinder") },
@@ -112,6 +112,7 @@ export const NEOCOM_DEFAULT: readonly NeocomButton[] = [
   { id: "shipTree", label: "Ship Tree", icon: icon("isis") },
   { id: "fitting", label: "Fitting", icon: icon("fitting") },
   { id: "map", label: "Map", icon: icon("map") },
+  { id: "projectDiscovery", label: "Project Discovery", icon: icon("projectdiscovery") },
   { id: "help", label: "EVE Help", icon: icon("help") },
   // ButtonChat's chatchannel.png, then the Log and Messages ButtonWindow (LoggerWindow, OpenLog, log.png) - the live
   // client, gridcheck g250 / g251
@@ -130,6 +131,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
     { id: "jobboard", label: "Opportunities", icon: icon("opportunities") },
     { id: "agency", label: "Agency", icon: icon("theAgency") },
     { id: "map", label: "Map", icon: icon("map") },
+    { id: "projectDiscovery", label: "Project Discovery", icon: icon("projectdiscovery") },
     { id: "theatersOfWar", label: "Theaters of War", icon: clientTexture("res:/UI/Texture/eveicon/product_icons/theaters_of_war_product_64px.png") },
     { id: "bountyOffice", label: "Bounty Office", icon: icon("bountyoffice") },
   ] },

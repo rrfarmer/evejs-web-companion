@@ -254,7 +254,7 @@
     {:else if groupID === PHASED_FIELDS}
       <div class="ag-page"><AgencyPhasedFieldsPage {store} {flow} /></div>
     {:else if groupID === PROJECT_DISCOVERY}
-      <div class="ag-page"><AgencyProjectDiscoveryPage {store} {flow} /></div>
+      <div class="ag-page"><AgencyProjectDiscoveryPage {store} {flow} onOpen={() => onOpenTab?.("projectDiscovery")} /></div>
     {:else if groupID === PIRATE_STRONGHOLDS}
       <div class="ag-page"><AgencyPirateStrongholdsPage {store} {flow} filters={siteFilters[groupID] ?? DEFAULT_SITE_FILTERS} /></div>
     {:else if groupID === CAMPAIGNS}

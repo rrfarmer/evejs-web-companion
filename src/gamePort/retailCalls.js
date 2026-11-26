@@ -679,6 +679,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "invbroker.WithdrawPlexFromVault", "invbroker.DepositPlexToVault", "marketProxy.GetPlexOrders", "marketProxy.PlacePlexSellOrder",
   // Revisions of the gateway contract without the read-only NES catalogue.
   "storeManager.get_categories", "storeManager.get_offers",
+  "ProjectDiscovery.get_player_state",
   "crimewatch.ApplyTagsForSecStatus",
   "paperDollServer.GetPaperDollPortraitDataFor",
   "paperDollServer.GetMyPaperDollData",
@@ -3219,6 +3220,7 @@ const RETAIL_CALLS = Object.freeze({
   "account.GetCashBalance": same(`${WALLET_SVC}:41,156-170`, "GetCashBalance(0) for personal wealth; corporate GetCorpWealth sends (1, accountKey=None/explicit key) freshly, separately from its one-minute per-key cache"),
   "storeManager.get_offers": same(`${VGS_CLIENT}:36`, "Reads offers using the in-game store ID"),
   "storeManager.get_categories": same(`${VGS_CLIENT}:45`, "Reads categories using the in-game store ID"),
+  "ProjectDiscovery.get_player_state": judged("projectdiscovery/client/ui/projectdiscoverywindow.py", sentWithNothing, "Reads the active pilot's project progress."),
   "account.GiveCashFromCorpAccount": Object.freeze({
     status: "same", source: "eve/client/script/ui/shared/neocom/wallet/transferMoneyWnd.py:150",
     note: "Corporate-source transfer with the recipient, float amount, captured source key, destination division and edit reason.",
