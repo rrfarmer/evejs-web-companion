@@ -92,7 +92,7 @@ function neocomTipOff(): void {
 }
 
 export interface NeocomButton { id: string; label: string; icon: string }
-export interface ChatRailEntry { label: string; select: () => void }
+export interface ChatRailEntry { channel: string; label: string; select: () => void }
 
 const icon = (name: string) => clientTexture(`res:/UI/Texture/WindowIcons/${name}.png`);
 
@@ -222,6 +222,29 @@ export class Neocom {
    */
   private readonly unseen = new Map<string, string>();
   private readonly counts = new Map<string, number>();
+  private readonly chatRows = new Map<string, HTMLButtonElement>();
+  private chatUnread: ReadonlySet<string> = new Set();
+
+  setChatUnread(unread: ReadonlySet<string>, stackShown: boolean): void {
+    this.chatUnread = unread;
+    const count = stackShown ? 0 : unread.size;
+    if (!count) this.blinks.delete("chat");
+    if (this.counts.get("chat") !== count) {
+      this.buttons.get("chat")?.setAttribute("data-unread-count", String(count));
+      this.setUnseen("chat", count ? "Unread chat" : null, count);
+    }
+    for (const [channel, row] of this.chatRows) this.paintChatRow(row, channel);
+  }
+
+  private paintChatRow(row: HTMLButtonElement, channel: string): void {
+    const unread = this.chatUnread.has(channel);
+    row.classList.toggle("nc-pe-new", unread);
+    row.dataset.unread = String(unread);
+    if (unread) row.setAttribute("aria-label", `${row.title}, unread`);
+    else row.removeAttribute("aria-label");
+    row.querySelector<HTMLElement>(".nc-ind")!.dataset.state = unread ? "important" : "";
+  }
+
   /**
    * `count` (GetItemCount) where the button keeps one: btnDataNode.OnBadgeCountChanged blinks the button on each change
    * while there are unseen items, and ButtonIndicator.SetCounterValue shows the count's banner when it rises.
@@ -523,6 +546,7 @@ export class Neocom {
     let chatContext = false;
     const closeChat = (focus = false) => {
       chatPanel.hidden = true;
+      this.chatRows.clear();
       chatTrigger?.setAttribute("aria-expanded", "false");
       if (focus) chatTrigger?.focus();
       chatTrigger = null;
@@ -537,7 +561,7 @@ export class Neocom {
       if (toggle) return;
       chatTrigger = trigger;
       chatContext = Boolean(context);
-      const directory = { label: chatContext ? "Open Channels" : NEOCOM_TOOLTIPS.channels!.name, select: () => open("channels") };
+      const directory: ChatRailEntry = { channel: "", label: chatContext ? "Open Channels" : NEOCOM_TOOLTIPS.channels!.name, select: () => open("channels") };
       const rows = chatContext ? [directory] : [directory, ...(chatEntries?.() ?? [])];
       chatPanel.replaceChildren(...rows.map((row, index) => {
         const button = entry(row.label, index === 0 ? icon("chatchannels") :
@@ -545,6 +569,8 @@ export class Neocom {
         if (index > 0) {
           button.classList.add("nc-chat-channel");
           button.title = row.label;
+          this.chatRows.set(row.channel, button);
+          this.paintChatRow(button, row.channel);
         }
         button.addEventListener("click", () => {
           if (fromOverflow) { panel.hidden = true; overflow.focus(); }

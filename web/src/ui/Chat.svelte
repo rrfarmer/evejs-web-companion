@@ -32,9 +32,10 @@
   import { doubleClickOwner } from "./ownerDoubleClick.ts";
   import { dragCharacter } from "./characterDrag.ts";
 
-  let { store, flow, openSkillPlanLink = null, openInventoryFilterLink = null }: {
+  let { store, flow, unread, openSkillPlanLink = null, openInventoryFilterLink = null }: {
     store: ClientStore;
     flow: AppFlow;
+    unread?: ReadonlySet<string>;
     /** A skill plan's link in a message, clicked. */
     openSkillPlanLink?: ((url: string) => void) | null;
     openInventoryFilterLink?: ((url: string) => void) | null;
@@ -313,6 +314,7 @@
       <button
         type="button"
         class:active={$conversations.active === null && $chat.activeChannel === channel.id}
+        data-unread={unread?.has(channel.id) || undefined}
         disabled={busy}
         onclick={() => switchChannel(channel.id)}
       >
@@ -320,7 +322,8 @@
       </button>
     {/each}
     {#each $conversations.rooms as room (room.channel)}
-      <button type="button" class:active={$conversations.active === room.channel} disabled={busy} onclick={() => flow.conversations.select(room.channel)}>{room.title}</button>
+      <button type="button" class:active={$conversations.active === room.channel} data-unread={unread?.has(room.channel) || undefined}
+        disabled={busy} onclick={() => flow.conversations.select(room.channel)}>{room.title}</button>
     {/each}
     {#if activeRoom}<button type="button" class="minor" disabled={busy || $conversations.busy} aria-label="Close conversation" onclick={() => run(() => flow.conversations.close(activeRoom!.channel))}>×</button>{/if}
     <button type="button" disabled={busy} onclick={() => refresh()}>Refresh</button>
@@ -394,6 +397,7 @@
 </section>
 
 <style>
+  .tabs button[data-unread="true"] { box-shadow: inset 0 -2px rgb(243, 144, 88); }
   .chat-bold { font-weight: 700; }
   .chat-italic { font-style: italic; }
   .chat-underline { text-decoration: underline; }

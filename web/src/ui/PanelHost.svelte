@@ -91,6 +91,7 @@
     store,
     flow,
     tab,
+    chatUnread,
     onOpen,
     onClose,
     sessions,
@@ -122,6 +123,7 @@
     store: ClientStore;
     flow: AppFlow;
     tab: TabID;
+    chatUnread?: ReadonlySet<string>;
     /**
      * Lets a panel navigate to another tab (e.g. Agent Finder -> Travel).
      *
@@ -394,7 +396,7 @@
   <CalendarWindow {store} {flow} />
 {:else if tab === "chat"}
   <!-- A skill plan link in a message, followed (link.py handle_link): the Skills window opens on it. -->
-  <Chat {store} {flow} {openInventoryFilterLink} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />
+  <Chat {store} {flow} unread={chatUnread} {openInventoryFilterLink} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />
 {:else if tab === "channels"}
     <ChatChannels {store} {flow} showChat={() => onOpen?.("chat")} />
 {:else if tab === "compare"}

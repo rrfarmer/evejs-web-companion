@@ -103,6 +103,7 @@
   import Toasts from "./Toasts.svelte";
   import ServerQuestion from "./ServerQuestion.svelte";
   import ClientDialogs from "./ClientDialogs.svelte";
+  import ChatInvitations from "./ChatInvitations.svelte";
   import { stationOffersRepair } from "../bridge/repairShop.ts";
   import { structureHasCapability } from "../nav/dockableLocation.ts";
   import { cloneBayAvailable } from "../bridge/jumpClones.ts";
@@ -171,6 +172,7 @@
   import { HangarView } from "../play/hangarView.ts";
   import { dirtLevelFromTime } from "../three/hullModel.ts";
   import { Neocom, neocomSkillState, type ChatRailEntry } from "../play/neocom.ts";
+  import { createChatUnread } from "../play/chatUnread.ts";
   import { clientTexture } from "../play/window.ts";
   import { techLevelIcon } from "../play/techLevelIcon.ts";
   import { raiseClientNotification } from "./clientNotifications.ts";
@@ -1062,6 +1064,32 @@
     return () => { neocomInst = null; neocom.root.remove(); neocom.dispose(); };
   });
   let neocomInst = $state<Neocom | null>(null);
+  const chatStore = $derived(session?.store.chat);
+  const chatConversations = $derived(session?.flow.conversations.state);
+  const chatTracking = new WeakMap<Session, { pilot: number; observe: ReturnType<typeof createChatUnread> }>();
+  let chatUnread = $state.raw<ReadonlySet<string>>(new Set());
+  $effect(() => {
+    const pilot = $station?.online?.characterID;
+    const chat = $chatStore, conversations = $chatConversations;
+    const stackShown = wins.some(win => win.id === "chat" && !win.minimized);
+    if (!session || !pilot || !chat || !conversations) {
+      const unread = new Set<string>();
+      chatUnread = unread;
+      neocomInst?.setChatUnread(unread, stackShown);
+      return;
+    }
+    let track = chatTracking.get(session);
+    if (track?.pilot !== pilot) {
+      track = { pilot, observe: createChatUnread() };
+      chatTracking.set(session, track);
+    }
+    const rooms = new Map([["local", chat.local], ["corp", chat.corp]]);
+    for (const room of conversations.rooms) rooms.set(room.channel, room.state);
+    const displayed = stackShown ? conversations.active ?? chat.activeChannel : null;
+    const unread = track.observe(rooms, pilot, displayed);
+    chatUnread = unread;
+    neocomInst?.setChatUnread(unread, stackShown);
+  });
   const WALLET_BALANCE_LABEL = "Tooltips/Neocom/Balance";
   const CORPORATION_BALANCE_LABEL = "Tooltips/Neocom/CorporationBalance";
   const WALLET_CREDIT_LABEL = "Tooltips/Neocom/WalletCredit";
@@ -2154,9 +2182,9 @@
     };
     const rooms = flow.conversations.state.get().rooms;
     const entries: ChatRailEntry[] = [
-      { label: "Local", select: () => selectBase("local") },
-      { label: "Corp", select: () => selectBase("corp") },
-      ...rooms.map(room => ({ label: room.title, select: () => {
+      { channel: "local", label: "Local", select: () => selectBase("local") },
+      { channel: "corp", label: "Corp", select: () => selectBase("corp") },
+      ...rooms.map(room => ({ channel: room.channel, label: room.title, select: () => {
         if (session !== pilot || !flow.conversations.state.get().rooms.some(entry => entry.channel === room.channel)) return;
         flow.conversations.select(room.channel);
         open("chat");
@@ -4545,7 +4573,7 @@
             <!-- in space, the active ship's inventory in the client's layout (ActiveShipCargo) -->
             <FlyInventoryWindow store={session.store} flow={session.flow} />
           {:else}
-            <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
+            <PanelHost store={session.store} flow={session.flow} tab={win.id} chatUnread={win.id === "chat" ? chatUnread : undefined} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
               {inventoryVaultRequested}
               {storeCategoryRequest} onShowOmegaOffers={showOmegaOffers} onShowMultipleTraining={showMultipleTraining}
               onToggleStore={() => neocomOpen("newEdenStore")}
@@ -4580,6 +4608,9 @@
       onAbort={() => void session?.flow.abortSafeLogoff().catch(() => {})} onQuitChange={(q) => { safeLogoffQuitting = q; }} />
   {/if}
   <ErrorBoundary name="Client dialogs"><ClientDialogs {session} inFront={true} /></ErrorBoundary>
+  {#key session.id}
+    <ErrorBoundary name="Chat invitations"><ChatInvitations {session} inFront={true} /></ErrorBoundary>
+  {/key}
   <ErrorBoundary name="Scanner results"><ScannerWindows {session} inFront={true} /></ErrorBoundary>
   <ErrorBoundary name="Info windows"><InfoWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
   <ErrorBoundary name="Access List information"><AccessGroupInfoWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
