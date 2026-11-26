@@ -13,8 +13,8 @@ import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequ
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
-import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrBrowse, encodeShipSkinrBrowse, encodeShipSkinrListingTarget,
-  shipSkinrListingLimit, shipSkinrListingQuote, type ShipSkinrBrowseQuery, type ShipSkinrListingInput,
+import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms, encodeShipSkinrBrowse,
+  encodeShipSkinrListingTarget, shipSkinrListingLimit, shipSkinrListingQuote, type ShipSkinrBrowseQuery, type ShipSkinrCurrency, type ShipSkinrListingInput,
   type ShipSkinrListingTarget } from "../bridge/shipSkinrMarket.ts";
 import { setSessionToken } from "./sessionToken.ts";
 import { pageFetch } from "./pageFetch.ts";
@@ -4609,6 +4609,9 @@ export interface AppFlow {
   applyShipSkinrLicense(hex: string, shipID: number, remove: boolean): Promise<void>;
   loadShipSkinrOwnedListings(): Promise<ReturnType<typeof decodeOwnedShipSkinrListings>>;
   browseShipSkinrListings(query: ShipSkinrBrowseQuery): Promise<ReturnType<typeof decodeShipSkinrBrowse>>;
+  loadShipSkinrPurchaseTerms(tier: number, branded: boolean): Promise<ReturnType<typeof decodeShipSkinrBuyerTerms>>;
+  loadShipSkinrPurchaseFunds(currency: ShipSkinrCurrency, issuer: number): Promise<{ balance: number; evermarks: number }>;
+  buyShipSkinrListing(listing: string, quantity: number, version: string): Promise<string>;
   cancelShipSkinrListing(id: string): Promise<void>;
   loadShipSkinrListingLimit(): Promise<number>;
   quoteShipSkinrListing(hex: string, target: ShipSkinrListingTarget): Promise<ReturnType<typeof shipSkinrListingQuote>>;
@@ -29054,6 +29057,41 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return result;
   }
 
+  async function loadShipSkinrPurchaseTerms(tier: number, branded: boolean) {
+    const current = callOptions.captureRequestGuard!();
+    const reply = await gatewayAsk(SHIP_SKINR_MARKET + "api.GetBuyerFeesDefinitionRequest");
+    current();
+    return decodeShipSkinrBuyerTerms(reply, tier, branded);
+  }
+
+  async function loadShipSkinrPurchaseFunds(currency: ShipSkinrCurrency, issuer: number) {
+    const current = callOptions.captureRequestGuard!();
+    const [available, loyalty] = await Promise.all([
+      currency === "PLEX" ? readPlexVaultBalance(callOptions).then(cents => Number(cents) / 100)
+        : bridgeAsk("account", "GetCashBalance", []).then(value => {
+          const cash = decodeWalletCash(value);
+          if (cash === null) throw new Error("The ISK balance is unavailable.");
+          return Number(cash);
+        }),
+      bridgeAsk("LPSvc", "GetAllMyCharacterWalletLPBalances", []),
+    ]);
+    current();
+    const evermarks = Number(decodeLpBalances(loyalty).find(row => row.issuerCorpID === issuer)?.loyaltyPoints ?? 0);
+    return { balance: available, evermarks };
+  }
+
+  async function buyShipSkinrListing(listing: string, quantity: number, version: string): Promise<string> {
+    const current = callOptions.captureRequestGuard!();
+    if (!store.station.get().online?.characterID) throw new Error("Select a pilot to buy a SKIN.");
+    const answer = await gatewayAsk(SHIP_SKINR_MARKET + "skin.listing.api.InitiatePurchaseListingRequest", {
+      listing: { uuid: listing }, quantity, buyer_fees_version: version,
+    }, true);
+    current();
+    const receipt = shipSkinrRecord(shipSkinrRecord(answer ?? undefined)?.transaction)?.uuid;
+    if (typeof receipt !== "string" || !receipt) throw new Error("The purchase receipt is unavailable. Check your Collection and balance before trying again.");
+    return receipt;
+  }
+
   async function cancelShipSkinrListing(id: string): Promise<void> {
     const current = callOptions.captureRequestGuard!();
     await gatewayAsk(SHIP_SKINR_MARKET + "skin.listing.api.CancelListingRequest", { listing: { uuid: id } }, true);
@@ -41554,6 +41592,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     applyShipSkinrLicense,
     loadShipSkinrOwnedListings,
     browseShipSkinrListings,
+    loadShipSkinrPurchaseTerms,
+    loadShipSkinrPurchaseFunds,
+    buyShipSkinrListing,
     cancelShipSkinrListing,
     loadShipSkinrListingLimit,
     quoteShipSkinrListing,

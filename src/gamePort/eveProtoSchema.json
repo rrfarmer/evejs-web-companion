@@ -17146,6 +17146,85 @@
      "typeName": "eve_public.NextPage"
     }
    ]
+  },
+  "eve_public.cosmetic.market.api.GetBuyerFeesDefinitionRequest": {
+   "fields": []
+  },
+  "eve_public.cosmetic.market.api.GetBuyerFeesDefinitionResponse": {
+   "fields": [
+    {
+     "name": "buyer_fees",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.market.api.GetBuyerFeesDefinitionResponse.FeePerTier"
+    },
+    {
+     "name": "buyer_fees_version",
+     "number": 2,
+     "type": 9,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.api.GetBuyerFeesDefinitionResponse.FeePerTier": {
+   "fields": [
+    {
+     "name": "skin_tier",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.Tier"
+    },
+    {
+     "name": "default_fee",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.BuyerFee"
+    },
+    {
+     "name": "branded_fee",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.BuyerFee"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.skin.listing.api.InitiatePurchaseListingRequest": {
+   "fields": [
+    {
+     "name": "listing",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.skin.listing.Identifier"
+    },
+    {
+     "name": "quantity",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "buyer_fees_version",
+     "number": 3,
+     "type": 9,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.skin.listing.api.InitiatePurchaseListingResponse": {
+   "fields": [
+    {
+     "name": "transaction",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.transaction.Identifier"
+    }
+   ]
   }
  },
  "enums": {

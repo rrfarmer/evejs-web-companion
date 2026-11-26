@@ -83,3 +83,16 @@ export function decodeShipSkinrBrowse(payload: JsonValue | null) {
   const token = object(object(payload ?? undefined)?.next_page)?.token;
   return { listings: decodeOwnedShipSkinrListings(payload), token: typeof token === "string" && token ? token : undefined };
 }
+
+export function decodeShipSkinrBuyerTerms(payload: JsonValue | null, tier: number, branded: boolean) {
+  const root = object(payload ?? undefined);
+  const version = root?.buyer_fees_version;
+  const rows = root?.buyer_fees;
+  const row = Array.isArray(rows) ? rows.map(object).find(value => Number(object(value?.skin_tier)?.level) === tier) : undefined;
+  const fee = object(object(row?.[branded ? "branded_fee" : "default_fee"])?.loyalty_points);
+  const issuer = Number(object(fee?.associated_corporation)?.sequential);
+  const evermarks = Number(fee?.amount ?? 0);
+  if (typeof version !== "string" || !version || !Number.isSafeInteger(issuer) || issuer <= 0 ||
+      !Number.isSafeInteger(evermarks) || evermarks < 0) throw new Error("Buyer terms unavailable.");
+  return { version, issuer, evermarks };
+}

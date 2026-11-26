@@ -10,6 +10,7 @@
   import { formatDuration } from "../bridge/skills.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
+  import ShipSkinrBuy from "./ShipSkinrBuy.svelte";
   import ShipSkinrMyListings from "./ShipSkinrMyListings.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
@@ -30,6 +31,7 @@
     corpMember: ["Store/ListedByCorpMember", "Corporation Member"],
     allianceBrand: ["Store/ListedByAnyBrandManager", "Alliance Brand Manager"],
     allianceMember: ["Store/ListedByAllianceMember", "Alliance Member"],
+    buy: ["Studio/BuySkin", "Buy SKIN"],
   } as const;
   const sections = ["active", "all", "corporation", "alliance", "targeted", "owned"] as const;
   type Section = typeof sections[number];
@@ -70,6 +72,8 @@
   let nextToken = $state<string | undefined>();
   let rows = $state.raw<readonly Row[]>([]);
   let selected = $state<string | undefined>();
+  let purchasing = $state.raw<Row | null>(null);
+  let purchaseNotice = $state("");
   const detail = $derived(rows.find(row => row.id === selected));
   let refresh = $state(0);
   let loading = $state(false);
@@ -96,6 +100,10 @@
     const terms = query;
     void refresh;
     const reset = terms !== lastQuery || character !== lastPilot;
+    if (character !== lastPilot) {
+      purchasing = null;
+      purchaseNotice = "";
+    }
     lastQuery = terms;
     lastPilot = character;
     const token = reset ? undefined : untrack(() => cursors.at(-1));
@@ -135,6 +143,12 @@
     else return;
     refresh++;
   }
+
+  function purchased(quantity: number, name: string) {
+    purchasing = null;
+    purchaseNotice = `Added ${quantity.toLocaleString()} × ${name} to Collection.`;
+    refresh++;
+  }
 </script>
 
 <nav class="store-sections" aria-label="Paragon Hub sections">
@@ -144,6 +158,7 @@
     {/if}
   {/each}
 </nav>
+{#if purchaseNotice}<p class="purchase-notice" role="status">{purchaseNotice}</p>{/if}
 {#if section === "owned"}
   <ShipSkinrMyListings {store} {flow} />
 {:else}
@@ -194,6 +209,14 @@
             <dt>{word("sooner")}</dt>
             <dd>{Number.isFinite(detail.expires) ? formatDuration(Math.max(0, detail.expires - Date.now())) : "—"}</dd>
           </dl>
+          {#if detail.seller === pilot}
+            <button type="button" onclick={() => choose("owned")}>{word("owned")}</button>
+          {:else}
+            <button type="button" disabled={!detail.design} onclick={() => {
+              purchaseNotice = "";
+              purchasing = detail;
+            }}>{word("buy")}</button>
+          {/if}
         </article>
       {/if}
     </div>
@@ -205,6 +228,10 @@
       </nav>
     {/if}
   </section>
+{/if}
+{#if purchasing?.design}
+  <ShipSkinrBuy {store} {flow} listing={purchasing} name={skinName(purchasing)} tier={purchasing.design.tier}
+    onClose={() => { purchasing = null; }} onPurchased={purchased} />
 {/if}
 
 <style>
@@ -223,5 +250,7 @@
   h4, dl, dd { margin: 0; }
   dl { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding-top: 12px; }
   dd { text-align: end; }
+  article > button { margin-top: 10px; }
+  .purchase-notice { margin: 10px 18px 0; }
   .pages { margin-top: 8px; justify-content: center; }
 </style>
