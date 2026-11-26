@@ -2235,6 +2235,8 @@ function createGamePortPilots({
       if (HOME_STATION_NOTICES.has(notification.method)) entry.homeStation.forget();
       // officeManager.OnOfficeRentalChange (71): an office rented or given up, whoever's, and the station's are not as kept.
       if (notification.method === "OnOfficeRentalChange") entry.stationOffices.forget();
+      // Profiles and access lists also change the accessible service set for a pilot who stays docked.
+      if (notification.method === "OnDockingAccessChangedForCurrentSolarSystem") entry.kept[STRUCTURE_SETTINGS].forget();
       // invCache.OnItemChange: an item changed, and what a container lists may not be so any more.
       if (ITEM_NOTICES.has(notification.method)) entry.listings.forget();
       // machoNet.OnGlobalConfigUpdated(key, value): the config kept changed, and what the client's services do at it.

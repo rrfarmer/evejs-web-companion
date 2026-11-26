@@ -7774,9 +7774,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       for (const listener of plexTransferListeners) listener(method, args);
     }
     if (method === "OnMoonExtractionUpdate") moonExtractionChanged.update(revision => revision + 1);
-    if (method === "OnStructureServiceChanged") {
-      const structureID = moonMiningID(args[0]);
-      if (structureID !== null && store.station.get().online?.structureID === structureID) {
+    if (method === "OnStructureServiceChanged" || method === "OnDockingAccessChangedForCurrentSolarSystem") {
+      const structureID = store.station.get().online?.structureID;
+      if (structureID != null && (method === "OnDockingAccessChangedForCurrentSolarSystem" || moonMiningID(args[0]) === structureID)) {
         void refreshStructureServices(structureID).catch(() => {});
       }
       return;
