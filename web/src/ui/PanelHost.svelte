@@ -211,7 +211,9 @@
 {#if GlobalView}
   <GlobalView {sessions} onOpen={(id, sid) => onOpen?.(id, sid)} {onGoToPilot} />
 {:else if tab === "inventory"}
-  <StationPanel {store} {flow} {isDocked} {onClose} {onReprocess} {inventoryVaultRequested} />
+  <StationPanel {store} {flow} {isDocked} {onClose} {onReprocess} {inventoryVaultRequested}
+    vaultStoreActions={{ omega: onShowOmegaOffers, training: onShowMultipleTraining, store: onToggleStore,
+      buy: onOpen && (() => onOpen?.("plexCheckout")) }} />
 {:else if tab === "fitting"}
   <Fitting {store} {flow} showInventory={() => onOpen?.("inventory")} />
 {:else if tab === "fittingManagement"}

@@ -2,15 +2,13 @@
   import { onMount } from "svelte";
   import { bridgeAsk } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
-  import { plainText } from "../bridge/clientWords.ts";
-  import { isListValue, readDictEntry, type JsonValue } from "../bridge/wire.ts";
+  import { decodeStoreOffers, IN_GAME_STORE_ID, storeEntries, storeEntryID, storeFieldText } from "../bridge/newEdenStore.ts";
+  import { isListValue, readDictEntry } from "../bridge/wire.ts";
 
   type StoreRequest = { tag: "gametime" | "plex" } | { typeID: number };
   let { flow, categoryRequest = null }: { flow: AppFlow; categoryRequest?: StoreRequest | null } = $props();
-  const storeID = 4;
   type Category = { id: number; name: string; tags: string[] };
-  type Offer = { id: number; name: string; description: string; categories: number[]; productTypes: number[] };
-  let catalogue = $state<{ offers: Offer[]; categories: Category[] } | null>(null);
+  let catalogue = $state<{ offers: ReturnType<typeof decodeStoreOffers>; categories: Category[] } | null>(null);
   let selectedCategory = $state<number | null>(null);
   let loading = $state(false);
   let error = $state("");
@@ -20,15 +18,6 @@
   const offers = $derived(catalogue?.offers.filter(offer => (selectedCategory === null || offer.categories.includes(selectedCategory)) &&
     (selectedProduct === null || offer.productTypes.includes(selectedProduct))) ?? []);
 
-  const entries = (value: unknown): readonly JsonValue[] => isListValue(value) ? value.items : [];
-  const name = (value: unknown, key: string): string => {
-    const field = readDictEntry(value, key);
-    return typeof field === "string" ? plainText(field).trim() : "";
-  };
-  const id = (value: unknown): number | null => {
-    const field = readDictEntry(value, "id");
-    return typeof field === "number" && Number.isSafeInteger(field) && field > 0 ? field : null;
-  };
   $effect(() => {
     const requested = categoryRequest;
     if (requested === appliedRequest || !catalogue) return;
@@ -47,27 +36,16 @@
     try {
       const read = bridgeAsk(flow.requestOptions());
       const [rawCategories, rawOffers] = await Promise.all([
-        read("storeManager", "get_categories", [storeID]),
-        read("storeManager", "get_offers", [storeID]),
+        read("storeManager", "get_categories", [IN_GAME_STORE_ID]),
+        read("storeManager", "get_offers", [IN_GAME_STORE_ID]),
       ]);
       if (!isListValue(rawCategories) || !isListValue(rawOffers)) throw new Error("The store catalogue could not be read.");
       const categories = rawCategories.items.flatMap((entry) => {
-        const categoryID = id(entry), title = name(entry, "name");
-        const tags = entries(readDictEntry(entry, "tags")).filter(tag => typeof tag === "string");
+        const categoryID = storeEntryID(entry), title = storeFieldText(entry, "name");
+        const tags = storeEntries(readDictEntry(entry, "tags")).filter(tag => typeof tag === "string");
         return categoryID === null || !title ? [] : [{ id: categoryID, name: title, tags }];
       });
-      const listed = rawOffers.items.flatMap((entry) => {
-        const offerID = id(entry), title = name(entry, "name");
-        const products = entries(readDictEntry(entry, "products"));
-        if (offerID === null || !title || products.length === 0) return [];
-        const groups = entries(readDictEntry(entry, "categories")).map(id);
-        const productTypes = products.flatMap(product => {
-          const typeID = readDictEntry(product, "typeId");
-          return typeof typeID === "number" && Number.isSafeInteger(typeID) ? [typeID] : [];
-        });
-        return [{ id: offerID, name: title, description: name(entry, "description"), categories: groups.filter(group => group !== null), productTypes }];
-      });
-      catalogue = { offers: listed, categories };
+      catalogue = { offers: decodeStoreOffers(rawOffers), categories };
       if (selectedCategory !== null && !categories.some(category => category.id === selectedCategory)) selectedCategory = null;
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);

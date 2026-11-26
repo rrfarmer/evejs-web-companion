@@ -1,5 +1,5 @@
 <script lang="ts">
-  import PlexVaultBalance from "./PlexVaultBalance.svelte";
+  import PlexVaultBalance, { type PlexVaultStoreActions } from "./PlexVaultBalance.svelte";
   import { PLEX_TYPE_ID } from "../bridge/plexVault.ts";
   // THE STATION PANEL — the right-hand dock panel while DOCKED.
   //
@@ -138,6 +138,7 @@
     onOpenInventory,
     onReprocess,
     inventoryVaultRequested = false,
+    vaultStoreActions,
   }: {
     store: ClientStore;
     flow: AppFlow;
@@ -148,6 +149,7 @@
      */
     ping?: number;
     inventoryVaultRequested?: boolean;
+    vaultStoreActions?: PlexVaultStoreActions;
     /**
      * Whether the pilot is DOCKED.
      *
@@ -2111,7 +2113,7 @@
     {#if view === "plexVault"}
       <section class="stn-view" id="{panelID}-view-plexVault" role="tabpanel" aria-labelledby="{panelID}-tab-plexVault"
         ondragover={overPlexVault} ondrop={dropInPlexVault}>
-        <PlexVaultBalance {flow} {store} />
+        <PlexVaultBalance {flow} {store} storeActions={vaultStoreActions} />
       </section>
     {/if}
     <!-- ------------------------------------------------------- ship bays -->
