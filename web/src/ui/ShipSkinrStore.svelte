@@ -11,9 +11,10 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import ShipSkinrBuy from "./ShipSkinrBuy.svelte";
+  import ShipSkinrListingShare from "./ShipSkinrListingShare.svelte";
   import ShipSkinrMyListings from "./ShipSkinrMyListings.svelte";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, linked }: { store: ClientStore; flow: AppFlow; linked: ReturnType<AppFlow["takeShipSkinrListingLink"]> } = $props();
   type Row = Awaited<ReturnType<AppFlow["browseShipSkinrListings"]>>["listings"][number] & { design: ShipSkinrDesign | null };
   const prefix = "UI/Personalization/ShipSkins/SKINR/";
   const labels = {
@@ -71,16 +72,21 @@
   let cursors = $state.raw<readonly (string | undefined)[]>([undefined]);
   let nextToken = $state<string | undefined>();
   let rows = $state.raw<readonly Row[]>([]);
+  let pinned = $state.raw<Row | null>(null);
   let selected = $state<string | undefined>();
   let purchasing = $state.raw<Row | null>(null);
   let purchaseNotice = $state("");
-  const detail = $derived(rows.find(row => row.id === selected));
+  const pinnedRow = $derived(section === "all" && !hull && cursors.length === 1 ? pinned : null);
+  const shown = $derived(pinnedRow ? [pinnedRow, ...rows.filter(row => row.id !== pinnedRow?.id)] : rows);
+  const detail = $derived(shown.find(row => row.id === (selected ?? pinnedRow?.id)));
   let refresh = $state(0);
   let loading = $state(false);
   let error = $state("");
   let hullError = $state("");
   let lastQuery: ShipSkinrBrowseQuery | null = null;
   let lastPilot: number | undefined;
+
+  $effect(() => { pinned = linked; });
 
   $effect(() => {
     flow.requestWords(Object.values(labels).map(([path]) => prefix + path));
@@ -101,6 +107,7 @@
     void refresh;
     const reset = terms !== lastQuery || character !== lastPilot;
     if (character !== lastPilot) {
+      if (lastPilot !== undefined) pinned = null;
       purchasing = null;
       purchaseNotice = "";
     }
@@ -131,6 +138,7 @@
 
   function choose(next: Section) {
     if (section === next) return;
+    pinned = null;
     section = next;
     hull = 0;
     membership = 0;
@@ -145,6 +153,9 @@
   }
 
   function purchased(quantity: number, name: string) {
+    if (pinned && pinned.id === purchasing?.id) {
+      pinned = pinned.quantity > quantity ? { ...pinned, quantity: pinned.quantity - quantity } : null;
+    }
     purchasing = null;
     purchaseNotice = `Added ${quantity.toLocaleString()} × ${name} to Collection.`;
     refresh++;
@@ -181,16 +192,16 @@
         <option value={false}>{word("later")}</option>
         <option value={true}>{word("sooner")}</option>
       </select></label>
-      <button type="button" disabled={loading || !query} onclick={() => { cursors = [undefined]; refresh++; }}>Refresh</button>
+      <button type="button" disabled={loading || !query} onclick={() => { pinned = null; cursors = [undefined]; refresh++; }}>Refresh</button>
     </div>
     {#if allowHull && hullError}<p role="status">{hullError}</p>{/if}
     {#if loading}<p>Loading listings…</p>
     {:else if error}<p role="alert">{error}</p>
-    {:else if !rows.length}<p>{section === "active" && !activeHull ? "No active ship." : "No listings."}</p>{/if}
+    {:else if !shown.length}<p>{section === "active" && !activeHull ? "No active ship." : "No listings."}</p>{/if}
     <div class="browse-body">
       <ul>
-        {#each rows as row (row.id)}
-          <li><button type="button" aria-pressed={selected === row.id} onclick={() => { selected = row.id; }}>
+        {#each shown as row (row.id)}
+          <li><button type="button" aria-pressed={detail?.id === row.id} onclick={() => { selected = row.id; }}>
             <strong>{skinName(row)}</strong>
             <span>{row.design ? typeName(row.design.shipTypeID) : "—"} · {price(row)}</span>
           </button></li>
@@ -217,6 +228,7 @@
               purchasing = detail;
             }}>{word("buy")}</button>
           {/if}
+          {#key detail.id}<ShipSkinrListingShare {store} {flow} id={detail.id} name={skinName(detail)} />{/key}
         </article>
       {/if}
     </div>

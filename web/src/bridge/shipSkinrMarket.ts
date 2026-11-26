@@ -64,20 +64,24 @@ export function shipSkinrListingLimit(skills: unknown): number {
 export function decodeOwnedShipSkinrListings(payload: JsonValue | null) {
   const rows = object(payload ?? undefined)?.listings;
   if (!Array.isArray(rows)) return [];
-  return rows.flatMap(value => {
-    const row = object(value);
-    const id = object(row?.id)?.uuid;
-    const attributes = object(row?.attributes);
-    const hex = object(object(attributes?.skin)?.skin)?.hex;
-    if (typeof id !== "string" || typeof hex !== "string") return [];
-    const currency: ShipSkinrCurrency = attributes?.plex ? "PLEX" : "ISK";
-    return [{ id, hex, quantity: Number(attributes?.quantity), currency,
-      amount: currency === "PLEX" ? Number(object(attributes?.plex)?.total_in_cents) / 100 : fixed(attributes?.isk),
-      seller: Number(object(attributes?.seller)?.sequential ?? object(object(attributes?.skin)?.character)?.sequential ?? 0),
-      branded: attributes?.branded === true, target: object(attributes?.target) ?? {}, expires: Number(object(attributes?.expires)?.seconds) * 1000,
-      created: Number(object(attributes?.created)?.seconds) * 1000 }];
-  });
+  return rows.map(decodeShipSkinrListing).filter(row => row !== null);
 }
+
+export function decodeShipSkinrListing(value: JsonValue | undefined) {
+  const row = object(value);
+  const id = object(row?.id)?.uuid;
+  const attributes = object(row?.attributes);
+  const hex = object(object(attributes?.skin)?.skin)?.hex;
+  if (typeof id !== "string" || typeof hex !== "string") return null;
+  const currency: ShipSkinrCurrency = attributes?.plex ? "PLEX" : "ISK";
+  return { id, hex, quantity: Number(attributes?.quantity), currency,
+    amount: currency === "PLEX" ? Number(object(attributes?.plex)?.total_in_cents ?? 0) / 100 : fixed(attributes?.isk),
+    seller: Number(object(attributes?.seller)?.sequential ?? object(object(attributes?.skin)?.character)?.sequential ?? 0),
+    branded: attributes?.branded === true, target: object(attributes?.target) ?? {}, expires: Number(object(attributes?.expires)?.seconds) * 1000,
+    created: Number(object(attributes?.created)?.seconds) * 1000 };
+}
+
+export type ShipSkinrListing = NonNullable<ReturnType<typeof decodeShipSkinrListing>>;
 
 export function decodeShipSkinrBrowse(payload: JsonValue | null) {
   const token = object(object(payload ?? undefined)?.next_page)?.token;

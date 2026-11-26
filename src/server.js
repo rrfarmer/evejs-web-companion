@@ -15956,6 +15956,7 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.cosmetic.market.api.GetBuyerFeeRequest",
   "eve_public.cosmetic.market.skin.listing.api.GetAllOwnedRequest",
   "eve_public.cosmetic.market.skin.listing.api.GetAllRequest",
+  "eve_public.cosmetic.market.skin.listing.api.GetRequest",
   "eve_public.cosmetic.market.api.GetBuyerFeesDefinitionRequest",
   "eve_public.cosmetic.market.component.listing.api.GetAllRequest",
   "eve_public.cosmetic.market.transaction.api.GetRequest",

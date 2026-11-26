@@ -17279,6 +17279,28 @@
      "name": "immediately_activate"
     }
    ]
+  },
+  "eve_public.cosmetic.market.skin.listing.api.GetRequest": {
+   "fields": [
+    {
+     "name": "listing",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.skin.listing.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.skin.listing.api.GetResponse": {
+   "fields": [
+    {
+     "name": "listing",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.skin.listing.Entry"
+    }
+   ]
   }
  },
  "enums": {

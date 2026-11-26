@@ -13,6 +13,7 @@
     registerBeforeClose?: (guard: Guard) => () => void } = $props();
   let page = $state<Page>("studio");
   let storePage = $state<"skins" | "elements">("skins");
+  let linked = $state.raw<ReturnType<AppFlow["takeShipSkinrListingLink"]>>(null);
   let guard: Guard | undefined;
   let changingPage = false;
   const words = $derived(store.words);
@@ -28,6 +29,17 @@
   ] as const;
   $effect(() => { flow.requestWords([...tabs, ...storeTabs].map(tab => tab.path)); });
   $effect(() => registerBeforeClose?.(() => guard?.() ?? Promise.resolve(true)));
+  $effect(() => flow.shipSkinrListingLink.subscribe(request => {
+    if (!request) return;
+    const listing = flow.takeShipSkinrListingLink();
+    if (!listing) return;
+    void choose("store").then(accepted => {
+      if (accepted) {
+        storePage = "skins";
+        linked = listing;
+      }
+    }).catch(() => {});
+  }));
 
   function registerGuard(next: Guard) {
     guard = next;
@@ -35,10 +47,14 @@
   }
 
   async function choose(next: Page) {
-    if (page === next || changingPage) return;
+    if (changingPage) return false;
+    if (page === next) return true;
     changingPage = true;
     try {
-      if (!guard || await guard()) page = next;
+      if (guard && !await guard()) return false;
+      page = next;
+      linked = null;
+      return true;
     } finally {
       changingPage = false;
     }
@@ -59,13 +75,18 @@
 {:else}
   <nav aria-label="Paragon Hub catalogues" class="skinr-pages">
     {#each storeTabs as tab (tab.page)}
-      <button type="button" aria-pressed={storePage === tab.page} onclick={() => { storePage = tab.page; }}>
+      <button type="button" aria-pressed={storePage === tab.page} onclick={() => {
+        storePage = tab.page;
+        if (tab.page === "elements") linked = null;
+      }}>
         {plainText($words.templates[tab.path] ?? tab.fallback)}
       </button>
     {/each}
   </nav>
   {#if storePage === "skins"}
-    <ShipSkinrStore {store} {flow} />
+    {#key linked}
+      <ShipSkinrStore {store} {flow} {linked} />
+    {/key}
   {:else}
     <ShipSkinrElementStore {store} {flow} />
   {/if}
