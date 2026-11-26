@@ -281,7 +281,8 @@
     {/key}
   {/if}
 {:else if tab === "structureBrowser"}
-  <StructureBrowser {store} {flow} {schedulableRefineryID} {onOpenRefinerySchedule} {onShowSystem} />
+  <StructureBrowser {store} {flow} {schedulableRefineryID} {onOpenRefinerySchedule} {onShowSystem}
+    onManageAccessGroups={onOpen ? () => onOpen?.("accessGroups") : undefined} />
 {:else if tab === "accessGroups"}
   <AccessLists {store} {flow} />
 {:else if tab === "mail"}

@@ -1002,6 +1002,7 @@ import { systemGraphOnce } from "../nav/systemGraphKept.ts";
 import { autopilotDistances, autopilotJumpCounts, autopilotMap, autopilotPath, type AutopilotMap, type AutopilotRouteType, type AutopilotSettings } from "../nav/autopilotRoute.ts";
 import { availableJumpGateJumps, type JumpGateJump } from "../nav/jumpGates.ts";
 import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, decodeStructureProfileNames, decodeStructureProfiles, encodeStructureDescription, MAX_STRUCTURE_DESCRIPTION_LENGTH, type StructureBrowserDirectory } from "../bridge/structures.ts";
+import { decodeProfileSettingRows, profileSettingSignature, type ProfileSettingRow } from "../bridge/structureProfileSettings.ts";
 import { NO_REINFORCEMENT_WEEKDAY, structureDecommissionAction, structureDecommissionSeconds } from "../bridge/structureBrowserFilters.ts";
 import {
   AVOIDING_DIALOGS,
@@ -4604,6 +4605,8 @@ export interface AppFlow {
   duplicateStructureProfile(profileID: number): Promise<void>;
   deleteStructureProfile(profileID: number): Promise<boolean>;
   setDefaultStructureProfile(profileID: number): Promise<void>;
+  loadStructureProfileSettings(profileID: number): Promise<{ rows: readonly ProfileSettingRow[]; groups: readonly AccessGroup[] }>;
+  saveStructureProfileSettings(profileID: number, baseline: readonly ProfileSettingRow[], rows: readonly ProfileSettingRow[]): Promise<readonly ProfileSettingRow[]>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
   loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
@@ -29153,6 +29156,37 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
+  async function loadStructureProfileSettings(profileID: number) {
+    const scope = captureMemberOperation();
+    requireStructureProfileManager(scope);
+    const [settings, groups] = await Promise.all([
+      scope.ask("structureProfiles", "GetProfileSettings", [profileID]),
+      readMyAccessGroups(scope.ask),
+    ]);
+    scope.current();
+    return { rows: decodeProfileSettingRows(settings), groups };
+  }
+
+  async function saveStructureProfileSettings(profileID: number, baseline: readonly ProfileSettingRow[], rows: readonly ProfileSettingRow[]) {
+    const scope = captureMemberOperation();
+    requireStructureProfileManager(scope);
+    const [profiles, settings] = await Promise.all([
+      scope.ask("structureProfiles", "GetProfiles", []),
+      scope.ask("structureProfiles", "GetProfileSettings", [profileID]),
+    ]);
+    requireStructureProfileManager(scope);
+    if (!decodeStructureProfiles(profiles).has(profileID)) throw new Error("This corporation profile is unavailable.");
+    if (profileSettingSignature(decodeProfileSettingRows(settings)) !== profileSettingSignature(baseline)) {
+      throw new Error("The profile changed while you were editing it. Reopen Profile Settings to read the saved values.");
+    }
+    const items = rows.map(row => ({ type: "tuple", items: [row.settingID, row.value, row.groupID] }));
+    await scope.write("structureProfiles", "SaveProfileSettings", [profileID, { type: "list", items }]);
+    const saved = decodeProfileSettingRows(await scope.ask("structureProfiles", "GetProfileSettings", [profileID]));
+    scope.current();
+    if (profileSettingSignature(saved) !== profileSettingSignature(rows)) throw new Error("The profile settings could not be confirmed.");
+    return saved;
+  }
+
   async function assignStructureProfile(structureIDs: readonly number[], profileID: number): Promise<void> {
     const scope = captureMemberOperation();
     const ids = new Set(structureIDs);
@@ -41004,6 +41038,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     duplicateStructureProfile,
     deleteStructureProfile,
     setDefaultStructureProfile,
+    loadStructureProfileSettings,
+    saveStructureProfileSettings,
     startMoonPull,
     controlMoonPull,
     loadCorporationMiningObservers,

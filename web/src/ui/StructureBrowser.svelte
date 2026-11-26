@@ -26,14 +26,16 @@
   import HomeStationPanel from "./HomeStationPanel.svelte";
   import StructureDescription from "./StructureDescription.svelte";
   import StructureReinforcement from "./StructureReinforcement.svelte";
+  import StructureProfileSettings from "./StructureProfileSettings.svelte";
   import MySkyhooks from "./MySkyhooks.svelte";
   import { startLinkDrag } from "./linkFollowers.ts";
   import { showInfo } from "./showInfo.ts";
 
-  let { flow, store, schedulableRefineryID = null, onOpenRefinerySchedule, onShowSystem }: {
+  let { flow, store, schedulableRefineryID = null, onOpenRefinerySchedule, onShowSystem, onManageAccessGroups }: {
     flow: AppFlow; store: ClientStore; schedulableRefineryID?: number | null;
     onOpenRefinerySchedule?: (structureID: number) => Promise<void>;
     onShowSystem?: (systemID: number) => void;
+    onManageAccessGroups?: () => void;
   } = $props();
   const station = $derived(store.station);
   const flight = $derived(store.flight);
@@ -48,9 +50,10 @@
   const hasCorporationTabs = $derived(corporationID !== null && !isNpcCorporation(corporationID));
   let tab = $state<"all" | "corporation" | "skyhooks">("all");
   let skyhookSearch = $state("");
-  let corporationPanel = $state<"structures" | "extractions">("structures");
+  let corporationPanel = $state<"structures" | "extractions" | "settings">("structures");
   const activeTab = $derived(hasCorporationTabs && (tab !== "corporation" || canManage) ? tab : "all");
   const scheduleOpen = $derived(activeTab === "corporation" && corporationPanel === "extractions");
+  const profileSettingsOpen = $derived(activeTab === "corporation" && corporationPanel === "settings");
   let directory = $state.raw<StructureBrowserDirectory | null>(null);
   const rows = $derived(directory?.entries ?? []);
   let loading = $state(true);
@@ -80,6 +83,9 @@
   let profileDescription = $state("");
   let profileError = $state("");
   let directoryRevision = $state(0);
+  let settingsDirty = $state(false);
+  let settingsSaving = $state(false);
+  let settingsQuestion = $state(false);
   const rowMenu = new ContextMenu();
   onDestroy(() => rowMenu.close());
 
@@ -101,6 +107,9 @@
     duplicateProfile: ["UI/StructureBrowser/DuplicateProfile", "Duplicate Profile"],
     deleteProfile: ["UI/StructureBrowser/DeleteProfile", "Delete Profile"],
     setDefaultProfile: ["UI/StructureBrowser/SetDefaultProfile", "Set as default profile"],
+    profileSettings: ["UI/StructureBrowser/ProfileSettings", "Profile Settings"],
+    unsavedSettings: ["UI/StructureBrowser/UnsavedChanges", "Unsaved Changes"],
+    discardSettings: ["UI/StructureBrowser/UnsavedChangesQuestion", "Discard the unsaved changes to this profile?"],
     editProfileTitle: ["UI/StructureProfiles/EditProfileName", "Edit Profile"],
     saveProfile: ["UI/StructureProfiles/EditProfileNameBtn", "Edit Profile"],
     profileName: ["UI/StructureProfiles/ProfileName", "Profile Name"],
@@ -315,6 +324,41 @@
     }
   }
 
+  async function leaveProfileSettings(): Promise<boolean> {
+    if (settingsSaving || settingsQuestion) return false;
+    if (!profileSettingsOpen || !settingsDirty) return true;
+    settingsQuestion = true;
+    try {
+      const question = word("discardSettings");
+      return await flow.askClientDialogWith("CustomQuestion", { header: word("unsavedSettings"), question }, question);
+    } finally {
+      settingsQuestion = false;
+    }
+  }
+
+  async function switchTab(next: typeof tab): Promise<void> {
+    if (next === activeTab || !await leaveProfileSettings()) return;
+    settingsDirty = false;
+    if (profileSettingsOpen) corporationPanel = "structures";
+    tab = next;
+  }
+
+  async function switchCorporationPanel(next: typeof corporationPanel): Promise<void> {
+    if (next === corporationPanel || !await leaveProfileSettings()) return;
+    settingsDirty = false;
+    corporationPanel = next;
+  }
+
+  async function selectProfile(element: HTMLSelectElement): Promise<void> {
+    const next = element.value === "" ? null : Number(element.value);
+    if (next === displayedProfile) return;
+    element.value = displayedProfile === null ? "" : String(displayedProfile);
+    if (!await leaveProfileSettings()) return;
+    settingsDirty = false;
+    profile = next;
+    if (next === null || !directory?.profiles.has(next)) corporationPanel = "structures";
+  }
+
   function addReinforcementOptions(entries: (ContextEntry | null)[], rows: readonly StructureBrowserEntry[]): void {
     const dockable = rows.filter(row => !isFlexStructure(row.typeID));
     const flex = rows.filter(row => isFlexStructure(row.typeID));
@@ -452,6 +496,9 @@
     void characterID;
     void corporationID;
     profileEditor = null;
+    settingsDirty = false;
+    settingsSaving = false;
+    corporationPanel = "structures";
   });
 
   $effect(() => {
@@ -536,27 +583,32 @@
   {#if actionError}<p role="alert" class="error">{actionError}</p>{/if}
   {#if hasCorporationTabs}
     <nav aria-label="Structure Browser">
-      <button type="button" aria-pressed={activeTab === "all"} onclick={() => tab = "all"}>{word("all")}</button>
-      {#if canManage}<button type="button" aria-pressed={activeTab === "corporation"} onclick={() => tab = "corporation"}>{word("corporation")}</button>{/if}
-      <button type="button" aria-pressed={activeTab === "skyhooks"} onclick={() => tab = "skyhooks"}>{word("skyhooks")}</button>
+      <button type="button" aria-pressed={activeTab === "all"} onclick={() => void switchTab("all")}>{word("all")}</button>
+      {#if canManage}<button type="button" aria-pressed={activeTab === "corporation"} onclick={() => void switchTab("corporation")}>{word("corporation")}</button>{/if}
+      <button type="button" aria-pressed={activeTab === "skyhooks"} onclick={() => void switchTab("skyhooks")}>{word("skyhooks")}</button>
     </nav>
   {/if}
   {#if activeTab === "corporation"}
     <nav aria-label={word("corporation")}>
-      <button type="button" aria-pressed={!scheduleOpen} onclick={() => corporationPanel = "structures"}>{word("withProfile")}</button>
-      <button type="button" aria-pressed={scheduleOpen} onclick={() => corporationPanel = "extractions"}>{word("extractions")}</button>
+      <button type="button" aria-pressed={corporationPanel === "structures"} onclick={() => void switchCorporationPanel("structures")}>{word("withProfile")}</button>
+      {#if selectedProfile}
+        <button type="button" aria-pressed={profileSettingsOpen} disabled={profileEditor !== null || profileBusy}
+          onclick={() => void switchCorporationPanel("settings")}>{word("profileSettings")}</button>
+      {/if}
+      <button type="button" aria-pressed={scheduleOpen} onclick={() => void switchCorporationPanel("extractions")}>{word("extractions")}</button>
     </nav>
     {#if !scheduleOpen}
       <div class="directory-filters">
         <label>{word("profile")}
-          <select value={displayedProfile ?? ""} disabled={profileEditor !== null || profileBusy}
-            onchange={(event) => profile = event.currentTarget.value ? Number(event.currentTarget.value) : null}>
+          <select value={displayedProfile ?? ""} disabled={profileEditor !== null || profileBusy || settingsSaving || settingsQuestion}
+            onchange={(event) => void selectProfile(event.currentTarget)}>
             <option value="">All Profiles</option>
             {#each [...profileChoices].sort((left, right) => left[1].localeCompare(right[1], undefined, { sensitivity: "base" })) as [id, name] (id)}
               <option value={id}>{name}{directory?.profiles.get(id)?.isDefault ? " (Default)" : ""}</option>
             {/each}
           </select>
         </label>
+        {#if !profileSettingsOpen}
         <button type="button" disabled={loading || profileBusy || profileEditor !== null} onclick={() => openProfileEditor("new")}>{word("newProfile")}</button>
         {#if selectedProfile}
           {@const target = selectedProfile}
@@ -576,6 +628,7 @@
             <label><input type="checkbox" bind:group={ownedServices} value={choice.id} /> {choice.label}</label>
           {/each}
         </details>
+        {/if}
       </div>
       {#if profileEditor !== null}
         {@const title = word(profileEditor === "new" ? "createProfile" : "editProfileTitle")}
@@ -625,6 +678,11 @@
     <MySkyhooks {store} {flow} {systemID} {onShowSystem} bind:search={skyhookSearch} />
   {:else if scheduleOpen}
     <CorporationMoonSchedule {store} {flow} />
+  {:else if profileSettingsOpen && selectedProfile}
+    {#key selectedProfile.id}
+      <StructureProfileSettings {store} {flow} profile={selectedProfile} {onManageAccessGroups}
+        bind:dirty={settingsDirty} bind:saving={settingsSaving} />
+    {/key}
   {:else if loading}
     <p role="status">Loading structures…</p>
   {:else if error}

@@ -1,5 +1,7 @@
 "use strict";
 
+const { isStructureProfileSettingsList } = require("../structureProfileSettings");
+
 // What the retail client sends for each call, and how what the BFF asks for
 // compares with it.
 //
@@ -708,6 +710,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "structureVulnerability.UpdateReinforceTimesFromClient",
   "structureProfiles.GetProfiles", "structureProfiles.ChangeProfiles", "structureProfiles.CreateProfile", "structureProfiles.UpdateProfile",
   "structureProfiles.DuplicateProfile", "structureProfiles.DeleteProfile", "structureProfiles.SetDefaultProfile",
+  "structureProfiles.GetProfileSettings", "structureProfiles.SaveProfileSettings",
   "moonExtractions.GetExtractionsForCorp",
   "moonExtractions.GetMoonResourcesForStructure", "moonExtractions.GetExtractionAndEventIDFromStructureID",
   "moonExtractions.StartNewExtraction", "moonExtractions.FractureChunkWithStructure", "moonExtractions.CancelExtraction",
@@ -3496,6 +3499,15 @@ const RETAIL_CALLS = Object.freeze({
     (args, kwargs) => args.length === 1 && Number.isSafeInteger(args[0]) && args[0] > 0 && Object.keys(kwargs).length === 0
       ? {} : { status: "differs", note: "The client sends only the selected profile ID." },
     "Set the corporation's default profile for structures without an assigned profile."),
+  "structureProfiles.GetProfileSettings": judged("eve/client/script/ui/structure/structureSettings/controllers/slimProfileController.py:48",
+    (args, kwargs) => args.length === 1 && Number.isSafeInteger(args[0]) && args[0] > 0 && Object.keys(kwargs).length === 0
+      ? {} : { status: "differs", note: "The client reads settings for the selected profile ID." },
+    "Read saved access lists and values for one corporation structure profile."),
+  "structureProfiles.SaveProfileSettings": judged("eve/client/script/ui/structure/structureSettings/structureSettingsWnd.py:96",
+    (args, kwargs) => args.length === 2 && Number.isSafeInteger(args[0]) && args[0] > 0 &&
+      Object.keys(kwargs).length === 0 && isStructureProfileSettingsList(args[1])
+      ? {} : { status: "differs", note: "The client sends a profile ID and a list of (setting ID, value, group ID) tuples." },
+    "Replace the selected corporation structure profile's saved access settings."),
   "structureProfiles.ChangeProfiles": judged("eve/client/script/ui/structure/structureSettings/controllers/allProfilesController.py:61",
     (args, kwargs) => args.length === 2 && Object.keys(kwargs).length === 0 &&
       args[0]?.type === "list" && itemIDsListed(args[0].items) &&
