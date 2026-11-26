@@ -1410,6 +1410,7 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     || (body.service === "structureSettings" && body.method === "CharacterHasSetting")) {
     const args = Array.isArray(body.args) ? body.args : [];
     const valid = {
+      GetStructurePilot: () => args.length === 1 && isPlayerStructureID(args[0]),
       TakeControl: () => args.length === 1 && isPlayerStructureID(args[0]),
       BoardStructure: () => args.length === 1 && isPlayerStructureID(args[0]),
       EjectFromStructure: () => args.length === 1 && (args[0] === null || strictPositiveID(args[0]) !== null),

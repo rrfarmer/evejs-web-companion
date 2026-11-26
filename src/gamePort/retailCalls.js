@@ -697,7 +697,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // playerOwned.EnterShipPassword: GetShipAccess().SetShipPassword(password), the ship's space menu's Enter Starbase Forcefield Password
   "ship.SetShipPassword",
   "repackagingSvc.RepackageItems",
-  "structureControl.TakeControl", "structureControl.ReleaseControl",
+  "structureControl.GetStructurePilot", "structureControl.TakeControl", "structureControl.ReleaseControl",
   "structureControl.BoardStructure", "structureControl.EjectFromStructure", "structureCargoDelivery.DropOffItems",
   "structureSettings.CharacterHasSetting",
   "structureSettings.CharacterHasService",
@@ -3441,6 +3441,7 @@ const RETAIL_CALLS = Object.freeze({
   "characterMiningLedger.GetCharacterLogs": judged("eve/client/script/ui/shared/ledger/ledgerSvc.py:29", sentWithNothing, "The personal Mining Ledger reads the logs for the session's character without arguments."),
   "corpMiningLedger.GetObserversWithMiningEvents": judged("eve/client/script/ui/shared/ledger/ledgerSvc.py:32", sentWithNothing, "The corporation Mining Ledger lists observers with events for the session's corporation."),
   "corpMiningLedger.GetObserverLedger": judged("eve/client/script/ui/shared/ledger/ledgerSvc.py:44", oneIDAlone("the selected mining observer"), "The corporation Mining Ledger reads the selected structure's extraction records."),
+  "structureControl.GetStructurePilot": judged("eve/client/script/ui/services/structure/structureControl.py:98", oneIDAlone("the docked structure"), "Read the pilot currently controlling the structure."),
   "structureControl.TakeControl": judged("eve/client/script/ui/services/structure/structureControl.py:33", oneIDAlone("the docked structure"), "Take control of the structure in the pilot's session."),
   "structureControl.ReleaseControl": judged("eve/client/script/ui/services/structure/structureControl.py:59", sentWithNothing, "Release the structure in the pilot's session."),
   "structureControl.BoardStructure": judged("eve/client/script/ui/services/structure/structureControl.py:52", oneIDAlone("the nearby structure"), "Board the structure from space and take control."),

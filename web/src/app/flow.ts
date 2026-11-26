@@ -4565,7 +4565,8 @@ export interface AppFlow {
   readonly moonFracturing: ReadableSignal<{ structureID: number; extractionID: number; endsAtMs: number } | null>;
   loadMoonRefinery(structureID: number): Promise<MoonRefinery | null>;
   hasMoonSchedulingAccess(structureID: number): Promise<boolean>;
-  changeRefineryControl(structureID: number, take: boolean): Promise<void>;
+  canTakeStructureControl(structureID: number): Promise<boolean>;
+  changeStructureControl(structureID: number, take: boolean): Promise<void>;
   loadMoonResources(structureID: number): Promise<readonly MoonResource[]>;
   loadMoonOrePricing(typeIDs: readonly number[]): Promise<ReadonlyMap<number, MoonOrePricing>>;
   loadMoonSchedule(structureID: number): Promise<MoonSchedule>;
@@ -7706,7 +7707,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    */
   function oneItemChanged(args: readonly unknown[]): void {
     inventoryMoves.itemChanged(args[0], args[1]);
-    const refineryID = dockedRefineryID();
+    const refineryID = dockedStructureID();
     // The native scheduler watches the structure's fuel bay, including changes to an existing stack.
     if (refineryID !== null && store.flight.get().status?.shipID === refineryID
         && itemChangeLocations(args)?.includes(refineryID)
@@ -28673,25 +28674,25 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return facts;
   }
 
-  function dockedRefineryID(): number | null {
+  function dockedStructureID(): number | null {
     const flight = store.flight.get().status;
     return flight ? (flight.docked ? flight.structureID : null) : store.station.get().online?.structureID ?? null;
   }
 
   function assertRefineryControl(structureID: number): void {
-    if (dockedRefineryID() !== structureID || store.flight.get().status?.shipID !== structureID) {
+    if (dockedStructureID() !== structureID || store.flight.get().status?.shipID !== structureID) {
       throw new Error("Take control of this refinery to operate its moon drill.");
     }
   }
 
   async function loadMoonRefinery(structureID: number): Promise<MoonRefinery | null> {
-    if (dockedRefineryID() !== structureID) return null;
+    if (dockedStructureID() !== structureID) return null;
     const info = await bridgeAsk("structureDirectory", "GetStructureInfo", [structureID]);
     const typeID = moonMiningID(readKeyVal(info, "typeID"));
-    if ((typeID !== 35835 && typeID !== 35836) || dockedRefineryID() !== structureID) return null;
+    if ((typeID !== 35835 && typeID !== 35836) || dockedStructureID() !== structureID) return null;
     const name = readKeyVal(info, "itemName");
     const canControl = unwrapBool(await bridgeAsk("structureSettings", "CharacterHasSetting", [structureID, 17])) === true;
-    if (dockedRefineryID() !== structureID) return null;
+    if (dockedStructureID() !== structureID) return null;
     return {
       id: structureID,
       name: typeof name === "string" && name.length > 0 ? name : typeID === 35835 ? "Athanor" : "Tatara",
@@ -28701,18 +28702,47 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   async function hasMoonSchedulingAccess(structureID: number): Promise<boolean> {
-    if (dockedRefineryID() !== structureID || store.flight.get().status?.shipID !== structureID) return false;
+    if (dockedStructureID() !== structureID || store.flight.get().status?.shipID !== structureID) return false;
     const current = callOptions.captureRequestGuard!();
     const access = await bridgeAsk("structureSettings", "CharacterHasService", [structureID, 14]);
     current();
-    return unwrapBool(access) === true && dockedRefineryID() === structureID && store.flight.get().status?.shipID === structureID;
+    return unwrapBool(access) === true && dockedStructureID() === structureID && store.flight.get().status?.shipID === structureID;
   }
 
-  async function changeRefineryControl(structureID: number, take: boolean): Promise<void> {
-    if (dockedRefineryID() !== structureID) throw new Error("You are no longer docked at this refinery.");
+  async function canTakeStructureControl(structureID: number): Promise<boolean> {
+    if (dockedStructureID() !== structureID) return false;
+    const allowed = unwrapBool(await bridgeAsk("structureSettings", "CharacterHasSetting", [structureID, 17])) === true;
+    return allowed && dockedStructureID() === structureID;
+  }
+
+  async function changeStructureControl(structureID: number, take: boolean): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    const assertDocked = () => {
+      current();
+      if (dockedStructureID() !== structureID) throw new Error("You are no longer docked at this structure.");
+    };
+    assertDocked();
+    if (take) {
+      if (!await canTakeStructureControl(structureID)) throw new Error("You may not take control of this structure.");
+      const controller = async () => moonMiningID(await bridgeAsk("structureControl", "GetStructurePilot", [structureID]));
+      const occupant = await controller();
+      assertDocked();
+      if (occupant !== null) {
+        if (occupant === store.station.get().online?.characterID) return;
+        await resolveNamesNow([{ kind: "owner", id: occupant }]);
+        assertDocked();
+        const name = resolvedName(store.names.get().resolved, "owner", occupant, "Another pilot");
+        if (!await askDialog("ConfirmTakeControl", null, `${name} is controlling this structure. Take control?`, "okcancel")) return;
+        assertDocked();
+        const latest = await controller();
+        if (latest !== null && latest !== occupant) throw new Error("The pilot in control has changed.");
+      }
+    } else if (store.flight.get().status?.shipID !== structureID) return;
+    assertDocked();
     await bridgeDo("structureControl", take ? "TakeControl" : "ReleaseControl", take ? [structureID] : []);
     await loadFlightStatus();
-    if (take) assertRefineryControl(structureID);
+    assertDocked();
+    if (take && store.flight.get().status?.shipID !== structureID) throw new Error("Structure control did not change.");
   }
 
   async function loadMoonResources(structureID: number): Promise<readonly MoonResource[]> {
@@ -40814,7 +40844,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     moonFracturing: readonlySignal(moonFracturing),
     loadMoonRefinery,
     hasMoonSchedulingAccess,
-    changeRefineryControl,
+    canTakeStructureControl,
+    changeStructureControl,
     loadMoonResources,
     loadMoonOrePricing,
     loadMoonSchedule,

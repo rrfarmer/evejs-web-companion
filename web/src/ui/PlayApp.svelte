@@ -595,10 +595,12 @@
   });
   $effect(() => {
     if (dockedStructureID === null) return;
-    session?.flow.requestWords(["UI/Commands/EnterHangar", "UI/Commands/EnterStructure", "UI/Station/ViewHangarHint", "UI/Station/ViewOutsideHint"]);
+    session?.flow.requestWords(["UI/Commands/EnterHangar", "UI/Commands/EnterStructure", "UI/Station/ViewHangarHint", "UI/Station/ViewOutsideHint",
+      "UI/Commands/TakeStructureControl", "UI/Inflight/HUDOptions/ReleaseControl", "UI/Station/TakeControlHint",
+      "UI/Station/MayNotTakeControlHint", "UI/Station/UndockingInProgressHint"]);
   });
   function changeDockedView(mode: "hangar" | "exterior"): void {
-    if (dockedStructureID === null || controllingStructure || undockPending || refineryPending || corvettePending ||
+    if (dockedStructureID === null || controllingStructure || undockPending || structureControlPending || corvettePending ||
         planetInMode !== null || dockedView === mode) return;
     dockedView = mode;
     if (dockedViewPreference) {
@@ -633,26 +635,37 @@
       open("metenoxFuel");
     } catch (cause) { notify({ kind: "danger", title: "Metenox Fuel Bay", detail: (cause as Error).message }); }
   }
-  const refineryCorporationID = $derived($station?.online?.corporationID ?? null);
-  const refineryCorpRole = $derived($station?.online?.corpRole ?? null);
+  const structureControlCorporationID = $derived($station?.online?.corporationID ?? null);
+  const structureControlCorpRole = $derived($station?.online?.corpRole ?? null);
   let moonRefinery = $state.raw<MoonRefinery | null>(null);
   let schedulableRefineryID = $state<number | null>(null);
-  let refineryPending = $state(false);
-  let refineryError = $state("");
+  let structureControlPending = $state(false);
+  let structureControlError = $state("");
+  let structureControlAllowed = $state<boolean | null>(null);
+  const takeControlHint = $derived([
+    dockedViewWord("UI/Station/TakeControlHint", "Take control of this structure"),
+    structureControlAllowed === false
+      ? dockedViewWord("UI/Station/MayNotTakeControlHint", "You may not take control of this structure")
+      : undockPending ? dockedViewWord("UI/Station/UndockingInProgressHint", "Undocking in progress") : "",
+  ].filter(Boolean).join("\n"));
   $effect(() => {
     const pilot = session;
     const structureID = dockedStructureID;
     // Defense permissions may change with the corporation or pilot's roles.
-    void refineryCorporationID;
-    void refineryCorpRole;
+    void structureControlCorporationID;
+    void structureControlCorpRole;
     moonRefinery = null;
-    refineryError = "";
+    structureControlAllowed = null;
+    structureControlError = "";
     if (!pilot || structureID === null) return;
     let current = true;
-    void pilot.flow.loadMoonRefinery(structureID).then(refinery => {
-      if (current) moonRefinery = refinery;
+    void pilot.flow.loadMoonRefinery(structureID).then(async refinery => {
+      if (!current) return;
+      moonRefinery = refinery;
+      const allowed = refinery?.canControl ?? await pilot.flow.canTakeStructureControl(structureID);
+      if (current) structureControlAllowed = allowed;
     }).catch(reason => {
-      if (current) refineryError = (reason as Error).message;
+      if (current) structureControlError = (reason as Error).message;
     });
     return () => { current = false; };
   });
@@ -685,18 +698,18 @@
     }
   }
 
-  async function changeRefineryControl(take: boolean): Promise<void> {
+  async function changeStructureControl(take: boolean): Promise<void> {
     const pilot = session;
     const structureID = dockedStructureID;
-    if (!pilot || structureID === null || refineryPending) return;
-    refineryPending = true;
-    refineryError = "";
+    if (!pilot || structureID === null || structureControlPending || (take && structureControlAllowed !== true)) return;
+    structureControlPending = true;
+    structureControlError = "";
     try {
-      await pilot.flow.changeRefineryControl(structureID, take);
+      await pilot.flow.changeStructureControl(structureID, take);
     } catch (reason) {
-      if (session === pilot && dockedStructureID === structureID) refineryError = (reason as Error).message;
+      if (session === pilot && dockedStructureID === structureID) structureControlError = (reason as Error).message;
     } finally {
-      refineryPending = false;
+      structureControlPending = false;
     }
   }
   const academyStationID = $derived(sessionPlace($flight?.status ?? null, $station?.online ?? null).stationID);
@@ -4423,7 +4436,7 @@
   let corvettePending = $state(false);
   async function boardLobbyCorvette() {
     const pilot = session;
-    if (!pilot || corvettePending || undockPending || refineryPending || controllingStructure || aboardCorvette) return;
+    if (!pilot || corvettePending || undockPending || structureControlPending || controllingStructure || aboardCorvette) return;
     corvettePending = true;
     error = "";
     try {
@@ -4436,7 +4449,7 @@
   }
 
   async function undock() {
-    if (!session || undockPending || controllingStructure || refineryPending || corvettePending) return;
+    if (!session || undockPending || controllingStructure || structureControlPending || corvettePending) return;
     const pilot = session;
     undockPending = true;
     error = "";
@@ -4613,24 +4626,28 @@
           <div class="station-sub">{$station?.station?.solarSystemName ?? ""}{#if typeof $station?.station?.security === "number"}<span class="lobby-sec"> {$station.station.security.toFixed(1)}</span>{/if}</div>
           {#if controllingStructure}
             <div class="refinery-controls">
-              {#if moonRefinery}<button class="academy-service" disabled={refineryPending} onclick={() => open("moonMining")}>Moon Mining</button>{/if}
-              <button class="academy-service" disabled={refineryPending} onclick={() => changeRefineryControl(false)}>Release Control</button>
+              {#if moonRefinery}<button class="academy-service" disabled={structureControlPending} onclick={() => open("moonMining")}>Moon Mining</button>{/if}
+              <button type="button" class="academy-service lobby-release-control" disabled={structureControlPending}
+                onclick={() => changeStructureControl(false)}>{dockedViewWord("UI/Inflight/HUDOptions/ReleaseControl", "Release Control")}</button>
             </div>
           {:else}
-            <button class="undock" disabled={undockPending || refineryPending || corvettePending} onclick={undock}>Undock</button>
+            <button class="undock" disabled={undockPending || structureControlPending || corvettePending} onclick={undock}>Undock</button>
             {#if dockedStructureID !== null}
               <button type="button" class="academy-service dock-view-mode" title={dockViewHint}
-                disabled={undockPending || refineryPending || corvettePending}
+                disabled={undockPending || structureControlPending || corvettePending}
                 onclick={() => changeDockedView(viewingStructureExterior ? "hangar" : "exterior")}>{dockViewCaption}</button>
             {/if}
-            {#if moonRefinery?.canControl}
-              <button class="academy-service" disabled={refineryPending || undockPending || corvettePending} onclick={() => changeRefineryControl(true)}>Take Control</button>
+            {#if dockedStructureID !== null}
+              <button type="button" class="academy-service lobby-take-control"
+                title={takeControlHint}
+                disabled={structureControlAllowed !== true || structureControlPending || undockPending || corvettePending}
+                onclick={() => changeStructureControl(true)}>{dockedViewWord("UI/Commands/TakeStructureControl", "Take Control")}</button>
             {/if}
             <button type="button" class="academy-service lobby-corvette" title={corvetteHint}
-              disabled={corvettePending || undockPending || refineryPending || aboardCorvette || !$flight?.status?.shipID}
+              disabled={corvettePending || undockPending || structureControlPending || aboardCorvette || !$flight?.status?.shipID}
               onclick={boardLobbyCorvette}>{corvetteLabel}</button>
           {/if}
-          {#if refineryError}<div class="error lobby-error" role="alert">{refineryError}</div>{/if}
+          {#if structureControlError}<div class="error lobby-error" role="alert">{structureControlError}</div>{/if}
           {#if academyAccess !== "hidden"}
             <button class="academy-service" disabled={academyAccess === "locked"}
               onclick={() => wins.some(win => win.id === "academyShips") ? wins = closeWindow(wins, "academyShips") : open("academyShips")}>
