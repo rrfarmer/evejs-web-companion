@@ -3830,6 +3830,7 @@ export interface AppFlow {
    * The journal (the fourth Step-12 read) refreshes via loadJournal.
    */
   loadRewards(): Promise<void>;
+  walletLoyaltyLocations(issuers: readonly number[]): Promise<ReadonlyMap<number, { factionID: number | null; stationID: number | null }>>;
   /**
    * R50 — the Wallet + Corp Wallet tabs: the personal ISK balance and the
    * corporation division balances, in one pull. Both tabs call this on mount.
@@ -26820,6 +26821,38 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // The three reads are independent on the BFF (Promise.allSettled); a per-read
   // error rides in the `error` field rather than blanking the whole panel. The
   // journal (the fourth Step-12 read) is refreshed separately via loadJournal.
+  async function walletLoyaltyLocations(issuers: readonly number[]) {
+    const wanted = new Set(issuers);
+    const pilot = store.station.get().online;
+    const flight = store.flight.get().status;
+    const systemID = flight?.solarSystemID ?? pilot?.solarSystemID;
+    const docked = dockedNow();
+    const [places, distances] = await Promise.all([
+      agentPlacesHeld ?? api.loadAgentPlaces(callOptions),
+      systemID ? autopilotDistancesFrom(systemID) : Promise.resolve(new Map<number, number>()),
+    ]);
+    if (!places) throw new Error("Loyalty point store locations could not be read.");
+    agentPlacesHeld ??= places;
+    const closest = new Map<number, { stationID: number; jumps: number }>();
+    function consider(issuer: number | null, stationID: number, stationSystem: number) {
+      if (issuer === null || !wanted.has(issuer)) return;
+      const jumps = stationID === docked ? -1 : stationSystem === systemID ? 0 : distances.get(stationSystem);
+      if (jumps !== undefined && jumps <= (closest.get(issuer)?.jumps ?? Infinity)) {
+        closest.set(issuer, { stationID, jumps });
+      }
+    }
+    for (const [station, [stationSystem, owner]] of Object.entries(places.stations)) {
+      consider(owner, Number(station), stationSystem);
+    }
+    // The Fulcrum also hosts the Malakim Zealots and Commando Guri stores (loyaltypoints.lpUtil).
+    const fulcrum = places.stations["60015187"];
+    if (fulcrum) for (const issuer of [1000436, 1000437]) consider(issuer, 60015187, fulcrum[0]);
+    return new Map([...wanted].map(issuer => [issuer, {
+      factionID: places.factions[issuer] ?? null,
+      stationID: closest.get(issuer)?.stationID ?? null,
+    }]));
+  }
+
   async function loadRewards(): Promise<void> {
     const reads = await api.loadRewards(callOptions);
     const errors = [
@@ -40075,6 +40108,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
 
     loadRewards,
+    walletLoyaltyLocations,
 
     loadWallet,
     pilotWealth,

@@ -22,7 +22,10 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
-  import { plainText } from "../bridge/clientWords.ts";
+  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { bridgeAsk } from "../app/api.ts";
+  import { decodeLpBalances } from "../bridge/rewards.ts";
+  import type { WalletLPBalance } from "../store/types.ts";
   import { readPlexVaultBalance } from "../bridge/plexVault.ts";
   import { decodePlexWalletNotice, PLEX_WALLET_NOTICE } from "../bridge/plexWalletNotice.ts";
   import WalletMarketTransactions from "./WalletMarketTransactions.svelte";
@@ -32,6 +35,7 @@
   import WalletShares from "./WalletShares.svelte";
   import WalletPlexHistory from "./WalletPlexHistory.svelte";
   import WalletPlexOverview from "./WalletPlexOverview.svelte";
+  import WalletLoyalty from "./WalletLoyalty.svelte";
 
   let { store, flow, onBuyPlex, onShowOmegaOffers, onShowMultipleTraining, onOpenStore }: {
     store: ClientStore;
@@ -80,7 +84,48 @@
    */
   const retail = getContext("retailChrome") === true;
   let walletTab = $state<"mine" | "settings">("mine");
-  let currency = $state<"isk" | "plex">("isk");
+  let currency = $state<"isk" | "plex" | "loyalty">("isk");
+  const paragon = 1000419;
+  const LP_COUNT = "UI/Wallet/WalletWindow/TabLPCorpNumber";
+  const EM_AMOUNT = "UI/Wallet/WalletWindow/EvermarkAmount";
+  let lpBalances = $state.raw<readonly WalletLPBalance[] | null>(null);
+  let lpError = $state("");
+  let reloadLp = $state(0);
+  const loyalty = $derived(lpBalances?.filter(row => row.issuerCorpID !== paragon) ?? null);
+  const evermarks = $derived(Number(lpBalances?.find(row => row.issuerCorpID === paragon)?.loyaltyPoints ?? "0"));
+  function loyaltyWord(path: string, args: Record<string, number>, fallback: string) {
+    const template = $words.templates[path];
+    return template ? plainText(formatTemplate(template, args, { nameOf: () => "" })) : fallback;
+  }
+  $effect(() => {
+    if (!retail || characterID === null) return;
+    const pilot = characterID;
+    const read = bridgeAsk(flow.requestOptions());
+    let revision = 0;
+    let current = true;
+    lpBalances = null;
+    const reload = () => {
+      const request = ++revision;
+      lpError = "";
+      void read("LPSvc", "GetAllMyCharacterWalletLPBalances", []).then(result => {
+        if (current && request === revision) lpBalances = decodeLpBalances(result);
+      }).catch(cause => {
+        if (!current || request !== revision) return;
+        lpBalances = null;
+        lpError = panelErrorWords(cause);
+      });
+    };
+    void reloadLp;
+    reload();
+    const changes = flow.walletLpChanged;
+    let previous = changes.get();
+    const stop = changes.subscribe(change => {
+      if (change === previous) return;
+      previous = change;
+      if (change?.characterID === pilot) reload();
+    });
+    return () => { current = false; stop(); };
+  });
   let plexTab = $state<"overview" | "transactions">("overview");
   let plexBalance = $state<bigint | null>(null);
   let plexUnavailable = $state(false);
@@ -161,7 +206,7 @@
   const RETAIL_WORDS = ["UI/Wallet/WalletWindow/MyWallet", "UI/Common/Settings", "UI/Common/ISK", "UI/Common/PLEX",
     "UI/Journal/JournalWindow/Agents/LoyaltyPoints", "UI/Wallet/WalletWindow/EverMarks", "UI/Wallet/WalletWindow/ISKDescription",
     SHOW_CENTS, SHOW_BALANCE_UPDATES, SHOW_LP_UPDATES, BALANCE_THRESHOLD, NOTIFY_ISK, NOTIFY_SHARES, NOTIFY_BILLS, NOTIFY_PLEX, CORP_WALLET,
-    PLEX_DESCRIPTION, PLEX_UNAVAILABLE, PLEX_UNAVAILABLE_HINT, BUY_PLEX, BUY_PLEX_HINT, SELL_PLEX, SELL_PLEX_HINT];
+    PLEX_DESCRIPTION, PLEX_UNAVAILABLE, PLEX_UNAVAILABLE_HINT, BUY_PLEX, BUY_PLEX_HINT, SELL_PLEX, SELL_PLEX_HINT, LP_COUNT, EM_AMOUNT];
   $effect(() => { if (retail) flow.requestWords([...RETAIL_WORDS, ...PLEX_ACTIONS.map(action => action.label)]); });
 
   let busy = $state(false);
@@ -284,10 +329,15 @@
         {/if}
       </div>
       <div class="wl-stack">
-        <div class="wl-tab small"><span class="ic"><img alt="" src="/client-res/ui/texture/windowicons/lpstore_24px.png" /></span>
-          <span class="data"><b>{tabWord("UI/Journal/JournalWindow/Agents/LoyaltyPoints", "Loyalty Points")}</b><span class="amount">-</span></span></div>
+        <button type="button" class="wl-tab small currency-tab loyalty-tile" class:sel={currency === "loyalty"}
+          aria-pressed={currency === "loyalty"} onclick={() => (currency = "loyalty")}>
+          <span class="ic"><img alt="" src="/client-res/ui/texture/windowicons/lpstore_24px.png" /></span>
+          <span class="data"><b>{loyalty === null ? tabWord("UI/Journal/JournalWindow/Agents/LoyaltyPoints", "Loyalty Points")
+            : loyaltyWord(LP_COUNT, { numLPCorps: loyalty.length }, `${loyalty.length} LP Corporations`)}</b></span>
+        </button>
         <div class="wl-tab small"><span class="ic"><img alt="" src="/client-res/ui/texture/windowicons/evermark_24px.png" /></span>
-          <span class="data"><b>{tabWord("UI/Wallet/WalletWindow/EverMarks", "EverMarks")}</b><span class="amount">-</span></span></div>
+          <span class="data evermarks-balance"><b>{lpBalances === null ? tabWord("UI/Wallet/WalletWindow/EverMarks", "EverMarks")
+            : loyaltyWord(EM_AMOUNT, { everMarkAmount: evermarks }, `${evermarks.toLocaleString("en-US")} EverMarks`)}</b></span></div>
       </div>
     </div>
   {/if}
@@ -318,6 +368,8 @@
         </div>
       {/if}
     </div>
+  {:else if retail && walletTab === "mine" && currency === "loyalty"}
+    <WalletLoyalty {store} {flow} balances={loyalty} error={lpError} refresh={() => reloadLp++} />
   {/if}
   <div class="wl-mine" hidden={retail && (walletTab !== "mine" || currency !== "isk")}>
   <header class="panel-head">

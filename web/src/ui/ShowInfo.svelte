@@ -263,6 +263,10 @@
     if (typeof own === "string" && own.length > 0) {
       return own;
     }
+    if (current.kind === "spaceObject" && current.itemID >= 60_000_000 && current.itemID < 64_000_000) {
+      const station = resolvedName($names.resolved, "station", current.itemID, "");
+      if (station) return station;
+    }
     return resolvedName($names.resolved, "type", typeID, "Unknown object");
   });
 
