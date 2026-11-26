@@ -15,6 +15,7 @@ export interface StationLpOffer {
 export interface StationLpStore {
   readonly offers: readonly StationLpOffer[];
   readonly lp: string;
+  readonly concordLp: number;
   readonly isk: number | null;
 }
 

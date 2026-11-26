@@ -482,6 +482,7 @@ import { repairTargets, type RepairQuotePart, type RepairQuoteRow } from "../bri
 import { isRepairableItem, payRepairShop, quoteRepairs, repairItemsAtShop, repairQuoted, stationOffersRepair } from "../bridge/repairShop.ts";
 import { insurancePrices, insuranceTerms, stationInsuranceContracts, type InsurancePackage, type StationInsuranceShip } from "../bridge/stationInsurance.ts";
 import { decodeStationLpOffers, type StationLpOffer, type StationLpStore } from "../bridge/stationLpStore.ts";
+import { CONCORD_LP_ISSUER, decodeConcordLpRates } from "../bridge/concordLp.ts";
 import { CLONE_JUMP_COOLDOWN_ATTRIBUTE, cloneBayAvailable, cloneJumpCooldownEnd, decodeJumpClones, jumpCloneLocationKind, type CloneJumpQuote, type CloneJumpWarning, type JumpClone, type JumpCloneState } from "../bridge/jumpClones.ts";
 import { createSpacePoller, targetsReadIsDue, type SpacePoller } from "./spacePoll.ts";
 import type { RequestPriority } from "./transport.ts";
@@ -2356,6 +2357,8 @@ export interface AppFlow {
   buyStationInsurance(placeID: number, itemID: number, tier: InsurancePackage, premium: number, replacing: number | null): Promise<void>;
   cancelStationInsurance(placeID: number, itemID: number, contractID: number): Promise<void>;
   loadStationLpStore(stationID: number, issuerID: number): Promise<StationLpStore>;
+  concordLpExchangeRates(): Promise<ReadonlyMap<number, number>>;
+  exchangeConcordLp(stationID: number, issuerID: number, amount: number): Promise<void>;
   buyStationLpOffer(stationID: number, issuerID: number, offer: StationLpOffer, quantity: number): Promise<void>;
   loadJumpClones(): Promise<JumpCloneState>;
   quoteJumpCloneInstall(placeID: number): Promise<number>;
@@ -9634,7 +9637,29 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const offers = decodeStationLpOffers(catalog, issuerID);
     const types = new Set(offers.flatMap(offer => [offer.reward, ...offer.requires, ...offer.otherRewards].map(item => item.typeID)));
     requestNames([{ kind: "corporation", id: issuerID }, ...[...types].map(id => ({ kind: "type" as const, id }))]);
-    return { offers, lp: decodeLpBalances(balances).find(row => row.issuerCorpID === issuerID)?.loyaltyPoints ?? "0", isk: unwrapReal(cash) };
+    const lp = decodeLpBalances(balances);
+    return {
+      offers, lp: lp.find(row => row.issuerCorpID === issuerID)?.loyaltyPoints ?? "0",
+      concordLp: Number(lp.find(row => row.issuerCorpID === CONCORD_LP_ISSUER)?.loyaltyPoints ?? "0"),
+      isk: unwrapReal(cash),
+    };
+  }
+
+  let concordRates: Promise<ReadonlyMap<number, number>> | null = null;
+  function concordLpExchangeRates() {
+    return concordRates ??= bridgeAsk("LPSvc", "GetLPExchangeRates", []).then(decodeConcordLpRates).catch(cause => {
+      concordRates = null;
+      throw cause;
+    });
+  }
+
+  async function exchangeConcordLp(stationID: number, issuerID: number, amount: number) {
+    const station = store.station.get();
+    if (!station.online?.characterID || station.online.stationID !== stationID || dockedNow() !== stationID ||
+        !Number.isSafeInteger(amount) || amount <= 0) {
+      throw new Error("Choose a positive amount while docked at an NPC station.");
+    }
+    await bridgeDo("LPSvc", "ExchangeConcordLP", [issuerID, amount]);
   }
 
   async function buyStationLpOffer(stationID: number, issuerID: number, offer: StationLpOffer, quantity: number): Promise<void> {
@@ -38217,6 +38242,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     buyStationInsurance,
     cancelStationInsurance,
     loadStationLpStore,
+    concordLpExchangeRates,
+    exchangeConcordLp,
     buyStationLpOffer,
     loadJumpClones,
     quoteJumpCloneInstall,

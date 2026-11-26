@@ -757,6 +757,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // And its incursions (ContentProviderIncursions.GetAllIncursions, IncursionContentPiece.GetSceneTypeBySolarSystemID).
   "map.GetIncursionGlobalReport", "map.GetSystemsInIncursions", "rewardMgr.GetDelayedRewardsByGroupIDs",
   "rewardMgr.GetRewardLPLogs", "LPSvc.TransferLPFromMyWalletToOtherCorp",
+  "LPSvc.GetLPExchangeRates", "LPSvc.ExchangeConcordLP",
   // And its factional warfare systems (FactionalWarfareSiteTracker, fwWarzoneSvc.GetAllOccupationStates,
   // fwVictoryPointSvc.GetVictoryPointState of another system).
   "dungeonInstanceCacheMgr.GetFactionWarfareInstances", "fwWarzoneSolarsystem.GetAllWarzonesOccupationStates", "fwVictoryPointMgr.GetAllVictoryPointStates",
@@ -2991,6 +2992,8 @@ const RETAIL_CALLS = Object.freeze({
   "rewardMgr.GetDelayedRewardsByGroupIDs": same("eve/client/script/ui/shared/incursionSvc.py:259", "sm.RemoteSvc('rewardMgr').GetDelayedRewardsByGroupIDs(tuple(rewardGroupIDs)), the IDs sorted: by reward group, its delayed rewards (KeyVals of rewardTypeID and rewardQuantity); IncursionContentPiece.GetLPPayoutPool takes the LP one's (REWARD_TYPE_LP 1)."),
   "rewardMgr.GetRewardLPLogs": same("eve/client/script/ui/shared/neocom/wallet/panels/personal/lpIncursionsPanel.py:76", "Reads the active character's reward history without arguments"),
   "LPSvc.TransferLPFromMyWalletToOtherCorp": same("eve/client/script/ui/shared/neocom/wallet/loyaltyPointsWalletSvc.py:99", "Transfers personal LP to the selected corporation with receiver corporation ID, issuer corporation ID, and whole amount"),
+  "LPSvc.GetLPExchangeRates": same("eve/client/script/ui/station/loyaltyPointStore/lpStoreSvc.py:90", "Emulator read for the NPC corporation exchange rates used by the native client's built data"),
+  "LPSvc.ExchangeConcordLP": same("eve/client/script/ui/station/loyaltyPointStore/lpStoreSvc.py:103", "Exchanges CONCORD LP for a whole quantity of the selected NPC corporation's LP"),
   "custom_agency_provider.get_content_data": same("agency/client/custom_content.py:13", "sm.RemoteSvc('custom_agency_provider').get_content_data(), no arguments: the Agency's custom content, a list of agency.common.contentdata.CustomContentData, filtered by its content_type on the client (the pirate strongholds' is 15). Recorded on Tranquility (\"Agency - Opening Resource Harvesting Planets Colony Resources\", 2026-09-10) answering [], as a cached method call."),
   "map.GetSystemsInIncursions": same("eve/client/script/ui/shared/agencyNew/contentPieces/incursionContentPiece.py:84", "sm.RemoteSvc('map').GetSystemsInIncursions(), no arguments: the rows of the systems in incursions, each its locationID and sceneType."),
   "dungeonExplorationMgr.GetMyEscalatingPathDetails": same("eve/client/script/ui/shared/neocom/journal.py:250", "sm.RemoteSvc('dungeonExplorationMgr').GetMyEscalatingPathDetails(), no arguments: a Rowset of the pilot's escalations, header instanceID, dungeon, srcDungeon, destDungeon, journalEntryTemplateID, expiryTime. Recorded on Tranquility with no rows (and as a CachedMethodCallResult)."),

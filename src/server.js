@@ -1248,6 +1248,12 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     }
   }
   const stationLpPurchase = body.service === "LPStoreMgr" && body.method === "TakeOfferForCharacter";
+  if (body.service === "LPSvc" && body.method === "ExchangeConcordLP" &&
+      (body.of != null || body.kwargs != null || !Array.isArray(body.args) || body.args.length !== 2 ||
+        body.args.some(value => !Number.isSafeInteger(value) || value <= 0))) {
+    res.status(400).json({ ok: false, error: "INVALID_LP_EXCHANGE", message: "Choose an LP issuer and a positive whole amount." });
+    return;
+  }
   if (body.service === "LPSvc" && body.method === "TransferLPFromMyWalletToOtherCorp" &&
       (body.of != null || body.kwargs != null || !Array.isArray(body.args) || body.args.length !== 3 ||
         body.args.some(value => !Number.isSafeInteger(value) || value <= 0))) {
@@ -6079,7 +6085,7 @@ app.post("/api/bridge/gm/slash", requireAuth, async (req, res, next) => {
 //   • LPSvc.TransferLPFromMyWalletToOtherCorp / TransferLPFromMyCorpWalletToOtherCorp
 //     resolve the source from the SESSION (character wallet / session.corporationID
 //     with a corp-role check); the first arg is the RECEIVER corp, the second the
-//     LP issuer namespace — never the source. ExchangeConcordLP is a stub.
+//     LP issuer namespace. ExchangeConcordLP converts between the session pilot's balances.
 //   • LPStoreMgr.TakeOfferForCharacter spends the SESSION char's LP (corpID selects
 //     the STORE); TakeOfferForCorporation is a stub.
 //   • insuranceSvc.InsureShip debits the session; itemID is the ship to insure.
@@ -6099,7 +6105,7 @@ app.post("/api/bridge/gm/slash", requireAuth, async (req, res, next) => {
 // asked them. The pairs stay writes (bridgeCallPolicy.js), so the generic call refuses them.
 
 // --- LPSvc WRITES (3) — session-scoped source
-// Personal Wallet Donate uses the confirmed TransferLPFromMyWalletToOtherCorp call.
+// Personal Wallet Donate and CONCORD exchange use the confirmed bridge calls.
 
 // The station Loyalty Point Store purchases personal offers through the confirmed bridge.
 

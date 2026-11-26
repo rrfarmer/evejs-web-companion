@@ -6,6 +6,9 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import TypeIcon from "./TypeIcon.svelte";
+  import ConcordLpExchange from "./ConcordLpExchange.svelte";
+  import { plainText } from "../bridge/clientWords.ts";
+  import { CONCORD_LP_ISSUER } from "../bridge/concordLp.ts";
 
   let { store, flow, stationID, issuerID }: {
     store: ClientStore;
@@ -14,6 +17,8 @@
     issuerID: number;
   } = $props();
   const names = $derived(store.names);
+  const words = $derived(store.words);
+  const EXCHANGE_LABEL = "UI/LPStore/ConcordExchange";
   const name = (id: number) => resolvedName($names.resolved, "type", id, "Unknown item");
   const isk = (value: number) => value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " ISK";
   let data = $state.raw<StationLpStore | null>(null);
@@ -25,6 +30,8 @@
   let busy = $state(false);
   let error = $state("");
   let status = $state("");
+  let exchange = $state(false);
+  let rate = $state(0);
   const lp = $derived(BigInt(data?.lp ?? "0"));
   const selected = $derived(data?.offers.find(offer => offer.id === picked));
   const matches = $derived((data?.offers ?? []).filter(offer =>
@@ -53,6 +60,7 @@
     return run(async () => {
       review = null;
       data = await flow.loadStationLpStore(stationID, issuerID);
+      rate = data.concordLp > 0 ? (await flow.concordLpExchangeRates()).get(issuerID) ?? 0 : 0;
     });
   }
 
@@ -75,7 +83,17 @@
     });
   }
 
-  onMount(() => { void refresh(); });
+  onMount(() => {
+    flow.requestWords([EXCHANGE_LABEL]);
+    void refresh();
+    const changed = flow.walletLpChanged;
+    let previous = changed.get();
+    return changed.subscribe(value => {
+      if (value === previous) return;
+      previous = value;
+      if (value && !exchange && (value.issuerID === issuerID || value.issuerID === CONCORD_LP_ISSUER)) void refresh();
+    });
+  });
 </script>
 
 <div class="lp-store" data-window="lpstore" aria-busy={busy}>
@@ -83,6 +101,11 @@
     <strong>{resolvedName($names.resolved, "corporation", issuerID, "Station store")}</strong>
     <span>{data ? lp.toLocaleString() + " LP" : "Reading balance…"}</span>
     {#if data?.isk != null}<span>{isk(data.isk)}</span>{/if}
+    {#if data && data.concordLp * rate > 1}
+      <button type="button" class="station-concord-exchange" disabled={busy} onclick={() => (exchange = true)}>
+        {plainText($words.templates[EXCHANGE_LABEL] ?? "") || "CONCORD Exchange"}
+      </button>
+    {/if}
     <button type="button" disabled={busy} onclick={refresh}>Refresh</button>
   </header>
   <div class="store-filters">
@@ -130,6 +153,10 @@
     </div>
   {/if}
 </div>
+{#if exchange && data && rate > 0}
+  <ConcordLpExchange {store} {flow} {stationID} {issuerID} {rate} source={data.concordLp} target={Number(data.lp)}
+    close={() => (exchange = false)} exchanged={() => void refresh()} />
+{/if}
 
 <style>
   .lp-store { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 6px; font-size: 13px; }
