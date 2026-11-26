@@ -434,6 +434,11 @@ export const FILL_STATE_LABELS: Readonly<Record<MarketOwnFillState, string>> = {
   cancelled: "You cancelled it",
 };
 
+export function canReadCorporationOrders(role: string | null | undefined): boolean {
+  try { return (BigInt(role ?? "0") & 256n) !== 0n; }
+  catch { return false; }
+}
+
 export function decodeOwnOrders(result: JsonValue): readonly MarketOwnOrderRow[] {
   const rows: MarketOwnOrderRow[] = [];
   for (const record of rowRecords(unwrapCachedResult(result))) {
@@ -460,9 +465,8 @@ export function decodeOwnOrders(result: JsonValue): readonly MarketOwnOrderRow[]
       escrow: toAmountString(record.escrow) ?? "0",
       state: FILL_STATE_BY_CODE[stateCode] ?? "open",
       issuedAt: toFiletime(record.issueDate),
-      // Corp orders are out of scope; a row flagged corp is kept and labelled
-      // rather than hidden, so a player is never shown a partial picture.
       isCorp: toNumber(record.isCorp) === 1,
+      ...(toNumber(record.isCorp) === 1 ? { issuerID: toNumber(record.charID), walletDivision: toNumber(record.keyID) } : {}),
     });
   }
   return rows;

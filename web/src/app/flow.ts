@@ -127,6 +127,7 @@ import {
   priceDelta,
   decodeOrderBook,
   decodeOwnOrders,
+  canReadCorporationOrders,
   readMarketOrdersExport,
   formatMarketOrdersExport,
   formatMarketBookExport,
@@ -2763,6 +2764,7 @@ export interface AppFlow {
   loadMarket(typeID: number | null): Promise<void>;
   loadMarketOrders(): Promise<void>;
   exportMarketOrders(corporation: boolean): Promise<string | null>;
+  readCorporationMarketOrders(): Promise<readonly MarketOwnOrderRow[]>;
   exportMarketBook(typeID: number): Promise<{ text: string; region: string } | null>;
   marketGroupAsks(scope: MarketGroupScope): Promise<{
     scope: MarketGroupScope;
@@ -2818,9 +2820,9 @@ export interface AppFlow {
   openAssetContainerContents(item: PersonalAssetSelection): Promise<void>;
   closeAssetContainerContents(n: number): void;
   /** CANCEL an order. Returns what it held; the fee already paid is not. */
-  cancelMarketOrder(orderID: string): Promise<void>;
+  cancelMarketOrder(orderID: string, corporation?: boolean): Promise<void>;
   /** CHANGE an order's price. Charges a fee and moves a buy order's escrow. */
-  modifyMarketOrder(orderID: string, price: number): Promise<void>;
+  modifyMarketOrder(orderID: string, price: number, corporation?: boolean): Promise<void>;
   /**
    * Refresh the read-only Activity Center: recent notificationMgr reads,
    * current-month calendar data and the existing mailbox unread count.
@@ -12294,12 +12296,33 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   async function exportMarketOrders(corporation: boolean): Promise<string | null> {
-    const result = await bridgeAsk("marketProxy", corporation ? "GetCorporationOrders" : "GetCharOrders", []);
+    const scope = corporation ? corporationOrdersScope() : null;
+    const result = await (scope?.ask ?? bridgeAsk)("marketProxy", corporation ? "GetCorporationOrders" : "GetCharOrders", []);
     const data = readMarketOrdersExport(result);
     if (data.records.length === 0) return null;
     await resolveNamesNow(data.names);
+    scope?.current();
     const names = store.names.get().resolved;
     return formatMarketOrdersExport(data, (kind, id) => resolvedName(names, kind, id, ""));
+  }
+
+  function corporationOrdersScope() {
+    const scope = captureMemberOperation();
+    const current = () => {
+      scope.current();
+      if (!canReadCorporationOrders(store.station.get().online?.corpRole)) throw new Error("The Accountant role is required for corporation orders.");
+    };
+    current();
+    const options = { ...scope.options, captureRequestGuard: () => current };
+    return { current, ask: api.bridgeAsk(options), write: api.bridgeDo(options), issuer: scope.online.characterID };
+  }
+
+  async function readCorporationMarketOrders(): Promise<readonly MarketOwnOrderRow[]> {
+    const { ask, current } = corporationOrdersScope();
+    const rows = decodeOwnOrders(await ask("marketProxy", "GetCorporationOrders", []));
+    current();
+    requestMarketOrderNames(rows);
+    return rows;
   }
 
   async function exportMarketBook(typeID: number): Promise<{ text: string; region: string } | null> {
@@ -12367,6 +12390,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       refs.push({ kind: "type", id: row.typeID });
       refs.push({ kind: "station", id: row.stationID });
       refs.push({ kind: "system", id: row.solarSystemID });
+      if (row.issuerID) refs.push({ kind: "owner", id: row.issuerID });
     }
     requestNames(refs);
   }
@@ -39682,6 +39706,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMarket,
     loadMarketOrders,
     exportMarketOrders,
+    readCorporationMarketOrders,
     exportMarketBook,
     marketGroupAsks,
     marketGroupDistances,
@@ -39747,15 +39772,17 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         };
       });
     },
-    async cancelMarketOrder(orderID) {
+    async cancelMarketOrder(orderID, corporation = false) {
       // The page's own call (bridge/marketOrderWrites.ts), as the client's menu makes it, with the pilot's orders
       // and wallet read before and after for the verdict. The market is read again after any change, as before.
-      await runMarketAction("cancel", async () => ({ ...await cancelOrderCall(bridgeDo, bridgeAsk, orderID), ownOrders: null }));
+      const scope = corporation ? corporationOrdersScope() : null;
+      await runMarketAction("cancel", async () => ({ ...await cancelOrderCall(scope?.write ?? bridgeDo, scope?.ask ?? bridgeAsk, orderID, scope?.issuer), ownOrders: null }));
     },
-    async modifyMarketOrder(orderID, price) {
+    async modifyMarketOrder(orderID, price, corporation = false) {
       // The page's own call, all but the new price off the order's own row in the pilot's orders, as the client's
       // modify window makes it (bridge/marketOrderWrites.ts).
-      await runMarketAction("modify", async () => ({ ...await modifyOrderCall(bridgeDo, bridgeAsk, orderID, price), ownOrders: null }));
+      const scope = corporation ? corporationOrdersScope() : null;
+      await runMarketAction("modify", async () => ({ ...await modifyOrderCall(scope?.write ?? bridgeDo, scope?.ask ?? bridgeAsk, orderID, price, scope?.issuer), ownOrders: null }));
     },
     loadActivity,
     loadCalendarMonth,

@@ -93,15 +93,18 @@ function walletAmount(value: JsonValue): string | null {
  * Takes down one of the pilot's own orders, named by its number as the pilot's orders have it. `act` makes the
  * write and `ask` the reads. Fails as the call fails.
  */
-export async function cancelOrder(act: Ask, ask: Ask, orderID: string): Promise<MarketOrderChange> {
+export async function cancelOrder(act: Ask, ask: Ask, orderID: string, corporationIssuer?: number): Promise<MarketOrderChange> {
   if (!/^\d+$/.test(orderID)) throw new Error("That order could not be identified.");
-  const orders = () => quietly(async () => decodeOwnOrders(await ask("marketProxy", "GetCharOrders", [])));
-  const balance = () => quietly(async () => walletAmount(await ask("account", "GetCashBalance", [0])));
+  const orders = () => quietly(async () => decodeOwnOrders(await ask("marketProxy", corporationIssuer === undefined ? "GetCharOrders" : "GetCorporationOrders", [])));
   const before = await orders();
-  const balanceBefore = await balance();
   // The region off the order's own row, as the client names it (quote.py 302). Where the page's read has not the
   // order, nought goes, as the route sent: the server takes the region from the order it loads.
   const row = before === null ? undefined : before.find((order) => order.orderID === orderID);
+  if (corporationIssuer !== undefined && row?.issuerID !== corporationIssuer) throw new Error("Only the issuing pilot can cancel this corporation order.");
+  const balance = () => quietly(async () => walletAmount(corporationIssuer === undefined
+    ? await ask("account", "GetCashBalance", [0])
+    : await ask("account", "GetCashBalance", [1], { accountKey: row?.walletDivision ?? null })));
+  const balanceBefore = await balance();
   await act("marketProxy", "CancelCharOrder", [orderID, row?.regionID ?? 0]);
   const balanceAfter = await balance();
   const after = await orders();
@@ -242,13 +245,16 @@ export async function buyMultipleItems(act: Ask, stationID: number, items: reado
 }
 
 /** Gives one of the pilot's own orders a new price, the order named by its number as the pilot's orders have it. */
-export async function modifyOrder(act: Ask, ask: Ask, orderID: string, price: number): Promise<MarketWriteChange> {
+export async function modifyOrder(act: Ask, ask: Ask, orderID: string, price: number, corporationIssuer?: number): Promise<MarketWriteChange> {
   if (!/^\d+$/.test(orderID)) throw new Error("That order could not be identified.");
-  const orders = () => quietly(async () => decodeOwnOrders(await ask("marketProxy", "GetCharOrders", [])));
-  const balance = () => quietly(async () => walletAmount(await ask("account", "GetCashBalance", [0])));
+  const orders = () => quietly(async () => decodeOwnOrders(await ask("marketProxy", corporationIssuer === undefined ? "GetCharOrders" : "GetCorporationOrders", [])));
   const before = await orders();
   const row = before?.find((order) => order.orderID === orderID);
   if (!row) throw new Error("That order is not among your orders any more.");
+  if (corporationIssuer !== undefined && row.issuerID !== corporationIssuer) throw new Error("Only the issuing pilot can modify this corporation order.");
+  const balance = () => quietly(async () => walletAmount(corporationIssuer === undefined
+    ? await ask("account", "GetCashBalance", [0])
+    : await ask("account", "GetCashBalance", [1], { accountKey: row.walletDivision ?? null })));
   const balanceBefore = await balance();
   const newPrice = roundPrice(price);
   const issued: JsonValue = row.issuedAt === null ? null : { type: "long", value: row.issuedAt.toString() };

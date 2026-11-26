@@ -810,9 +810,10 @@ export interface MarketOwnOrderRow {
   readonly escrow: string;
   readonly state: MarketOwnFillState;
   readonly issuedAt: bigint | null;
-  /** True for a corporation order. Out of scope to place, but shown if present
-   * so the player is never given a partial picture of their own market. */
+  /** True for an order placed from a corporation wallet. */
   readonly isCorp: boolean;
+  readonly issuerID?: number;
+  readonly walletDivision?: number;
 }
 
 /** One completed trade (marketProxy.CharGetTransactions). */

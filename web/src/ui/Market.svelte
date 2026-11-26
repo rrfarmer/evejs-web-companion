@@ -21,6 +21,7 @@
     DURATION_CHOICES,
     FILL_STATE_LABELS,
     bestPrices,
+    canReadCorporationOrders,
     checkPrice,
     checkQuantity,
     distanceLabel,
@@ -532,13 +533,63 @@
   /** Which of the four views is showing. */
   let tab = $state<"book" | "groups" | "orders" | "trades" | "escrow">("book");
   let ordersReady = $state(false);
-  let orderPage = $state<"orders" | "history">("orders");
+  let orderPage = $state<"orders" | "corporation" | "history">("orders");
   let exportNote = $state("");
-  const canExportCorpOrders = $derived((BigInt($station.online?.corpRole ?? "0") & 256n) !== 0n);
+  const canExportCorpOrders = $derived(canReadCorporationOrders($station.online?.corpRole));
+  const corporationOrderPage = $derived(ordersOnly && orderPage === "corporation" && canExportCorpOrders);
+  const corporationOrderChanges = $derived(flow.corporationMarketChanged);
+  let corporateOrders = $state.raw<readonly MarketOwnOrderRow[] | null>(null);
+  let readCorporationID = $state<number | null>(null);
+  const corporationID = $derived($station.online?.corporationID ?? null);
+  let corporateOrderError = $state("");
+  let corporateOrderRevision = $state(0);
+  let corporateOrderDivisions = $state.raw<Readonly<Record<string, string | null>>>({});
   const orderExportWords = [
     "UI/Market/Orders/MyOrders", "UI/Market/Orders/CorporationOrders", "UI/Market/Orders/MyOrderHistory",
     "Tooltips/Market/MarketMyOrdersExportButton", "Tooltips/Market/MarketCorpOrdersExport", "UI/Market/MarketWindow/ExportNoData",
+    "UI/Market/MarketQuote/headerIssuedBy", "UI/Market/MarketQuote/headerWalletDivision", "UI/Corporations/Common/CorporateDivisionMasterWallet",
+    "UI/Market/Orders/CancelOrder", "UI/Market/Orders/ModifyOrder", "UI/Inventory/ItemActions/ViewTypesMarketDetails", "UI/Commands/ShowInfo",
   ];
+  $effect(() => { if (orderPage === "corporation" && !canExportCorpOrders) orderPage = "orders"; });
+  $effect(() => {
+    if (!corporationOrderPage) return;
+    void corporateOrderRevision;
+    void $corporationOrderChanges;
+    const owner = corporationID;
+    let current = true;
+    corporateOrderError = "";
+    void flow.readCorporationMarketOrders().then(rows => {
+      if (!current) return;
+      readCorporationID = owner;
+      corporateOrders = rows.filter(row => row.state === "open");
+    })
+      .catch(cause => {
+        if (!current) return;
+        readCorporationID = owner;
+        corporateOrders = [];
+        corporateOrderError = cause instanceof Error ? cause.message : String(cause);
+      });
+    return () => { current = false; };
+  });
+  $effect(() => {
+    if (!corporationOrderPage) return;
+    void $station.online?.corporationID;
+    let current = true;
+    corporateOrderDivisions = {};
+    void flow.corporationWalletDivisionNames().then(names => { if (current) corporateOrderDivisions = names; }).catch(() => undefined);
+    return () => { current = false; };
+  });
+  function selectOrderPage(page: "orders" | "corporation" | "history") {
+    closeModify();
+    cancellingOrderID = null;
+    corporateOrders = null;
+    orderPage = page;
+  }
+  function corporateOrderDivision(key: number | undefined) {
+    if (!key || key < 1000 || key > 1006) return "";
+    return corporateOrderDivisions[String(key - 999)] ?? (key === 1000
+      ? qbWord("UI/Corporations/Common/CorporateDivisionMasterWallet") || "Master Wallet" : `Wallet Division ${key - 999}`);
+  }
   /** MarketBase.LoadDetails' detail tabs (the play page): Market Data (the order lists) or Price History. */
   let detailTab = $state<"marketdata" | "pricehistory">("marketdata");
 
@@ -756,6 +807,10 @@
   }
 
   function refreshOrders(): void {
+    if (corporationOrderPage) {
+      corporateOrderRevision++;
+      return;
+    }
     void run(async () => {
       await flow.loadMarketOrders();
       ordersReady = true;
@@ -814,6 +869,8 @@
   const openOrders = $derived.by(() =>
     $market.ownOrders.filter((order) => order.state === "open"),
   );
+  const displayedOpenOrders = $derived(corporationOrderPage ? (readCorporationID === corporationID ? corporateOrders ?? [] : []) : openOrders);
+  const openOrdersError = $derived(corporationOrderPage ? corporateOrderError : $market.ownOrdersError);
   /**
    * What the pilot's own open orders have tied up, totalled from the orders as the client's orders panel totals them
    * (personalMarketOrders.py UpdateOrderTotals, 32 to 49: each open buy order's escrow), and the goods each open sell
@@ -974,7 +1031,11 @@
 
   function cancelOrder(order: MarketOwnOrderRow): void {
     cancellingOrderID = null;
-    void run(() => flow.cancelMarketOrder(order.orderID));
+    const corporate = order.isCorp;
+    void run(async () => {
+      await flow.cancelMarketOrder(order.orderID, corporate);
+      if (corporate) corporateOrderRevision++;
+    });
   }
 
   function startModify(order: MarketOwnOrderRow): void {
@@ -999,7 +1060,9 @@
       return;
     }
     void run(async () => {
-      await flow.modifyMarketOrder(order.orderID, check.price);
+      const corporate = order.isCorp;
+      await flow.modifyMarketOrder(order.orderID, check.price, corporate);
+      if (corporate) corporateOrderRevision++;
       closeModify();
     });
   }
@@ -1030,7 +1093,7 @@
     return `That went through. You were actually charged ${formatIsk(magnitude)}.`;
   });
   /** The side of the order whose take-down is being asked, for the words under it. */
-  const cancellingSide = $derived(openOrders.find((order) => order.orderID === cancellingOrderID)?.side ?? null);
+  const cancellingSide = $derived(displayedOpenOrders.find((order) => order.orderID === cancellingOrderID)?.side ?? null);
 
   // --- R83: BROWSING, not just searching -------------------------------------
   //
@@ -1327,8 +1390,11 @@
 <div class="market-layout" class:retail={retail && !ordersOnly}>
 {#if ordersOnly}
   <nav class="mkt-order-controls" aria-label="Market Orders">
-    <button type="button" aria-pressed={orderPage === "orders"} onclick={() => (orderPage = "orders")}>{qbWord("UI/Market/Orders/MyOrders") || "My Orders"}</button>
-    <button type="button" aria-pressed={orderPage === "history"} onclick={() => (orderPage = "history")}>{qbWord("UI/Market/Orders/MyOrderHistory") || "My Order History"}</button>
+    <button type="button" aria-pressed={orderPage === "orders"} onclick={() => selectOrderPage("orders")}>{qbWord("UI/Market/Orders/MyOrders") || "My Orders"}</button>
+    {#if canExportCorpOrders}
+      <button type="button" aria-pressed={corporationOrderPage} onclick={() => selectOrderPage("corporation")}>{qbWord("UI/Market/Orders/CorporationOrders") || "Corporation Orders"}</button>
+    {/if}
+    <button type="button" aria-pressed={orderPage === "history"} onclick={() => selectOrderPage("history")}>{qbWord("UI/Market/Orders/MyOrderHistory") || "My Order History"}</button>
     <button type="button" class="minor" disabled={busy} onclick={refreshOrders}>Refresh</button>
     <button type="button" class="minor" disabled={busy} onclick={() => exportOrders(false)}>{qbWord("Tooltips/Market/MarketMyOrdersExportButton") || "Export Personal Orders"}</button>
     {#if canExportCorpOrders}
@@ -2124,14 +2190,16 @@
 {/if}
 {/if}
 
-{#if ordersOnly ? ordersReady && orderPage === "orders" : $market.loaded && tab === "orders"}
+{#if ordersOnly ? corporationOrderPage || ordersReady && orderPage === "orders" : $market.loaded && tab === "orders"}
   <section>
-    <h2>Orders you have open</h2>
-    {#if $market.ownOrdersError}
-      <p class="error">Your orders could not be read: {$market.ownOrdersError}</p>
+    <h2>{corporationOrderPage ? qbWord("UI/Market/Orders/CorporationOrders") || "Corporation Orders" : "Orders you have open"}</h2>
+    {#if openOrdersError}
+      <p class="error">{corporationOrderPage ? openOrdersError : `Your orders could not be read: ${openOrdersError}`}</p>
     {/if}
-    {#if openOrders.length === 0}
-      {#if !$market.ownOrdersError}<p class="empty">You have no orders open right now.</p>{/if}
+    {#if corporationOrderPage && (corporateOrders === null || readCorporationID !== corporationID)}
+      <p role="status">Reading corporation orders…</p>
+    {:else if displayedOpenOrders.length === 0}
+      {#if !openOrdersError}<p class="empty">{corporationOrderPage ? "Your corporation has no open orders." : "You have no orders open right now."}</p>{/if}
     {:else}
       <div class="table-wrap overflow-x-auto">
         <table class="guests reflow">
@@ -2143,12 +2211,16 @@
               <th class="num">Left</th>
               <th>Where</th>
               <th class="num">Tied up</th>
+              {#if corporationOrderPage}
+                <th>{qbWord("UI/Market/MarketQuote/headerIssuedBy") || "Issued by"}</th>
+                <th>{qbWord("UI/Market/MarketQuote/headerWalletDivision") || "Wallet Division"}</th>
+              {/if}
               <th>Action</th>
             </tr>
           </thead>
           <tbody>
-            {#each openOrders as order (order.orderID)}
-              <tr>
+            {#each displayedOpenOrders as order (order.orderID)}
+              <tr data-corporation-order={corporationOrderPage ? order.orderID : undefined}>
                 <td data-label="Item">
                   <span class="cell-item">
                     <TypeIcon typeID={order.typeID} name={typeName(order.typeID)} />
@@ -2164,9 +2236,13 @@
                 <td class="num" data-label="Tied up">
                   {order.side === "buy" ? formatIsk(order.escrow) : "—"}
                 </td>
+                {#if corporationOrderPage}
+                  <td data-label="Issued by">{order.issuerID ? resolvedName($names.resolved, "owner", order.issuerID, "") : ""}</td>
+                  <td data-label="Wallet Division">{corporateOrderDivision(order.walletDivision)}</td>
+                {/if}
                 <td data-label="Action">
                   <div class="row-actions">
-                    {#if modifyingOrderID === order.orderID}
+                    {#if (!corporationOrderPage || order.issuerID === $station.online?.characterID) && modifyingOrderID === order.orderID}
                       <input
                         type="number"
                         min="0.01"
@@ -2203,7 +2279,7 @@
                           Never mind
                         </button>
                       {/if}
-                    {:else if cancellingOrderID === order.orderID}
+                    {:else if (!corporationOrderPage || order.issuerID === $station.online?.characterID) && cancellingOrderID === order.orderID}
                       <button
                         type="button"
                         class="danger"
@@ -2220,14 +2296,14 @@
                       >
                         Leave it up
                       </button>
-                    {:else}
+                    {:else if !corporationOrderPage || order.issuerID === $station.online?.characterID}
                       <button
                         type="button"
                         class="minor"
                         disabled={busy}
                         onclick={() => startModify(order)}
                       >
-                        Change the price…
+                        {corporationOrderPage ? qbWord("UI/Market/Orders/ModifyOrder") || "Modify Order" : "Change the price…"}
                       </button>
                       <button
                         type="button"
@@ -2235,8 +2311,12 @@
                         disabled={busy}
                         onclick={() => (cancellingOrderID = order.orderID)}
                       >
-                        Take it down…
+                        {corporationOrderPage ? qbWord("UI/Market/Orders/CancelOrder") || "Cancel Order" : "Take it down…"}
                       </button>
+                    {/if}
+                    {#if corporationOrderPage}
+                      <button type="button" class="minor" onclick={() => showMarketDetails(order.typeID)}>{qbWord("UI/Inventory/ItemActions/ViewTypesMarketDetails") || "View Market Details"}</button>
+                      <button type="button" class="minor" onclick={() => showInfo({kind: "type", typeID: order.typeID})}>{qbWord("UI/Commands/ShowInfo") || "Show Info"}</button>
                     {/if}
                   </div>
                 </td>
@@ -2256,7 +2336,7 @@
       {#if cancellingOrderID !== null}
         <p class="note">
           {cancellingSide === "sell"
-            ? "Taking a sell order down puts the goods it still holds back in your hangar at its station."
+            ? corporationOrderPage ? "Taking a sell order down returns the goods it still holds." : "Taking a sell order down puts the goods it still holds back in your hangar at its station."
             : "Taking a buy order down returns the ISK it had tied up."}
           The fee you paid to place it is not returned.
         </p>

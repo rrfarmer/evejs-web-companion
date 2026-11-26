@@ -95,7 +95,7 @@ const NAMED_ON_NOTICE = Object.freeze({
     ["marketProxy", "GetMarketOrderHistory", []],
     ["marketProxy", "GetPlexBest", []],
     ...(isCorp === true || whole(isCorp) === 1n
-      ? [null, 1000, 1001, 1002, 1003, 1004, 1005, 1006].map(key => ["marketProxy", "CorpGetTransactions", [null, key]])
+      ? [["marketProxy", "GetCorporationOrders", []], ...[null, 1000, 1001, 1002, 1003, 1004, 1005, 1006].map(key => ["marketProxy", "CorpGetTransactions", [null, key]])]
       : []),
   ],
   // fittingSvc.py 1269, OnCommunityFittingsUpdated, which names it where it holds the community's fittings.

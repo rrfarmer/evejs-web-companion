@@ -3202,6 +3202,7 @@ const RETAIL_CALLS = Object.freeze({
     },
   }),
   "marketProxy.CorpGetTransactions": same("eve/client/script/ui/shared/marketSvc.py:28-30", "GetMarketProxy().CorpGetTransactions(None, accountKey); accountants can ask for all divisions with None"),
+  "marketProxy.GetCorporationOrders": same(`${MARKET_QUOTE}:391`, "Current corporation's active orders, for accountants"),
   "calendarProxy.GetEventList": same(`${CALENDAR_SVC}:239`, "GetCalendarProxy().GetEventList(month, year), kept by month for the session"),
   "calendarProxy.GetEventDetails": judged(`${CALENDAR_SVC}:261`, ofAnOpenedEvent, "GetCalendarProxy().GetEventDetails(eventID, ownerID), kept by event"),
   "calendarMgr.GetResponsesForCharacter": same(`${CALENDAR_SVC}:252`, "RemoteSvc('calendarMgr').GetResponsesForCharacter(), no arguments, asked once and kept"),
