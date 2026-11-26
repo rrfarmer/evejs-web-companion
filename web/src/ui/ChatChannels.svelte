@@ -6,7 +6,7 @@
   import { plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, showChat }: { store: ClientStore; flow: AppFlow; showChat?: () => void } = $props();
   const words = $derived(store.words);
   const conversations = $derived(flow.conversations.state);
   const joinedRooms = $derived($conversations.rooms.map(room => room.channel).sort().join(","));
@@ -16,6 +16,8 @@
     members: "UI/Chat/ChannelWindow/Members",
     player: "UI/Chat/ChannelWindow/PlayerChannels",
     owned: "UI/Chat/ChannelWindow/MyChannels",
+    join: "UI/Chat/ChannelWindow/Join",
+    leave: "UI/Chat/ChannelWindow/Leave",
   } as const;
   const locale = (path: string, fallback: string) => plainText($words.templates[path] ?? "") || fallback;
 
@@ -25,6 +27,7 @@
   let loading = $state(true);
   let searching = $state(false);
   let error = $state("");
+  let membershipBusy = $state(false);
   let request = 0;
   const visibleRooms = new SvelteSet<string>();
   let roomObserver: IntersectionObserver | null = null;
@@ -145,8 +148,7 @@
     searching = false;
     error = "";
   }
-  async function findChannel(event: SubmitEvent) {
-    event.preventDefault();
+  async function findChannel() {
     const value = query.trim();
     if (!value || searching) return;
     const serial = ++request;
@@ -163,12 +165,49 @@
       if (serial === request) searching = false;
     }
   }
+  async function changeMembership(action: () => Promise<void>) {
+    if (membershipBusy || $conversations.busy) return;
+    membershipBusy = true;
+    error = "";
+    try {
+      await action();
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : "The channel could not be opened.";
+    } finally {
+      membershipBusy = false;
+    }
+  }
+  async function joinChannel(roomName: string, name: string) {
+    await flow.conversations.joinDirectoryChannel(roomName, name);
+    showChat?.();
+  }
+  function joinByName(event: SubmitEvent) {
+    event.preventDefault();
+    const name = query.trim();
+    if (!name) return;
+    void changeMembership(async () => {
+      const folded = name.toLowerCase();
+      const held = (exact ?? channels).filter(row =>
+        channelName(row).toLowerCase() === folded || row.name.trim().toLowerCase() === folded || row.roomName === folded);
+      const rows = held.length ? held : await flow.readChatChannelDirectory(name);
+      const match = rows.find(row => systemLabels(row.roomName)) ?? rows[0];
+      if (!match) {
+        error = `No channel named “${name}” was found.`;
+        return;
+      }
+      await joinChannel(match.roomName, channelName(match));
+    });
+  }
+  function toggleMembership(roomName: string, name: string, joined: boolean) {
+    void changeMembership(() => joined ? flow.conversations.close(roomName) : joinChannel(roomName, name));
+  }
 </script>
 
-<form class="controls channel-search" onsubmit={findChannel}>
+<form class="controls channel-search" onsubmit={joinByName}>
   <input type="search" class="grow" maxlength="60" aria-label={locale(paths.channelName, "Channel Name")}
     placeholder={locale(paths.channelName, "Channel Name")} value={query} oninput={(event) => changeQuery(event.currentTarget.value)} />
-  <button type="submit" disabled={!query.trim() || searching}>Find Channel</button>
+  <button type="submit" disabled={!query.trim() || searching || membershipBusy || $conversations.busy}>{locale(paths.join, "Join")}</button>
+  <button type="button" disabled={!query.trim() || searching || membershipBusy} onclick={findChannel}>Find Channel</button>
 </form>
 {#if error}
   <p class="error" role="alert">{error}</p>
@@ -177,15 +216,19 @@
 {/if}
 {#if groups.length}
   <table class="guests channel-directory">
-    <thead><tr><th scope="col">{locale(paths.name, "Name")}</th><th scope="col" class="num">{locale(paths.members, "Members")}</th></tr></thead>
+    <thead><tr><th scope="col">{locale(paths.name, "Name")}</th><th scope="col" class="num">{locale(paths.members, "Members")}</th><th scope="col"><span class="sr-only">Membership</span></th></tr></thead>
     {#each groups as group (group.id)}
       <tbody>
-        <tr><th scope="rowgroup" colspan="2">{group.label}</th></tr>
+        <tr><th scope="rowgroup" colspan="3">{group.label}</th></tr>
         {#each group.channels as channel (channel.roomName)}
           {@const count = counts.get(channel.roomName)}
+          {@const joined = $conversations.rooms.some(room => room.channel === channel.roomName)}
+          {@const action = joined ? locale(paths.leave, "Leave") : locale(paths.join, "Join")}
           <tr data-room-name={channel.roomName} use:observeRoom={channel.roomName}>
             <td>{channel.label}</td>
             <td class="num" data-members={count}>{count ? count.toLocaleString() : ""}</td>
+            <td class="num"><button type="button" class="minor" aria-label={`${action} ${channel.label}`} disabled={membershipBusy || $conversations.busy}
+              onclick={() => toggleMembership(channel.roomName, channel.label, joined)}>{action}</button></td>
           </tr>
         {/each}
       </tbody>

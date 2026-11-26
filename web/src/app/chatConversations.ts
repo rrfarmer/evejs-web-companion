@@ -35,6 +35,7 @@ export function createChatConversations(hooks: Hooks) {
   const pendingPrivate = new Map<string, { target: number; invited: boolean }>();
   const pendingInvites = new Map<number, string>();
   const information = new Map<string, Record<string, JsonValue>>();
+  const directoryTitles = new Map<string, string>();
   const seenDeclines = new Set<string>();
   const ownerNames = new Map<number, string>();
   const owners = new Map<number, Promise<boolean>>();
@@ -72,15 +73,17 @@ export function createChatConversations(hooks: Hooks) {
   async function applyRoom(scope: Scope, raw: JsonValue): Promise<void> {
     const value = record(raw), channel = String(value.channel ?? ""), roomName = String(value.roomName ?? "");
     const isHelpRoom = channel === ENGLISH_HELP_ROOM;
-    if ((!/^(private|player)_/.test(channel) && !isHelpRoom) || !roomName) return;
+    const systemMessage = /^system_\d+_(\d+)$/.exec(channel)?.[1];
+    if ((!/^(private|player)_/.test(channel) && !systemMessage) || !roomName) return;
     const decoded = decodeChatChannel(raw), pending = pendingPrivate.get(channel);
     const observed = Array.isArray(value.seenMembers) ? value.seenMembers : decoded.roster.map(member => member.characterID);
     if (pending && observed.includes(pending.target)) { pendingPrivate.delete(channel); if (pendingInvites.get(pending.target) === channel) pendingInvites.delete(pending.target); }
     for (const [who, room] of pendingInvites) if (room === channel && observed.includes(who)) pendingInvites.delete(who);
     await names(scope, [...decoded.roster.map(member => member.characterID), ...(pendingPrivate.get(channel) ? [pendingPrivate.get(channel)!.target] : [])]);
-    if (!isHelpRoom && !information.has(channel)) { const info = await api.readChatRoomInfo(roomName, scope.options); scope.current(); information.set(channel, record(info)); }
+    if (!systemMessage && !information.has(channel)) { const info = await api.readChatRoomInfo(roomName, scope.options); scope.current(); information.set(channel, record(info)); }
     const info = information.get(channel);
-    let title = isHelpRoom ? "English Help" : typeof info?.name === "string" ? info.name : "";
+    let title = systemMessage ? hooks.word(`#${systemMessage}`, {}, directoryTitles.get(channel) ?? (isHelpRoom ? "English Help" : roomName)) :
+      typeof info?.name === "string" && info.name ? info.name : (directoryTitles.get(channel) ?? roomName);
     if (channel.startsWith("private_")) {
       const others = decoded.roster.filter(member => member.characterID !== scope.me).map(member => name(member.characterID));
       if (!others.length && decoded.roster.length && pendingPrivate.has(channel)) others.push(name(pendingPrivate.get(channel)!.target));
@@ -154,7 +157,7 @@ export function createChatConversations(hooks: Hooks) {
   return {
     state: readonlySignal(state),
     name,
-    reset() { generation++; pendingPrivate.clear(); pendingInvites.clear(); information.clear(); seenDeclines.clear(); owners.clear(); rules = null; book = null; refreshWork = null; state.set(blank()); },
+    reset() { generation++; pendingPrivate.clear(); pendingInvites.clear(); information.clear(); directoryTitles.clear(); seenDeclines.clear(); owners.clear(); rules = null; book = null; refreshWork = null; state.set(blank()); },
     invalidateContacts() { book = null; },
     async canStart(id: number) { return character(capture(), id); },
     async invitable(target: number) {
@@ -177,6 +180,17 @@ export function createChatConversations(hooks: Hooks) {
       refreshWork = work; return work;
     },
     select(room: string | null) { patch({ active: room }); },
+    async joinDirectoryChannel(room: string, title: string) {
+      if (!/^(?:system_\d+_\d+|player_[a-z0-9_-]+)$/.test(room)) throw new Error("Choose a channel from the directory.");
+      if (state.get().rooms.some(entry => entry.channel === room)) {
+        patch({ active: room, openSerial: ++serial });
+        return;
+      }
+      await task(scope => {
+        directoryTitles.set(room, title);
+        return join(scope, room);
+      });
+    },
     async openHelpChannel() {
       if (state.get().rooms.some(room => room.channel === ENGLISH_HELP_ROOM)) {
         patch({ active: ENGLISH_HELP_ROOM, openSerial: ++serial });

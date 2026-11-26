@@ -396,7 +396,7 @@
   <!-- A skill plan link in a message, followed (link.py handle_link): the Skills window opens on it. -->
   <Chat {store} {flow} {openInventoryFilterLink} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />
 {:else if tab === "channels"}
-  <ChatChannels {store} {flow} />
+    <ChatChannels {store} {flow} showChat={() => onOpen?.("chat")} />
 {:else if tab === "compare"}
   <TypeCompare {store} {flow} />
 {:else}
