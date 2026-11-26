@@ -1950,9 +1950,12 @@ class XmppChatSession {
   }
 
   async channelAccess(roomName, list, change, context = {}) {
-    await this.managedPlayerChannel(roomName, context);
+    const channel = await this.managedPlayerChannel(roomName, context);
     const stanzas = this.retailStanzas();
-    const affiliation = list === "blocked" ? "outcast" : "member";
+    const affiliation = list === "operators" ? "admin" : list === "blocked" ? "outcast" : "member";
+    if (list === "operators" && change && (channel.affiliation !== "owner" || change.kind !== "character")) {
+      throw new XmppChatError("Only a channel owner can change character operators.", { code: "CHAT_ACCESS_REFUSED", statusCode: 403 });
+    }
     const request = async (stanza) => {
       this.assertChatCurrent(context);
       const response = await this.requestChatInformation(stanza, `channel ${list} list`);
@@ -1977,6 +1980,11 @@ class XmppChatSession {
       }
       const response = await request(stanzas.roomIq(roomName, "admin", "get", `<item affiliation='${affiliation}'/>`));
       const entries = new Map(parse(response, affiliation));
+      if (list === "operators") {
+        const response = await request(stanzas.roomIq(roomName, "admin", "get", "<item affiliation='owner'/>"));
+        const owners = new Map(parse(response, "owner"));
+        return [...new Set([...entries.keys(), ...owners.keys()])].map(id => ({ id, temporary: false, removable: !owners.has(id) }));
+      }
       if (list === "blocked") {
         const records = await request(stanzas.roomRestrictionRecords(roomName, "ban"));
         const now = Date.now();
@@ -1990,6 +1998,10 @@ class XmppChatSession {
     const before = await read();
     if (!change) return before;
     const current = before.find(entry => entry.id === change.ownerID);
+    if (list === "operators" && current?.removable === false) {
+      if (change.listed) return before;
+      throw new XmppChatError("This operator is a channel owner.", { code: "CHAT_ACCESS_REFUSED", statusCode: 403 });
+    }
     if (list === "muted") {
       if (change.listed || change.kind !== "character") {
         throw new XmppChatError("Select a muted character to remove.", { code: "INVALID_CHAT_OWNER", statusCode: 400 });
@@ -2001,7 +2013,8 @@ class XmppChatSession {
     }
     if (change.listed ? current && !current.temporary : !current) return before;
     const owner = `${change.ownerID}@${this.domain}`;
-    const item = `<item affiliation='${change.listed ? affiliation : "none"}' jid='${escapeXml(owner)}'><reason>${escapeXml(change.kind)}</reason></item>`;
+    const next = change.listed ? affiliation : list === "operators" ? "member" : "none";
+    const item = `<item affiliation='${next}' jid='${escapeXml(owner)}'><reason>${escapeXml(change.kind)}</reason></item>`;
     await request(stanzas.roomIq(roomName, "admin", "set", item));
     if (!change.listed && current?.temporary) await request(stanzas.roomRestrictionRecords(roomName, "ban", change.ownerID));
     return read();

@@ -5686,7 +5686,7 @@ export interface AppFlow {
   readChatChannelDirectory(name: string | null): Promise<readonly api.ChatDirectoryChannel[]>;
   createChatDirectoryChannel(name: string): Promise<string>;
   chatDirectoryChannelSettings(room: string, change?: api.ChatChannelSettingsChange): Promise<api.ChatChannelSettings>;
-  chatDirectoryChannelAccess(room: string, list: api.ChatAccessList, change?: api.ChatAccessChange): Promise<readonly { id: number; name: string; temporary: boolean }[]>;
+  chatDirectoryChannelAccess(room: string, list: api.ChatAccessList, change?: api.ChatAccessChange): Promise<readonly { id: number; name: string; temporary: boolean; removable: boolean }[]>;
   readChatChannelMembers(rooms: readonly string[]): Promise<ReadonlyMap<string, number>>;
   /**
    * R7c — request display names for a set of `{kind, id}` refs (names-everywhere).

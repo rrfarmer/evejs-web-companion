@@ -2112,19 +2112,19 @@ export async function readChatRoomInfo(roomName: string, options: ApiOptions = {
 
 export type ChatChannelAccess = "allowed" | "moderated" | "blocked";
 export type ChatAccessOwnerKind = "character" | "corporation" | "alliance";
-export type ChatAccessList = "allowed" | "blocked" | "muted";
+export type ChatAccessList = "allowed" | "blocked" | "muted" | "operators";
 export interface ChatAccessChange {
   readonly ownerID: number;
   readonly kind: ChatAccessOwnerKind;
   readonly listed: boolean;
 }
-export async function chatChannelAccessList(roomName: string, list: ChatAccessList, change: ChatAccessChange | null, options: ApiOptions = {}): Promise<readonly { id: number; temporary: boolean }[]> {
+export async function chatChannelAccessList(roomName: string, list: ChatAccessList, change: ChatAccessChange | null, options: ApiOptions = {}): Promise<readonly { id: number; temporary: boolean; removable: boolean }[]> {
   const path = `/api/bridge/chat/${encodeURIComponent(roomName)}/${list}`;
   const data = change === null ? await getJson(path, options) : await postJson(path, { ownerID: change.ownerID, kind: change.kind, [list]: change.listed }, options);
   if (!Array.isArray(data.entries)) throw new Error(`The channel ${list} list could not be read.`);
   return data.entries.flatMap(raw => {
-    const { id, temporary } = (raw ?? {}) as Record<string, JsonValue>;
-    return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? [{ id, temporary: temporary === true }] : [];
+    const { id, temporary, removable } = (raw ?? {}) as Record<string, JsonValue>;
+    return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? [{ id, temporary: temporary === true, removable: removable !== false }] : [];
   });
 }
 

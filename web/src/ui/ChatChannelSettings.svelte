@@ -16,7 +16,7 @@
   const paths = {
     title: "UI/Chat/ChannelConfiguration", general: "UI/Generic/General", name: "UI/Chat/ChannelName",
     password: "UI/Chat/Password", retype: "UI/Chat/RetypePassword", access: "UI/Chat/DefaultAccess",
-    motd: "UI/Chat/Motd", allowed: "UI/Chat/Allowed", moderated: "UI/Chat/Moderated", blocked: "UI/Chat/Blocked", muted: "UI/Chat/Muted",
+    motd: "UI/Chat/Motd", allowed: "UI/Chat/Allowed", moderated: "UI/Chat/Moderated", blocked: "UI/Chat/Blocked", muted: "UI/Chat/Muted", operators: "UI/Chat/Operators",
     ok: "UI/Common/Buttons/OK", cancel: "UI/Common/Buttons/Cancel",
   } as const;
   const words = $derived(store.words);
@@ -96,6 +96,7 @@
       <button type="button" aria-pressed={tab === "allowed"} disabled={pending || changingAccess} onclick={() => { tab = "allowed"; }}>{label("allowed", "Allowed")}</button>
       <button type="button" aria-pressed={tab === "blocked"} disabled={pending || changingAccess} onclick={() => { tab = "blocked"; }}>{label("blocked", "Blocked")}</button>
       <button type="button" aria-pressed={tab === "muted"} disabled={pending || changingAccess} onclick={() => { tab = "muted"; }}>{label("muted", "Muted")}</button>
+      <button type="button" aria-pressed={tab === "operators"} disabled={pending || changingAccess} onclick={() => { tab = "operators"; }}>{label("operators", "Operators")}</button>
     </nav>
   {/if}
   <form id={generalForm} hidden={tab !== "general"} onsubmit={submit}>
@@ -121,7 +122,7 @@
     {/if}
   </form>
   {#if tab !== "general"}
-    {#key tab}<ChatChannelAccessList {store} {flow} {room} list={tab} bind:mutating={changingAccess} />{/key}
+    {#key tab}<ChatChannelAccessList {store} {flow} {room} list={tab} roomOwner={current?.owner === true} bind:mutating={changingAccess} />{/key}
   {/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}
   <div class="actions">
