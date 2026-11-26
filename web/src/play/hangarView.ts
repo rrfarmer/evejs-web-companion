@@ -17,7 +17,8 @@ import { bloomFor, type Bloom } from "../three/bloom.ts";
 import { gfx, spaceRendering } from "./gfxSettings.ts";
 import { DynamicExposure, type DynamicExposureParams } from "../three/exposure.ts";
 import { FOV, MAX_PITCH, MIN_PITCH, ENTRY_SECONDS, IDLE_AFTER_SECONDS, DEFAULT_SWING, zoomLimits, entryAt, idleAt, bobAt, swingOf, type Swing } from "./hangarCamera.ts";
-import { pickDockSwing, type DockSwing } from "./hangarRegistry.ts";
+import { pickDockSwing, type DockSwing, type HangarGraphics } from "./hangarRegistry.ts";
+import { modularDock, modularHangar } from "./modularHangar.ts";
 import { buildTurrets, type HullTurretData, type TurretFit, type TurretSetState } from "../three/turretModel.ts";
 
 interface HangarScene {
@@ -180,7 +181,7 @@ export class HangarView {
     if (this.ship && level !== null) setDirtLevel(this.ship.model, level);
   }
 
-  async show(typeID: number | null, hangarGraphics: { model: number; scene: number; swings?: readonly DockSwing[]; hangarType?: number } | null = null): Promise<void> {
+  async show(typeID: number | null, hangarGraphics: HangarGraphics | null = null): Promise<void> {
     const hangarKey = hangarGraphics ? `${hangarGraphics.model}:${hangarGraphics.scene}` : null;
     this.hangarType = hangarGraphics?.hangarType ?? 0;
     if (hangarGraphics) void hangarColorSet(hangarGraphics.model).then((c) => { if (this.shownHangar === `${hangarGraphics.model}:${hangarGraphics.scene}`) this.hangarColors = c; });
@@ -198,7 +199,7 @@ export class HangarView {
     const currentHangar = loadHangar ? null : this.hangar;
     const [model, hangar, scene] = await Promise.all([
       typeModel(typeID).catch(() => null),
-      loadHangar && hangarGraphics ? graphicModel(hangarGraphics.model).catch(() => null) : Promise.resolve(currentHangar),
+      loadHangar && hangarGraphics ? (hangarGraphics.modular ? modularHangar(hangarGraphics) : graphicModel(hangarGraphics.model)).catch(() => null) : Promise.resolve(currentHangar),
       loadHangar && hangarGraphics ? fetch(`/client-assets/graphic/${hangarGraphics.scene}`).then((r) => r.json()).then((g: { scene?: HangarScene }) => g.scene ?? null).catch(() => null) : Promise.resolve(null),
       switching ? new Promise<void>((r) => setTimeout(r, 200)) : null,
     ]);
@@ -215,13 +216,16 @@ export class HangarView {
     }
     // DefaultHangarShipBehaviour.PlaceShip: turned half round about y, its bounding box's bottom on the hangar's anchor
     // point (SHIP_FLOATING_HEIGHT up where the hangar has none), moved by half its bounding sphere's centre.
-    model.rotation.y = Math.PI;
+    const dock = hangar && hangarGraphics?.modular ? modularDock(hangar, hangarGraphics.modular.dock) : undefined;
+    if (dock) dock.getWorldQuaternion(model.quaternion);
+    else model.rotation.y = Math.PI;
     model.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(model);
     const centre = box.getCenter(new THREE.Vector3());
     const a = (hangar?.userData as { anchor?: number[] | null } | undefined)?.anchor ?? null;
     const anchor = hangar ? new THREE.Vector3(a?.[0] ?? 0, a?.[1] ?? SHIP_FLOATING_HEIGHT, -(a?.[2] ?? 0)) : new THREE.Vector3();
-    model.position.copy(anchor).add(new THREE.Vector3(0, hangar ? -box.min.y : 0, 0)).addScaledVector(centre, 0.5);
+    if (dock) dock.getWorldPosition(model.position);
+    else model.position.copy(anchor).add(new THREE.Vector3(0, hangar ? -box.min.y : 0, 0)).addScaledVector(centre, 0.5);
     this.turntable.clear();
     this.turntable.add(model);
     this.switchFade = switching;

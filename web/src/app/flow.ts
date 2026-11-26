@@ -3206,6 +3206,7 @@ export interface AppFlow {
   askClientDialog(dialog: string, fallback: string, suppressYes?: boolean): Promise<boolean>;
   /** A solar system's security status from the route graph, null until the graph is read (asked for then). */
   systemSecurity(solarSystemID: number): number | null;
+  structureInfo(structureID: number): Promise<{ readonly solarSystemID: number | null; readonly typeID: number | null } | null>;
   /**
    * InBayDroneDamageTracker.FetchInBayDroneDamageToServer: the bay drones' layers (dogmaLM.GetLayerDamageValuesByItems),
    * each [shield, armor, structure] as fractions left; drones the answer has not, left out.
@@ -40105,6 +40106,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       }
       return out;
     },
+    structureInfo,
     systemSecurity(solarSystemID: number): number | null {
       if (!routeGraph) { void loadRouteGraph().catch(() => null); return null; }
       return routeGraph.security(solarSystemID) ?? null;

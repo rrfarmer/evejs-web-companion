@@ -170,7 +170,7 @@
   import type { OverviewRelationships } from "../play/overviewFilters.ts";
   import type { OverviewAffiliation } from "../play/overview.ts";
   import { authoritativeFleetMemberCharacterIDs } from "../bridge/fleetCenter.ts";
-  import { hangarGraphics } from "../play/hangarRegistry.ts";
+  import { hangarGraphics, upwellHangarGraphics } from "../play/hangarRegistry.ts";
   import { HangarView } from "../play/hangarView.ts";
   import UpwellExterior from "./UpwellExterior.svelte";
   import { dirtLevelFromTime } from "../three/hullModel.ts";
@@ -1055,14 +1055,27 @@
       // in the station's hangar (hangarRegistry: by the station's race, its type's from the client's type data)
       $effect(() => {
         const row = ($characters?.characters ?? []).find((c) => c.characterID === chosenCharacterID);
-        const shipTypeID = $flight?.status?.shipTypeID ?? row?.shipTypeID ?? null;
+        const status = $flight?.status;
+        const shipTypeID = status?.shipTypeID ?? row?.shipTypeID ?? null;
         const st = $station?.station ?? null;
-        void typeData().then((names) => {
+        const structureID = status?.structureID ?? null;
+        const solarSystemID = status?.solarSystemID ?? null;
+        const flow = session.flow;
+        const knownSecurity = solarSystemID === null ? null : $hudNames?.systemSecurity[solarSystemID] ?? null;
+        let stale = false;
+        void Promise.all([typeData(), structureID ? flow.structureInfo(structureID).catch(() => null) : null]).then(([names, structure]) => {
+          if (stale) return;
+          if (structureID) {
+            const shipGroup = status?.shipGroupID ?? names?.types[String(shipTypeID)]?.[1] ?? null;
+            const security = knownSecurity ?? (solarSystemID === null ? null : flow.systemSecurity(solarSystemID));
+            return hangar.show(shipTypeID, upwellHangarGraphics(structure?.typeID ?? null, shipGroup, security));
+          }
           const t = st?.stationTypeID != null ? names?.types[String(st.stationTypeID)] : undefined;
           const raceID = (t as unknown as (number | null)[] | undefined)?.[2] ?? null;
           const categoryID = t?.[1] != null ? names?.groups[String(t[1])]?.[1] ?? null : null;
           return hangar.show(shipTypeID, st ? hangarGraphics(st.stationID, { raceID, categoryID }) : null);
         });
+        return () => { stale = true; };
       });
       // its dust: the docked ship's dirt time, asked of the server as the client's hangar asks it
       $effect(() => {

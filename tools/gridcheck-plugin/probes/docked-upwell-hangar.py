@@ -38,7 +38,9 @@ def measure():
         return dict(stationType=station_type, shipType=ship_type, live=graphics(station_type, ship_type),
                     refinery=graphics(const.typeRefineryAthanor, ship_type),
                     engineering=graphics(const.typeEngineeringComplexRaitaru, ship_type),
+                    capital=graphics(const.typeCitadelFortizar, 19720),
                     locators=[item.name for item in model.locatorSets],
+                    layoutChildren=[child.name for child in model.effectChildren],
                     playerDock=list(dock.translation) if dock is not None else None)
     except Exception as exc:
         return {'fixtureError': str(exc)}

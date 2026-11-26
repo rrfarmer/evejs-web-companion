@@ -41,6 +41,7 @@ import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelesti
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
 import { buildGraphicSofDefaults, loadGraphicMaterialSets, graphicsFile, mapSdeDir, solarSystemContentFile } from "./lib/assetSde.mjs";
 import { SOF_BUILD, GRAPHIC_SOF_DEFAULTS, sofVariant, loadSof, buildHull, allMaterials } from "./lib/sof.mjs";
+import { hangarLayout } from "./lib/hangarLayout.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
 import { readTurret, ammoColors, TURRET_BUILD } from "./lib/turret.mjs";
 import { spawnSync } from "node:child_process";
@@ -1072,7 +1073,8 @@ async function main() {
       }
       if (!g?.sofHullName) throw new Error(`--graphic ${graphicID}: not a SOF hull or scene graphic`);
       const hull = g.sofHullName.toLowerCase();
-      const authoredGeometry = loadSof(rf).hulls.get(hull)?.geometryResFilePath;
+      const sof = loadSof(rf);
+      const authoredGeometry = sof.hulls.get(hull)?.geometryResFilePath;
       let gr2 = typeof authoredGeometry === "string" ? authoredGeometry.replace(/\\/g, "/").toLowerCase() : null;
       if (!gr2 || !rf.has(gr2)) {
         gr2 = null;
@@ -1083,7 +1085,9 @@ async function main() {
       const materialSet = stockDefaults[graphicID];
       const faction = (materialSet?.sofFactionName || g.sofFactionName) ?? null;
       await extractSof(rf, gr2, g.sofHullName, faction, outRoot, g.sofRaceName ?? null, { materialSet });
+      const layout = hangarLayout(sof, g);
       writeExtracted(file, JSON.stringify({ graphicID, hull: g.sofHullName, faction, race: g.sofRaceName ?? null, gr2,
+        ...(layout && { hangarLayout: layout }),
         ...(materialSet && { sofMaterialSetID: materialSet._key }) }));
       console.log(`graphic ${graphicID}: ${g.sofHullName} as ${faction ?? "none"}`);
     }

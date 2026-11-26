@@ -38,6 +38,7 @@ const GENERATED = new Map([
   ["/asteroidRules.json", ["--asteroid-rules"]],
   ["/starmap.json", ["--star-map", '"starMapBuild":5']],
 ]);
+const UPWELL_HANGAR_MODELS = new Set(["25235", "25568", "25605"]);
 
 function fileExists(file) {
   return fs.statSync(file, { throwIfNoEntry: false })?.isFile() === true;
@@ -237,7 +238,8 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   if (graphic) {
     const id = graphic[1];
     const args = ["--graphic", id];
-    const file = await ensure(`graphics/${id}.json`, args);
+    const layoutMarker = UPWELL_HANGAR_MODELS.has(id) && canExtract() ? '"hangarLayout"' : undefined;
+    const file = await ensure(`graphics/${id}.json`, args, layoutMarker);
     let g = readJson(file);
     if (g.scene && !("postprocess" in g.scene)) {
       await ensure(`graphics/${id}.json`, args, '"postprocess"');
@@ -245,8 +247,8 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
     }
     if (g.scene) return { json: g };
     g = await stockModelInfo(dir, g, ensure, canExtract);
-    const { graphicID, hull, faction, race } = g;
-    return { json: { graphicID, ...await modelResponse(dir, g, args, ensure, canExtract, queueColors, Boolean(g.sofMaterialSetID)), hull, faction, race } };
+    const { graphicID, hull, faction, race, hangarLayout } = g;
+    return { json: { graphicID, ...await modelResponse(dir, g, args, ensure, canExtract, queueColors, Boolean(g.sofMaterialSetID)), hull, faction, race, hangarLayout } };
   }
   const dna = /^\/dna\/([A-Za-z0-9_]+(?::[A-Za-z0-9_-]*){0,2})$/.exec(rel);
   if (dna) {
