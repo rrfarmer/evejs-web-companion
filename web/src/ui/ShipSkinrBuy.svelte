@@ -19,6 +19,7 @@
     element: [prefix + "Studio/BuyElement", "Buy Element"],
     activate: [prefix + "Store/ActivateNow", "Activate Now"],
     activateHint: [prefix + "Store/ActivateNowHint", "Add the licenses to Collection immediately."],
+    delivery: [prefix + "ItemDeliveryNotice", "If you have no space in your inventory on purchase this item will be delivered to your home station."],
     buy: [prefix + "Store/Buy", "Buy"],
     funds: [prefix + "Studio/ListingErrors/InsufficientFunds", "Insufficient funds"],
     quantity: ["UI/Common/Quantity", "Quantity"],
@@ -28,7 +29,6 @@
   const words = $derived(store.words);
   const station = $derived(store.station);
   const pilot = $derived($station.online?.characterID);
-  const docked = $derived(!!($station.online?.stationID || $station.online?.structureID));
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   let dialog = $state<HTMLDialogElement>();
   let count = $state<number | undefined>(1);
@@ -55,7 +55,7 @@
     ...(funds.evermarks < fee ? ["EverMarks"] : []),
   ] : []);
   const ready = $derived(!!pilot && (!!component || !!quote) && !!funds && validCount && !short.length && !expired &&
-    !duplicate && (!component || (activate ? !unlimited || component.bundle === 1 : docked)) &&
+    !duplicate && (!unlimited || !activate || component?.bundle === 1) &&
     Number.isSafeInteger(Math.round(listing.amount * 100) * (count ?? 0)) && Number.isSafeInteger(fee));
   const amount = (value: number) => `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${listing.currency}`;
 
@@ -165,8 +165,7 @@
       <label class="activate" title={word("activateHint")}>
         <input type="checkbox" bind:checked={activate} disabled={busy || !!receipt} /> {word("activate")}
       </label>
-      {#if !activate && docked}<p>Items will be delivered to your item hangar here.</p>{/if}
-      {#if !activate && !docked}<p role="status">Dock to receive items in your hangar.</p>{/if}
+      {#if !activate}<p>{word("delivery")}</p>{/if}
       {#if duplicate}<p role="status">This unlimited license is already in Collection.</p>{/if}
       {#if unlimited && activate && component.bundle !== 1}<p role="status">Receive this bundle in your item hangar to activate an unlimited license.</p>{/if}
     {/if}
