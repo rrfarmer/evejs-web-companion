@@ -1,6 +1,8 @@
 from datetime import timedelta
 from eveProto.generated.eve_public.sovereignty.mercenaryden.activity.api.notices_pb2 import AddedNotice, ExpiryChangedNotice, RemovedNotice
+from eveProto.generated.eve_public.sovereignty.mercenaryden.api.notices_pb2 import EvolutionStateChangedNotice
 from sovereignty.mercenaryden.client.activity_cache import ActivityCache
+from sovereignty.mercenaryden.client.data.evolution_simulation import EvolutionSimulationInfo
 from sovereignty.mercenaryden.client.mocks.request_messenger_mock import MockMercenaryDenRequestMessenger
 from sovereignty.mercenaryden.client.notice_listener import ExternalNoticeListener
 
@@ -56,4 +58,17 @@ expiry_notice.activity.started = True
 registry.receive(expiry_notice)
 cached = cache.get_activity_by_id(activities[0].id)
 expiry_change['cachedExpiry'] = cached.expiry.isoformat()
-result = dict(station=session.stationid, notices=registry.types, callbacks=callbacks, expiryChange=expiry_change)
+evolution_change = {}
+
+def on_evolution_changed(den_id, state):
+    evolution_change.update(denID=den_id, development=state.development_level, developmentStage=state.development_stage,
+                            anarchy=state.anarchy_level, anarchyStage=state.anarchy_stage, paused=state.is_paused,
+                            developmentSimulatedAt=bool(state.development_last_simulated_at),
+                            anarchySimulatedAt=bool(state.anarchy_last_simulated_at))
+
+listener.on_evolution_simulation_changed_notice.connect(on_evolution_changed)
+state = EvolutionSimulationInfo(20, 2, 40, 3, False, development_last_simulated_at=sample.attributes.expiry,
+                               anarchy_last_simulated_at=sample.attributes.expiry)
+registry.receive(EvolutionStateChangedNotice(mercenary_den=sample.attributes.mercenary_den, state=state.get_proto()))
+result = dict(station=session.stationid, notices=registry.types, callbacks=callbacks,
+              expiryChange=expiry_change, evolutionChange=evolution_change)
