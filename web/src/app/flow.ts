@@ -28870,9 +28870,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const maximum = mercenaryDenInteger(capacity.current_maximum);
     const absoluteMaximum = mercenaryDenInteger(capacity.absolute_maximum);
     if (!owned.length) return { owned, rows: [], maximum, absoluteMaximum };
-    const [activityReply, detailReplies] = await Promise.all([
+    const [activityReply, detailReplies, statics] = await Promise.all([
       request("activity.api.GetAllRequest").catch(() => null),
       Promise.all(owned.map(id => request("api.GetAsOwnerRequest", { id: { sequential: id } }).catch(() => null))),
+      sovResourceStatic().catch(() => null),
     ]);
     current();
     const counts = new Map<number, number>();
@@ -28885,13 +28886,17 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     const rows = owned.flatMap((id, index) => {
       const reply = detailReplies[index];
-      const row = reply?.statusCode === 200 ? decodeMercenaryDen(id, reply.payload, activityReply?.statusCode === 200 ? counts.get(id) ?? 0 : null) : null;
+      const row = reply?.statusCode === 200
+        ? decodeMercenaryDen(id, reply.payload, activityReply?.statusCode === 200 ? counts.get(id) ?? 0 : null, statics?.planets)
+        : null;
       return row ? [row] : [];
     });
     requestNames(rows.flatMap(row => [
       { kind: "type" as const, id: row.typeID },
       { kind: "system" as const, id: row.solarSystemID },
       { kind: "planet" as const, id: row.planetID },
+      ...(row.ownerCharacterID ? [{ kind: "character" as const, id: row.ownerCharacterID }] : []),
+      ...(row.skyhookOwnerCorporationID ? [{ kind: "corporation" as const, id: row.skyhookOwnerCorporationID }] : []),
     ]));
     return { owned, rows, maximum, absoluteMaximum };
   }
