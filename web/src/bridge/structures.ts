@@ -115,6 +115,7 @@ export interface StructureProfile {
   readonly id: number;
   readonly name: string;
   readonly description: string;
+  readonly isDefault: boolean;
 }
 
 export function decodeStructureProfiles(result: JsonValue | null): Map<number, StructureProfile> {
@@ -123,7 +124,9 @@ export function decodeStructureProfiles(result: JsonValue | null): Map<number, S
     const id = toNumber(readKeyVal(row, "profileID"));
     const name = readText(readKeyVal(row, "name"));
     if (Number.isSafeInteger(id) && id > 0 && name) {
-      profiles.set(id, { id, name, description: readText(readKeyVal(row, "description")) });
+      profiles.set(id, {
+        id, name, description: readText(readKeyVal(row, "description")), isDefault: toBool(readKeyVal(row, "isDefault")),
+      });
     }
   }
   return profiles;

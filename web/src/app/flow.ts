@@ -4603,6 +4603,7 @@ export interface AppFlow {
   updateStructureProfile(profileID: number, name: string, description: string): Promise<void>;
   duplicateStructureProfile(profileID: number): Promise<void>;
   deleteStructureProfile(profileID: number): Promise<boolean>;
+  setDefaultStructureProfile(profileID: number): Promise<void>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
   loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
@@ -29135,6 +29136,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return true;
   }
 
+  async function setDefaultStructureProfile(profileID: number): Promise<void> {
+    const scope = captureMemberOperation();
+    requireStructureProfileManager(scope);
+    const profiles = decodeStructureProfiles(await scope.ask("structureProfiles", "GetProfiles", []));
+    requireStructureProfileManager(scope);
+    const target = profiles.get(profileID);
+    if (!target) throw new Error("This corporation profile is unavailable.");
+    if (target.isDefault) return;
+    await scope.write("structureProfiles", "SetDefaultProfile", [profileID]);
+    const saved = decodeStructureProfiles(await scope.ask("structureProfiles", "GetProfiles", []));
+    scope.current();
+    const defaults = [...saved.values()].filter(row => row.isDefault);
+    if (defaults.length !== 1 || defaults[0]?.id !== profileID) {
+      throw new Error("The default profile change could not be confirmed.");
+    }
+  }
+
   async function assignStructureProfile(structureIDs: readonly number[], profileID: number): Promise<void> {
     const scope = captureMemberOperation();
     const ids = new Set(structureIDs);
@@ -40985,6 +41003,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     updateStructureProfile,
     duplicateStructureProfile,
     deleteStructureProfile,
+    setDefaultStructureProfile,
     startMoonPull,
     controlMoonPull,
     loadCorporationMiningObservers,

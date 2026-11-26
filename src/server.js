@@ -1406,7 +1406,7 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     }
   }
   if (body.service === "moonExtractions" || body.service === "structureControl"
-    || (body.service === "structureProfiles" && ["GetProfiles", "CreateProfile", "UpdateProfile", "DuplicateProfile", "DeleteProfile"].includes(body.method))
+    || (body.service === "structureProfiles" && ["GetProfiles", "CreateProfile", "UpdateProfile", "DuplicateProfile", "DeleteProfile", "SetDefaultProfile"].includes(body.method))
     || (body.service === "structureSettings" && body.method === "CharacterHasSetting")) {
     const args = Array.isArray(body.args) ? body.args : [];
     const profileText = (name, description) => typeof name === "string" && name.trim().length > 0
@@ -1421,6 +1421,7 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       UpdateProfile: () => args.length === 3 && strictPositiveID(args[0]) !== null && profileText(args[1], args[2]),
       DuplicateProfile: () => args.length === 1 && strictPositiveID(args[0]) !== null,
       DeleteProfile: () => args.length === 1 && strictPositiveID(args[0]) !== null,
+      SetDefaultProfile: () => args.length === 1 && strictPositiveID(args[0]) !== null,
       StartNewExtraction: () => args.length === 3 && isPlayerStructureID(args[0]) && Number.isSafeInteger(args[1])
         && args[1] >= 518460 && args[1] <= 4838400 && typeof args[2] === "boolean",
     };
