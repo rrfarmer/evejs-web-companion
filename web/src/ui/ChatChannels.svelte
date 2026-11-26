@@ -5,6 +5,7 @@
   import type { ChatDirectoryChannel } from "../app/api.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
+  import { ContextMenu } from "../play/contextMenu.ts";
 
   let { store, flow, showChat }: { store: ClientStore; flow: AppFlow; showChat?: () => void } = $props();
   const words = $derived(store.words);
@@ -19,8 +20,12 @@
     join: "UI/Chat/ChannelWindow/Join",
     leave: "UI/Chat/ChannelWindow/Leave",
     create: "UI/Chat/ChannelWindow/Create",
+    joinChannel: "UI/Chat/ChannelWindow/JoinChannel",
+    leaveChannel: "UI/Chat/ChannelWindow/LeaveChannel",
+    deleteChannel: "UI/Chat/ChannelWindow/DeleteChannel",
   } as const;
   const locale = (path: string, fallback: string) => plainText($words.templates[path] ?? "") || fallback;
+  type DirectoryRow = { roomName: string; label: string; owned: boolean };
 
   let channels = $state.raw<readonly ChatDirectoryChannel[]>([]);
   let exact = $state.raw<readonly ChatDirectoryChannel[] | null>(null);
@@ -34,6 +39,7 @@
   let roomObserver: IntersectionObserver | null = null;
   let counts = $state.raw<ReadonlyMap<string, number>>(new Map());
   let tabVisible = $state(true);
+  const rowMenu = new ContextMenu();
 
   function observeRoom(node: HTMLElement, roomName: string) {
     roomObserver?.observe(node);
@@ -102,13 +108,13 @@
   }
   const groups = $derived.by(() => {
     const needle = query.trim().toLowerCase();
-    const grouped = new Map<string, { id: string; label: string; channels: { roomName: string; label: string }[] }>();
+    const grouped = new Map<string, { id: string; label: string; channels: DirectoryRow[] }>();
     for (const row of exact ?? channels) {
       const label = channelName(row);
       if (exact === null && needle && !label.toLowerCase().includes(needle) && !row.roomName.toLowerCase().includes(needle)) continue;
       const group = channelGroup(row);
       const existing = grouped.get(group.id) ?? { ...group, channels: [] };
-      existing.channels.push({ roomName: row.roomName, label });
+      existing.channels.push({ roomName: row.roomName, label, owned: group.id === "owned" });
       grouped.set(group.id, existing);
     }
     return [...grouped.values()].sort((a, b) => a.label.localeCompare(b.label));
@@ -138,6 +144,7 @@
     return () => {
       mounted = false;
       request++;
+      rowMenu.close();
       roomObserver?.disconnect();
       document.removeEventListener("visibilitychange", updateTabVisibility);
     };
@@ -230,6 +237,28 @@
   function toggleMembership(roomName: string, name: string, joined: boolean) {
     void changeMembership(() => joined ? flow.conversations.close(roomName) : joinChannel(roomName, name));
   }
+  function deleteChannel(channel: DirectoryRow) {
+    void changeMembership(async () => {
+      const serial = request;
+      if (!await flow.askClientDialogWith("LSCConfirmDestroyChannel", { displayName: channel.label },
+        `Permanently delete the channel “${channel.label}”?`) || request !== serial) return;
+      await flow.conversations.destroyDirectoryChannel(channel.roomName);
+      channels = channels.filter(row => row.roomName !== channel.roomName);
+      if (exact !== null) exact = exact.filter(row => row.roomName !== channel.roomName);
+    });
+  }
+  function openRowMenu(event: MouseEvent | KeyboardEvent, channel: DirectoryRow, joined: boolean) {
+    event.preventDefault();
+    if (membershipBusy || $conversations.busy) return;
+    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const pointer = event instanceof MouseEvent && (event.clientX || event.clientY) ? event : null;
+    const action = joined ? paths.leaveChannel : paths.joinChannel;
+    const entries = [{ label: locale(action, joined ? "Leave Channel" : "Join Channel"), path: action,
+      run: () => toggleMembership(channel.roomName, channel.label, joined) }];
+    if (channel.owned) entries.push({ label: locale(paths.deleteChannel, "Delete Channel"), path: paths.deleteChannel,
+      run: () => deleteChannel(channel) });
+    rowMenu.open(pointer?.clientX ?? bounds.left, pointer?.clientY ?? bounds.bottom, entries);
+  }
 </script>
 
 <form class="controls channel-search" onsubmit={(event) => { event.preventDefault(); actOnName(false); }}>
@@ -254,10 +283,11 @@
           {@const count = counts.get(channel.roomName)}
           {@const joined = $conversations.rooms.some(room => room.channel === channel.roomName)}
           {@const action = joined ? locale(paths.leave, "Leave") : locale(paths.join, "Join")}
-          <tr data-room-name={channel.roomName} use:observeRoom={channel.roomName}>
+          <tr data-room-name={channel.roomName} use:observeRoom={channel.roomName} oncontextmenu={(event) => openRowMenu(event, channel, joined)}>
             <td>{channel.label}</td>
             <td class="num" data-members={count}>{count ? count.toLocaleString() : ""}</td>
             <td class="num"><button type="button" class="minor" aria-label={`${action} ${channel.label}`} disabled={membershipBusy || $conversations.busy}
+              onkeydown={(event) => { if (event.key === "ContextMenu" || event.shiftKey && event.key === "F10") openRowMenu(event, channel, joined); }}
               onclick={() => toggleMembership(channel.roomName, channel.label, joined)}>{action}</button></td>
           </tr>
         {/each}

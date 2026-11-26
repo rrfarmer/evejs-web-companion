@@ -9805,6 +9805,20 @@ app.get("/api/bridge/chat/:roomName/info", requireAuth, async (req, res, next) =
   } catch (error) { next(error); }
 });
 
+app.post("/api/bridge/chat/:roomName/destroy", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  if (req.body?.confirm !== true) {
+    return res.status(400).json({ ok: false, error: "CHAT_DELETE_UNCONFIRMED", message: "Confirm that you want to delete this channel." });
+  }
+  const session = heldChatSession(held);
+  if (!session) return chatUnavailable(res);
+  try {
+    await session.destroyChannel(req.params.roomName, chatContext(held, req));
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
 for (const operation of ["join", "leave", "invite", "prepare"]) {
   app.post(`/api/bridge/chat/:channel/${operation}`, requireAuth, async (req, res, next) => {
     const held = requireHeldBridgeSession(req, res);

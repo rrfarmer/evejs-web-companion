@@ -2118,6 +2118,10 @@ export async function leaveChatRoom(channel: string, options: ApiOptions = {}): 
   return (await postJson(`/api/bridge/chat/${encodeURIComponent(channel)}/leave`, {}, options)).chat ?? null;
 }
 
+export async function destroyChatChannel(roomName: string, options: ApiOptions = {}): Promise<void> {
+  await postJson(`/api/bridge/chat/${encodeURIComponent(roomName)}/destroy`, { confirm: true }, options);
+}
+
 export async function prepareChatMessage(channel: string, message: string, options: ApiOptions = {}): Promise<JsonValue> {
   return (await postJson(`/api/bridge/chat/${encodeURIComponent(channel)}/prepare`, { message }, options)).chat ?? null;
 }

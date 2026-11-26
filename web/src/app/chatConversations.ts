@@ -36,6 +36,7 @@ export function createChatConversations(hooks: Hooks) {
   const pendingInvites = new Map<number, string>();
   const information = new Map<string, Record<string, JsonValue>>();
   const directoryTitles = new Map<string, string>();
+  const destroyedRooms = new Set<string>();
   const seenDeclines = new Set<string>();
   const ownerNames = new Map<number, string>();
   const owners = new Map<number, Promise<boolean>>();
@@ -74,7 +75,7 @@ export function createChatConversations(hooks: Hooks) {
     const value = record(raw), channel = String(value.channel ?? ""), roomName = String(value.roomName ?? "");
     const isHelpRoom = channel === ENGLISH_HELP_ROOM;
     const systemMessage = /^system_\d+_(\d+)$/.exec(channel)?.[1];
-    if ((!/^(private|player)_/.test(channel) && !systemMessage) || !roomName) return;
+    if ((!/^(private|player)_/.test(channel) && !systemMessage) || !roomName || destroyedRooms.has(channel)) return;
     const decoded = decodeChatChannel(raw), pending = pendingPrivate.get(channel);
     const observed = Array.isArray(value.seenMembers) ? value.seenMembers : decoded.roster.map(member => member.characterID);
     if (pending && observed.includes(pending.target)) { pendingPrivate.delete(channel); if (pendingInvites.get(pending.target) === channel) pendingInvites.delete(pending.target); }
@@ -92,7 +93,9 @@ export function createChatConversations(hooks: Hooks) {
           : !decoded.roster.length && Number(info?.occupants) >= 2 ? hooks.word("UI/Chat/PrivateChat", { title: Number(info?.occupants) }, `Private Chat (${Number(info?.occupants)})`)
             : hooks.word("UI/Chat/PrivateChatAlone", {}, "Private Chat (Alone)");
     }
-    scope.current(); const room = { channel, title, state: decoded };
+    scope.current();
+    if (destroyedRooms.has(channel)) return;
+    const room = { channel, title, state: decoded };
     patch({ rooms: [...state.get().rooms.filter(entry => entry.channel !== channel), room] });
   }
   async function join(scope: Scope, room: string, password = ""): Promise<void> {
@@ -103,6 +106,9 @@ export function createChatConversations(hooks: Hooks) {
   }
   async function close(scope: Scope, room: string): Promise<void> {
     await api.leaveChatRoom(room, scope.options); scope.current();
+    removeRoom(room);
+  }
+  function removeRoom(room: string) {
     const pending = pendingPrivate.get(room);
     if (pending) pendingInvites.delete(pending.target);
     pendingPrivate.delete(room); information.delete(room);
@@ -157,7 +163,7 @@ export function createChatConversations(hooks: Hooks) {
   return {
     state: readonlySignal(state),
     name,
-    reset() { generation++; pendingPrivate.clear(); pendingInvites.clear(); information.clear(); directoryTitles.clear(); seenDeclines.clear(); owners.clear(); rules = null; book = null; refreshWork = null; state.set(blank()); },
+    reset() { generation++; pendingPrivate.clear(); pendingInvites.clear(); information.clear(); directoryTitles.clear(); destroyedRooms.clear(); seenDeclines.clear(); owners.clear(); rules = null; book = null; refreshWork = null; state.set(blank()); },
     invalidateContacts() { book = null; },
     async canStart(id: number) { return character(capture(), id); },
     async invitable(target: number) {
@@ -224,6 +230,16 @@ export function createChatConversations(hooks: Hooks) {
       await applyRoom(scope, await api.readChat(room, scope.options));
     }); },
     async close(room: string) { await task(scope => close(scope, room)); },
+    async destroyDirectoryChannel(room: string) {
+      await task(async scope => {
+        await api.destroyChatChannel(room, scope.options);
+        scope.current();
+        destroyedRooms.add(room);
+        directoryTitles.delete(room);
+        try { globalThis.localStorage?.removeItem(`evejs-web-user-ui:${room}Password`); } catch { /* browser storage unavailable */ }
+        removeRoom(room);
+      });
+    },
     async answer(sender: number, choice: ChatInviteChoice, expectedGeneration: number) {
       if (expectedGeneration !== generation) return;
       await task(async scope => {

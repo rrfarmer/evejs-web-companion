@@ -524,6 +524,12 @@ class XmppChatSession {
         const query = `<query xmlns='http://jabber.org/protocol/disco#items' node='${escapeXml(node)}'/>`;
         return { id, xml: `<iq id='${id}' type='get' from='${escapeXml(jid())}' to='${escapeXml(this.conferenceDomain)}'>${query}</iq>` };
       },
+      destroyChannel: (roomName) => {
+        const id = requestID();
+        const target = `${roomName}@${this.conferenceDomain}`;
+        const query = "<query xmlns='http://jabber.org/protocol/muc#owner'><destroy/></query>";
+        return { id, xml: `<iq id='${id}' type='set' from='${escapeXml(jid())}' to='${escapeXml(target)}'>${query}</iq>` };
+      },
       // _handle_ping (168 to 175): the server's ping answered, its `to` for
       // this answer's `from` and its `from` for the `to`.
       pong: (id, to, from) => `<iq id='${escapeXml(id)}' type='result' from='${escapeXml(to)}' to='${escapeXml(from)}'/>`,
@@ -1714,7 +1720,7 @@ class XmppChatSession {
     return promise.finally(() => clearTimeout(timer));
   }
 
-  leaveRoom(room) {
+  leaveRoom(room, sendPresence = true) {
     if (!room) {
       return;
     }
@@ -1722,7 +1728,7 @@ class XmppChatSession {
     // address) is forgotten with nothing sent: there is no room to leave.
     const neverJoined = room.alias === null;
     const address = room.roomJid || (!neverJoined && room.alias?.split("/")[0]);
-    if (address) {
+    if (address && sendPresence) {
       this.write(
         this.login
           ? this.retailStanzas().leave(address)
@@ -1829,6 +1835,20 @@ class XmppChatSession {
       rows.push({ roomName, name: attr(item, "name"), affiliation: attr(item, "node") || null });
     }
     return rows;
+  }
+
+  async destroyChannel(roomName, context = {}) {
+    if (typeof roomName !== "string" || !/^player_\d+$/.test(roomName)) {
+      throw new XmppChatError("Choose a player-owned chat channel.", { code: "INVALID_CHANNEL", statusCode: 400 });
+    }
+    await this.ensureReady();
+    this.assertChatCurrent(context);
+    const response = await this.requestChatInformation(this.retailStanzas().destroyChannel(roomName), "channel deletion");
+    this.assertChatCurrent(context);
+    if (attr(response.match(/^<iq\b[^>]*>/i)?.[0] || "", "type") !== "result") {
+      throw new XmppChatError("The chat server refused to delete this channel.", { code: "CHAT_DELETE_REFUSED", statusCode: 403 });
+    }
+    this.leaveRoom(this.rooms.get(roomName), false);
   }
 
   async channelMembers(roomNames, context = {}) {
