@@ -50,7 +50,7 @@
   import MyMercenaryDens from "./MyMercenaryDens.svelte";
   import AchievementsWindow from "./AchievementsWindow.svelte";
   import PaintToolWindow from "./PaintToolWindow.svelte";
-  import ShipSkinrStudio from "./ShipSkinrStudio.svelte";
+  import ShipSkinrWindow from "./ShipSkinrWindow.svelte";
   import Flight from "./Flight.svelte";
   import Mining from "./Mining.svelte";
   import ReprocessingPlant from "./ReprocessingPlant.svelte";
@@ -305,7 +305,7 @@
 {:else if tab === "paintTool"}
   <PaintToolWindow {store} {flow} {onClose} />
 {:else if tab === "shipSkinr"}
-  <ShipSkinrStudio {store} {flow} {registerBeforeClose} />
+  <ShipSkinrWindow {store} {flow} {registerBeforeClose} />
 {:else if tab === "achievements"}
   <AchievementsWindow {store} {flow} />
 {:else if tab === "locationSearch"}

@@ -11,6 +11,7 @@ import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, dec
 import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
+import type { ShipSkinrOwnedComponent, ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { setSessionToken } from "./sessionToken.ts";
 import { pageFetch } from "./pageFetch.ts";
 import {
@@ -4596,6 +4597,9 @@ export interface AppFlow {
   loadMyMercenaryDens(): Promise<MercenaryDensRead>;
   loadShipSkinrStudio(): Promise<ShipSkinrStudio>;
   loadShipSkinrJobs(): Promise<readonly ShipSkinrEntry[]>;
+  loadShipSkinrCollectionSkins(): Promise<readonly ShipSkinrOwnedSkin[]>;
+  loadShipSkinrCollectionComponents(): Promise<readonly ShipSkinrOwnedComponent[]>;
+  activateShipSkinrLicense(hex: string): Promise<void>;
   loadShipSkinrEarlyPricing(): Promise<readonly ShipSkinrEarlyPrice[]>;
   completeShipSkinrJob(id: string): Promise<void>;
   loadShipSkinrStartTerms(tier: number): Promise<ReturnType<typeof shipSkinrSequenceTerms>>;
@@ -28925,6 +28929,72 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     current();
   }
 
+  async function loadShipSkinrCollectionSkins(): Promise<readonly ShipSkinrOwnedSkin[]> {
+    const current = callOptions.captureRequestGuard!();
+    const pilot = store.station.get().online?.characterID;
+    if (!pilot) throw new Error("Select a pilot to read the SKIN collection.");
+    const prefix = SHIP_SKINR_GATEWAY + "license.api.";
+    const owned = shipSkinrRecord((await gatewayAsk(prefix + "GetOwnedRequest")) ?? undefined)?.licenses;
+    const hashes = new Set<string>();
+    for (const item of Array.isArray(owned) ? owned : []) {
+      const id = shipSkinrRecord(item);
+      const hex = shipSkinrRecord(id?.skin)?.hex;
+      if (Number(shipSkinrRecord(id?.character)?.sequential) === pilot && typeof hex === "string" && /^[a-f0-9]{64}$/.test(hex)) {
+        hashes.add(hex);
+      }
+    }
+    const result: ShipSkinrOwnedSkin[] = [];
+    const queue = [...hashes];
+    for (let index = 0; index < queue.length; index += 8) {
+      current();
+      const rows = await Promise.all(queue.slice(index, index + 8).map(async hex => {
+        const license = { character: { sequential: pilot }, skin: { hex } };
+        const answer = await api.publicGatewayRequest(prefix + "GetRequest", { license }, callOptions);
+        if (answer.statusCode === 404) return null;
+        if (answer.statusCode !== 200) throw new Error("The SKIN license could not be read.");
+        const row = shipSkinrRecord(shipSkinrRecord(answer.payload ?? undefined)?.license);
+        const design = await loadShipSkinrDesign(hex).catch(() => null);
+        return { hex, activated: row?.activated === true, unactivated: Number(row?.unactivated ?? 0),
+          escrowed: Number(row?.escrowed ?? 0), design };
+      }));
+      result.push(...rows.filter(row => row !== null));
+    }
+    current();
+    return result;
+  }
+
+  async function loadShipSkinrCollectionComponents(): Promise<readonly ShipSkinrOwnedComponent[]> {
+    const current = callOptions.captureRequestGuard!();
+    const pilot = store.station.get().online?.characterID;
+    if (!pilot) throw new Error("Select a pilot to read the design element collection.");
+    const result = shipSkinrRecord((await gatewayAsk(SHIP_SKINR_GATEWAY + "component.license.api.GetOwnedRequest")) ?? undefined);
+    const found = new Map<string, ShipSkinrOwnedComponent>();
+    for (const mode of ["finite", "infinite"] as const) {
+      const rows = result?.[mode];
+      for (const row of Array.isArray(rows) ? rows : []) {
+        const item = shipSkinrRecord(row);
+        if (Number(shipSkinrRecord(item?.character)?.sequential) !== pilot) continue;
+        const component = shipSkinrRecord(item?.component);
+        const kind = component?.pattern ? "pattern" : "coating";
+        const id = Number(shipSkinrRecord(component?.[kind])?.sequential);
+        if (!Number.isSafeInteger(id) || id <= 0) continue;
+        const key = `${kind}:${id}`;
+        found.set(key, { ...(found.get(key) ?? { id, kind, finite: false, infinite: false }), [mode]: true });
+      }
+    }
+    current();
+    return [...found.values()];
+  }
+
+  async function activateShipSkinrLicense(hex: string): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    const pilot = store.station.get().online?.characterID;
+    if (!pilot) throw new Error("Select a pilot to activate the SKIN.");
+    await gatewayAsk(SHIP_SKINR_GATEWAY + "license.api.ActivateRequest",
+      { license: { character: { sequential: pilot }, skin: { hex } } }, true);
+    current();
+  }
+
   async function loadShipSkinrStartTerms(tier: number): Promise<ReturnType<typeof shipSkinrSequenceTerms>> {
     const current = callOptions.captureRequestGuard!();
     const [pricing, durations, skills] = await Promise.all([
@@ -41363,6 +41433,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMyMercenaryDens,
     loadShipSkinrStudio,
     loadShipSkinrJobs,
+    loadShipSkinrCollectionSkins,
+    loadShipSkinrCollectionComponents,
+    activateShipSkinrLicense,
     loadShipSkinrEarlyPricing,
     completeShipSkinrJob,
     loadShipSkinrStartTerms,

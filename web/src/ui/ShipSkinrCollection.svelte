@@ -1,0 +1,257 @@
+<script lang="ts">
+  import { onMount } from "svelte";
+  import type { AppFlow } from "../app/flow.ts";
+  import { plainText } from "../bridge/clientWords.ts";
+  import { panelErrorWords } from "../bridge/refusals.ts";
+  import { SHIP_SKINR_GATEWAY } from "../bridge/shipSkinr.ts";
+  import type { ShipSkinrOwnedComponent, ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
+  import type { ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
+  import type { ClientStore } from "../store/clientStore.ts";
+  import { resolvedName } from "../store/names.ts";
+  import { typeIconUrl } from "./typeIcons.ts";
+
+  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  const words = $derived(store.words);
+  const names = $derived(store.names);
+  const station = $derived(store.station);
+  const pilot = $derived($station.online?.characterID ?? null);
+  const prefix = "UI/Personalization/ShipSkins/SKINR/";
+  const labels = {
+    title: [prefix + "Collection/Title", "Collection"],
+    skins: [prefix + "Studio/SKINs", "SKINs"],
+    elements: [prefix + "Studio/DesignElements", "Design Elements"],
+    activated: [prefix + "Collection/ActivatedSkins", "Activated SKINs"],
+    unactivated: [prefix + "Collection/UnactivatedSkins", "Unactivated SKINs"],
+    nanocoatings: [prefix + "Studio/Nanocoatings", "Basic Nanocoatings"],
+    metallics: [prefix + "Studio/Metallics", "Metallic Nanocoatings"],
+    patterns: [prefix + "Studio/Patterns", "Patterns"],
+    activate: [prefix + "Collection/Activate", "Activate"],
+    view: ["UI/Common/ViewAll", "View All"],
+    back: ["UI/Common/Buttons/Back", "Back"],
+    sort: ["UI/Common/SortBy", "Sort By"],
+    name: ["UI/Common/Name", "Name"],
+    reverse: ["UI/Inventory/NameReversed", "Name Reversed"],
+  } as const;
+  const skinSections = ["activated", "unactivated"] as const;
+  const elementSections = ["nanocoatings", "metallics", "patterns"] as const;
+  type Section = typeof skinSections[number] | typeof elementSections[number];
+  type ElementRow = ShipSkinrOwnedComponent & { category: Section; nameID: number; swatch?: string; icon?: string };
+  const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
+  const hullName = (id: number) => resolvedName($names.resolved, "type", id, String(id));
+  const skinName = (row: ShipSkinrOwnedSkin) => row.design?.name || "Design unavailable";
+  const elementName = (row: ElementRow) => plainText($words.templates[`#${row.nameID}`] ?? "") || String(row.id);
+  const elementKey = (row: ShipSkinrOwnedComponent) => `${row.kind}:${row.id}`;
+  let tab = $state<"skins" | "elements">("skins");
+  let section = $state<Section | null>(null);
+  let skins = $state.raw<readonly ShipSkinrOwnedSkin[] | null>(null);
+  let elements = $state.raw<readonly ElementRow[] | null>(null);
+  let selected = $state<string | null>(null);
+  let hull = $state(0);
+  let reverse = $state(false);
+  let revision = $state(0);
+  let loading = $state(false);
+  let error = $state("");
+  let detailError = $state("");
+  let activating = $state(false);
+  let rights = $state.raw<ShipSkinrSequenceLicense | null>(null);
+  const selectedSkin = $derived(tab === "skins" ? skins?.find(row => row.hex === selected) : undefined);
+  const selectedElement = $derived(tab === "elements" ? elements?.find(row => elementKey(row) === selected) : undefined);
+  const hulls = $derived([...new Set(skins?.flatMap(row => row.design ? [row.design.shipTypeID] : []) ?? [])]
+    .sort((a, b) => hullName(a).localeCompare(hullName(b))));
+  const sortedSkins = $derived((skins ?? []).filter(row => !hull || row.design?.shipTypeID === hull)
+    .sort((a, b) => (reverse ? -1 : 1) * skinName(a).localeCompare(skinName(b))));
+  const sortedElements = $derived([...(elements ?? [])]
+    .sort((a, b) => (reverse ? -1 : 1) * elementName(a).localeCompare(elementName(b))));
+
+  function choose(next: typeof tab, category: Section | null = null) {
+    tab = next;
+    section = category;
+    selected = null;
+    hull = 0;
+  }
+
+  async function collectElements(): Promise<ElementRow[]> {
+    const [owned, { SHIP_SKINR_COATINGS }, { SHIP_SKINR_PATTERNS }] = await Promise.all([
+      flow.loadShipSkinrCollectionComponents(), import("../bridge/shipSkinrCoatingsData.ts"), import("../bridge/shipSkinrPatternsData.ts"),
+    ]);
+    const coatings = new Map(SHIP_SKINR_COATINGS.components.map(row => [row.id, row]));
+    const patterns = new Map(SHIP_SKINR_PATTERNS.components.map(row => [row.id, row]));
+    return owned.map(row => {
+      if (row.kind === "pattern") {
+        const pattern = patterns.get(row.id);
+        return { ...row, category: "patterns", nameID: pattern?.nameID ?? 0, icon: pattern?.icon };
+      }
+      const coating = coatings.get(row.id);
+      return { ...row, category: coating?.category === 3 ? "metallics" : "nanocoatings",
+        nameID: coating?.nameID ?? 0, swatch: coating?.swatch };
+    });
+  }
+
+  $effect(() => { flow.requestWords(Object.values(labels).map(([path]) => path)); });
+  $effect(() => {
+    void pilot;
+    skins = null;
+    elements = null;
+    selected = null;
+  });
+  $effect(() => {
+    void revision;
+    if (!pilot) return;
+    let current = true;
+    loading = true;
+    error = "";
+    const done = () => { if (current) loading = false; };
+    const failure = (cause: unknown) => { if (current) error = panelErrorWords(cause); };
+    if (tab === "skins") {
+      void flow.loadShipSkinrCollectionSkins().then(rows => { if (current) skins = rows; }, failure).finally(done);
+    } else {
+      void collectElements().then(rows => {
+        if (!current) return;
+        elements = rows;
+        flow.requestWords(rows.filter(row => row.nameID).map(row => `#${row.nameID}`));
+      }, failure).finally(done);
+    }
+    return () => { current = false; };
+  });
+  $effect(() => {
+    void revision;
+    const row = selectedElement;
+    rights = null;
+    detailError = "";
+    if (!row) return;
+    let current = true;
+    void flow.loadShipSkinrComponentLicense(row).then(value => { if (current) rights = value; },
+      cause => { if (current) detailError = panelErrorWords(cause); });
+    return () => { current = false; };
+  });
+  onMount(() => {
+    const notices = flow.gatewayNotices;
+    let previous = notices.get();
+    return notices.subscribe(notice => {
+      if (notice === previous) return;
+      previous = notice;
+      const type = notice?.typeName;
+      if (tab === "skins" ? type?.startsWith(SHIP_SKINR_GATEWAY + "license.api.") :
+        type?.startsWith(SHIP_SKINR_GATEWAY + "component.license.api.") ||
+          type?.startsWith(SHIP_SKINR_GATEWAY + "sequencing.job.api.")) revision++;
+    });
+  });
+
+  async function activate(row: ShipSkinrOwnedSkin) {
+    if (activating || row.activated || row.unactivated < 1) return;
+    const owner = pilot;
+    activating = true;
+    detailError = "";
+    try {
+      await flow.activateShipSkinrLicense(row.hex);
+      if (owner === pilot) revision++;
+    } catch (cause) {
+      if (owner === pilot) detailError = panelErrorWords(cause);
+    } finally {
+      activating = false;
+    }
+  }
+</script>
+
+<section class="skinr-collection" aria-label={word("title")}>
+  <nav aria-label={word("title")}>
+    {#each (["skins", "elements"] as const) as option}
+      <button type="button" aria-pressed={tab === option} onclick={() => choose(option)}>{word(option)}</button>
+    {/each}
+  </nav>
+  {#if error}
+    <p role="alert">{error}</p><button type="button" onclick={() => revision++}>Retry</button>
+  {:else if loading && (tab === "skins" ? !skins : !elements)}
+    <p role="status">Loading collection…</p>
+  {:else}
+    <div class="collection-filters">
+      {#if section}<button type="button" onclick={() => choose(tab)}>{word("back")}</button>{/if}
+      {#if tab === "skins" && hulls.length}
+        <label>Hull <select bind:value={hull} onchange={() => selected = null}>
+          <option value={0}>All Hulls</option>
+          {#each hulls as id (id)}<option value={id}>{hullName(id)}</option>{/each}
+        </select></label>
+      {/if}
+      <label>{word("sort")} <select bind:value={reverse}><option value={false}>{word("name")}</option>
+        <option value={true}>{word("reverse")}</option></select></label>
+    </div>
+    {#if tab === "skins"}
+      {#each skinSections.filter(category => !section || section === category) as category (category)}
+        {@const rows = sortedSkins.filter(row => category === "activated" ? row.activated : row.unactivated > 0)}
+        <section class="collection-section" aria-label={word(category)}>
+          <header><h3>{word(category)} <span>{rows.length}</span></h3>
+            {#if !section && rows.length}<button type="button" onclick={() => choose("skins", category)}>{word("view")}</button>{/if}
+          </header>
+          {#if !rows.length}<p>No SKINs in this section.</p>{/if}
+          <div class="collection-rows">
+            {#each section ? rows : rows.slice(0, 6) as row (row.hex)}
+              {@const icon = row.design ? typeIconUrl(row.design.shipTypeID) : null}
+              <button type="button" data-skin={row.hex} aria-pressed={selected === row.hex} onclick={() => selected = row.hex}>
+                {#if icon}<img src={icon} alt="" width="32" height="32" loading="lazy" />{/if}
+                <strong>{skinName(row)}</strong>
+                {#if category === "unactivated"}<span>{row.unactivated}</span>{/if}
+              </button>
+            {/each}
+          </div>
+        </section>
+      {/each}
+    {:else}
+      {#each elementSections.filter(category => !section || section === category) as category (category)}
+        {@const rows = sortedElements.filter(row => row.category === category)}
+        <section class="collection-section" aria-label={word(category)}>
+          <header><h3>{word(category)} <span>{rows.length}</span></h3>
+            {#if !section && rows.length}<button type="button" onclick={() => choose("elements", category)}>{word("view")}</button>{/if}
+          </header>
+          {#if !rows.length}<p>No design elements in this section.</p>{/if}
+          <div class="collection-rows">
+            {#each section ? rows : rows.slice(0, 6) as row (elementKey(row))}
+              <button type="button" data-element={row.id} aria-pressed={selected === elementKey(row)} onclick={() => selected = elementKey(row)}>
+                {#if row.icon}<img src={row.icon} alt="" width="32" height="32" loading="lazy" />
+                {:else if row.swatch}<span class="swatch" style:background={row.swatch}></span>{/if}
+                <strong>{elementName(row)}</strong>
+              </button>
+            {/each}
+          </div>
+        </section>
+      {/each}
+    {/if}
+    {#if selectedSkin}
+      <aside class="collection-details">
+        <h3>{skinName(selectedSkin)}</h3>
+        {#if selectedSkin.design}
+          {#if selectedSkin.design.lineName}<p>{selectedSkin.design.lineName}</p>{/if}
+          <p>{hullName(selectedSkin.design.shipTypeID)} · Tier {selectedSkin.design.tier}</p>
+        {/if}
+        {#if selectedSkin.activated}<p>{word("activated")}</p>{/if}
+        {#if selectedSkin.unactivated}<p>{word("unactivated")} · {selectedSkin.unactivated}</p>{/if}
+        {#if selectedSkin.escrowed}<p>Listed · {selectedSkin.escrowed}</p>{/if}
+        {#if !selectedSkin.activated && selectedSkin.unactivated}
+          <button type="button" disabled={activating} onclick={() => void activate(selectedSkin!)}>{word("activate")}</button>
+        {/if}
+      </aside>
+    {:else if selectedElement}
+      <aside class="collection-details">
+        <h3>{elementName(selectedElement)}</h3>
+        {#if rights}
+          {#if rights.infinite}<p>Unlimited use</p>{/if}
+          {#if rights.finite}<p>Limited uses · {rights.finite}</p>{/if}
+        {:else if !detailError}<p role="status">Loading license…</p>{/if}
+      </aside>
+    {/if}
+    {#if detailError}<p role="alert">{detailError}</p>{/if}
+  {/if}
+</section>
+
+<style>
+  .skinr-collection { display: grid; gap: 12px; padding: 14px 18px 18px; }
+  nav, header, .collection-filters, .collection-filters label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  header { justify-content: space-between; }
+  h3, p { margin: 0; }
+  h3 span { color: #b8c3cc; font-size: .8em; }
+  .collection-section, .collection-details { display: grid; gap: 8px; background: #ffffff08; padding: 12px; }
+  .collection-details button { justify-self: start; }
+  .collection-rows { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); }
+  .collection-rows button { display: flex; align-items: center; text-align: left; gap: 8px; }
+  button[aria-pressed="true"] { border-color: #94b8c2; }
+  .swatch { display: inline-block; width: 24px; height: 24px; flex: 0 0 24px; border: 1px solid #ffffff32; }
+</style>
