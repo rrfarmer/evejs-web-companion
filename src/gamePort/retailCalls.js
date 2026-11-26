@@ -706,7 +706,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "structureDirectory.GetStructureDescription", "structureDirectory.SetStructureDescription",
   "structureDeployment.Unanchor", "structureDeployment.CancelUnanchor",
   "structureVulnerability.UpdateReinforceTimesFromClient",
-  "structureProfiles.GetProfiles", "structureProfiles.ChangeProfiles", "structureProfiles.CreateProfile",
+  "structureProfiles.GetProfiles", "structureProfiles.ChangeProfiles", "structureProfiles.CreateProfile", "structureProfiles.UpdateProfile",
   "moonExtractions.GetExtractionsForCorp",
   "moonExtractions.GetMoonResourcesForStructure", "moonExtractions.GetExtractionAndEventIDFromStructureID",
   "moonExtractions.StartNewExtraction", "moonExtractions.FractureChunkWithStructure", "moonExtractions.CancelExtraction",
@@ -3476,6 +3476,13 @@ const RETAIL_CALLS = Object.freeze({
       typeof args[1] === "string" && args[1].length <= 200
       ? {} : { status: "differs", note: "The client sends the profile name and description, with limits of 30 and 200 characters." },
     "Create a corporation structure profile and return its ID."),
+  "structureProfiles.UpdateProfile": judged("eve/client/script/ui/structure/structureSettings/controllers/slimProfileController.py:59",
+    (args, kwargs) => args.length === 3 && Object.keys(kwargs).length === 0 &&
+      Number.isSafeInteger(args[0]) && args[0] > 0 &&
+      typeof args[1] === "string" && args[1].trim().length > 0 && args[1].length <= 30 &&
+      typeof args[2] === "string" && args[2].length <= 200
+      ? {} : { status: "differs", note: "The client sends the existing profile ID, name and description." },
+    "Update the selected corporation structure profile's name and description."),
   "structureProfiles.ChangeProfiles": judged("eve/client/script/ui/structure/structureSettings/controllers/allProfilesController.py:61",
     (args, kwargs) => args.length === 2 && Object.keys(kwargs).length === 0 &&
       args[0]?.type === "list" && itemIDsListed(args[0].items) &&

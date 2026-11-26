@@ -14,7 +14,7 @@
     ABANDONED, LOW_POWER, OWNED_STRUCTURE_SERVICE_FILTERS, OWNED_STRUCTURE_STATES,
     STATION_TYPE_FILTER, STRUCTURE_SERVICE_DETAILS, STRUCTURE_TYPE_GROUPS, isFlexStructure, structureDecommissionAction,
   } from "../bridge/structureBrowserFilters.ts";
-  import type { StructureBrowserDirectory, StructureBrowserEntry } from "../bridge/structures.ts";
+  import type { StructureBrowserDirectory, StructureBrowserEntry, StructureProfile } from "../bridge/structures.ts";
   import { shownSecurity } from "../bridge/systemSecurity.ts";
   import { structureHasCapability } from "../nav/dockableLocation.ts";
   import { isDeprecatedStationType } from "../nav/waypoints.ts";
@@ -75,7 +75,7 @@
   let actionError = $state("");
   let decommissionBusy = $state(false);
   let profileBusy = $state(false);
-  let createProfileOpen = $state(false);
+  let profileEditor = $state.raw<"new" | StructureProfile | null>(null);
   let profileName = $state("");
   let profileDescription = $state("");
   let profileError = $state("");
@@ -97,6 +97,9 @@
     newProfile: ["UI/StructureProfiles/NewProfile", "New Profile"],
     createProfile: ["UI/StructureProfiles/CreateProfile", "Create Profile"],
     confirmProfile: ["UI/StructureProfiles/CreateProfileBtn", "Create"],
+    editProfile: ["UI/StructureBrowser/EditNameAndDescription", "Edit Name and Description"],
+    editProfileTitle: ["UI/StructureProfiles/EditProfileName", "Edit Profile"],
+    saveProfile: ["UI/StructureProfiles/EditProfileNameBtn", "Edit Profile"],
     profileName: ["UI/StructureProfiles/ProfileName", "Profile Name"],
     profileDescription: ["UI/StructureProfiles/ProfileDescription", "Description"],
     cancel: ["UI/Commands/Cancel", "Cancel"],
@@ -216,31 +219,33 @@
   }
 
   function addProfileOptions(entries: (ContextEntry | null)[], rows: readonly StructureBrowserEntry[]): void {
-    if (profileBusy || !directory?.profileNames.size) return;
+    if (profileBusy || !directory?.profiles.size) return;
     const ids = rows.map(row => row.structureID);
     const [path, fallback] = menuWords[ids.length > 1 ? "setProfiles" : "setProfile"];
     const label = plainText(formatTemplate($words.templates[path] ?? fallback, { numSelected: ids.length }, { nameOf: () => "" }));
-    const choices = [...directory.profileNames].sort((left, right) => left[1].toLowerCase().localeCompare(right[1].toLowerCase()));
-    entries.push({ path, label, sub: choices.map(([id, name]) => ({
+    const choices = [...directory.profiles.values()].sort((left, right) => left.name.toLowerCase().localeCompare(right.name.toLowerCase()));
+    entries.push({ path, label, sub: choices.map(({ id, name }) => ({
       label: name,
       run: () => void assignProfile(ids, id),
     })) });
   }
 
-  function openCreateProfile(): void {
-    profileName = "";
-    profileDescription = "";
+  function openProfileEditor(target: "new" | StructureProfile): void {
+    profileName = target === "new" ? "" : target.name;
+    profileDescription = target === "new" ? "" : target.description;
     profileError = "";
-    createProfileOpen = true;
+    profileEditor = target;
   }
 
-  async function createProfile(): Promise<void> {
-    if (profileBusy || !canManage || !profileName.trim()) return;
+  async function saveProfile(): Promise<void> {
+    const target = profileEditor;
+    if (target === null || profileBusy || !canManage || !profileName.trim()) return;
     profileBusy = true;
     profileError = "";
     try {
-      profile = await flow.createStructureProfile(profileName, profileDescription);
-      createProfileOpen = false;
+      if (target === "new") profile = await flow.createStructureProfile(profileName, profileDescription);
+      else await flow.updateStructureProfile(target.id, profileName, profileDescription);
+      profileEditor = null;
       directoryRevision++;
     } catch (cause) {
       profileError = panelErrorWords(cause);
@@ -299,7 +304,7 @@
   const publicServiceChoices = $derived(serviceChoices.filter(service => service.id !== 17));
   const ownedServiceChoices = $derived(serviceChoices.filter(service => OWNED_STRUCTURE_SERVICE_FILTERS.has(service.id)));
   const profileChoices = $derived.by(() => {
-    const choices = new Map(directory?.profileNames);
+    const choices = new Map([...directory?.profiles.values() ?? []].map(({ id, name }) => [id, name]));
     for (const row of rows) {
       const id = row.owned?.profileID;
       if (id != null && !choices.has(id)) choices.set(id, `Profile ${id}`);
@@ -307,6 +312,7 @@
     return choices;
   });
   const displayedProfile = $derived(profile !== null && profileChoices.has(profile) ? profile : null);
+  const selectedProfile = $derived(displayedProfile === null ? undefined : directory?.profiles.get(displayedProfile));
   const showOzone = $derived(activeTab === "corporation" && ownedServices.includes(15));
   const detailColumns = $derived.by(() => {
     const columns = new Map<string, { id: number; label: string }>();
@@ -393,6 +399,12 @@
     now = Date.now();
     const timer = setInterval(() => { now = Date.now(); }, 1000);
     return () => clearInterval(timer);
+  });
+
+  $effect(() => {
+    void characterID;
+    void corporationID;
+    profileEditor = null;
   });
 
   $effect(() => {
@@ -490,14 +502,19 @@
     {#if !scheduleOpen}
       <div class="directory-filters">
         <label>{word("profile")}
-          <select value={displayedProfile ?? ""} onchange={(event) => profile = event.currentTarget.value ? Number(event.currentTarget.value) : null}>
+          <select value={displayedProfile ?? ""} disabled={profileEditor !== null || profileBusy}
+            onchange={(event) => profile = event.currentTarget.value ? Number(event.currentTarget.value) : null}>
             <option value="">All Profiles</option>
             {#each [...profileChoices].sort((left, right) => left[1].localeCompare(right[1], undefined, { sensitivity: "base" })) as [id, name] (id)}
               <option value={id}>{name}</option>
             {/each}
           </select>
         </label>
-        <button type="button" disabled={loading || profileBusy || createProfileOpen} onclick={openCreateProfile}>{word("newProfile")}</button>
+        <button type="button" disabled={loading || profileBusy || profileEditor !== null} onclick={() => openProfileEditor("new")}>{word("newProfile")}</button>
+        {#if selectedProfile}
+          {@const target = selectedProfile}
+          <button type="button" disabled={profileBusy || profileEditor !== null} onclick={() => openProfileEditor(target)}>{word("editProfile")}</button>
+        {/if}
         <label><input type="checkbox" bind:checked={onlyLowPower} /> {word("lowPower")}</label>
         <label>Search <input type="search" bind:value={ownedSearch} /></label>
         {@render typeFilters()}
@@ -508,10 +525,11 @@
           {/each}
         </details>
       </div>
-      {#if createProfileOpen}
-        <form class="profile-editor" aria-label={word("createProfile")}
-          onsubmit={(event) => { event.preventDefault(); void createProfile(); }}>
-          <h3>{word("createProfile")}</h3>
+      {#if profileEditor !== null}
+        {@const title = word(profileEditor === "new" ? "createProfile" : "editProfileTitle")}
+        <form class="profile-editor" aria-label={title}
+          onsubmit={(event) => { event.preventDefault(); void saveProfile(); }}>
+          <h3>{title}</h3>
           <label>{word("profileName")}
             <input type="text" maxlength="30" required bind:value={profileName} disabled={profileBusy} />
           </label>
@@ -520,8 +538,8 @@
           </label>
           {#if profileError}<p role="alert" class="error">{profileError}</p>{/if}
           <div class="profile-actions">
-            <button type="submit" disabled={profileBusy || !profileName.trim()}>{word("confirmProfile")}</button>
-            <button type="button" disabled={profileBusy} onclick={() => createProfileOpen = false}>{word("cancel")}</button>
+            <button type="submit" disabled={profileBusy || !profileName.trim()}>{word(profileEditor === "new" ? "confirmProfile" : "saveProfile")}</button>
+            <button type="button" disabled={profileBusy} onclick={() => profileEditor = null}>{word("cancel")}</button>
           </div>
         </form>
       {/if}

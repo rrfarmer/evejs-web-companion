@@ -1001,7 +1001,7 @@ import {
 import { systemGraphOnce } from "../nav/systemGraphKept.ts";
 import { autopilotDistances, autopilotJumpCounts, autopilotMap, autopilotPath, type AutopilotMap, type AutopilotRouteType, type AutopilotSettings } from "../nav/autopilotRoute.ts";
 import { availableJumpGateJumps, type JumpGateJump } from "../nav/jumpGates.ts";
-import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, decodeStructureProfileNames, encodeStructureDescription, MAX_STRUCTURE_DESCRIPTION_LENGTH, type StructureBrowserDirectory } from "../bridge/structures.ts";
+import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, decodeStructureProfileNames, decodeStructureProfiles, encodeStructureDescription, MAX_STRUCTURE_DESCRIPTION_LENGTH, type StructureBrowserDirectory } from "../bridge/structures.ts";
 import { NO_REINFORCEMENT_WEEKDAY, structureDecommissionAction, structureDecommissionSeconds } from "../bridge/structureBrowserFilters.ts";
 import {
   AVOIDING_DIALOGS,
@@ -4600,6 +4600,7 @@ export interface AppFlow {
   setStructureReinforcementHour(structureIDs: readonly number[], hour: number): Promise<void>;
   assignStructureProfile(structureIDs: readonly number[], profileID: number): Promise<void>;
   createStructureProfile(name: string, description: string): Promise<number>;
+  updateStructureProfile(profileID: number, name: string, description: string): Promise<void>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
   loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
@@ -28835,7 +28836,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     scope.current();
     const currentConstellationID = graph?.parentOf?.(systemID) ?? null;
     return { entries, currentConstellationID, currentRegionID: currentConstellationID === null
-      ? null : graph?.parentOf?.(currentConstellationID) ?? null, profileNames: decodeStructureProfileNames(profiles),
+      ? null : graph?.parentOf?.(currentConstellationID) ?? null, profiles: decodeStructureProfiles(profiles),
       canEditDescriptions };
   }
 
@@ -29045,23 +29046,44 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
-  async function createStructureProfile(name: string, description: string): Promise<number> {
-    const scope = captureMemberOperation();
+  function structureProfileText(name: string, description: string): [string, string] {
     const title = name.trim();
     const bio = description.trim();
     if (!title || title.length > 30 || bio.length > 200) {
       throw new Error("Enter a profile name of up to 30 characters and a description of up to 200 characters.");
     }
+    return [title, bio];
+  }
+
+  function requireStructureProfileManager(scope: MemberOperation): void {
     scope.current();
-    if (isNpcCorporation(scope.online.corporationID) || !hasMoonStationManagerRole(scope.online.corpRole ?? null)) {
-      throw new Error("Creating structure profiles requires a Station Manager.");
+    if (isNpcCorporation(scope.online.corporationID) || !hasMoonStationManagerRole(store.station.get().online?.corpRole ?? null)) {
+      throw new Error("Managing structure profiles requires a Station Manager.");
     }
-    const reply = await scope.write("structureProfiles", "CreateProfile", [title, bio]);
+  }
+
+  async function createStructureProfile(name: string, description: string): Promise<number> {
+    const scope = captureMemberOperation();
+    requireStructureProfileManager(scope);
+    const reply = await scope.write("structureProfiles", "CreateProfile", structureProfileText(name, description));
     scope.current();
     if (typeof reply !== "number" || !Number.isSafeInteger(reply) || reply <= 0) {
       throw new Error("The server did not return the new profile ID.");
     }
     return reply;
+  }
+
+  async function updateStructureProfile(profileID: number, name: string, description: string): Promise<void> {
+    const scope = captureMemberOperation();
+    requireStructureProfileManager(scope);
+    const text = structureProfileText(name, description);
+    const profiles = decodeStructureProfiles(await scope.ask("structureProfiles", "GetProfiles", []));
+    requireStructureProfileManager(scope);
+    const old = profiles.get(profileID);
+    if (!old) throw new Error("This corporation profile is unavailable.");
+    if (old.name === text[0] && old.description === text[1]) return;
+    await scope.write("structureProfiles", "UpdateProfile", [profileID, ...text]);
+    scope.current();
   }
 
   async function assignStructureProfile(structureIDs: readonly number[], profileID: number): Promise<void> {
@@ -40911,6 +40933,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     setStructureReinforcementHour,
     assignStructureProfile,
     createStructureProfile,
+    updateStructureProfile,
     startMoonPull,
     controlMoonPull,
     loadCorporationMiningObservers,

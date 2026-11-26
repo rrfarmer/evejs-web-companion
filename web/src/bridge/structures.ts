@@ -107,18 +107,30 @@ export interface StructureBrowserDirectory {
   readonly entries: readonly StructureBrowserEntry[];
   readonly currentConstellationID: number | null;
   readonly currentRegionID: number | null;
-  readonly profileNames: ReadonlyMap<number, string>;
+  readonly profiles: ReadonlyMap<number, StructureProfile>;
   readonly canEditDescriptions: boolean;
 }
 
-export function decodeStructureProfileNames(result: JsonValue | null): Map<number, string> {
-  const names = new Map<number, string>();
+export interface StructureProfile {
+  readonly id: number;
+  readonly name: string;
+  readonly description: string;
+}
+
+export function decodeStructureProfiles(result: JsonValue | null): Map<number, StructureProfile> {
+  const profiles = new Map<number, StructureProfile>();
   for (const row of Array.isArray(result) ? result : listItems(result)) {
     const id = toNumber(readKeyVal(row, "profileID"));
     const name = readText(readKeyVal(row, "name"));
-    if (id > 0 && name) names.set(id, name);
+    if (Number.isSafeInteger(id) && id > 0 && name) {
+      profiles.set(id, { id, name, description: readText(readKeyVal(row, "description")) });
+    }
   }
-  return names;
+  return profiles;
+}
+
+export function decodeStructureProfileNames(result: JsonValue | null): Map<number, string> {
+  return new Map([...decodeStructureProfiles(result)].map(([id, { name }]) => [id, name]));
 }
 
 /** GetMyCharacterStructures: a dict keyed by ID with plain dict records. */

@@ -1406,17 +1406,19 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     }
   }
   if (body.service === "moonExtractions" || body.service === "structureControl"
-    || (body.service === "structureProfiles" && ["GetProfiles", "CreateProfile"].includes(body.method))
+    || (body.service === "structureProfiles" && ["GetProfiles", "CreateProfile", "UpdateProfile"].includes(body.method))
     || (body.service === "structureSettings" && body.method === "CharacterHasSetting")) {
     const args = Array.isArray(body.args) ? body.args : [];
+    const profileText = (name, description) => typeof name === "string" && name.trim().length > 0
+      && name.length <= 30 && typeof description === "string" && description.length <= 200;
     const valid = {
       GetStructurePilot: () => args.length === 1 && isPlayerStructureID(args[0]),
       TakeControl: () => args.length === 1 && isPlayerStructureID(args[0]),
       BoardStructure: () => args.length === 1 && isPlayerStructureID(args[0]),
       EjectFromStructure: () => args.length === 1 && (args[0] === null || strictPositiveID(args[0]) !== null),
       CharacterHasSetting: () => args.length === 2 && isPlayerStructureID(args[0]) && [17, 36].includes(args[1]),
-      CreateProfile: () => args.length === 2 && typeof args[0] === "string" && args[0].trim().length > 0
-        && args[0].length <= 30 && typeof args[1] === "string" && args[1].length <= 200,
+      CreateProfile: () => args.length === 2 && profileText(args[0], args[1]),
+      UpdateProfile: () => args.length === 3 && strictPositiveID(args[0]) !== null && profileText(args[1], args[2]),
       StartNewExtraction: () => args.length === 3 && isPlayerStructureID(args[0]) && Number.isSafeInteger(args[1])
         && args[1] >= 518460 && args[1] <= 4838400 && typeof args[2] === "boolean",
     };
