@@ -1069,6 +1069,7 @@
     corporationIsk: ["notifyAccountChangeCorp", "UI/Neocom/Blink/CorpISKBalanceChanged", "Corp ISK balance changed"],
     personalShares: ["notifyShareChange", "UI/Neocom/Blink/SharesChanged", "Your shares have changed"],
     corporationShares: ["notifyShareChangeCorp", "UI/Neocom/Blink/CorpSharesChanged", "Corp shares have changed"],
+    corporationBill: ["notifyBillChange", "UI/Neocom/Blink/NewBillReceived", "New Corp Bill received"],
   } as const;
   const readWalletTip: NonNullable<Neocom["walletTip"]> = async () => {
     const currentSession = session;

@@ -71,6 +71,7 @@
   let walletTab = $state<"mine" | "settings">("mine");
   const NOTIFY_ISK = "UI/Wallet/WalletWindow/NotifyAccountChange";
   const NOTIFY_SHARES = "UI/Wallet/WalletWindow/NotifyShareChange";
+  const NOTIFY_BILLS = "UI/Wallet/WalletWindow/NotifyBillChange";
   const CORP_WALLET = "UI/Wallet/WalletWindow/CorporationWallet";
   const SHOW_CENTS = "UI/Wallet/WalletWindow/WalletShowCents";
   const SHOW_BALANCE_UPDATES = "UI/Wallet/WalletWindow/Configuration/WalletShowBalanceChange";
@@ -84,7 +85,7 @@
   }
   const RETAIL_WORDS = ["UI/Wallet/WalletWindow/MyWallet", "UI/Common/Settings", "UI/Common/ISK", "UI/Common/PLEX",
     "UI/Journal/JournalWindow/Agents/LoyaltyPoints", "UI/Wallet/WalletWindow/EverMarks", "UI/Wallet/WalletWindow/ISKDescription",
-    SHOW_CENTS, SHOW_BALANCE_UPDATES, BALANCE_THRESHOLD, NOTIFY_ISK, NOTIFY_SHARES, CORP_WALLET];
+    SHOW_CENTS, SHOW_BALANCE_UPDATES, BALANCE_THRESHOLD, NOTIFY_ISK, NOTIFY_SHARES, NOTIFY_BILLS, CORP_WALLET];
   $effect(() => { if (retail) flow.requestWords(RETAIL_WORDS); });
 
   let busy = $state(false);
@@ -163,6 +164,11 @@
           <input type="checkbox" checked={walletSetting(characterID, "notifyAccountChangeCorp")} disabled={characterID === null}
             onchange={(event) => { if (characterID !== null) setWalletSetting(characterID, "notifyAccountChangeCorp", event.currentTarget.checked); }} />
           {tabWord(NOTIFY_ISK, "Blink Wallet Button on ISK Balance Changes")}
+        </label>
+        <label class="wallet-corporation-bill-blink">
+          <input type="checkbox" checked={walletSetting(characterID, "notifyBillChange")} disabled={characterID === null}
+            onchange={(event) => { if (characterID !== null) setWalletSetting(characterID, "notifyBillChange", event.currentTarget.checked); }} />
+          {tabWord(NOTIFY_BILLS, "Blink Wallet Button on Bill Changes")}
         </label>
         <label class="wallet-corporation-share-blink">
           <input type="checkbox" checked={walletSetting(characterID, "notifyShareChangeCorp")} disabled={characterID === null}

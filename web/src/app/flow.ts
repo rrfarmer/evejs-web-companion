@@ -2252,7 +2252,7 @@ interface DockedPortraitDraft {
 
 interface WalletBlink {
   readonly characterID: number;
-  readonly kind: "personalIsk" | "corporationIsk" | "personalShares" | "corporationShares";
+  readonly kind: "personalIsk" | "corporationIsk" | "personalShares" | "corporationShares" | "corporationBill";
 }
 
 export interface AppFlow {
@@ -8243,6 +8243,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       }
       if (walletSharesWanted && ownerChanged(online?.characterID)) void loadWalletShares().catch(() => undefined);
       if (corpWalletSharesWanted && ownerChanged(online?.corporationID)) void loadWalletShares(true).catch(() => undefined);
+    }
+    if (method === "OnBillReceived") {
+      const online = store.station.get().online;
+      if (online && hasAccessToCorporationWallet(online.corpRole)) {
+        walletBlinkSignal.set({ characterID: online.characterID, kind: "corporationBill" });
+      }
     }
     const sessionNames = sessionChangeNames(method, args);
     if (sessionNames?.some(name => name === "stationid" || name === "structureid" || name === "solarsystemid")) {
