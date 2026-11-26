@@ -1056,8 +1056,9 @@ async function main() {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       // A scene graphic (a hangar's: hangarRegistry's sceneGraphicID): its EveSpaceScene's environment cube maps, sun
       // and ambient, as the hangar is lit by them.
-      if (g?.graphicFile && /_scene\.(red|black)$/i.test(g.graphicFile)) {
-        const black = g.graphicFile.toLowerCase().replace(/\.red$/, ".black");
+      const sceneFile = g?.graphicFile?.replace(/\\/g, "/").toLowerCase();
+      if (sceneFile && /(?:_scene|\/hangar\/modular\/scene\/[^/]+)\.(red|black)$/.test(sceneFile)) {
+        const black = sceneFile.replace(/\.red$/, ".black");
         const s = readBlack(rf.read(black), black);
         const copy = (res) => res && rf.has(res) ? copyRes(rf, res, outRoot) : null;
         writeExtracted(file, JSON.stringify({ graphicID, scene: {
