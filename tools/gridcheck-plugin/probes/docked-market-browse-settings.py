@@ -33,6 +33,7 @@ def observe():
     saved = [(key, settings.user.ui.Get(key, None)) for key in keys]
     reload_list = market.LoadMarketListOrSearch
     original_skills = getattr(market, 'mine', None)
+    original_asks = getattr(market, 'asksForMyRange', None)
     try:
         market.LoadMarketListOrSearch = lambda: None
         for key in keys:
@@ -45,16 +46,20 @@ def observe():
         market.SettingMenu(after)
         fitting = sm.GetService('godma').GetItem(session.shipid)
         market.mine = market.GetMySkills()
+        market.asksForMyRange = {34: True}
+        branches = [node.label for node in market.GetGroupListForBrowse()]
         return dict(station=session.stationid, before=before.rows, after=after.rows,
                     rangeBefore=range_before, rangeAfter=market.GetRange(),
                     autorefresh=settings.user.ui.Get('autorefresh'),
                     searchHint=GetByLabel('UI/Market/FiltersDontApply'),
+                    projectedAskRoot=branches,
                     requirements=[[type_id, list(market.MeetsRequirements(type_id, ship=fitting,
                                    reqTypeSkills=True, reqTypeCpuPower=True, hasSkill=True))]
                                   for type_id in (34, 3300, 2454)])
     finally:
         market.LoadMarketListOrSearch = reload_list
         market.mine = original_skills
+        market.asksForMyRange = original_asks
         for key, value in saved:
             if value is None:
                 settings.user.ui.Delete(key)

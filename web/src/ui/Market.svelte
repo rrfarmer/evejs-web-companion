@@ -80,7 +80,7 @@
   import { findInPersonalAssets } from "./assetsSearch.ts";
   import { compareType } from "./typeCompare.ts";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
-  import type { MarketGroupNode, MarketTypeLocation } from "../app/api.ts";
+  import type { MarketBrowseIndex, MarketGroupNode, MarketTypeLocation } from "../app/api.ts";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { celestialRouteEntries, isDeprecatedStationType, isWaypointPlace } from "../nav/waypoints.ts";
   import { avoidanceItems } from "../nav/autopilotSettings.ts";
@@ -1563,7 +1563,7 @@
   });
 
   $effect(() => {
-    if ((tab !== "groups" && (!retail || !browseFilters.showonlyskillsfor)) || browsing || !groupFacts) return;
+    if (tab !== "groups" || browsing || !groupFacts) return;
     const ids = groupTypes.map(item => item.typeID);
     const modules = ids.filter(id => [7, 66].includes(groupFacts?.get(id)?.categoryID ?? 0));
     let current = true;
@@ -1673,36 +1673,42 @@
     ]);
   }
 
-  let browseDogma = $state.raw<Awaited<ReturnType<AppFlow["marketBrowseDogma"]>> | null>(null);
+  let browseIndex = $state.raw<MarketBrowseIndex | null>(null);
   $effect(() => {
-    const ids = groupTypes.map(item => item.typeID);
-    browseDogma = null;
-    if (!retail || !browseFilters.showhavecpuandpower || !ids.length || browsing) return;
-    let current = true;
-    void flow.marketBrowseDogma(ids).then(rows => { if (current) browseDogma = rows; }).catch(() => {});
-    void flow.loadFitting().catch(() => {});
-    return () => { current = false; };
+    if (retail && !ordersOnly && browseFilters.showhavecpuandpower) void flow.loadFitting().catch(() => {});
   });
 
-  function passesBrowseRequirements(typeID: number) {
-    if (!anyBrowseRequirement) return true;
-    const category = groupFacts?.get(typeID)?.categoryID;
-    if (browseFilters.shownewskills && category === 16 && marketSkills?.has(typeID)) return false;
-    if (browseFilters.showonlyskillsfor && marketSkills && groupSkillNeeds?.[typeID]?.some(([id, level]) =>
+  function passesBrowseRequirements([typeID, , skillbook, requirements, fitting]: MarketBrowseIndex["types"][number]) {
+    if (browseFilters.shownewskills && skillbook && marketSkills?.has(typeID)) return false;
+    if (browseFilters.showonlyskillsfor && marketSkills && requirements?.some(([id, level]) =>
       (marketSkills.get(id)?.level ?? -1) < level)) return false;
-    const facts = browseDogma?.[typeID];
-    if (!browseFilters.showhavecpuandpower || !facts || ![7, 20, 32, 66].includes(facts.categoryID ?? 0) ||
-        !facts.effects.some(id => id === 11 || id === 12 || id === 13)) return true;
+    if (!browseFilters.showhavecpuandpower || !fitting) return true;
     const cpu = fittingResources?.cpu;
     const grid = fittingResources?.powergrid;
-    const attrs = new Map(facts.attributes);
-    const cpuLoad = (attrs.get(CPU) ?? 0) + (attrs.get(49) ?? 0);
-    const gridLoad = (attrs.get(POWER) ?? 0) + (attrs.get(15) ?? 0);
+    const [cpuLoad, gridLoad] = fitting;
     return (!cpu?.known || cpu.total > cpuLoad) && (!grid?.known || grid.total > gridLoad);
   }
 
-  const browseTypes = $derived(groupTypes.filter(item => (!showOnlyAvailable || !groupAsks || groupAsks.asks.has(item.typeID) ||
-    item.typeID === 44992) && passesBrowseRequirements(item.typeID)));
+  function isOffered(typeID: number) {
+    return !showOnlyAvailable || !groupAsks || groupAsks.asks.has(typeID);
+  }
+
+  const browseParents = $derived(browseIndex ? new Map(browseIndex.groups) : null);
+  const eligibleBrowse = $derived.by(() => {
+    if (!browseIndex || !browseParents) return null;
+    const types = new Set<number>();
+    const branches = new Set<number>();
+    for (const entry of browseIndex.types) {
+      const [typeID, groupID] = entry;
+      if (!isOffered(typeID) || !passesBrowseRequirements(entry)) continue;
+      types.add(typeID);
+      for (let id = groupID; id && !branches.has(id); id = browseParents.get(id) ?? 0) branches.add(id);
+    }
+    return { types, branches };
+  });
+  const browseGroups = $derived(eligibleBrowse ? groups.filter(group => eligibleBrowse.branches.has(group.marketGroupID)) : groups);
+  const browseTypes = $derived(groupTypes.filter(item =>
+    eligibleBrowse ? eligibleBrowse.types.has(item.typeID) : isOffered(item.typeID)));
   const groupCards = $derived([...browseTypes].sort((a, b) =>
     (a.variantGroup?.metaGroupID ?? 0) - (b.variantGroup?.metaGroupID ?? 0) || a.name.localeCompare(b.name)));
 
@@ -1748,7 +1754,7 @@
   });
 
   $effect(() => {
-    if ((tab !== "groups" && (!retail || !anyBrowseRequirement)) || browsing || !groupTypes.length) return;
+    if (tab !== "groups" || browsing || !groupTypes.length) return;
     let current = true;
     groupFacts = null;
     void flow.typeFacts(groupTypes.map(item => item.typeID)).then(facts => {
@@ -1856,6 +1862,7 @@
     // The tree, so the panel opens on something to look AT rather than an empty
     // search box. Independent of the market read: it is static data.
     void openGroupID(0);
+    if (retail) void flow.loadMarketBrowseIndex().then(index => { browseIndex = index; }).catch(() => {});
     // The hangar, so a sell can name a real stack. Deliberately NOT part of the
     // market load: it is a different panel's read, and failing it must cost the
     // player only the ability to sell, not the whole market page.
@@ -2108,11 +2115,11 @@
   {:else if browsing}
     <p class="note">Opening…</p>
   {:else}
-    {#if groups.length === 0 && (retail ? browseTypes : groupTypes).length === 0}
+    {#if (retail ? browseGroups : groups).length === 0 && (retail ? browseTypes : groupTypes).length === 0}
       <p class="empty">This part of the market holds nothing.</p>
     {/if}
     <ul class="market-picker" bind:this={browseItems}>
-      {#each groups as node (node.marketGroupID)}
+      {#each retail ? browseGroups : groups as node (node.marketGroupID)}
         <li>
           <button type="button" class="pick-row pick-group" disabled={busy} onclick={() => enterGroup(node)}>
             {#if retail}

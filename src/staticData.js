@@ -2045,6 +2045,33 @@ function getMarketGroupChildren(parentGroupID) {
   return getMarketGroupChildIndex().get(parentID) || [];
 }
 
+// MarketBase.FilterItemsForBrowse evaluates descendants before drawing a group.
+// Send only the static facts that its filters need. Quotes and pilot state stay
+// with their existing reads.
+function getMarketBrowseIndex(requiredSkills) {
+  const groups = [];
+  const types = [];
+  for (const [id, entry] of buildJsonlIndex("marketGroups.jsonl")) {
+    groups.push([Number(id), Number(entry.parentGroupID) || 0]);
+  }
+  const groupIDs = new Set(groups.map(([id]) => id));
+  for (const entry of buildIndex("itemTypes", "types", "typeID").values()) {
+    const groupID = Number(entry.marketGroupID);
+    if (entry.published !== true || !groupIDs.has(groupID)) continue;
+    const id = Number(entry.typeID);
+    const categoryID = Number(getGroup(entry.groupID)?.categoryID);
+    const required = requiredSkills?.[id];
+    const dogma = [7, 20, 32, 66].includes(categoryID) ? getTypeDogma(id) : null;
+    const attrs = dogma?.attributes;
+    const fitting = dogma?.effects?.some(effect => [11, 12, 13].includes(Number(effect)))
+      ? [(Number(attrs?.[49]) || 0) + (Number(attrs?.[50]) || 0),
+         (Number(attrs?.[15]) || 0) + (Number(attrs?.[30]) || 0)]
+      : null;
+    types.push([id, groupID, categoryID === 16, Array.isArray(required) ? required : null, fitting]);
+  }
+  return { groups, types };
+}
+
 /**
  * The published, tradable types sitting directly in one market group.
  *
@@ -2631,6 +2658,7 @@ module.exports = {
   getMarketGroupName,
   getMarketGroupPath,
   getMarketTypeLocation,
+  getMarketBrowseIndex,
   getPropulsionEffectName,
   getDefaultEffectName,
   getLauncherEffectName,

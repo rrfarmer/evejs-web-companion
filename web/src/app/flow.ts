@@ -2798,7 +2798,7 @@ export interface AppFlow {
    */
   loadMarketGroups(parentGroupID: number): Promise<readonly api.MarketGroupNode[]>;
   loadMarketTypeLocation(typeID: number): Promise<api.MarketTypeLocation | null>;
-  marketBrowseDogma(typeIDs: readonly number[]): Promise<import("../bridge/dogma/location.ts").DogmaStatic["types"]>;
+  loadMarketBrowseIndex(): Promise<api.MarketBrowseIndex>;
   loadMarketGroupTypes(
     marketGroupID: number,
   ): Promise<{ readonly types: readonly api.MarketTypeMatch[]; readonly total: number; readonly capped: boolean }>;
@@ -12354,6 +12354,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const { text, regionID } = result;
     await resolveNamesNow([{ kind: "evelocation", id: regionID }]);
     return { text, region: resolvedName(store.names.get().resolved, "evelocation", regionID, String(regionID)) };
+  }
+
+  let marketBrowseIndex: Promise<api.MarketBrowseIndex> | null = null;
+  function loadMarketBrowseIndex() {
+    marketBrowseIndex ??= api.loadMarketBrowseIndex(callOptions).catch(error => {
+      marketBrowseIndex = null;
+      throw error;
+    });
+    return marketBrowseIndex;
   }
 
   async function marketGroupAsks(scope: MarketGroupScope) {
@@ -39758,11 +39767,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     listOreFamilies: () => api.listOreFamilies(callOptions),
     loadMarketGroups: (parentGroupID: number) => api.loadMarketGroups(parentGroupID, callOptions),
     loadMarketTypeLocation: (typeID: number) => api.loadMarketTypeLocation(typeID, callOptions),
-    async marketBrowseDogma(typeIDs) {
-      const chunks = [];
-      for (let at = 0; at < typeIDs.length; at += 50) chunks.push(await infoTypeFacts(typeIDs.slice(at, at + 50)));
-      return Object.assign({}, ...chunks);
-    },
+    loadMarketBrowseIndex,
     loadMarketGroupTypes: (marketGroupID: number) =>
       api.loadMarketGroupTypes(marketGroupID, callOptions),
     async placeMarketOrder(request) {

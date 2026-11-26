@@ -14054,6 +14054,17 @@ app.get("/api/market/type-location", requireAuth, (req, res, next) => {
   }
 });
 
+let marketBrowseIndex;
+app.get("/api/market/browse-index", requireAuth, async (req, res, next) => {
+  try {
+    marketBrowseIndex ??= dogmaBuiltData().table("requiredSkillsForTypes").then(required => staticData.getMarketBrowseIndex(required))
+      .catch(error => { marketBrowseIndex = undefined; throw error; });
+    res.json({ ok: true, ...await marketBrowseIndex });
+  } catch (error) {
+    next(error);
+  }
+});
+
 /**
  * R38 — PLAYER-STRUCTURE NAMES. The one runtime name read, shared by every
  * name path in this BFF.

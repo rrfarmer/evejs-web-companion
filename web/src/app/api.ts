@@ -1483,6 +1483,24 @@ export interface MarketTypeLocation {
   readonly item: MarketTypeMatch;
 }
 
+export interface MarketBrowseIndex {
+  readonly groups: readonly (readonly [groupID: number, parentID: number])[];
+  readonly types: readonly (readonly [
+    typeID: number, groupID: number, skillbook: boolean,
+    requirements: readonly (readonly [skillID: number, level: number])[] | null,
+    fitting: readonly [cpu: number, powergrid: number] | null,
+  ])[];
+}
+
+export async function loadMarketBrowseIndex(options: ApiOptions = {}): Promise<MarketBrowseIndex> {
+  const data = await getJson("/api/market/browse-index", options);
+  if (!Array.isArray(data.groups) || !Array.isArray(data.types)) throw new Error("Market Browse index is unavailable");
+  return {
+    groups: data.groups as unknown as MarketBrowseIndex["groups"],
+    types: data.types as unknown as MarketBrowseIndex["types"],
+  };
+}
+
 export async function loadMarketTypeLocation(typeID: number, options: ApiOptions = {}): Promise<MarketTypeLocation | null> {
   const data = await getJson(`/api/market/type-location?type=${typeID}`, options) as { location?: MarketTypeLocation | null };
   return data.location?.item.typeID === typeID && data.location.groups.length > 0 ? data.location : null;
