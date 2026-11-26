@@ -5,6 +5,8 @@
 // it stays framework-agnostic and unit-testable under node:test.
 
 import { getCharacterSelectionData } from "../bridge/characterSelection.ts";
+import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, decodeShipSkinrEntries,
+  type ShipSkinrDesign, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
 import { setSessionToken } from "./sessionToken.ts";
 import { pageFetch } from "./pageFetch.ts";
 import {
@@ -4588,6 +4590,8 @@ export interface AppFlow {
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
   loadStructureBrowser(systemID: number, corporation?: boolean): Promise<StructureBrowserDirectory>;
   loadMyMercenaryDens(): Promise<MercenaryDensRead>;
+  loadShipSkinrStudio(): Promise<ShipSkinrStudio>;
+  loadShipSkinrDesign(skin: string): Promise<ShipSkinrDesign | null>;
   reloadMercenaryDen(denID: number): Promise<MercenaryDenRow | null>;
   loadMercenaryDenActivities(denID: number): Promise<MercenaryDenActivities>;
   loadMercenaryOperations(): Promise<readonly MercenaryDenActivity[]>;
@@ -28873,6 +28877,27 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     ]));
   }
 
+  async function loadShipSkinrStudio(): Promise<ShipSkinrStudio> {
+    const current = callOptions.captureRequestGuard!();
+    const [designs, capacity, jobs] = await Promise.all([
+      gatewayAsk(SHIP_SKINR_GATEWAY + "draft.api.GetAllSavedRequest"),
+      gatewayAsk(SHIP_SKINR_GATEWAY + "draft.api.GetSaveCapacityRequest"),
+      gatewayAsk(SHIP_SKINR_GATEWAY + "sequencing.job.api.GetAllActiveRequest"),
+    ]);
+    current();
+    return { designs: decodeShipSkinrEntries(designs, "drafts"), capacity: decodeShipSkinrCapacity(capacity),
+      jobs: decodeShipSkinrEntries(jobs, "jobs") };
+  }
+
+  async function loadShipSkinrDesign(skin: string): Promise<ShipSkinrDesign | null> {
+    const current = callOptions.captureRequestGuard!();
+    const result = await gatewayAsk(SHIP_SKINR_GATEWAY + "api.GetRequest", { skin: { hex: skin } });
+    current();
+    const design = decodeShipSkinrDesign(result);
+    if (design) requestNames([{ kind: "type", id: design.shipTypeID }]);
+    return design;
+  }
+
   async function loadMyMercenaryDens(): Promise<MercenaryDensRead> {
     const current = callOptions.captureRequestGuard!();
     const [ownedReply, capacityReply] = await Promise.all([
@@ -41230,6 +41255,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadStructureBrowser,
     loadMySkyhooks,
     loadMyMercenaryDens,
+    loadShipSkinrStudio,
+    loadShipSkinrDesign,
     reloadMercenaryDen,
     loadMercenaryDenActivities,
     loadMercenaryOperations,

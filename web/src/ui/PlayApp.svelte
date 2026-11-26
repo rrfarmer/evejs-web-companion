@@ -238,6 +238,7 @@
     newEdenStore: "newEdenStore",
     projectDiscovery: "projectDiscovery",
     pvpFilamentEvents: "pvpFilamentEvents",
+    shipSkinr: "shipSkinr",
     omegaUpsell: "omegaUpsell",
   };
 
@@ -1788,6 +1789,7 @@
     mail: { w: 800, h: 600 }, finder: { w: 1188, h: 694 }, wallet: { w: 900, h: 600 }, planets: { w: 500, h: 500 }, log: { w: 400, h: 200 },
     notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, paintTool: { w: 1030, h: 650 }, locationSearch: { w: 420, h: 480 }, achievements: { w: 1040, h: 825 },
     mercenaryDens: { w: 900, h: 572 },
+    shipSkinr: { w: 1024, h: 700 },
     fleetComposition: { w: 680, h: 420 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 570, h: 550 },
     structureBrowser: { w: 800, h: 600 }, accessGroups: { w: 800, h: 600 }, autoMoonMiner: { w: 700, h: 515 },
     metenoxTransfer: { w: 400, h: 340 }, metenoxFuel: { w: 435, h: 285 },
@@ -2005,6 +2007,7 @@
     newEdenStore: "UI/VirtualGoodsStore/VgsName",
     projectDiscovery: "UI/ProjectDiscovery/ProjectName",
     pvpFilamentEvents: "UI/PVPFilament/EventWindow/WindowTitle",
+    shipSkinr: "UI/Personalization/ShipSkins/SKINR/Title",
     omegaUpsell: "UI/CloneState/UpgradeToOmegaTitle",
     plexCheckout: "UI/VirtualGoodsStore/Buttons/BuyPlex",
     fittingManagement: "UI/Fitting/FittingWindow/FittingManagement/WindowCaption",
@@ -2184,6 +2187,7 @@
     OpenPointerWnd: "pointerWindow",
     ToggleProjectDiscovery: "projectDiscovery",
     OpenPVPFilamentEventWindow: "pvpFilamentEvents",
+    OpenShipSKINRWindow: "shipSkinr",
     OpenOmegaUpsellWindow: "omegaUpsell",
     ToggleTheatersOfWarWindow: "theatersOfWar", CmdToggleShipTree: "shipTree",
     // (ToggleOpenClose in the client too: ContractsWindow, CorporationWindow, NotepadWindow, PlanetWindow, the comparison

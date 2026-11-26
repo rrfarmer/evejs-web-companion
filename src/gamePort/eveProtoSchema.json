@@ -8065,6 +8065,642 @@
     }
    ]
   },
+  "eve_public.cosmetic.ship.skin.thirdparty.Attributes": {
+   "fields": [
+    {
+     "name": "name",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "line_name",
+     "number": 2,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "creator",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "layout",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.Layout"
+    },
+    {
+     "name": "tier",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.Tier"
+    },
+    {
+     "name": "not_sequenced",
+     "number": 6,
+     "type": 8,
+     "label": 1,
+     "oneof": "sequenced"
+    },
+    {
+     "name": "first_sequenced",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp",
+     "oneof": "sequenced"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.Identifier": {
+   "fields": [
+    {
+     "name": "hex",
+     "number": 1,
+     "type": 9,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.Layout": {
+   "fields": [
+    {
+     "name": "slots",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.Layout.Slot"
+    },
+    {
+     "name": "ship_type",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.shiptype.Identifier"
+    },
+    {
+     "name": "pattern_blend_mode",
+     "number": 3,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.pattern.BlendMode"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.Layout.Slot": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.slot.Identifier"
+    },
+    {
+     "name": "configuration",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.slot.Configuration"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.Tier": {
+   "fields": [
+    {
+     "name": "level",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.api.GetRequest": {
+   "fields": [
+    {
+     "name": "skin",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.api.GetResponse": {
+   "fields": [
+    {
+     "name": "skin",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.Attributes"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.coating.Configuration": {
+   "fields": [
+    {
+     "name": "diffuse_color",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.math.Vector4"
+    },
+    {
+     "name": "dust_diffuse_color",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.math.Vector4"
+    },
+    {
+     "name": "fresnel_color",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.math.Vector4"
+    },
+    {
+     "name": "gloss",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.math.Vector4"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.coating.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.pattern.Configuration": {
+   "fields": [
+    {
+     "name": "projection",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.pattern.Configuration.Projection"
+    },
+    {
+     "name": "transform",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.pattern.Configuration.Transform"
+    },
+    {
+     "name": "mirrored",
+     "number": 3,
+     "type": 8,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.pattern.Configuration.Projection": {
+   "fields": [
+    {
+     "name": "area1",
+     "number": 1,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "area2",
+     "number": 2,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "area3",
+     "number": 3,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "area4",
+     "number": 4,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "projection_type_u",
+     "number": 5,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "projection_type_v",
+     "number": 6,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.pattern.Configuration.Transform": {
+   "fields": [
+    {
+     "name": "position",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.math.Vector3"
+    },
+    {
+     "name": "rotation",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.math.Vector4"
+    },
+    {
+     "name": "scaling",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.math.Vector3"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.pattern.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.Attributes": {
+   "fields": [
+    {
+     "name": "skin",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.Identifier"
+    },
+    {
+     "name": "editor_configuration",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.draft.EditorConfiguration"
+    },
+    {
+     "name": "editor_configurations",
+     "number": 3,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.draft.SlotEditorConfiguration"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.EditorConfiguration": {
+   "fields": [
+    {
+     "name": "offset_u_ratio",
+     "number": 1,
+     "type": 2,
+     "label": 1
+    },
+    {
+     "name": "offset_v_ratio",
+     "number": 2,
+     "type": 2,
+     "label": 1
+    },
+    {
+     "name": "yaw",
+     "number": 3,
+     "type": 2,
+     "label": 1
+    },
+    {
+     "name": "pitch",
+     "number": 4,
+     "type": 2,
+     "label": 1
+    },
+    {
+     "name": "roll",
+     "number": 5,
+     "type": 2,
+     "label": 1
+    },
+    {
+     "name": "scaling",
+     "number": 6,
+     "type": 2,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.SlotEditorConfiguration": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.slot.Identifier"
+    },
+    {
+     "name": "config",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.draft.EditorConfiguration"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetAllSavedRequest": {
+   "fields": []
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetAllSavedResponse": {
+   "fields": [
+    {
+     "name": "drafts",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetAllSavedResponse.Draft"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetAllSavedResponse.Draft": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.draft.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.draft.Attributes"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetSaveCapacityRequest": {
+   "fields": []
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetSaveCapacityResponse": {
+   "fields": [
+    {
+     "name": "capacity",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.Attributes": {
+   "fields": [
+    {
+     "name": "skin",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.Identifier"
+    },
+    {
+     "name": "sequencer",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "quantity",
+     "number": 3,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "pending",
+     "number": 4,
+     "type": 8,
+     "label": 1,
+     "oneof": "status"
+    },
+    {
+     "name": "started",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp",
+     "oneof": "status"
+    },
+    {
+     "name": "failed",
+     "number": 6,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.Failure",
+     "oneof": "status"
+    },
+    {
+     "name": "completed",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp",
+     "oneof": "status"
+    },
+    {
+     "name": "planned_completion",
+     "number": 8,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.api.GetAllActiveRequest": {
+   "fields": []
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.api.GetAllActiveResponse": {
+   "fields": [
+    {
+     "name": "jobs",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.api.GetAllActiveResponse.Job"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.api.GetAllActiveResponse.Job": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.Attributes"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.slot.Configuration": {
+   "fields": [
+    {
+     "name": "coating",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.slot.Configuration.Coating",
+     "oneof": "component"
+    },
+    {
+     "name": "pattern",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.slot.Configuration.Pattern",
+     "oneof": "component"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.slot.Configuration.Coating": {
+   "fields": [
+    {
+     "name": "coating",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.coating.Identifier"
+    },
+    {
+     "name": "configuration",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.coating.Configuration"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.slot.Configuration.Pattern": {
+   "fields": [
+    {
+     "name": "pattern",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.pattern.Identifier"
+    },
+    {
+     "name": "configuration",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.component.pattern.Configuration"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.slot.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.math.Vector3": {
+   "fields": [
+    {
+     "name": "x",
+     "number": 1,
+     "type": 1,
+     "label": 1
+    },
+    {
+     "name": "y",
+     "number": 2,
+     "type": 1,
+     "label": 1
+    },
+    {
+     "name": "z",
+     "number": 3,
+     "type": 1,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.math.Vector4": {
+   "fields": [
+    {
+     "name": "x",
+     "number": 1,
+     "type": 1,
+     "label": 1
+    },
+    {
+     "name": "y",
+     "number": 2,
+     "type": 1,
+     "label": 1
+    },
+    {
+     "name": "z",
+     "number": 3,
+     "type": 1,
+     "label": 1
+    },
+    {
+     "name": "w",
+     "number": 4,
+     "type": 1,
+     "label": 1
+    }
+   ]
+  },
   "eve_public.ore.group.Identifier": {
    "fields": [
     {
@@ -15016,6 +15652,24 @@
     "CAREER_INDUSTRIALIST": 2,
     "CAREER_ENFORCER": 3,
     "CAREER_SOLDIER_OF_FORTUNE": 4
+   }
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.component.pattern.BlendMode": {
+   "values": {
+    "BLEND_MODE_UNSPECIFIED": 0,
+    "BLEND_MODE_NORMAL": 1,
+    "BLEND_MODE_SUBTRACT": 2,
+    "BLEND_MODE_EXCLUSION": 3,
+    "BLEND_MODE_NESTED": 4,
+    "BLEND_MODE_NESTED_INVERTED": 5
+   }
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.Failure": {
+   "values": {
+    "FAILURE_UNSPECIFIED": 0,
+    "FAILURE_MISSING_FUNDS": 1,
+    "FAILURE_MISSING_RESOURCES": 3,
+    "FAILURE_INTERNAL_SERVER_ERROR": 4
    }
   },
   "eve_public.freelance.project.ParticipationState": {

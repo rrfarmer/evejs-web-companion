@@ -45,6 +45,7 @@ export type CoreTabID =
   | "jobBoard"
   | "mercenaryDens"
   | "paintTool"
+  | "shipSkinr"
   | "locationSearch"
   | "achievements"
   | "skills"
@@ -259,6 +260,7 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "mercenaryDens", label: "My Mercenary Dens", where: "both" },
   // The structure paint tool (PaintToolWnd, "Structure SKINR"), opened from Brand Management's Open SKINR.
   { id: "paintTool", label: "Structure SKINR", where: "both", launchable: false },
+  { id: "shipSkinr", label: "Ship SKINR", where: "both", launchable: false },
   // searchUtil.GetResultsInNewWindow's window, from the route info panel's search box.
   { id: "locationSearch", label: "Search Results", where: "both", launchable: false },
   { id: "achievements", label: "Achievements", where: "both" },

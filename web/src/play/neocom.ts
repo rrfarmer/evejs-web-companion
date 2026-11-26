@@ -172,6 +172,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
     { id: "accessGroups", label: "Access Lists", icon: clientTexture("res:/UI/Texture/WindowIcons/accessGroups.png") },
   ] },
   { label: "Paragon Services", icon: clientTexture("res:/UI/Texture/eveicon/feature_icons/paragon_folder_64px.png"), items: [
+    { id: "shipSkinr", label: "Ship SKINR", icon: icon("paint_tool") },
     { id: "achievements", label: "Achievements", icon: icon("achievements") },
   ] },
   { label: "Utilities", icon: icon("directoryUtilities"), items: [

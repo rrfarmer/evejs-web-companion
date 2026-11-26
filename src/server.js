@@ -15939,6 +15939,10 @@ app.get("/api/client-data/dogma-types", requireAuth, async (req, res, next) => {
 // by the client's own message of that type. The requests are those the page makes; a write among them only with
 // confirm said. The pilot is the held session's, never the page's to name.
 const PUBLIC_GATEWAY_READS = new Set([
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetAllSavedRequest",
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetSaveCapacityRequest",
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.api.GetAllActiveRequest",
+  "eve_public.cosmetic.ship.skin.thirdparty.api.GetRequest",
   "eve_public.ai.assistant.chat.api.QueryRequest",
   "eve_public.plex.vault.api.BalanceRequest",
   "eve_public.plex.vault.transaction.api.GetAllLoggedForUserRequest",

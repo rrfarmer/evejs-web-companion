@@ -50,6 +50,7 @@
   import MyMercenaryDens from "./MyMercenaryDens.svelte";
   import AchievementsWindow from "./AchievementsWindow.svelte";
   import PaintToolWindow from "./PaintToolWindow.svelte";
+  import ShipSkinrStudio from "./ShipSkinrStudio.svelte";
   import Flight from "./Flight.svelte";
   import Mining from "./Mining.svelte";
   import ReprocessingPlant from "./ReprocessingPlant.svelte";
@@ -303,6 +304,8 @@
   <AgentsMissions {store} {flow} />
 {:else if tab === "paintTool"}
   <PaintToolWindow {store} {flow} {onClose} />
+{:else if tab === "shipSkinr"}
+  <ShipSkinrStudio {store} {flow} />
 {:else if tab === "achievements"}
   <AchievementsWindow {store} {flow} />
 {:else if tab === "locationSearch"}
