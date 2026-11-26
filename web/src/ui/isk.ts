@@ -55,3 +55,17 @@ export function formatWholeIsk(value: string | null, mode: "truncate" | "round")
   }
   return `${whole === 0n ? "" : match[1] ?? ""}${whole.toLocaleString("en-US")} ISK`;
 }
+
+/** Wallet currency with two decimal places, preserving the exact decimal string returned for balances. */
+export function formatWalletCents(value: string | number | null, currency = "ISK"): string {
+  if (value === null) return "—";
+  if (typeof value === "number") {
+    return `${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+  }
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(value.trim());
+  if (!match) return value;
+  const fraction = (match[3] ?? "").padEnd(3, "0");
+  let cents = BigInt(match[2] ?? "0") * 100n + BigInt(fraction.slice(0, 2));
+  if (fraction.charAt(2) >= "5") cents += 1n;
+  return `${match[1]}${(cents / 100n).toLocaleString("en-US")}.${String(cents % 100n).padStart(2, "0")} ${currency}`;
+}

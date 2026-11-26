@@ -12,7 +12,8 @@
   import { onMount } from "svelte";
   import { BridgeCallError } from "../bridge/callMethod.ts";
   import { isSessionLost } from "../app/flow.ts";
-  import { formatWholeIsk } from "./isk.ts";
+  import { formatWalletCents, formatWholeIsk } from "./isk.ts";
+  import { walletShowsCents } from "./walletSettings.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { CorpWalletDivision } from "../store/types.ts";
@@ -31,6 +32,7 @@
   const station = store.station;
   // svelte-ignore state_referenced_locally
   const words = store.words;
+  const showCents = $derived(walletShowsCents($station.online?.characterID));
   const sharesAllowed = $derived(canViewCorporateShares($station.online?.corpRole));
   const journalAllowed = $derived(canViewCorporateJournal($station.online?.corpRole));
   let tab = $state<"divisions" | "shares" | "transactions">("divisions");
@@ -146,7 +148,7 @@
           <tr>
             <th scope="row">{divisionLabel(division)}</th>
             <!-- corpDivisionsPanel.py 48: FmtWalletCurrency(division.balance), whole ISK with cents off. -->
-            <td class="num">{formatWholeIsk(division.balance, "truncate")}</td>
+            <td class="num">{showCents ? formatWalletCents(division.balance) : formatWholeIsk(division.balance, "truncate")}</td>
           </tr>
         {/each}
       </tbody>

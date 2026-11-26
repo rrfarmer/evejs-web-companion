@@ -22,7 +22,8 @@
   import { launchableTabsFor, type TabID } from "./tabs.ts";
   import { isWindowTab } from "./desktop.ts";
   import { eveClock, neocomGlyph, portraitInitials, shortIsk } from "./neocomIcons.ts";
-  import { formatWholeIsk } from "./isk.ts";
+  import { formatWalletCents, formatWholeIsk } from "./isk.ts";
+  import { walletShowsCents } from "./walletSettings.ts";
   import OwnerPicture from "./OwnerPicture.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
@@ -81,6 +82,7 @@
     return portrait === null ? [] : [portrait, clientTexture(portraitDefaultPath(256))];
   });
   const balance = $derived($wallet.cashBalance ?? null);
+  const walletTooltipAmount = $derived(walletShowsCents($station.online?.characterID) ? formatWalletCents(balance) : formatWholeIsk(balance, "round"));
   /** The redeem button's count (redeemsvc.py GetRedeemTokenCount, 56 to 61): how many tokens the account has. */
   const redeemCount = $derived($redeem.tokens?.length ?? 0);
 
@@ -196,8 +198,8 @@
     <button
       type="button"
       class="neocom-readout neocom-wallet"
-      title={`Wallet — ${formatWholeIsk(balance, "round")}`}
-      aria-label={`Wallet, ${formatWholeIsk(balance, "round")}. Open the wallet.`}
+      title={`Wallet — ${walletTooltipAmount}`}
+      aria-label={`Wallet, ${walletTooltipAmount}. Open the wallet.`}
       onclick={() => onSelect("wallet")}
     >
       <span class="neocom-readout-value">{shortIsk(balance)}</span>

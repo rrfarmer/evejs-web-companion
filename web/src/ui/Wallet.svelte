@@ -17,7 +17,8 @@
   import { getContext, onMount } from "svelte";
   import { BridgeCallError } from "../bridge/callMethod.ts";
   import { isSessionLost } from "../app/flow.ts";
-  import { formatWholeIsk } from "./isk.ts";
+  import { formatWalletCents, formatWholeIsk } from "./isk.ts";
+  import { setWalletShowsCents, walletShowsCents } from "./walletSettings.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
@@ -34,6 +35,11 @@
   const wallet = store.wallet;
   // svelte-ignore state_referenced_locally
   const words = store.words;
+  // svelte-ignore state_referenced_locally
+  const station = store.station;
+  const characterID = $derived($station.online?.characterID ?? null);
+  const showCents = $derived(walletShowsCents(characterID));
+  const balance = $derived(showCents ? formatWalletCents($wallet.cashBalance) : formatWholeIsk($wallet.cashBalance, "truncate"));
 
   // The personal wallet's tabs (personalISKPanel.py GetMainTabs, 22 to 23), as far as the page has them: Overview
   // (WalletOverview), the first, which the window opens on; Transactions (WalletJournal); Market Transactions
@@ -59,12 +65,13 @@
    * Loyalty Points and EverMarks stacked in the last third (TOTOP_PROP) - each a BaseWalletTab: the icon 56 in a 64
    * column on black at 0.25, the name (EveHeaderMediumBold) and the info mark over a divider, the amount at 17 (PLEX's
    * #FAB400); the ISK panel 16 below: its TabGroup - Overview, Transactions, Market Transactions, Shares,
-   * Give ISK). The page reads the ISK balance only: the others show a dash. The corporation's tab is not built.
+   * Give ISK). The currency strip reads the personal ISK balance.
    */
   const retail = getContext("retailChrome") === true;
   let walletTab = $state<"mine" | "settings">("mine");
+  const SHOW_CENTS = "UI/Wallet/WalletWindow/WalletShowCents";
   const RETAIL_WORDS = ["UI/Wallet/WalletWindow/MyWallet", "UI/Common/Settings", "UI/Common/ISK", "UI/Common/PLEX",
-    "UI/Journal/JournalWindow/Agents/LoyaltyPoints", "UI/Wallet/WalletWindow/EverMarks", "UI/Wallet/WalletWindow/ISKDescription"];
+    "UI/Journal/JournalWindow/Agents/LoyaltyPoints", "UI/Wallet/WalletWindow/EverMarks", "UI/Wallet/WalletWindow/ISKDescription", SHOW_CENTS];
   $effect(() => { if (retail) flow.requestWords(RETAIL_WORDS); });
 
   let busy = $state(false);
@@ -110,12 +117,18 @@
       <button type="button" class:active={walletTab === "mine"} onclick={() => (walletTab = "mine")}>{tabWord("UI/Wallet/WalletWindow/MyWallet", "My Wallet")}</button>
       <button type="button" class:active={walletTab === "settings"} onclick={() => (walletTab = "settings")}>{tabWord("UI/Common/Settings", "Settings")}</button>
     </nav>
-    {#if walletTab === "settings"}<p class="note">This panel is not on the play page yet.</p>{/if}
+    {#if walletTab === "settings"}
+      <label class="wallet-cents">
+        <input type="checkbox" checked={showCents} disabled={characterID === null}
+          onchange={(event) => { if (characterID !== null) setWalletShowsCents(characterID, event.currentTarget.checked); }} />
+        {tabWord(SHOW_CENTS, "Show ISK Cents on Amounts")}
+      </label>
+    {/if}
     <div class="wl-tabs" hidden={walletTab !== "mine"}>
       <div class="wl-tab sel">
         <span class="ic"><img alt="" src="/client-res/ui/texture/windowicons/wallet.png" /></span>
         <span class="data"><span class="top"><b>{tabWord("UI/Common/ISK", "ISK")}</b><span class="info" title={tabWord("UI/Wallet/WalletWindow/ISKDescription", "")}>i</span></span>
-          <span class="amount">{$wallet.loaded ? formatWholeIsk($wallet.cashBalance, "truncate") : ""}</span></span>
+          <span class="amount">{$wallet.loaded ? balance : ""}</span></span>
       </div>
       <div class="wl-tab">
         <span class="ic"><img alt="" src="/client-res/ui/texture/plex/plex_128_gradient_yellow.png" /></span>
@@ -151,8 +164,7 @@
       <tbody>
         <tr>
           <th scope="row">Balance</th>
-          <!-- walletUtil.FmtWalletCurrency, with its "show cents" setting off as it is by default: whole ISK. -->
-          <td class="num">{formatWholeIsk($wallet.cashBalance, "truncate")}</td>
+          <td class="num">{balance}</td>
         </tr>
       </tbody>
     </table>
@@ -180,4 +192,8 @@
 
 </div>
 </section>
+
+<style>
+  .wallet-cents { display: flex; align-items: center; gap: 8px; }
+</style>
 

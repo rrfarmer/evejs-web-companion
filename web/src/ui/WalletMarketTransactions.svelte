@@ -17,6 +17,8 @@
   import { resolvedName, type NameKind, type NameRef } from "../store/names.ts";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import { showInfo } from "./showInfo.ts";
+  import { formatWalletCents } from "./isk.ts";
+  import { walletShowsCents } from "./walletSettings.ts";
   import type { JsonValue } from "../bridge/wire.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
@@ -28,6 +30,9 @@
   const words = store.words;
   // svelte-ignore state_referenced_locally
   const names = store.names;
+  // svelte-ignore state_referenced_locally
+  const station = store.station;
+  const showCents = $derived(walletShowsCents($station.online?.characterID));
 
   const W = "UI/Wallet/WalletWindow";
   const WORDS = {
@@ -83,8 +88,8 @@
     if (refs.length > 0) flow.requestNames(refs);
   });
 
-  /** eveformat.isk, without the wallet's cents (walletShowCents, off unless set): whole ISK, grouped. */
-  const isk = (amount: number): string => `${Math.round(amount).toLocaleString("en-US")} ${word(WORDS.isk, "ISK")}`;
+  const isk = (amount: number): string => showCents ? formatWalletCents(amount, word(WORDS.isk, "ISK"))
+    : `${Math.round(amount).toLocaleString("en-US")} ${word(WORDS.isk, "ISK")}`;
   const typeName = (typeID: number): string => resolvedName($names.resolved, "type", typeID, "");
   const dateText = (row: MarketTransaction): string =>
     row.transactionDate === null ? "" : filled(WORDS.fmtDate, { dt: String(row.transactionDate) }, "");
