@@ -681,6 +681,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "storeManager.get_categories", "storeManager.get_offers",
   "ProjectDiscovery.get_player_state",
   "ProjectDiscovery.get_new_task", "ProjectDiscovery.get_data_from_url", "ProjectDiscovery.post_classification",
+  "ProjectDiscovery.increase_tutorial_level", "ProjectDiscovery.skip_tutorial",
   "crimewatch.ApplyTagsForSecStatus",
   "paperDollServer.GetPaperDollPortraitDataFor",
   "paperDollServer.GetMyPaperDollData",
@@ -3225,6 +3226,8 @@ const RETAIL_CALLS = Object.freeze({
   "ProjectDiscovery.get_new_task": same("projectdiscovery/client/projects/covid/gameplaymodes/tutorial/tutorialproject.py:63", "Requests the active sample, with tutorial keywords for a named lesson."),
   "ProjectDiscovery.get_data_from_url": same("projectdiscovery/client/projects/covid/gameplaymodes/covidproject.py", "Reads the active local sample's points by its issued resource URL."),
   "ProjectDiscovery.post_classification": same("projectdiscovery/client/projects/covid/gameplaymodes/covidproject.py:260", "Submits the polygons and task duration."),
+  "ProjectDiscovery.increase_tutorial_level": judged("projectdiscovery/client/baseservice.py", sentWithNothing, "Records a tutorial checkpoint."),
+  "ProjectDiscovery.skip_tutorial": judged("projectdiscovery/client/projects/covid/service.py:104", sentWithNothing, "Records tutorial completion and settles the pilot's reward."),
   "account.GiveCashFromCorpAccount": Object.freeze({
     status: "same", source: "eve/client/script/ui/shared/neocom/wallet/transferMoneyWnd.py:150",
     note: "Corporate-source transfer with the recipient, float amount, captured source key, destination division and edit reason.",

@@ -13,17 +13,28 @@
   const welcomeLabel = "UI/ProjectDiscovery/Covid/Intro/Welcome";
   const beginLabel = "UI/ProjectDiscovery/Covid/Intro/ButtonBegin";
   const sampleImage = clientTexture("res:/UI/Texture/classes/ProjectDiscovery/covid/intro/project_discovery.png");
-  const firstTutorial = "ed134308-e080-49bc-be56-169a5f839c96";
+  const practiceImage = clientTexture("res:/UI/Texture/classes/ProjectDiscovery/covid/tutorial/onegate.png");
+  const practiceTargets = [[.77, .31], [.59, .50], [.48, .72], [.33, .70], [.26, .47], [.13, .36], [.19, .18], [.43, .10], [.72, .13]] as const;
+  const lessons = [
+    { title: "One Gate", code: null },
+    { title: "Two Gates", code: "ed134308-e080-49bc-be56-169a5f839c96" },
+    { title: "Heart Shape", code: "be362d8b-4ff4-448b-877f-23b8c2cb4fe0" },
+    { title: "Valley", code: "eb4c6403-e878-43cf-a009-9c8c566ae90f" },
+    { title: "Tails and Valleys", code: "21cbef0c-684e-4a4c-b1fe-be6e24d894c2" },
+    { title: "Tail", code: "ff9f9a21-954b-4c1c-9a54-16b21cf17670" },
+  ] as const;
   const service = "ProjectDiscovery";
-  type Progress = { rank: number; experience: number; analysisKredits: number; finishedTutorial: boolean };
+  type Progress = { rank: number; experience: number; analysisKredits: number; finishedTutorial: boolean; tutorialLevel: number };
   type Point = readonly [number, number];
-  type Sample = { id: string; width: number; height: number; points: Point[] };
+  type Sample = { id: string; width: number; height: number; points: Point[]; lesson: number | null };
   let progress = $state<Progress | null>(null);
   let briefing = $state(false);
   let loading = $state(false);
   let error = $state("");
   let sample = $state.raw<Sample | null>(null);
   let score = $state<number | null>(null);
+  let completion = $state<{ xp: number; kredits: number } | null>(null);
+  let regularReward = $state<{ xp: number; isk: number; kredits: number } | null>(null);
   let polygons = $state.raw<Point[][]>([]);
   let outline = $state.raw<Point[]>([]);
   let solution = $state.raw<Point[][]>([]);
@@ -31,24 +42,31 @@
   let plot = $state<HTMLCanvasElement>();
   let overlay = $state<HTMLCanvasElement>();
   let startedAt = 0;
+  const practice = $derived(sample?.lesson === 0);
+  const practiceIndex = $derived(outline.length === practiceTargets.length ? 0 : outline.length);
+  const practiceTarget = $derived(practice && !polygons.length ? practiceTargets[practiceIndex] : undefined);
 
   function pilotProgress(value: JsonValue): Progress {
     const rank = unwrapReal(readKeyVal(value, "rank"));
     const experience = unwrapReal(readKeyVal(value, "experience"));
     const analysisKredits = unwrapReal(readKeyVal(value, "analysisKredits"));
     const finishedTutorial = unwrapBool(readKeyVal(value, "finishedTutorial"));
-    if (rank === null || experience === null || analysisKredits === null || finishedTutorial === null) {
+    const tutorialLevel = unwrapReal(readKeyVal(value, "tutorialLevel"));
+    if (rank === null || experience === null || analysisKredits === null || finishedTutorial === null ||
+        tutorialLevel === null || !Number.isInteger(tutorialLevel) || tutorialLevel < 0) {
       throw new Error("Project Discovery returned an invalid pilot record.");
     }
-    return { rank, experience, analysisKredits, finishedTutorial };
+    return { rank, experience, analysisKredits, finishedTutorial, tutorialLevel };
   }
+
+  const readProgress = async () => pilotProgress(await bridgeAsk(flow.requestOptions())(service, "get_player_state", []));
 
   async function load() {
     if (loading) return;
     loading = true;
     error = "";
     try {
-      progress = pilotProgress(await bridgeAsk(flow.requestOptions())(service, "get_player_state", []));
+      progress = await readProgress();
     } catch (cause) {
       error = cause instanceof Error ? cause.message : "Project Discovery could not be reached.";
     } finally {
@@ -63,13 +81,43 @@
     return x === null || y === null ? null : [x, y];
   }
 
-  async function loadSample() {
+  function showSample(next: Sample) {
+    sample = next;
+    outline = [];
+    polygons = [];
+    score = null;
+    solution = [];
+    showSolution = false;
+    completion = null;
+    regularReward = null;
+    startedAt = performance.now();
+  }
+
+  async function loadSample(advance = false) {
     if (loading || !progress) return;
     loading = true;
     error = "";
     try {
       const options = flow.requestOptions();
-      const tutorial = progress.finishedTutorial ? null : { original_code: firstTutorial, is_tutorial_task: true };
+      if (advance && sample?.lesson != null) {
+        const prior = await readProgress();
+        progress = prior;
+        const last = sample.lesson === lessons.length - 1;
+        if (!prior.finishedTutorial && (last || prior.tutorialLevel === sample.lesson)) {
+          const method = last ? "skip_tutorial" : "increase_tutorial_level";
+          progress = pilotProgress(await bridgeDo(options)(service, method, []));
+        }
+        if (last && progress.finishedTutorial) {
+          completion = { xp: progress.experience - prior.experience, kredits: progress.analysisKredits - prior.analysisKredits };
+          return;
+        }
+      }
+      const lesson = progress.finishedTutorial ? null : Math.min(progress.tutorialLevel, lessons.length - 1);
+      if (lesson === 0) {
+        showSample({ id: "one-gate", width: 768, height: 768, points: [], lesson });
+        return;
+      }
+      const tutorial = lesson === null ? null : { original_code: lessons[lesson].code, is_tutorial_task: true };
       const task = await bridgeDo(options)(service, "get_new_task", [], tutorial);
       const id = readDictEntry(task, "id");
       const url = readDictEntry(readDictEntry(task, "assets"), "url");
@@ -83,13 +131,7 @@
       const points = positions.items.map(pair).filter((point): point is Point =>
         point !== null && point.every(n => n >= 0 && n <= 1));
       if (!points.length || points.length !== positions.items.length) throw new Error("The sample contains invalid points.");
-      sample = { id, width: dimensions[0], height: dimensions[1], points };
-      outline = [];
-      polygons = [];
-      score = null;
-      solution = [];
-      showSolution = false;
-      startedAt = performance.now();
+      showSample({ id, width: dimensions[0], height: dimensions[1], points, lesson });
     } catch (cause) {
       error = cause instanceof Error ? cause.message : "The sample could not be loaded.";
     } finally {
@@ -101,6 +143,12 @@
     if (outline.length < 3 || polygons.length >= 8) return;
     polygons = [...polygons, outline];
     outline = [];
+  }
+
+  function placePracticePoint() {
+    if (!practiceTarget || loading || score !== null) return;
+    if (outline.length === practiceTargets.length) finishOutline();
+    else outline = [...outline, [practiceTarget[0], 1 - practiceTarget[1]]];
   }
 
   function addVertex(event: MouseEvent) {
@@ -126,6 +174,10 @@
 
   async function submit() {
     if (loading || !sample || score !== null || outline.length || !polygons.length) return;
+    if (practice) {
+      score = 1;
+      return;
+    }
     loading = true;
     error = "";
     const list = (items: readonly JsonValue[]): JsonValue => ({ type: "list", items });
@@ -146,6 +198,13 @@
       }
       progress = pilotProgress(player);
       score = resultScore;
+      if (sample.lesson === null) {
+        regularReward = {
+          xp: unwrapReal(readDictEntry(result, "XP_Reward")) ?? 0,
+          isk: unwrapReal(readDictEntry(result, "ISK_Reward")) ?? 0,
+          kredits: unwrapReal(readDictEntry(result, "AK_Reward")) ?? 0,
+        };
+      }
       const returnedTask = readDictEntry(result, "task");
       const clusters = readDictEntry(readDictEntry(returnedTask, "solution"), "clusters");
       solution = isListValue(clusters) ? clusters.items.flatMap(cluster => {
@@ -166,7 +225,7 @@
   }
 
   $effect(() => {
-    if (!plot || !sample) return;
+    if (!plot || !sample || sample.lesson === 0) return;
     const context = plot.getContext("2d");
     if (!context) return;
     const { width, height, points } = sample;
@@ -229,27 +288,48 @@
     {#if sample}
       <div class="sample">
         <div class="chart" style:aspect-ratio={`${sample.width} / ${sample.height}`}>
-          <canvas bind:this={plot} width={sample.width} height={sample.height} aria-label="Cell population scatter plot"></canvas>
+          {#if practice}
+            <img class="practice-image" src={practiceImage} alt="One Gate practice scatter plot" />
+          {:else}
+            <canvas bind:this={plot} width={sample.width} height={sample.height} aria-label="Cell population scatter plot"></canvas>
+          {/if}
           <canvas bind:this={overlay} width={sample.width} height={sample.height} aria-hidden="true"></canvas>
-          <button class="chart-input" type="button" aria-label="Place polygon point on the population chart" disabled={loading || score !== null || polygons.length >= 8} onclick={addVertex}></button>
+          {#if practiceTarget && score === null}
+            <button class="practice-target" type="button" aria-label={practiceIndex === 0 && outline.length ? "Close practice outline" : `Place point ${practiceIndex + 1}`}
+              style:left={`${practiceTarget[0] * 100}%`} style:top={`${practiceTarget[1] * 100}%`} onclick={placePracticePoint}></button>
+          {:else if !practice}
+            <button class="chart-input" type="button" aria-label="Place polygon point on the population chart" disabled={loading || score !== null || polygons.length >= 8} onclick={addVertex}></button>
+          {/if}
         </div>
         <section class="sample-controls">
-          <h2>{progress.finishedTutorial ? "Classify sample" : "Training sample"}</h2>
-          <p>Click around each group of cells. Click the first point again or select Close outline to finish each group.</p>
-          {#if score === null}
+          <h2>{sample.lesson === null ? "Classify sample" : lessons[sample.lesson].title}</h2>
+          {#if completion}
+            <p role="status">Training complete</p>
+            {#if completion.xp || completion.kredits}
+              <p>{completion.xp.toLocaleString()} XP · {completion.kredits.toLocaleString()} Analysis Kredits</p>
+            {/if}
+            <button type="button" disabled={loading} onclick={() => void loadSample()}>Open sample</button>
+          {:else if score === null}
+            <p>{practice ? "Select each highlighted point. Return to the first point to close the outline." : "Click around each group of cells. Click the first point again or select Close outline to finish each group."}</p>
             <p role="status">{polygons.length} {polygons.length === 1 ? "group" : "groups"} outlined</p>
             <div class="actions">
-              <button type="button" disabled={loading || outline.length < 3} onclick={finishOutline}>Close outline</button>
+              {#if !practice}<button type="button" disabled={loading || outline.length < 3} onclick={finishOutline}>Close outline</button>{/if}
               <button type="button" disabled={loading || (!outline.length && !polygons.length)} onclick={undo}>Undo</button>
               <button type="button" disabled={loading || (!outline.length && !polygons.length)} onclick={() => { outline = []; polygons = []; }}>Clear</button>
             </div>
             <button type="button" disabled={loading || outline.length > 0 || !polygons.length} onclick={submit}>Submit</button>
           {:else}
-            <p role="status">Classification score {score.toLocaleString(undefined, { style: "percent", maximumFractionDigits: 1 })}</p>
+            <p role="status">{practice ? "Practice outline complete" : `Classification score ${score.toLocaleString(undefined, { style: "percent", maximumFractionDigits: 1 })}`}</p>
             {#if solution.length}
               <label><input type="checkbox" bind:checked={showSolution} /> Show reference outlines</label>
             {/if}
-            <button type="button" disabled={loading} onclick={loadSample}>{progress.finishedTutorial ? "Next sample" : "Try again"}</button>
+            {#if regularReward && (regularReward.xp || regularReward.isk || regularReward.kredits)}
+              <p>{regularReward.xp.toLocaleString()} XP · {regularReward.isk.toLocaleString()} ISK · {regularReward.kredits.toLocaleString()} Analysis Kredits</p>
+            {/if}
+            {@const advance = sample.lesson !== null && score > 0.5}
+            <button type="button" disabled={loading} onclick={() => void loadSample(advance)}>
+              {sample.lesson === null ? "Next sample" : advance ? sample.lesson === lessons.length - 1 ? "Finish training" : "Next lesson" : "Try again"}
+            </button>
           {/if}
           <button type="button" disabled={loading} onclick={() => { sample = null; error = ""; }}>Back</button>
           {#if loading}<p role="status">Contacting Project Discovery…</p>{/if}
@@ -263,7 +343,7 @@
           <p>Each dot represents a cell. Look for groups of dots that cluster together. Draw a closed outline around each distinct population.</p>
           <p>EveJS uses local training samples and tracks your results on this pilot.</p>
           <div class="actions">
-            <button type="button" disabled={loading} onclick={loadSample}>{progress.finishedTutorial ? "Open sample" : "Start training sample"}</button>
+            <button type="button" disabled={loading} onclick={() => void loadSample()}>{progress.finishedTutorial ? "Open sample" : progress.tutorialLevel > 0 ? "Resume training" : "Start training"}</button>
             <button type="button" disabled={loading} onclick={() => { briefing = false; error = ""; }}>Back</button>
           </div>
           {#if loading}<p role="status">Loading sample…</p>{/if}
@@ -297,6 +377,8 @@
   .sample { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 24px; margin-top: 24px; }
   .chart { position: relative; width: min(100%, 530px); background: #060d19; border: 1px solid var(--line, #39444b); }
   .chart canvas, .chart-input { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .practice-image { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .practice-target { position: absolute; width: 30px; height: 30px; padding: 0; transform: translate(-50%, -50%); border: 2px solid #5adeff; background: rgb(77 181 228 / 0.22); }
   .chart-input { padding: 0; border: 0; background: transparent; cursor: crosshair; }
   .chart-input:hover:not(:disabled) { background: transparent; }
   .chart-input:disabled { cursor: default; }
