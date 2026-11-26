@@ -3701,6 +3701,8 @@ export interface AppFlow {
     readonly minPrice?: number | null;
     readonly maxPrice?: number | null;
     readonly securityClasses?: readonly SecurityClass[] | null;
+    readonly locationID?: number | null;
+    readonly endLocationID?: number | null;
     readonly courier?: boolean;
   }): ReturnType<AppFlow["findContractsOfType"]>;
   /** Close the open contract without touching the server. */
@@ -25657,7 +25659,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   async function searchPublicContracts({
-    typeID = null, minPrice = null, maxPrice = null, securityClasses = null, courier = false,
+    typeID = null, minPrice = null, maxPrice = null, securityClasses = null, locationID = null, endLocationID = null, courier = false,
   }: Parameters<AppFlow["searchPublicContracts"]>[0]): ReturnType<AppFlow["findContractsOfType"]> {
     if (typeID !== null) await resolveNamesNow([{ kind: "type", id: typeID }]);
     const typeName = typeID === null ? null : nameCache.get(nameKey("type", typeID)) ?? null;
@@ -25668,8 +25670,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       itemGroupID: null,
       contractType: courier ? 3 : 10,
       securityClasses,
-      locationID: null,
-      endLocationID: null,
+      locationID,
+      endLocationID: courier ? endLocationID : null,
       issuerID: null,
       minPrice,
       maxPrice,

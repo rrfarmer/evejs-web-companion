@@ -4714,6 +4714,10 @@
   .fly-windows :global(.con-price-bounds input[type="number"]) { width: calc(100% - 4px); }
   .fly-windows :global(.con-security-filter > div) { display: flex; flex-wrap: wrap; gap: 4px 8px; }
   .fly-windows :global(.con-security-filter label) { display: inline-flex; align-items: center; gap: 2px; }
+  .fly-windows :global(.con-location-scope) { display: flex; flex-direction: column; gap: 3px; }
+  .fly-windows :global(.con-place-search) { display: flex; flex-wrap: wrap; gap: 3px; }
+  .fly-windows :global(.con-place-search input) { width: 100%; min-width: 0; }
+  .fly-windows :global(.con-place-choices) { display: flex; flex-direction: column; gap: 2px; max-height: 160px; overflow: auto; }
   .fly-windows :global(.con-search-fill) { flex: 1; }
   .fly-windows :global(.con-search-btn) { margin: 0 2px 2px; padding: 5px; font-size: 12px; }
   .fly-windows :global(.con-search-right) { flex: 1; min-width: 0; display: flex; flex-direction: column; }

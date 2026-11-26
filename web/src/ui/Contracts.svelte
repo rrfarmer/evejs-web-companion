@@ -106,7 +106,8 @@
   }
   $effect(() => {
     flow.requestWords([...Object.values(JUMP_WORDS), ...Object.values(SEARCH_WORDS), ...CONTRACT_TITLE_LABELS,
-      ...RETAIL_TAB_WORDS, ...SECURITY_FILTERS.flatMap(({ label, hint }) => [label, hint])]);
+      ...RETAIL_TAB_WORDS, ...SECURITY_FILTERS.flatMap(({ label, hint }) => [label, hint]),
+      ...LOCATION_SCOPES.map(({ label }) => label), ...Object.values(LOCATION_KINDS).map(({ label }) => label)]);
   });
   // The counts are asked for again when the autopilot's settings change, which lets them go.
   $effect(() => {
@@ -221,6 +222,23 @@
     reward: "UI/Contracts/ContractsSearch/columnReward",
     collateral: "UI/Contracts/ContractsSearch/columnCollateral",
     route: "UI/Contracts/ContractsSearch/columnRoute",
+    locationFilter: "UI/Common/Location",
+    dropoffFilter: "UI/Contracts/ContractsSearch/DropOffLocation",
+    enterLocation: "UI/Contracts/ContractsSearch/labelEnterLocationName",
+    selectLocation: "UI/Contracts/ContractsSearch/SelectLocation",
+  } as const;
+  const LOCATION_SCOPES = [
+    { id: 0, label: "UI/Generic/CurrentStation", fallback: "Current Station" },
+    { id: 1, label: "UI/Generic/CurrentSystem", fallback: "Current System" },
+    { id: 3, label: "UI/Generic/CurrentConstellation", fallback: "Current Constellation" },
+    { id: 2, label: "UI/Corporations/Assets/CurrentRegion", fallback: "Current Region" },
+    { id: 7, label: "UI/Corporations/Assets/AllRegions", fallback: "All Regions" },
+    { id: 10, label: "UI/Contracts/ContractsSearch/PickLocation", fallback: "Pick Location" },
+  ] as const;
+  const LOCATION_KINDS = {
+    system: { label: "UI/Common/LocationTypes/SolarSystem", fallback: "Solar System" },
+    constellation: { label: "UI/Common/LocationTypes/Constellation", fallback: "Constellation" },
+    region: { label: "UI/Common/LocationTypes/Region", fallback: "Region" },
   } as const;
   const SECURITY_FILTERS = [
     { key: "high", label: "UI/Common/HighSecurityShort", hint: "UI/Common/HighSec", fallback: "High", classes: [SECURITY_CLASS.high, SECURITY_CLASS.safe] },
@@ -244,8 +262,91 @@
   let priceEnabled = $state(localStorage.getItem(searchPref + "priceEnabled") !== "false");
   let minimum = $state<number | undefined>(savedPrice("minPrice"));
   let maximum = $state<number | undefined>(savedPrice("maxPrice"));
+  type PlaceMatch = Awaited<ReturnType<AppFlow["goalLocationMatches"]>>[number];
+  type SearchPlace = Pick<PlaceMatch, "id" | "name">;
+  function storedPlaces(key: string): SearchPlace[] {
+    try {
+      const values: unknown = JSON.parse(localStorage.getItem(searchPref + key) ?? "[]");
+      if (Array.isArray(values)) return values.filter(place => place && Number.isSafeInteger(place.id) && place.id > 100 && typeof place.name === "string");
+    } catch { /* An unreadable preference falls back to the default. */ }
+    return [];
+  }
+  let recentPlaces = $state(storedPlaces("recentLocations").slice(0, 5));
+  function savedScope(): number {
+    const scope = Number(localStorage.getItem(searchPref + "locationScope") ?? 2);
+    return LOCATION_SCOPES.some(option => option.id === scope && scope !== 10) || recentPlaces.some(place => place.id === scope) ? scope : 2;
+  }
+  let locationScope = $state(savedScope());
+  const savedDropoff = storedPlaces("dropoff")[0] ?? null;
+  let dropoff = $state<SearchPlace | null>(savedDropoff);
+  let dropoffText = $state(savedDropoff?.name ?? "");
+  let startPicker = $state(false);
+  let startText = $state("");
+  let placeChoices = $state.raw<{ endpoint: "start" | "end"; places: readonly PlaceMatch[]; submit: boolean } | null>(null);
+  let placeBusy = $state(false);
+  let placeError = $state("");
+  let placeSequence = 0;
+  function clearPlaceLookup() {
+    ++placeSequence;
+    placeChoices = null;
+    placeBusy = false;
+    placeError = "";
+  }
+  function setLocationScope(value: number) {
+    clearPlaceLookup();
+    startPicker = value === 10;
+    if (startPicker) {
+      startText = "";
+    } else {
+      locationScope = value;
+      localStorage.setItem(searchPref + "locationScope", String(value));
+    }
+  }
+  function choosePlace(endpoint: "start" | "end", place: SearchPlace, submit: boolean) {
+    clearPlaceLookup();
+    if (endpoint === "start") {
+      recentPlaces = [place, ...recentPlaces.filter(recent => recent.id !== place.id)].slice(0, 5);
+      localStorage.setItem(searchPref + "recentLocations", JSON.stringify(recentPlaces));
+      setLocationScope(place.id);
+    } else {
+      dropoff = place;
+      dropoffText = place.name;
+      if (submit) search(searchedType);
+    }
+  }
+  async function lookupPlace(endpoint: "start" | "end", submit = false) {
+    const text = (endpoint === "start" ? startText : dropoffText).trim();
+    clearPlaceLookup();
+    if (!text) return;
+    const sequence = placeSequence;
+    placeBusy = true;
+    try {
+      const places = await flow.goalLocationMatches(text, true);
+      if (sequence !== placeSequence) return;
+      if (places.length === 1) choosePlace(endpoint, places[0]!, submit);
+      else if (places.length > 1) placeChoices = { endpoint, places, submit };
+      else placeError = "No matching locations.";
+    } catch (cause) {
+      if (sequence === placeSequence) placeError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      if (sequence === placeSequence) placeBusy = false;
+    }
+  }
+  async function searchStartID(scope: number, stationID: number | null, systemID: number | null): Promise<number | null> {
+    if (scope > 100) return scope;
+    if (scope === 7) return null;
+    if (scope === 0 && stationID !== null) return stationID;
+    if (scope === 1 && systemID !== null) return systemID;
+    if ((scope === 2 || scope === 3) && systemID !== null) {
+      const system = await flow.mapLocationShowInfo(systemID);
+      const parent = system?.parents.find(place => place.typeID === (scope === 2 ? 3 : 4));
+      if (parent) return parent.itemID;
+    }
+    throw new Error(scope === 0 ? "Dock to search the current station." : "The current search location is unavailable.");
+  }
   function setAdvanced(value: boolean) {
     advanced = value;
+    if (!value && !startPicker) clearPlaceLookup();
     localStorage.setItem(searchPref + "advanced", String(value));
   }
   function asPrice(value: number | undefined): number | null {
@@ -259,6 +360,8 @@
   let searchSequence = 0;
   function setCourier(value: boolean) {
     if (courier !== value) searchFound = null;
+    clearPlaceLookup();
+    startPicker = false;
     courier = value;
     localStorage.setItem(searchPref + "courier", String(value));
   }
@@ -268,6 +371,11 @@
   }
   function search(typeID: number | null, fromItemMenu = false): void {
     const sequence = ++searchSequence;
+    const scope = locationScope;
+    const stationID = hereStation;
+    const systemID = hereSystem;
+    const endLocationID = courier && advanced ? dropoff?.id ?? null : null;
+    if (courier && advanced) localStorage.setItem(searchPref + "dropoff", JSON.stringify(dropoff ? [dropoff] : []));
     const usePrice = retail && advanced && !courier && priceEnabled;
     const minPrice = usePrice ? asPrice(minimum) : null;
     const maxPrice = usePrice ? asPrice(maximum) : null;
@@ -285,7 +393,8 @@
       try {
         const result = fromItemMenu && typeID !== null
           ? await flow.findContractsOfType(typeID)
-          : await flow.searchPublicContracts({ typeID: courier ? null : typeID, courier, minPrice, maxPrice, securityClasses });
+          : await flow.searchPublicContracts({ typeID: courier ? null : typeID, courier, minPrice, maxPrice, securityClasses,
+            locationID: await searchStartID(scope, stationID, systemID), endLocationID });
         if (sequence === searchSequence) searchFound = result;
       } catch (cause) {
         if (sequence === searchSequence) throw cause;
@@ -306,6 +415,9 @@
       untrack(() => {
         if (retail) {
           setCourier(false);
+          locationScope = 7;
+          dropoff = null;
+          dropoffText = "";
           minimum = maximum = undefined;
           for (const filter of SECURITY_FILTERS) setSecurity(filter.key, true);
           setAdvanced(true);
@@ -629,7 +741,12 @@
          right the result scroll, item exchange's columns (Contract, Location, Price, Jumps, Time Left, Issuer, Created),
          and the found line (labelNumberContractsFound; NoSearch before one). -->
     <div class="con-search">
-      <form class="con-search-left" onsubmit={(event) => { event.preventDefault(); search(searchedType); }}>
+      <form class="con-search-left" onsubmit={(event) => {
+        event.preventDefault();
+        if (startPicker) void lookupPlace("start");
+        else if (courier && advanced && dropoffText.trim() && dropoff?.name !== dropoffText) void lookupPlace("end", true);
+        else search(searchedType);
+      }}>
         <div class="con-toggle">
           <button type="button" class:active={!courier} aria-pressed={!courier} disabled={searching} onclick={() => setCourier(false)}>{titleWord("UI/Contracts/ContractsSearch/tabBuyAndSell") || "Buy & Sell"}</button>
           <button type="button" class:active={courier} aria-pressed={courier} disabled={searching} onclick={() => setCourier(true)}>{titleWord("UI/Contracts/ContractsSearch/tabCourier") || "Courier"}</button>
@@ -637,11 +754,54 @@
         {#if !courier}
           <input type="text" readonly placeholder={titleWord("UI/Wallet/WalletWindow/ItemType") || "Item type"} value={searchedType === null ? "" : itemName(searchedType)} />
         {/if}
+        <label class="con-location-scope">
+          {titleWord(SEARCH_WORDS.locationFilter) || "Location"}
+          <select value={startPicker ? 10 : locationScope} onchange={(event) => setLocationScope(Number(event.currentTarget.value))}>
+            {#each LOCATION_SCOPES as option (option.id)}
+              <option value={option.id}>{titleWord(option.label) || option.fallback}</option>
+            {/each}
+            {#each recentPlaces as place (place.id)}
+              <option value={place.id}>{place.name}</option>
+            {/each}
+          </select>
+        </label>
+        {#if startPicker}
+          <div class="con-place-search">
+            <input type="search" aria-label={titleWord(SEARCH_WORDS.enterLocation) || "Enter location name"}
+              placeholder={titleWord(SEARCH_WORDS.enterLocation) || "Enter location name"} maxlength="20"
+              bind:value={startText} oninput={clearPlaceLookup}
+              onkeydown={(event) => {
+                if (event.key === "Enter" && startText.trim()) {
+                  event.preventDefault();
+                  void lookupPlace("start");
+                }
+              }} />
+            <button type="button" disabled={placeBusy || !startText.trim()} onclick={() => void lookupPlace("start")}>
+              {titleWord("UI/Contracts/ContractsSearch/buttonSearch") || "Search"}
+            </button>
+            <button type="button" onclick={() => { startPicker = false; clearPlaceLookup(); }}>Cancel</button>
+          </div>
+        {/if}
         <button type="button" aria-expanded={advanced} onclick={() => setAdvanced(!advanced)}>
           {advanced ? titleWord(SEARCH_WORDS.less) || "Show Fewer Options" : titleWord(SEARCH_WORDS.more) || "Show More Options"}
         </button>
         {#if advanced}
-          {#if !courier}
+          {#if courier}
+          <div class="con-place-search con-dropoff">
+            <input type="search" aria-label={titleWord(SEARCH_WORDS.dropoffFilter) || "Drop Off Location"}
+              placeholder={titleWord(SEARCH_WORDS.dropoffFilter) || "Drop Off Location"} bind:value={dropoffText}
+              oninput={() => { dropoff = null; clearPlaceLookup(); }}
+              onkeydown={(event) => {
+                if (event.key === "Enter" && dropoffText.trim()) {
+                  event.preventDefault();
+                  void lookupPlace("end", true);
+                }
+              }} />
+            <button type="button" disabled={placeBusy || !dropoffText.trim()} onclick={() => void lookupPlace("end")}>
+              {titleWord("UI/Contracts/ContractsSearch/buttonSearch") || "Search"}
+            </button>
+          </div>
+          {:else}
           <fieldset class="con-price-filter">
             <legend>{titleWord(SEARCH_WORDS.priceMillions) || "Price (million)"}</legend>
             <div class="con-price-bounds">
@@ -668,8 +828,19 @@
             </div>
           </fieldset>
         {/if}
+        {#if placeChoices && (placeChoices.endpoint === "start" ? startPicker : courier && advanced)}
+          <div class="con-place-choices" aria-label={titleWord(SEARCH_WORDS.selectLocation) || "Select Location"}>
+            {#each placeChoices.places as place (place.id)}
+              {@const kind = LOCATION_KINDS[place.kind]}
+              <button type="button" onclick={() => { if (placeChoices) choosePlace(placeChoices.endpoint, place, placeChoices.submit); }}>
+                {place.name} ({titleWord(kind.label) || kind.fallback})
+              </button>
+            {/each}
+          </div>
+        {/if}
+        {#if placeError}<p role="status" class="error">{placeError}</p>{/if}
         <span class="con-search-fill"></span>
-        <button type="submit" class="con-search-btn" disabled={busy || searching}>{titleWord("UI/Contracts/ContractsSearch/buttonSearch") || "Search"}</button>
+        <button type="submit" class="con-search-btn" disabled={busy || searching || placeBusy || startPicker}>{titleWord("UI/Contracts/ContractsSearch/buttonSearch") || "Search"}</button>
       </form>
       <div class="con-search-right">
         <p class="con-found">
