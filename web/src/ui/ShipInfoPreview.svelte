@@ -1,9 +1,11 @@
 <script lang="ts">
   import type { ShipInfoScene } from "../play/shipInfoScene.ts";
+  import type { ShipSkinrPatternPreview } from "../bridge/shipSkinrPatterns.ts";
 
-  let { typeID, factionID, active, expanded, coatings }: {
+  let { typeID, factionID, active, expanded, coatings, patterns }: {
     typeID: number; factionID: number | null | undefined; active: boolean; expanded: boolean;
     coatings?: readonly (string | null)[];
+    patterns?: readonly ShipSkinrPatternPreview[];
   } = $props();
   const keyboardHelp = $props.id();
   let host = $state<HTMLElement | null>(null);
@@ -29,7 +31,7 @@
     if (!view || faction === undefined) return;
     let current = true;
     load = "waiting";
-    void view.show(id, faction, coatings).then(shown => {
+    void view.show(id, faction, coatings, patterns).then(shown => {
       if (current) load = shown ? "shown" : "unavailable";
     }).catch(() => { if (current) load = "unavailable"; });
     return () => { current = false; };

@@ -464,7 +464,7 @@ function thrustOf(o: THREE.Object3D): number {
 const heatClock = { get value() { return performance.now() / 1000; } };
 
 export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>, area: SofArea,
-  patterns: readonly HullPattern[] = [], patternMaterials: readonly (SofMaterial | null)[] = []): THREE.MeshStandardMaterial {
+  patterns: readonly HullPattern[] = [], patternMaterials: readonly (SofMaterial | null)[] = [], studioPatterns = false): THREE.MeshStandardMaterial {
   // the glow (quadv5.sm_hi): GeneralGlowColor x the ship's activation strength (1) x GlowMap.r^2.4, added
   const m = eveHullMaterial(maps, area.name, true, { color: area.glowColor ?? [1, 1, 1], power: 2.4 });
   m.metalness = 0;
@@ -519,7 +519,7 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
   const patternUniforms = Object.assign({}, ...patterns.map(({ layer: l, mask }, i) => {
     const custom = l.source >= 4 ? l.source - 4 : null;
     const src = custom === null ? mats[l.source] : patternMaterials[custom];
-    const param = (key: string) => custom === null ? undefined : area.params[`PMtl${custom + 1}${key}`];
+    const param = (key: string) => custom === null || studioPatterns ? undefined : area.params[`PMtl${custom + 1}${key}`];
     return {
       [`patMask${i}`]: { value: mask }, [`patPos${i}`]: { value: new THREE.Vector3().fromArray(l.position) },
       [`patScale${i}`]: { value: new THREE.Vector3().fromArray(l.scaling) }, [`patRot${i}`]: { value: new THREE.Vector4().fromArray(l.rotation) },
@@ -864,9 +864,9 @@ export async function typeModel(typeID: number, skinMaterialSetID: number | null
  * own build (its materials are its own).
  */
 export async function paintedTypeModel(typeID: number, materials: readonly (SofMaterial | null)[],
-  appliesTo?: (area: SofArea) => boolean): Promise<THREE.Object3D | null> {
+  appliesTo?: (area: SofArea) => boolean, patterns?: SofPattern): Promise<THREE.Object3D | null> {
   const info = (await (await fetch(`/client-assets/type/${typeID}`)).json()) as TypeModelInfo;
-  return loadModel(info, typeID, materials, appliesTo);
+  return loadModel(info, typeID, materials, appliesTo, patterns);
 }
 
 /** A fresh instance of a SOF graphic's model that is no type's (a station hangar), or null when it has none. */
@@ -892,7 +892,7 @@ async function loadType(typeID: number): Promise<THREE.Object3D | null> {
 }
 
 async function loadModel(info: TypeModelInfo, typeID: number | null, materialOverrides: readonly (SofMaterial | null)[] | null = null,
-  appliesTo?: (area: SofArea) => boolean): Promise<THREE.Object3D | null> {
+  appliesTo?: (area: SofArea) => boolean, studioPatterns?: SofPattern): Promise<THREE.Object3D | null> {
   if (!info.model) return null;
   const gltf = await loader.loadAsync(info.model);
   const dir = info.model.slice(0, info.model.lastIndexOf("/") + 1);
@@ -930,18 +930,19 @@ async function loadModel(info: TypeModelInfo, typeID: number | null, materialOve
     if (am.albedo) am.albedo.colorSpace = THREE.SRGBColorSpace;
     areaMaps.set(area, am);
   }
-  const loadedPatterns = await Promise.all((sof?.pattern?.layers ?? []).map(async (layer) => {
+  const pattern = studioPatterns ?? sof?.pattern;
+  const loadedPatterns = await Promise.all((pattern?.layers ?? []).map(async (layer) => {
     const texture = layer.texture ? await tex(layer.texture) : undefined;
     if (!texture) return null;
     const mask = texture.clone();
-    const wrapOf = (mode: number) => mode === 0 ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+    const wrapOf = (mode: number) => mode === (studioPatterns ? 1 : 0) ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
     mask.wrapS = wrapOf(layer.projectionU);
     mask.wrapT = wrapOf(layer.projectionV);
     mask.needsUpdate = true;
     return { layer, mask };
   }));
   const patterns = loadedPatterns.filter(layer => layer !== null);
-  const patternMaterials = [sof?.pattern?.pmtl1 ?? null, sof?.pattern?.pmtl2 ?? null];
+  const patternMaterials = [pattern?.pmtl1 ?? null, pattern?.pmtl2 ?? null];
   const materials = new Map<string, THREE.Material>();
   // each SOF area over a part of the mesh draws it (EveSOF fills each list's areas; a part may be in more than one:
   // the first takes the mesh, the others a copy of it beside it); a distortion area's draw is on the distortion layer
@@ -952,7 +953,7 @@ async function loadModel(info: TypeModelInfo, typeID: number | null, materialOve
       const shader = area.shader ?? "";
       const m = area.kind === "distortion" ? (/^fx\/fxdistortionv5/i.test(shader) ? distortionMaterial(area.params, areaMaps.get(area) ?? {}) : null)
         : /^fx\/fx(directional)?v5/i.test(shader) ? fxHullMaterial(area, areaMaps.get(area) ?? {})
-        : /^quad\//i.test(shader) ? sofHullMaterial({ ...maps, ...areaMaps.get(area) }, area, patterns, patternMaterials)
+        : /^quad\//i.test(shader) ? sofHullMaterial({ ...maps, ...areaMaps.get(area) }, area, patterns, patternMaterials, !!studioPatterns)
         : null;
       if (!m) return null;
       materials.set(key, m);

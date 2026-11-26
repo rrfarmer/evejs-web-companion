@@ -9,6 +9,8 @@
   import { coatingFits, shipSkinrCoatingID, shipSkinrCoatingSlot, shipSkinrCoatingMaterials, shipSkinrLayoutSlots, shipSkinrSlotID,
     type ShipSkinrCoating, type ShipSkinrCoatingCatalogue } from "../bridge/shipSkinrCoatings.ts";
   import { SKINR_HULL_RULES } from "../bridge/shipSkinrHullRules.ts";
+  import { isPatternSlot, isPatternMaterial, loadShipSkinrProjection, shipSkinrPatternID, shipSkinrPatternPreview, shipSkinrPatternSlot,
+    type ShipSkinrPattern, type ShipSkinrPatterns, type ShipSkinrProjection } from "../bridge/shipSkinrPatterns.ts";
   import { shipTreeFaction, type ShipTreeCatalogue, type ShipTreeHull } from "../bridge/shipTree.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
@@ -46,6 +48,9 @@
   const classOrder = new Map(SKINR_HULL_RULES.classOrder.map((id, index) => [id, index]));
   let catalogue = $state.raw<ShipTreeCatalogue | null>(null);
   let coatings = $state.raw<ShipSkinrCoatingCatalogue | null>(null);
+  let patterns = $state.raw<ShipSkinrPatterns | null>(null);
+  let projection = $state.raw<ShipSkinrProjection | null>(null);
+  let projectionFailed = $state(false);
   let layoutSlots = $state.raw(initialSlots);
   let selectedSlot = $state<number | null>(null);
   let coatingSearch = $state("");
@@ -70,9 +75,11 @@
   const selected = $derived(hulls.find(row => row.typeID === selectedTypeID));
   const configurationFor = (typeID: number) => coatings?.configurations.find(config => config.allHulls || config.hulls.includes(typeID));
   const configuration = $derived(selectedTypeID ? configurationFor(selectedTypeID) : null);
-  const coatingSlots = $derived(coatings?.slots.filter(slot => configuration?.slots.includes(slot.id)) ?? []);
+  const coatingSlots = $derived([...(coatings?.slots ?? []), ...(patterns?.slots ?? [])].filter(slot => configuration?.slots.includes(slot.id)));
   const slot = $derived(coatingSlots.find(row => row.id === selectedSlot));
   const coatingIndex = $derived(new Map(coatings?.components.map(coating => [coating.id, coating])));
+  const patternIndex = $derived(new Map(patterns?.components.map(pattern => [pattern.id, pattern])));
+  const previewPatterns = $derived(shipSkinrPatternPreview(layoutSlots, patternIndex, coatingIndex));
   const fitted = $derived.by(() => {
     const result = new Map<number, ShipSkinrCoating>();
     for (const [id, row] of layoutSlots) {
@@ -84,14 +91,20 @@
   const materialNames = $derived(shipSkinrCoatingMaterials(coatings?.areas[selected?.factionID ?? 0] ?? coatings?.areas[500003] ?? [], fitted));
   const dirty = $derived(original ? selectedTypeID !== original.design.shipTypeID || layoutSlots.size !== initialSlots.size ||
     [...layoutSlots].some(([id, row]) => row !== initialSlots.get(id)) : layoutSlots.size > 0);
-  const canSave = $derived(layoutSlots.size > 0 && (!!original || !atSaveLimit));
+  const blend = original?.design.layout.pattern_blend_mode ?? 1;
+  const noSecondaryMaterial = [2, 3, "BLEND_MODE_SUBTRACT", "BLEND_MODE_EXCLUSION"].includes(blend as string | number);
+  const incomplete = $derived(layoutSlots.has(5) !== layoutSlots.has(6) ||
+    (noSecondaryMaterial ? layoutSlots.has(8) : layoutSlots.has(7) !== layoutSlots.has(8)));
+  const canSave = $derived(layoutSlots.size > 0 && !incomplete && (!!original || !atSaveLimit));
   const validName = $derived(validShipSkinrName(name, line));
   const pickerOpen = $derived(pickerOverride ?? !active);
   const search = $derived(query.trim().toLocaleLowerCase());
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   const message = (id: number) => plainText($words.templates[`#${id}`] ?? "");
-  const coatingChoices = $derived(slot ? coatings?.components.filter(coating => coatingFits(slot, coating) &&
+  const coatingChoices = $derived(slot && !isPatternSlot(slot.id) ? coatings?.components.filter(coating => coatingFits(slot, coating) &&
     message(coating.nameID).toLocaleLowerCase().includes(coatingSearch.trim().toLocaleLowerCase())) ?? [] : []);
+  const patternChoices = $derived(slot && isPatternSlot(slot.id) ? patterns?.components.filter(pattern => !pattern.disallowed.includes(slot.id) &&
+    message(pattern.nameID).toLocaleLowerCase().includes(coatingSearch.trim().toLocaleLowerCase())) ?? [] : []);
   const className = (id: number) => {
     const messageID = catalogue?.classes[id]?.nameID;
     return messageID ? plainText($words.templates[`#${messageID}`] ?? "") : "";
@@ -117,6 +130,19 @@
 
   onDestroy(() => { destroyed = true; });
   $effect(() => registerBeforeClose?.(canLeave));
+  $effect(() => {
+    const typeID = selectedTypeID, scales = patterns?.scales;
+    projection = null;
+    projectionFailed = false;
+    if (!typeID || !scales || selectedSlot === null || !isPatternSlot(selectedSlot)) return;
+    let active = true;
+    void loadShipSkinrProjection(typeID, scales).catch(() => null).then(result => {
+      if (!active) return;
+      projection = result;
+      projectionFailed = !result;
+    });
+    return () => { active = false; };
+  });
 
   function canLeave(): Promise<boolean> {
     if (saving) return Promise.resolve(false);
@@ -148,6 +174,26 @@
     layoutSlots = next;
   }
 
+  function fitPattern(pattern: ShipSkinrPattern | null) {
+    if (!slot || !isPatternSlot(slot.id) || naming) return;
+    const id = slot.id;
+    const next = new Map(layoutSlots);
+    if (pattern) {
+      if (!projection || shipSkinrPatternID(next.get(id)) === pattern.id) return;
+      const initial = initialSlots.get(id);
+      next.set(id, initial && shipSkinrPatternID(initial) === pattern.id && selectedTypeID === original?.design.shipTypeID
+        ? initial : shipSkinrPatternSlot(id, pattern, projection));
+    } else {
+      next.delete(id);
+      next.delete(id + 1);
+      if (id === 5) {
+        next.delete(7);
+        next.delete(8);
+      }
+    }
+    layoutSlots = next;
+  }
+
   function openName(mode: "save" | "copy") {
     name = original?.design.name ?? "";
     line = original?.design.lineName ?? "";
@@ -165,7 +211,7 @@
       const layout = {
         ...original?.design.layout,
         ship_type: { sequential: selectedTypeID },
-        pattern_blend_mode: original?.design.layout.pattern_blend_mode ?? 1,
+        pattern_blend_mode: blend,
         slots: [...layoutSlots.values()],
       };
       const editor = original?.entry.editorConfigurations.filter(row => configuration.slots.includes(shipSkinrSlotID(row))) ??
@@ -188,7 +234,8 @@
     let current = true;
     flow.requestWords(Object.values(labels).map(([path]) => path));
     flow.requestNames(factions.map(({ id }) => ({ kind: "faction", id })));
-    void Promise.all([getShipTreeCatalogue(flow.requestOptions()), import("../bridge/shipSkinrCoatingsData.ts")]).then(([data, skinr]) => {
+    void Promise.all([getShipTreeCatalogue(flow.requestOptions()), import("../bridge/shipSkinrCoatingsData.ts"),
+      import("../bridge/shipSkinrPatternsData.ts")]).then(([data, skinr, patternData]) => {
       if (!current) return;
       if (!data) {
         failure = "Hull catalogue unavailable.";
@@ -202,7 +249,8 @@
       flow.requestNames(data.ships.filter(row => !row.nameID).map(row => ({ kind: "type", id: row.typeID })));
       catalogue = data;
       coatings = skinr.SHIP_SKINR_COATINGS;
-      flow.requestWords([...coatings.slots, ...coatings.components].map(row => `#${row.nameID}`));
+      patterns = patternData.SHIP_SKINR_PATTERNS;
+      flow.requestWords([...coatings.slots, ...coatings.components, ...patterns.slots, ...patterns.components].map(row => `#${row.nameID}`));
     }).catch(cause => { if (current) failure = panelErrorWords(cause); });
     return () => { current = false; };
   });
@@ -240,7 +288,9 @@
         <button type="button" disabled={!canSave || atSaveLimit || !!naming} aria-describedby={atSaveLimit ? "skinr-blank" : undefined}
           onclick={() => openName("copy")}>{word("saveAs")}</button>
       {/if}
-      {#if atSaveLimit || !layoutSlots.size}<span id="skinr-blank">{!layoutSlots.size ? word("blank") : saveLimit}</span>{/if}
+      {#if atSaveLimit || !layoutSlots.size || incomplete}
+        <span id="skinr-blank">{!layoutSlots.size ? word("blank") : incomplete ? "Choose a material for each fitted pattern." : saveLimit}</span>
+      {/if}
     {/if}
   </div>
   {#if naming}
@@ -295,16 +345,20 @@
         <section class="hull-preview" data-preview-hull={selectedTypeID} aria-label={selectedName}>
           <h3>{selectedName}</h3>
           <div class="preview-scene">
-            <ShipInfoPreview typeID={selectedTypeID} factionID={selected?.factionID ?? null} coatings={materialNames} active expanded={false} />
+            <ShipInfoPreview typeID={selectedTypeID} factionID={selected?.factionID ?? null}
+              coatings={materialNames} patterns={previewPatterns} active expanded={false} />
           </div>
-          <div class="coating-slots" aria-label="Coating slots">
+          <div class="coating-slots" aria-label="Design slots">
             {#each coatingSlots as row (row.id)}
-              {@const componentID = shipSkinrCoatingID(layoutSlots.get(row.id))}
+              {@const componentID = isPatternSlot(row.id) ? shipSkinrPatternID(layoutSlots.get(row.id)) : shipSkinrCoatingID(layoutSlots.get(row.id))}
               {@const coating = fitted.get(row.id)}
-              <button type="button" data-slot={row.id} aria-pressed={selectedSlot === row.id} disabled={!!naming}
+              {@const component = isPatternSlot(row.id) ? patternIndex.get(componentID ?? 0) : coating}
+              <button type="button" data-slot={row.id} aria-pressed={selectedSlot === row.id}
+                disabled={!!naming || isPatternMaterial(row.id) && (!layoutSlots.has(row.id - 1) || row.id === 8 && noSecondaryMaterial) ||
+                  row.id === 7 && !layoutSlots.has(5)}
                 onclick={() => { selectedSlot = selectedSlot === row.id ? null : row.id; coatingSearch = ""; }}>
                 {message(row.nameID)}
-                {#if componentID}<small>{coating ? message(coating.nameID) : `Coating #${componentID}`}</small>{/if}
+                {#if componentID}<small>{component ? message(component.nameID) : String(componentID)}</small>{/if}
               </button>
             {/each}
           </div>
@@ -312,9 +366,25 @@
             <section class="coating-picker" aria-label={message(slot.nameID)}>
               <header>
                 <h3>{message(slot.nameID)}</h3>
-                {#if layoutSlots.has(slot.id)}<button type="button" onclick={() => fit(null)}>{word("remove")}</button>{/if}
+                {#if layoutSlots.has(slot.id)}
+                  <button type="button" onclick={() => isPatternSlot(slot.id) ? fitPattern(null) : fit(null)}>{word("remove")}</button>
+                {/if}
               </header>
               <input type="search" aria-label={word("search")} placeholder={word("search")} bind:value={coatingSearch} />
+              {#if isPatternSlot(slot.id)}
+                {#if !projection}<p role="status">{projectionFailed ? "Projection unavailable for this hull." : "Loading projection…"}</p>{/if}
+                <div class="coating-results">
+                  {#each patternChoices as pattern (pattern.id)}
+                    <button type="button" data-pattern={pattern.id} aria-pressed={shipSkinrPatternID(layoutSlots.get(slot.id)) === pattern.id}
+                      disabled={!projection} onclick={() => fitPattern(pattern)}>
+                      {#if pattern.icon}<img src={pattern.icon} alt="" width="24" height="24" loading="lazy" />{/if}
+                      {message(pattern.nameID)}
+                    </button>
+                  {:else}
+                    <p>{word("empty")}</p>
+                  {/each}
+                </div>
+              {:else}
               <div class="coating-results">
                 {#each coatingChoices as coating (coating.id)}
                   <button type="button" data-coating={coating.id} aria-pressed={fitted.get(slot.id)?.id === coating.id} onclick={() => fit(coating)}>
@@ -325,6 +395,7 @@
                   <p>{word("empty")}</p>
                 {/each}
               </div>
+              {/if}
             </section>
           {/if}
         </section>

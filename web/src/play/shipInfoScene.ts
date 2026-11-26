@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { loadDds } from "../three/ddsTexture.ts";
 import { effectObject, startEffect, type SofChildNode } from "../three/hullChildren.ts";
 import { loadSofMaterials, paintedTypeModel, setControllerVariable, setDirtLevel, setThrust, typeModel, type SofArea } from "../three/hullModel.ts";
+import type { ShipSkinrPatternPreview } from "../bridge/shipSkinrPatterns.ts";
 import { useHullTextureRenderer } from "../three/hullAlbedo";
 import { SHIP_INFO_FAR_CLIP, shipInfoZoomRange } from "./shipInfoCamera.ts";
 
@@ -111,16 +112,22 @@ export class ShipInfoScene {
     }
   }
 
-  async show(typeID: number, factionID: number | null, coatings: readonly (string | null)[] = []): Promise<boolean> {
+  async show(typeID: number, factionID: number | null, coatings: readonly (string | null)[] = [],
+    patterns: readonly ShipSkinrPatternPreview[] = []): Promise<boolean> {
     const request = ++this.serial;
-    const modelRead = coatings.some(Boolean) ? loadSofMaterials().then(materials => {
+    const custom = coatings.some(Boolean) || patterns.length > 0;
+    const modelRead = custom ? loadSofMaterials().then(materials => {
       const overrides = coatings.map(name => name ? materials[name] ?? null : null);
       if (coatings.some((name, index) => name && !overrides[index])) return null;
-      return paintedTypeModel(typeID, overrides, skinrCoatingArea);
+      const patternMaterials = patterns.map(pattern => pattern.material ? materials[pattern.material] ?? null : null);
+      return paintedTypeModel(typeID, overrides, skinrCoatingArea, patterns.length ? {
+        layers: patterns.map(pattern => pattern.layer),
+        pmtl1: patternMaterials[0] ?? null, pmtl2: patternMaterials[1] ?? null,
+      } : undefined);
     }) : typeModel(typeID);
     const [model] = await Promise.all([modelRead.catch(() => null), this.ready.catch(() => {})]);
     if (this.closed || request !== this.serial) {
-      if (model && coatings.some(Boolean)) disposePreviewMaterials(model);
+      if (model && custom) disposePreviewMaterials(model);
       return false;
     }
     this.removeModel();

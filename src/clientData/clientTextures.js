@@ -30,6 +30,7 @@ const RENDER_PATH = /^res:\/dx9\/model\/[a-z0-9_./-]+\/icons\/[0-9]+_(?:64|128)\
 const HOLO_PATH = /^res:\/dx9\/model\/[a-z0-9_./-]+\/icons\/[a-z0-9_-]+_isis\.png$/;
 const PLANET_RESOURCE_RAMP = "res:/dx9/model/worldobject/planet/resource_colorramp.dds";
 const PLANET_RESOURCE_PATTERN = "res:/dx9/texture/ui/resdistpattern1.dds";
+const SHIP_PATTERN_MASK = /^res:\/texture\/projection\/[a-z0-9_-]+\.dds$/;
 
 /**
  * The client's textures, read from `clientRoot` (the folder holding `tq` and
@@ -46,7 +47,7 @@ function createClientTextures({ clientRoot = null, readFile = fs.readFileSync } 
     if (!clientRoot) return null;
     const asked = String(resPath || "").toLowerCase();
     const skinTone = /^res:\/graphics\/character\/(female|male)\/paperdoll\/skintone\/basic\/[a-z]+_(dark|middark|default|midlight|light)\.color$/.test(asked);
-    if (!(TEXTURE_PATH.test(asked) || PORTRAIT_BACKDROP.test(asked) || skinTone || HUD_PATH.test(asked) || RENDER_PATH.test(asked) || HOLO_PATH.test(asked) || FACTION_FONT_PATH.test(asked) || UI_FONT_PATH.test(asked) || asked === PLANET_RESOURCE_PATTERN) || asked.includes("..")) return null;
+    if (!(TEXTURE_PATH.test(asked) || PORTRAIT_BACKDROP.test(asked) || skinTone || HUD_PATH.test(asked) || RENDER_PATH.test(asked) || HOLO_PATH.test(asked) || FACTION_FONT_PATH.test(asked) || UI_FONT_PATH.test(asked) || SHIP_PATTERN_MASK.test(asked) || asked === PLANET_RESOURCE_PATTERN) || asked.includes("..")) return null;
     if (index === null) index = readResourceIndex(readFile(path.join(clientRoot, "tq", "resfileindex.txt"), "utf8"));
     const relative = index.get(asked);
     return relative ? path.join(clientRoot, "ResFiles", relative) : null;

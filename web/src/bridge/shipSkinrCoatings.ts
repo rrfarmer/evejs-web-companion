@@ -41,8 +41,9 @@ export function shipSkinrCoatingMaterials(
   return materials;
 }
 
-const object = (value: JsonValue | undefined) => value && typeof value === "object" && !Array.isArray(value)
+export const shipSkinrRecord = (value: JsonValue | undefined) => value && typeof value === "object" && !Array.isArray(value)
   ? value as Readonly<Record<string, JsonValue>> : undefined;
+const object = shipSkinrRecord;
 
 export function shipSkinrSlotID(row: JsonValue): number {
   return Number(object(object(row)?.id)?.sequential);

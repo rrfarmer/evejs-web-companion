@@ -19630,8 +19630,8 @@ app.get(/^\/client-res\/(ui\/texture\/[A-Za-z0-9_./-]+\.(?:png|jpg|dds)|ui\/infl
   });
 });
 
-app.get("/client-res/dx9/texture/ui/resdistpattern1.dds", (_req, res) => {
-  const file = clientTextures.fileFor("res:/dx9/texture/ui/resdistpattern1.dds");
+app.get(/^\/client-res\/(dx9\/texture\/ui\/resdistpattern1\.dds|texture\/projection\/[a-z0-9_-]+\.dds)$/, (req, res) => {
+  const file = clientTextures.fileFor(`res:/${req.params[0]}`);
   if (!file) { res.status(404).end(); return; }
   res.set("Cache-Control", "public, max-age=2592000, immutable");
   res.type("application/octet-stream").sendFile(file, (error) => {
