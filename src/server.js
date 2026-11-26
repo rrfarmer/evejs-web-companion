@@ -2161,6 +2161,8 @@ function buildStationStatic(stationID) {
   const stationTypeID = Number(record.stationTypeID) || null;
   const operationID = Number(record.operationID) || null;
   const operation = operationID && staticData.buildJsonlIndex("stationOperations.jsonl").get(operationID);
+  const ownerID = Number(record.corporationID) || null;
+  const system = staticData.getSolarSystem(record.solarSystemID);
   return {
     stationID: numericStationID,
     stationName: String(record.stationName || `Station ${numericStationID}`),
@@ -2171,6 +2173,9 @@ function buildStationStatic(stationID) {
     stationTypeName: stationTypeID ? staticData.getTypeName(stationTypeID) : null,
     operationID,
     serviceIDs: Array.isArray(operation?.services) ? operation.services : null,
+    ownerID,
+    ownerFactionID: Number(staticData.getCorporation(ownerID)?.factionID) || null,
+    systemFactionID: Number(system?.factionID) || null,
     security: Number(record.security) || null,
   };
 }

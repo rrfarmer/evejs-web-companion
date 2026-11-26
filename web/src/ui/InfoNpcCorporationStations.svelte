@@ -1,26 +1,40 @@
 <script lang="ts">
-  import { resolveDestination } from "../app/api.ts";
+  import { loadStationStatic, resolveDestination } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
+  import { npcStationServices, NPC_STATION_SERVICE_LABELS } from "../bridge/npcStationServices.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName, type NameKind } from "../store/names.ts";
   import { showInfo } from "./showInfo.ts";
+  import { clientTexture } from "./skillGroupIcons.ts";
 
   let { store, flow, corporationID }: { store: ClientStore; flow: AppFlow; corporationID: number } = $props();
   const names = $derived(store.names);
   const words = $derived(store.words);
+  const station = $derived(store.station);
+  const waypoints = $derived(flow.waypoints);
   const name = (kind: NameKind, id: number) => resolvedName($names.resolved, kind, id, "");
   const routeWords = "UI/InfoWindow/LocationAndRoute";
   const noRouteWords = "UI/InfoWindow/LocationNoRoute";
-  const destination = "UI/Commands/SetDestination";
+  const destination = "UI/Inflight/SetDestination";
+  const addWaypoint = "UI/Inflight/AddWaypoint";
+  const removeWaypoint = "UI/Inflight/RemoveWaypoint";
+  const showInfoLabel = "UI/Commands/ShowInfo";
+  const requiredStanding = "UI/Standings/StationServiceStandingsRequired";
+  const word = (path: string, own: string) => plainText($words.templates[path] ?? "") || own;
   type Rows = Awaited<ReturnType<AppFlow["npcCorporationStations"]>>;
   let rows = $state.raw<Rows | null>(null);
   let error = $state("");
   let stationError = $state("");
+  let menu = $state<number | null>(null);
+  type ServiceRows = ReturnType<typeof npcStationServices>;
+  type Expansion = { status: "loading" } | { status: "ready"; rows: ServiceRows } | { status: "error"; message: string };
+  let expanded = $state.raw<ReadonlyMap<number, Expansion>>(new Map());
   $effect(() => {
     const owner = corporationID;
-    flow.requestWords([routeWords, noRouteWords, destination]);
+    flow.requestWords([routeWords, noRouteWords, destination, addWaypoint, removeWaypoint, showInfoLabel, requiredStanding,
+      ...NPC_STATION_SERVICE_LABELS.map(([label]) => label)]);
     let current = true;
     rows = null;
     error = "";
@@ -57,6 +71,35 @@
       showInfo({ kind: "spaceObject", itemID: id, typeID: place.stationTypeID });
     } catch (cause) { stationError = panelErrorWords(cause); }
   }
+  async function toggleServices(id: number) {
+    const next = new Map(expanded);
+    if (next.delete(id)) { expanded = next; return; }
+    const pending: Expansion = { status: "loading" };
+    expanded = next.set(id, pending);
+    function finish(value: Expansion) {
+      if (expanded.get(id) === pending) expanded = new Map(expanded).set(id, value);
+    }
+    try {
+      const here = $station.online?.solarSystemID;
+      const [details, restrictions, pilotSecurity] = await Promise.all([
+        loadStationStatic(id, flow.requestOptions()),
+        flow.stationStandingsRestrictions(),
+        $station.station?.security ?? (here ? flow.loadStarMap().then(map => map.systems.find(row => row[0] === here)?.[8] ?? null) : null),
+      ]);
+      if (!details?.serviceIDs) throw new Error("The station services could not be read.");
+      const rows = npcStationServices(details, pilotSecurity, restrictions);
+      flow.requestNames(rows.flatMap(row => row.restriction ? [{ kind: "owner", id: row.restriction.owner }] : []));
+      finish({ status: "ready", rows });
+    } catch (cause) { finish({ status: "error", message: panelErrorWords(cause) }); }
+  }
+  function restrictionHint(restriction: NonNullable<ServiceRows[number]["restriction"]>) {
+    const ownerName = name("owner", restriction.owner);
+    const template = $words.templates[requiredStanding];
+    return template ? plainText(formatTemplate(template, {
+      from_id: restriction.owner, required_standing: restriction.required,
+    }, { nameOf: (kind, owner) => name(kind, owner) || ownerName }))
+      : `Requires ${restriction.required} standings${ownerName ? " with " + ownerName : ""}`;
+  }
 </script>
 
 <section class="npc-corporation-stations" aria-label="Stations">
@@ -71,9 +114,48 @@
       <h3>{heading(group.path || "Solar system", group.jumps)}</h3>
       <ul>
         {#each group.stations as station (station.id)}
+          {@const expansion = expanded.get(station.id)}
           <li data-npc-station={station.id}>
-            <button type="button" class="evelink" onclick={() => void inspect(station.id)}>{station.name || "Station"}</button>
-            <button type="button" class="minor" onclick={() => flow.setDestination(station.id)}>{plainText($words.templates[destination] ?? "") || "Set Destination"}</button>
+            <div class="station-actions">
+              <button type="button" class="station-title" aria-expanded={!!expansion} onclick={() => void toggleServices(station.id)}
+                oncontextmenu={(event) => { event.preventDefault(); menu = menu === station.id ? null : station.id; }}>
+                <span aria-hidden="true">{expansion ? "▾" : "▸"}</span> {station.name || "Station"}
+              </button>
+              <button type="button" class="minor station-menu-toggle" aria-label="Station actions" aria-expanded={menu === station.id}
+                onclick={() => (menu = menu === station.id ? null : station.id)}>⋯</button>
+            </div>
+            {#if menu === station.id}
+              <div class="controls station-menu">
+                <button type="button" class="minor" onclick={() => { menu = null; void inspect(station.id); }}>{word(showInfoLabel, "Show Info")}</button>
+                {#if $waypoints.at(-1) !== station.id}
+                  <button type="button" class="minor" onclick={() => { menu = null; flow.setDestination(station.id); }}>{word(destination, "Set Destination")}</button>
+                {/if}
+                {#if $waypoints.includes(station.id)}
+                  <button type="button" class="minor" onclick={() => { menu = null; flow.clearWaypoints(station.id); }}>{word(removeWaypoint, "Remove Waypoint")}</button>
+                {:else}
+                  <button type="button" class="minor" onclick={() => { menu = null; flow.addWaypoint(station.id); }}>{word(addWaypoint, "Add Waypoint")}</button>
+                {/if}
+              </div>
+            {/if}
+            {#if expansion?.status === "loading"}
+              <p role="status">Reading station services…</p>
+            {:else if expansion?.status === "error"}
+              <p role="alert">{expansion.message}</p>
+            {:else if expansion?.status === "ready"}
+              <ul class="station-services">
+                {#each [...expansion.rows].sort((a, b) => word(a.label, a.fallback).localeCompare(word(b.label, b.fallback))) as service (service.label)}
+                  <li>
+                    <img alt="" src={clientTexture(`res:/ui/texture/windowicons/${service.icon}.png`)} />
+                    <span>{word(service.label, service.fallback)}</span>
+                    {#if service.restriction}
+                      {@const hint = restrictionHint(service.restriction)}
+                      <img class="standing" alt={hint} title={hint}
+                        src={clientTexture("res:/UI/Texture/Classes/Standings/Actions/derivedAgentInFaction.png")} />
+                    {/if}
+                  </li>
+                {/each}
+              </ul>
+            {/if}
           </li>
         {/each}
       </ul>
@@ -85,6 +167,12 @@
 <style>
   h3 { margin-block: 12px 4px; }
   ul { margin: 0; padding: 0 0 0 12px; list-style: none; }
-  li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-block: 2px; }
-  .evelink { padding: 0; border: 0; background: transparent; color: var(--theme-focus, #91bfd7); text-align: left; }
+  li { padding-block: 2px; }
+  .station-actions, .station-services li { display: flex; align-items: center; gap: 8px; }
+  .station-actions { justify-content: space-between; }
+  .station-title { padding: 2px 0; border: 0; background: transparent; text-align: left; }
+  .station-menu { padding: 4px 0 4px 14px; }
+  .station-services { padding-left: 20px; }
+  .station-services img { width: 20px; height: 20px; object-fit: contain; }
+  .station-services img.standing { margin-left: auto; }
 </style>
