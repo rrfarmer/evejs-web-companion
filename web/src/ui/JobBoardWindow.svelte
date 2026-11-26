@@ -63,7 +63,9 @@
   import { dungeonJobID } from "../bridge/dungeonJobs.ts";
   import CorporationFreelanceForm from "./CorporationFreelanceForm.svelte";
   import type { FreelanceProject } from "../app/flow.ts";
-  let { store, flow, openCorporation, showAgents }: { store: ClientStore; flow: AppFlow; openCorporation?: () => void; showAgents?: () => void } = $props();
+  let { store, flow, openCorporation, showAgents, onShowSystem }: {
+    store: ClientStore; flow: AppFlow; openCorporation?: () => void; showAgents?: () => void; onShowSystem?: (systemID: number) => void;
+  } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -290,7 +292,7 @@
   </div>
   <div class="jb-body">
     {#if operationOpen}
-      <MercenaryOperationPage {store} {flow} operation={operationOpen} name={operationName(operationOpen)} onBack={() => { operationID = null; }} />
+      <MercenaryOperationPage {store} {flow} {onShowSystem} operation={operationOpen} name={operationName(operationOpen)} onBack={() => { operationID = null; }} />
     {:else if operationID !== null}
       <button type="button" onclick={() => { operationID = null; }}>{word("UI/Commands/Back") || "Back"}</button>
       <p class="jb-hint" role="status">{operations === undefined ? "Loading operation…" : "This operation is unavailable."}</p>

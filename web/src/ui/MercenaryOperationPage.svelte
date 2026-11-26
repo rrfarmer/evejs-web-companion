@@ -3,16 +3,21 @@
   import type { AppFlow } from "../app/flow.ts";
   import { formatInterval, formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { ShipRestrictions } from "../bridge/dungeonTracking.ts";
+  import type { BookmarkPlace } from "../bridge/locationsList.ts";
   import type { MercenaryDenActivity } from "../bridge/mercenaryDens.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
+  import { ContextMenu } from "../play/contextMenu.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
+  import BookmarkWindow from "./BookmarkWindow.svelte";
+  import { mercenarySystemMenu, mercenarySystemMenuWords } from "./mercenarySystemMenu.ts";
   import MercenaryOperationTrackButton from "./MercenaryOperationTrackButton.svelte";
   import MercenaryOperationTravel from "./MercenaryOperationTravel.svelte";
   import { showInfo } from "./showInfo.ts";
 
-  let { store, flow, operation, name, onBack }: {
+  let { store, flow, operation, name, onBack, onShowSystem }: {
     store: ClientStore; flow: AppFlow; operation: MercenaryDenActivity; name: string; onBack: () => void;
+    onShowSystem?: (systemID: number) => void;
   } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
@@ -24,6 +29,8 @@
   let starting = $state(false);
   let startedHere = $state("");
   let failure = $state<{ id: string; message: string } | null>(null);
+  let bookmark = $state.raw<BookmarkPlace | null>(null);
+  const systemMenu = new ContextMenu();
   const started = $derived(operation.started || operation.id === startedHere);
   const labels = {
     back: ["UI/Commands/Back", "Back"],
@@ -51,6 +58,11 @@
   const description = $derived(message(operation.descriptionID));
   const gameplay = $derived(message(intel?.gameplayDescriptionID));
   const enemy = $derived(intel?.factionID && intel.factionID !== 500021 ? resolvedName($names.resolved, "owner", intel.factionID, "") : "");
+  function openSystemMenu(x: number, y: number) {
+    const id = operation.solarSystemID;
+    const name = system;
+    systemMenu.open(x, y, mercenarySystemMenu(store, flow, id, () => name, place => { bookmark = place; }, onShowSystem));
+  }
   async function startOperation() {
     if (starting || started) return;
     const selected = operation;
@@ -78,13 +90,22 @@
   $effect(() => {
     const messages = [intel?.gameplayDescriptionID, intel?.archetypeTitleID, intel?.archetypeDescriptionID]
       .filter((id): id is number => Boolean(id)).map(id => `#${id}`);
-    flow.requestWords([...Object.values(labels).map(([path]) => path), ...messages]);
+    flow.requestWords([...Object.values(labels).map(([path]) => path), ...mercenarySystemMenuWords, ...messages]);
+  });
+  $effect(() => {
+    void operation.id;
+    bookmark = null;
+    return () => systemMenu.close();
   });
   $effect(() => {
     const timer = setInterval(() => { now = Date.now(); }, 1000);
     return () => clearInterval(timer);
   });
 </script>
+
+{#if bookmark}
+  {#key bookmark.itemID}<BookmarkWindow {store} {flow} place={bookmark} onDone={() => bookmark = null} />{/key}
+{/if}
 
 <article class="mto-page" data-operation={operation.id}>
   <button type="button" class="mto-back" onclick={onBack}>{word("back")}</button>
@@ -121,7 +142,20 @@
     <h4>{word("impacts")}</h4>
     <ul>
       {#if operation.solarSystemID}
-        <li><button type="button" class="mto-system" onclick={() => showInfo({ kind: "mapLocation", typeID: 5, itemID: operation.solarSystemID })}>{system}</button></li>
+        <li><button type="button" class="mto-system"
+          onclick={() => showInfo({ kind: "mapLocation", typeID: 5, itemID: operation.solarSystemID })}
+          oncontextmenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            openSystemMenu(event.clientX, event.clientY);
+          }}
+          onkeydown={(event) => {
+            if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const bounds = event.currentTarget.getBoundingClientRect();
+            openSystemMenu(bounds.left, bounds.bottom);
+          }}>{system}</button></li>
       {/if}
       <li>{word("development", { impact: operation.developmentImpact })}</li>
       <li>{word("anarchy", { impact: operation.anarchyImpact })}</li>

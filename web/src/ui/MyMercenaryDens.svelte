@@ -5,13 +5,12 @@
   import type { BookmarkPlace } from "../bridge/locationsList.ts";
   import { mercenaryDenNotice, type MercenaryDenRow, type MercenaryDensRead } from "../bridge/mercenaryDens.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
-  import { avoidanceItems, isAvoidablePlace } from "../nav/autopilotSettings.ts";
-  import { celestialRouteEntries, isWaypointPlace } from "../nav/waypoints.ts";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { openAgencyGroup } from "./agencyRequests.ts";
   import BookmarkWindow from "./BookmarkWindow.svelte";
+  import { mercenarySystemMenu, mercenarySystemMenuWords } from "./mercenarySystemMenu.ts";
   import { notify } from "./notices.ts";
   import { showInfo } from "./showInfo.ts";
   import MercenaryDenManagement from "./MercenaryDenManagement.svelte";
@@ -20,10 +19,6 @@
   const words = $derived(store.words);
   const names = $derived(store.names);
   const station = $derived(store.station);
-  const flight = $derived(store.flight);
-  const fleet = $derived(store.fleet);
-  const waypoints = $derived(flow.waypoints);
-  const here = $derived($flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? null);
   const characterID = $derived($station.online?.characterID ?? null);
   const path = "UI/Sovereignty/MercenaryDen/MyMercenaryDensWindow/";
   const config = "UI/Sovereignty/MercenaryDen/ConfigurationWindow/";
@@ -60,16 +55,7 @@
     reload: [path + "ReloadData", "Reload"],
     location: ["UI/Common/Location", "Location"],
     info: ["UI/Commands/ShowInfo", "Show Info"],
-    destination: ["UI/Inflight/SetDestination", "Set Destination"],
-    addWaypoint: ["UI/Inflight/AddWaypoint", "Add Waypoint"],
-    removeWaypoint: ["UI/Inflight/RemoveWaypoint", "Remove Waypoint"],
-    travelTo: ["UI/Fleet/FleetBroadcast/Commands/BroadcastTravelTo", "Broadcast: Travel To"],
     saveLocation: ["UI/Inflight/BookmarkLocation", "Save Location…"],
-    bookmarkLabel: ["UI/PeopleAndPlaces/NewBookmarkLocationLabel", "{loc} ({group})"],
-    map: ["UI/Commands/ShowLocationOnMap", "Show on Map"],
-    mapBrowser: ["UI/Inflight/ShowInMapBrowser", "Show in Mapbrowser ({locationType})"],
-    avoid: ["UI/Inflight/AvoidLocation", "Avoid {theLocation} ({locationType})"],
-    stopAvoiding: ["UI/Inflight/StopAvoidingLocation", "Do Not Avoid {theLocation} ({locationType})"],
   } as const;
   const columns = ["name", "system", "planet", "state", "infomorphs", "mto"] as const;
   const word = (key: keyof typeof labels, args: Record<string, string | number> = {}) =>
@@ -109,48 +95,6 @@
   function entry(key: keyof typeof labels, run: () => void): ContextEntry {
     return { path: labels[key][0], label: word(key), run };
   }
-  function locationEntries(row: MercenaryDenRow): (ContextEntry | null)[] {
-    const id = row.solarSystemID;
-    const route = celestialRouteEntries(id, isWaypointPlace(id), here, $waypoints);
-    const entries: (ContextEntry | null)[] = [
-      { ...entry("info", () => showInfo({ kind: "mapLocation", typeID: 5, itemID: id })), info: true },
-    ];
-    if (route.setDestination) entries.push(entry("destination", () => flow.setDestination(id)));
-    if (route.addWaypoint) entries.push(entry("addWaypoint", () => flow.addWaypoint(id)));
-    if (route.removeWaypoint) entries.push(entry("removeWaypoint", () => flow.clearWaypoints(id)));
-    if ($fleet.availability === "ready" && isWaypointPlace(id)) {
-      entries.push(null, entry("travelTo", () => {
-        void flow.broadcastTravelToSystem(id).catch(cause => {
-          if (cause?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: word("travelTo"), detail: String(cause) });
-        });
-      }));
-    }
-    entries.push(null, entry("saveLocation", () => {
-      bookmark = {
-        itemID: id, askIfKnown: true, typeName: () => word("system"),
-        name: () => plainText(formatTemplate($words.templates[labels.bookmarkLabel[0]] ?? labels.bookmarkLabel[1],
-          { loc: id, group: word("system") }, { nameOf: () => systemName(row) })),
-      };
-    }));
-    if (isAvoidablePlace(id)) {
-      const locationType = word("system");
-      const show = onShowSystem;
-      entries.push(null);
-      if (show) {
-        entries.push(entry("map", () => show(id)), {
-          ...entry("mapBrowser", () => show(id)), label: word("mapBrowser", { locationType }),
-        });
-      }
-      const avoiding = avoidanceItems(flow.autopilotSettings()).includes(id);
-      const key = avoiding ? "stopAvoiding" : "avoid";
-      entries.push({
-        ...entry(key, () => avoiding ? flow.stopAvoidingLocation(id) : flow.avoidLocation(id)),
-        label: plainText(formatTemplate($words.templates[labels[key][0]] ?? labels[key][1],
-          { locationType, theLocation: id }, { nameOf: () => systemName(row) })),
-      });
-    }
-    return entries;
-  }
   async function reloadRow(id: number, showError = true) {
     if (reloading.has(id)) {
       reloadAgain.add(id);
@@ -183,7 +127,8 @@
           typeName: () => nameOf("type", row.typeID, "Mercenary Den"),
         };
       }),
-      { path: labels.location[0], label: word("location"), sub: locationEntries(row) },
+      { path: labels.location[0], label: word("location"),
+        sub: mercenarySystemMenu(store, flow, row.solarSystemID, () => systemName(row), place => { bookmark = place; }, onShowSystem) },
     ] : [entry("reload", () => { void reloadRow(id); })]);
   }
   function menuFromKey(event: KeyboardEvent & { currentTarget: HTMLButtonElement }, id: number, row: MercenaryDenRow | undefined) {
@@ -223,7 +168,7 @@
     activityRevisions.clear();
     directory = null;
     error = "";
-    flow.requestWords(Object.values(labels).map(([key]) => key));
+    flow.requestWords([...Object.values(labels).map(([key]) => key), ...mercenarySystemMenuWords]);
     void flow.loadMyMercenaryDens().then(result => {
       if (!current) return;
       directory = result;
