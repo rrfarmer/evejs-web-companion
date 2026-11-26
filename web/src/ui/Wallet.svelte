@@ -37,6 +37,7 @@
   import WalletPlexOverview from "./WalletPlexOverview.svelte";
   import WalletLoyalty from "./WalletLoyalty.svelte";
   import WalletIncursionLog from "./WalletIncursionLog.svelte";
+  import WalletDonateLp from "./WalletDonateLp.svelte";
 
   let { store, flow, onBuyPlex, onShowOmegaOffers, onShowMultipleTraining, onOpenStore }: {
     store: ClientStore;
@@ -86,8 +87,9 @@
   const retail = getContext("retailChrome") === true;
   let walletTab = $state<"mine" | "settings">("mine");
   let currency = $state<"isk" | "plex" | "loyalty">("isk");
-  let loyaltyTab = $state<"overview" | "incursions">("overview");
+  let loyaltyTab = $state<"overview" | "incursions" | "donate">("overview");
   const LP_LOG = "UI/Incursion/Journal/LoyaltyPointLog";
+  const LP_DONATE = "UI/Wallet/WalletWindow/TabDonate";
   const paragon = 1000419;
   const LP_COUNT = "UI/Wallet/WalletWindow/TabLPCorpNumber";
   const EM_AMOUNT = "UI/Wallet/WalletWindow/EvermarkAmount";
@@ -210,7 +212,7 @@
   const RETAIL_WORDS = ["UI/Wallet/WalletWindow/MyWallet", "UI/Common/Settings", "UI/Common/ISK", "UI/Common/PLEX",
     "UI/Journal/JournalWindow/Agents/LoyaltyPoints", "UI/Wallet/WalletWindow/EverMarks", "UI/Wallet/WalletWindow/ISKDescription",
     SHOW_CENTS, SHOW_BALANCE_UPDATES, SHOW_LP_UPDATES, BALANCE_THRESHOLD, NOTIFY_ISK, NOTIFY_SHARES, NOTIFY_BILLS, NOTIFY_PLEX, CORP_WALLET,
-    PLEX_DESCRIPTION, PLEX_UNAVAILABLE, PLEX_UNAVAILABLE_HINT, BUY_PLEX, BUY_PLEX_HINT, SELL_PLEX, SELL_PLEX_HINT, LP_COUNT, EM_AMOUNT, LP_LOG];
+    PLEX_DESCRIPTION, PLEX_UNAVAILABLE, PLEX_UNAVAILABLE_HINT, BUY_PLEX, BUY_PLEX_HINT, SELL_PLEX, SELL_PLEX_HINT, LP_COUNT, EM_AMOUNT, LP_LOG, LP_DONATE];
   $effect(() => { if (retail) flow.requestWords([...RETAIL_WORDS, ...PLEX_ACTIONS.map(action => action.label)]); });
 
   let busy = $state(false);
@@ -378,9 +380,15 @@
         onclick={() => (loyaltyTab = "overview")}>{tabWord(TAB_WORDS.overview, "Overview")}</button>
       <button type="button" class:active={loyaltyTab === "incursions"} aria-pressed={loyaltyTab === "incursions"}
         onclick={() => (loyaltyTab = "incursions")}>{tabWord(LP_LOG, "Incursion Loyalty Point Log")}</button>
+      <button type="button" class:active={loyaltyTab === "donate"} aria-pressed={loyaltyTab === "donate"}
+        onclick={() => (loyaltyTab = "donate")}>{tabWord(LP_DONATE, "Donate")}</button>
     </nav>
     {#if loyaltyTab === "overview"}
       <WalletLoyalty {store} {flow} balances={loyalty} error={lpError} refresh={() => reloadLp++} />
+    {:else if loyaltyTab === "donate" && characterID !== null}
+      {#key characterID}
+        <WalletDonateLp {store} {flow} {characterID} balances={loyalty} refresh={() => reloadLp++} />
+      {/key}
     {/if}
   {/if}
   {#if retail && characterID !== null}

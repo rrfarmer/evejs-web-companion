@@ -10,6 +10,7 @@ const defaults = {
   walletShowCents: false,
   walletShowBalanceUpdates: true,
   walletShowLpUpdates: true,
+  donateCorpLPIssuerPersonal: 0,
   iskNotifyThreshold: 0,
 };
 type WalletSettings = typeof defaults;

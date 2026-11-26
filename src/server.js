@@ -1248,6 +1248,12 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     }
   }
   const stationLpPurchase = body.service === "LPStoreMgr" && body.method === "TakeOfferForCharacter";
+  if (body.service === "LPSvc" && body.method === "TransferLPFromMyWalletToOtherCorp" &&
+      (body.of != null || body.kwargs != null || !Array.isArray(body.args) || body.args.length !== 3 ||
+        body.args.some(value => !Number.isSafeInteger(value) || value <= 0))) {
+    res.status(400).json({ ok: false, error: "INVALID_LP_DONATION", message: "Choose a corporation, LP issuer, and positive whole amount." });
+    return;
+  }
   if (body.service === "home_station" && body.method === "set_home_station" &&
       (!Array.isArray(body.args) || body.args.length !== 2 || !Number.isSafeInteger(body.args[0]) || body.args[0] <= 0 ||
         typeof body.args[1] !== "boolean" || body.of != null || body.kwargs != null)) {
@@ -6093,8 +6099,7 @@ app.post("/api/bridge/gm/slash", requireAuth, async (req, res, next) => {
 // asked them. The pairs stay writes (bridgeCallPolicy.js), so the generic call refuses them.
 
 // --- LPSvc WRITES (3) — session-scoped source
-// Its 3 write routes, made for no screen of the page's, went on 2026-10-14 (the loop's item 62): nothing
-// asked them. The pairs stay writes (bridgeCallPolicy.js), so the generic call refuses them.
+// Personal Wallet Donate uses the confirmed TransferLPFromMyWalletToOtherCorp call.
 
 // The station Loyalty Point Store purchases personal offers through the confirmed bridge.
 

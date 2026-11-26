@@ -3892,6 +3892,8 @@ export interface AppFlow {
    * GiveCash(toID, amount). Answers whether the transfer was answered as made; false for No. Fails as the call fails.
    */
   giveIskFromWallet(toID: number, amount: number, cons: string): Promise<boolean>;
+  searchLpDonationRecipients(text: string, matchBy: number, current: () => boolean): Promise<readonly { readonly id: number; readonly name: string }[]>;
+  donatePersonalLp(toID: number, issuerID: number, amount: number, cons: string): Promise<boolean>;
   /**
    * The seasonal tab's Claim (seasonalLoginCampaignService.py claim_reward, 80 to 88): the day's rewards, into the
    * account's redeem queue; the campaign is read again after. Fails where the server gave nothing.
@@ -27126,6 +27128,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return giveIskFromWalletCall(bridgeDo, toID, amount);
   }
 
+  async function searchLpDonationRecipients(text: string, matchBy: number, current: () => boolean) {
+    const corporation = 3;
+    const pilot = callOptions.captureRequestGuard!();
+    const matches = (await searchOwners(text, [corporation], matchBy)).get(corporation) ?? [];
+    pilot();
+    if (!current()) return [];
+    const recipients = await Promise.all(matches.filter(row => row.id < 1_000_000 || row.id > 1_999_999)
+      .map(async row => ({
+        row,
+        members: unwrapLong((await corporationRecords.get(bridgeAsk, row.id, pilot)).fields.memberCount),
+      })));
+    return recipients.filter(({ members }) => members !== null && members > 0n).map(({ row }) => row);
+  }
+
+  async function donatePersonalLp(toID: number, issuerID: number, amount: number, cons: string): Promise<boolean> {
+    const current = callOptions.captureRequestGuard!();
+    if (!(await askDialog("AskAreYouSure", { type: "dict", entries: [["cons", cons]] }, cons))) return false;
+    current();
+    await bridgeDo("LPSvc", "TransferLPFromMyWalletToOtherCorp", [toID, issuerID, amount]);
+    return true;
+  }
+
   async function loadWallet(how: { readonly fresh?: boolean } = {}): Promise<void> {
     const reads = await walletReads.read(how);
     const corpFailed = reads.errors.divisions !== null;
@@ -40139,6 +40163,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     claimLoginReward,
     claimSeasonalReward,
     giveIskFromWallet,
+    searchLpDonationRecipients,
+    donatePersonalLp,
     loadRedeemTokens,
     redeemHomeStation,
     redeemTokens,
