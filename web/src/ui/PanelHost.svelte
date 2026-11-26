@@ -305,7 +305,7 @@
 {:else if tab === "finder"}
   <AgencyWindow {store} {flow} {onShowConvoys} showTravel={() => onOpen?.("travel")} onOpenTab={(tab) => onOpen?.(tab as never)} />
 {:else if tab === "projectDiscovery"}
-  <ProjectDiscoveryWindow {store} {flow} />
+  <ProjectDiscoveryWindow {store} {flow} onRedeem={() => onOpen?.("redeem")} />
 {:else if tab === "theatersOfWar"}
   <TheatersOfWar {store} {flow} {onShowConvoys} />
 {:else if tab === "flight"}

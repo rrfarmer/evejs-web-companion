@@ -6,8 +6,9 @@
   import { isListValue, readDictEntry, readKeyVal, unwrapBool, unwrapReal, type JsonValue } from "../bridge/wire.ts";
   import { clientTexture } from "../play/window.ts";
   import type { ClientStore } from "../store/clientStore.ts";
+  import ProjectDiscoveryRewards from "./ProjectDiscoveryRewards.svelte";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, onRedeem }: { store: ClientStore; flow: AppFlow; onRedeem: () => void } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   const welcomeLabel = "UI/ProjectDiscovery/Covid/Intro/Welcome";
@@ -44,7 +45,7 @@
   let rewardView = $state(false);
   let xpBand = $state<{ rank: number; lower: number; upper: number } | null>(null);
   let completion = $state<{ xp: number; kredits: number } | null>(null);
-  let regularReward = $state<{ xp: number; isk: number; kredits: number; bonus: boolean; rank: number | null; crates: number; tier: number | null } | null>(null);
+  let regularReward = $state<{ xp: number; isk: number; kredits: number; bonus: boolean; rank: number | null; crates: number[]; tier: number | null } | null>(null);
   let restarting = $state(false);
   let retrainingOffer = $state(false);
   let polygons = $state.raw<Point[][]>([]);
@@ -288,7 +289,8 @@
           kredits: unwrapReal(readDictEntry(result, "AK_Reward")) ?? 0,
           bonus: unwrapBool(readDictEntry(result, "gotBonusXP")) === true,
           rank: previousRank !== undefined && progress.rank > previousRank ? progress.rank : null,
-          crates: isListValue(crates) ? crates.items.length : 0,
+          crates: isListValue(crates) ? crates.items.map(unwrapReal).filter(
+            (id): id is number => id !== null && Number.isSafeInteger(id) && id > 0) : [],
           tier: unwrapReal(readDictEntry(result, "tier_reward")),
         };
       }
@@ -445,10 +447,12 @@
               </label>
             {/if}
             {#if regularReward?.rank}<p>New rank reached · {regularReward.rank.toLocaleString()}</p>{/if}
-            {#if regularReward?.crates}
-              <p>{regularReward.crates.toLocaleString()} {regularReward.crates === 1 ? "reward crate" : "reward crates"} in Redeem Items</p>
+            {#if regularReward?.crates.length}
+              <p>{regularReward.crates.length.toLocaleString()} {regularReward.crates.length === 1 ? "reward crate" : "reward crates"} in Redeem Items</p>
             {/if}
             {#if regularReward?.tier}<p>Tier reward · Rank {regularReward.tier.toLocaleString()}</p>{/if}
+            <ProjectDiscoveryRewards {store} {flow} rank={progress.rank} milestone={regularReward?.tier ?? null}
+              crates={regularReward?.crates ?? []} {onRedeem} />
             <button type="button" disabled={loading} onclick={() => void loadSample()}>Next sample</button>
           {:else if score === null}
             <p>{practice ? "Select each highlighted point. Return to the first point to close the outline." : "Click around each group of cells. Click the first point again or select Close outline to finish each group."}</p>
@@ -545,7 +549,7 @@
   .chart-input:hover:not(:disabled) { background: transparent; }
   .chart-input:disabled { cursor: default; }
   .sample-controls { display: grid; justify-items: start; gap: 12px; width: min(100%, 280px); }
-  .reward-view { width: min(100%, 460px); }
+  .reward-view { width: min(100%, 780px); min-width: 0; }
   .result-gauges, .gauge { display: grid; gap: 5px; width: 100%; }
   .gauge span { display: flex; justify-content: space-between; gap: 12px; }
   .gauge meter { width: 100%; height: 10px; accent-color: #75b4bf; }
