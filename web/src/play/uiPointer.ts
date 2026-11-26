@@ -7,6 +7,15 @@ export interface UiPointerTarget {
   readonly parent?: string;
 }
 
+export const UI_POINTER_COMMAND = "CmdGetUiPointer";
+export const UI_POINTER_DRAG_TYPE = "application/x-evejs-ui-pointer";
+
+export function dragUiPointer(event: DragEvent, name: string) {
+  if (!event.dataTransfer) return;
+  event.dataTransfer.effectAllowed = "copyMove";
+  event.dataTransfer.setData(UI_POINTER_DRAG_TYPE, name);
+}
+
 const stationServiceNames: Readonly<Record<string, string>> = {
   concord: "securityoffice", lpstore: "lpstore", insurance: "insurance",
   factionalwarfare: "navyoffices", Reprocess: "reprocessingPlant", repairshop: "repairshop",

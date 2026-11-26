@@ -4,8 +4,8 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { NEOCOM_DEFAULT } from "../play/neocom.ts";
-  import { shortcutOf } from "../play/shortcutKeys.ts";
-  import { neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "../play/uiPointer.ts";
+  import { onShortcutsChanged, shortcutOf } from "../play/shortcutKeys.ts";
+  import { dragUiPointer, neocomPointerName, STATION_POINTERS, UI_POINTER_COMMAND, UI_POINTER_DRAG_TYPE, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "../play/uiPointer.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { portal } from "./portal.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -36,7 +36,6 @@
   const targets = [...neocom, ...WALLET_POINTERS, ...STATION_POINTERS];
   const targetByName = new Map(targets.map(target => [target.name, target]));
   const pointerIcon = clientTexture("res:/UI/Texture/Classes/HelpPointer/highlightElement.png");
-  const pointerDragType = "application/x-evejs-ui-pointer";
   type FavoriteGroup = { readonly id: number; readonly name: string; readonly entries: readonly string[] };
   const menu = new ContextMenu();
   let panel: HTMLDivElement;
@@ -45,6 +44,7 @@
   let folderDialog: HTMLDialogElement;
   let folderName = $state("");
   let query = $state("");
+  let overlayShortcut = $state(shortcutOf(UI_POINTER_COMMAND));
   let showFrames = $state(false);
   let favorites = $state.raw<readonly string[]>([]);
   let favoriteGroups = $state.raw<readonly FavoriteGroup[]>([]);
@@ -98,7 +98,9 @@
     } catch { /* preferences are optional */ }
     flow.requestWords(Object.values(paths));
     filter.focus();
+    const unsubscribe = onShortcutsChanged(() => { overlayShortcut = shortcutOf(UI_POINTER_COMMAND); });
     return () => {
+      unsubscribe();
       menu.close();
       if (expiry !== null) clearTimeout(expiry);
     };
@@ -226,18 +228,12 @@
     save();
   }
 
-  function dragPointer(event: DragEvent, name: string) {
-    if (!event.dataTransfer) return;
-    event.dataTransfer.effectAllowed = "copyMove";
-    event.dataTransfer.setData(pointerDragType, name);
-  }
-
   function allowPointerDrop(event: DragEvent) {
-    if (event.dataTransfer?.types.includes(pointerDragType)) event.preventDefault();
+    if (event.dataTransfer?.types.includes(UI_POINTER_DRAG_TYPE)) event.preventDefault();
   }
 
   function dropPointer(event: DragEvent, groupID: number, before?: string) {
-    const name = event.dataTransfer?.getData(pointerDragType);
+    const name = event.dataTransfer?.getData(UI_POINTER_DRAG_TYPE);
     if (!name || !targetByName.has(name)) return;
     event.preventDefault();
     addPointer(groupID, name, before);
@@ -249,7 +245,7 @@
     data-pointer-selected={selected === target.name} aria-label={label("point", `Point to ${target.label}`, { elementName: target.label })}
     onclick={() => point(target)} oncontextmenu={(event) => favoriteMenu(event, target, groupID)}
     onkeydown={(event) => { if (isMenuKey(event)) favoriteMenu(event, target, groupID); }}
-    ondragstart={(event) => dragPointer(event, target.name)}
+    ondragstart={(event) => dragUiPointer(event, target.name)}
     ondragover={groupID === undefined ? undefined : allowPointerDrop}
     ondrop={groupID === undefined ? undefined : (event) => dropPointer(event, groupID, target.name)}>
     <img src={target.icon} alt="" /><span>{target.label}</span><img src={pointerIcon} alt="" class="point-icon" />
@@ -259,7 +255,7 @@
 <svelte:window onpointermove={trackHover} onkeydown={chooseHovered} />
 <div class="pointer-window" bind:this={panel}>
   <p>{label("about", "Use pointers to find controls on your screen.")}</p>
-  <p>{label("shortcut", "UI Pointer shortcut: {shortcut}", { shortcut: shortcutOf("CmdGetUiPointer") || label("notSet", "Shortcut not set") })}</p>
+  <p>{label("shortcut", "UI Pointer shortcut: {shortcut}", { shortcut: overlayShortcut || label("notSet", "Shortcut not set") })}</p>
   <label><input type="checkbox" bind:checked={showFrames} onchange={save} /> {label("highlights", "Show Highlights")}</label>
   {#if showFrames}<p class="hint">{label("highlightHint", "Hold Ctrl over a highlighted control to select it.")}</p>{/if}
   <input class="filter" type="search" maxlength="64" bind:this={filter} bind:value={query} aria-label={label("filter", "Filter")} placeholder={label("filter", "Filter")} />

@@ -103,6 +103,7 @@
   import Toasts from "./Toasts.svelte";
   import ServerQuestion from "./ServerQuestion.svelte";
   import ClientDialogs from "./ClientDialogs.svelte";
+  import PointerOverlay from "./PointerOverlay.svelte";
   import ChatInvitations from "./ChatInvitations.svelte";
   import { stationOffersRepair } from "../bridge/repairShop.ts";
   import { structureHasCapability } from "../nav/dockableLocation.ts";
@@ -119,7 +120,7 @@
   import HackingWindow from "./HackingWindow.svelte";
   import PlayLobbyTabs from "./PlayLobbyTabs.svelte";
   import SystemMenu from "./SystemMenu.svelte";
-  import { commandForKey, COMBAT_WORDS, mouseButtonsAsKeys } from "../play/shortcutKeys.ts";
+  import { commandForKey, COMBAT_WORDS, mouseButtonsAsKeys, onShortcutsChanged } from "../play/shortcutKeys.ts";
   import { TARGET_LOCKED_LABEL } from "../play/targetLock.ts";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { showInfoRequests } from "./showInfo.ts";
@@ -193,7 +194,7 @@
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import { combatMovingMode } from "./combatSettings.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
-  import { stationPointerName } from "../play/uiPointer.ts";
+  import { stationPointerName, UI_POINTER_COMMAND } from "../play/uiPointer.ts";
   import type { DogmaTypeFacts } from "../bridge/dogma/location.ts";
   import { typeIconUrl } from "./typeIcons.ts";
   import { cycleProgressPercent } from "./moduleRack.ts";
@@ -2671,12 +2672,29 @@
 
   // the middle and side mouse buttons as keys to the command service (uilib._OnMiddleMouseDown / _OnOtherMouseDown)
   $effect(() => mouseButtonsAsKeys());
+  let pointerOverlaySession = $state<string | null>(null);
+
+  function dismissPointerOverlay() {
+    pointerOverlaySession = null;
+  }
+
+  $effect(() => onShortcutsChanged(dismissPointerOverlay));
+  $effect(() => {
+    if (stage !== "game" || systemMenu || pointerOverlaySession !== session?.id) dismissPointerOverlay();
+  });
+
   /** A key press as the client's command it is the default shortcut of (the command service's accelerators). */
   function onKey(e: KeyboardEvent) {
     if (stage !== "game") return;
+    const cmd = commandForKey(e);
+    if (cmd !== UI_POINTER_COMMAND) dismissPointerOverlay();
     const t = e.target as HTMLElement | null;
     if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-    const cmd = commandForKey(e);
+    if (cmd === UI_POINTER_COMMAND && session && !systemMenu && !e.defaultPrevented) {
+      e.preventDefault();
+      if (!e.repeat) pointerOverlaySession = session.id;
+      return;
+    }
     if (cmd === null) return;
     if (cmd === "OpenMilitia" || cmd === "OpenFwEnlistment" || cmd === "OpenInsurgencyDashboard" || cmd === "OpenRelevantFWWindow") {
       e.preventDefault();
@@ -4366,7 +4384,8 @@
   onDestroy(() => { view?.dispose(); live?.close(); spaceClaimed?.flow.stopSpacePolling(); });
 </script>
 
-<svelte:window bind:innerWidth={viewportWidth} bind:innerHeight={viewportHeight} onkeydown={onKey} />
+<svelte:window bind:innerWidth={viewportWidth} bind:innerHeight={viewportHeight} onkeydown={onKey}
+  onkeyup={dismissPointerOverlay} onblur={dismissPointerOverlay} />
 
 {#if stage === "login"}
   <div class="screen"><form class="login-box" onsubmit={signIn}>
@@ -4606,6 +4625,7 @@
     {/key}
   {/if}
 
+  {#if pointerOverlaySession === session.id}<PointerOverlay />{/if}
   <NoticeBridge store={session.store} flow={session.flow} />
   <ErrorBoundary name="Fleet invitation">
     <div class="fleet-invitations fly-invitations"><FleetInvitation {session} inFront={true} /></div>
