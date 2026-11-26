@@ -1064,6 +1064,8 @@
   const CORPORATION_BALANCE_LABEL = "Tooltips/Neocom/CorporationBalance";
   const WALLET_CREDIT_LABEL = "Tooltips/Neocom/WalletCredit";
   const WALLET_DEBIT_LABEL = "Tooltips/Neocom/WalletDebit";
+  const WALLET_ISK_BLINK = "UI/Neocom/Blink/ISKBalanceChanged";
+  const CORP_ISK_BLINK = "UI/Neocom/Blink/CorpISKBalanceChanged";
   const readWalletTip: NonNullable<Neocom["walletTip"]> = async () => {
     const currentSession = session;
     const pilot = currentSession?.store.station.get().online;
@@ -1090,8 +1092,26 @@
     return rows;
   };
   $effect(() => {
-    session?.flow.requestWords([WALLET_BALANCE_LABEL, CORPORATION_BALANCE_LABEL, WALLET_CREDIT_LABEL, WALLET_DEBIT_LABEL]);
+    session?.flow.requestWords([WALLET_BALANCE_LABEL, CORPORATION_BALANCE_LABEL, WALLET_CREDIT_LABEL, WALLET_DEBIT_LABEL,
+      WALLET_ISK_BLINK, CORP_ISK_BLINK]);
     if (neocomInst) neocomInst.walletTip = readWalletTip;
+  });
+  $effect(() => {
+    const current = session;
+    if (!current) return;
+    const updates = current.flow.walletIskChanged;
+    let previous = updates.get();
+    return updates.subscribe((change) => {
+      if (previous === change) return;
+      previous = change;
+      if (!change || stage !== "game" || current.store.station.get().online?.characterID !== change.characterID) return;
+      if (!walletSetting(change.characterID, change.corporate ? "notifyAccountChangeCorp" : "notifyAccountChange")) return;
+      const label = change.corporate ? CORP_ISK_BLINK : WALLET_ISK_BLINK;
+      const fallback = change.corporate ? "Corp ISK balance changed" : "Your ISK balance has changed";
+      const hint = plainText(current.store.words.get().templates[label] ?? "") || fallback;
+      if (docked) neocomInst?.blink("wallet", hint);
+      else view?.neocomBlink("wallet", hint);
+    });
   });
   $effect(() => {
     const current = session;

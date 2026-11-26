@@ -69,6 +69,8 @@
    */
   const retail = getContext("retailChrome") === true;
   let walletTab = $state<"mine" | "settings">("mine");
+  const NOTIFY_ISK = "UI/Wallet/WalletWindow/NotifyAccountChange";
+  const CORP_WALLET = "UI/Wallet/WalletWindow/CorporationWallet";
   const SHOW_CENTS = "UI/Wallet/WalletWindow/WalletShowCents";
   const SHOW_BALANCE_UPDATES = "UI/Wallet/WalletWindow/Configuration/WalletShowBalanceChange";
   const BALANCE_THRESHOLD = "UI/Wallet/WalletWindow/Configuration/WalletBalanceChangeThreshold";
@@ -81,7 +83,7 @@
   }
   const RETAIL_WORDS = ["UI/Wallet/WalletWindow/MyWallet", "UI/Common/Settings", "UI/Common/ISK", "UI/Common/PLEX",
     "UI/Journal/JournalWindow/Agents/LoyaltyPoints", "UI/Wallet/WalletWindow/EverMarks", "UI/Wallet/WalletWindow/ISKDescription",
-    SHOW_CENTS, SHOW_BALANCE_UPDATES, BALANCE_THRESHOLD];
+    SHOW_CENTS, SHOW_BALANCE_UPDATES, BALANCE_THRESHOLD, NOTIFY_ISK, CORP_WALLET];
   $effect(() => { if (retail) flow.requestWords(RETAIL_WORDS); });
 
   let busy = $state(false);
@@ -129,6 +131,11 @@
     </nav>
     {#if walletTab === "settings"}
       <div class="wallet-settings">
+        <label class="wallet-personal-isk-blink">
+          <input type="checkbox" checked={walletSetting(characterID, "notifyAccountChange")} disabled={characterID === null}
+            onchange={(event) => { if (characterID !== null) setWalletSetting(characterID, "notifyAccountChange", event.currentTarget.checked); }} />
+          {tabWord(NOTIFY_ISK, "Blink Wallet Button on ISK Balance Changes")}
+        </label>
         <label class="wallet-cents">
           <input type="checkbox" checked={showCents} disabled={characterID === null}
             onchange={(event) => { if (characterID !== null) setWalletShowsCents(characterID, event.currentTarget.checked); }} />
@@ -144,6 +151,12 @@
           <input type="text" inputmode="numeric" value={balanceThreshold} disabled={characterID === null}
             oninput={(event) => editBalanceThreshold(event.currentTarget)}
             onblur={(event) => { event.currentTarget.value = String(balanceThreshold); }} />
+        </label>
+        <h3>{tabWord(CORP_WALLET, "Corporation Wallet")}</h3>
+        <label class="wallet-corporation-isk-blink">
+          <input type="checkbox" checked={walletSetting(characterID, "notifyAccountChangeCorp")} disabled={characterID === null}
+            onchange={(event) => { if (characterID !== null) setWalletSetting(characterID, "notifyAccountChangeCorp", event.currentTarget.checked); }} />
+          {tabWord(NOTIFY_ISK, "Blink Wallet Button on ISK Balance Changes")}
         </label>
       </div>
     {/if}
@@ -219,6 +232,7 @@
 <style>
   .wallet-settings { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
   .wallet-settings label { display: flex; align-items: center; gap: 8px; }
+  .wallet-settings h3 { margin: 12px 0 0; }
   .wallet-balance-threshold input { width: 9em; }
 </style>
 

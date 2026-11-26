@@ -1,6 +1,12 @@
 import { SvelteMap } from "svelte/reactivity";
 
-const defaults = { walletShowCents: false, walletShowBalanceUpdates: true, iskNotifyThreshold: 0 };
+const defaults = {
+  notifyAccountChange: false,
+  notifyAccountChangeCorp: false,
+  walletShowCents: false,
+  walletShowBalanceUpdates: true,
+  iskNotifyThreshold: 0,
+};
 type WalletSettings = typeof defaults;
 type Setting = keyof WalletSettings;
 const walletSettings = new SvelteMap<number, Partial<WalletSettings>>();

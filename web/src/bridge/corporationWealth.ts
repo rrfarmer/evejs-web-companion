@@ -24,6 +24,12 @@ const TAKE_FIRST = 134217728n;
 const ACCOUNTANTS = 256n | 4503599627370496n;
 const TAKE_ALL = 127n * TAKE_FIRST;
 const KEPT_MS = 60_000;
+const accountNames = ["cash", "cash2", "cash3", "cash4", "cash5", "cash6", "cash7"];
+
+export function corporationWalletKey(accountName: unknown): number | null {
+  const index = accountNames.indexOf(String(accountName));
+  return index < 0 ? null : 1000 + index;
+}
 
 /** walletUtil.HaveAccessToCorpWallet, then HaveReadAccessToCorpWalletDivision.
  * The latter uses take bits, even for an Accountant/Junior who can RPC-read all.
@@ -85,10 +91,9 @@ export function createCorporationWealth(deps: {
       readonly corpRole: string | null | undefined;
     }): Promise<void> {
       if (value === null || value === undefined || Number(ownerID) !== whose.corporationID) return;
-      const names = ["cash", "cash2", "cash3", "cash4", "cash5", "cash6", "cash7"];
-      const index = names.indexOf(String(accountName));
-      if (index < 0 || !canReceiveCorporationWealth(whose.corpRole, 1000 + index)) return;
-      const scope = deps.capture(), eventGeneration = generation, key = 1000 + index;
+      const key = corporationWalletKey(accountName);
+      if (key === null || !canReceiveCorporationWealth(whose.corpRole, key)) return;
+      const scope = deps.capture(), eventGeneration = generation;
       if (scope.corporationID !== whose.corporationID) return;
       const balance = balanceNumber(value), previous = await cached(scope, key);
       scope.current();
