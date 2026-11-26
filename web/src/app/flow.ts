@@ -1003,7 +1003,7 @@ import { autopilotDistances, autopilotJumpCounts, autopilotMap, autopilotPath, t
 import { availableJumpGateJumps, type JumpGateJump } from "../nav/jumpGates.ts";
 import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, decodeStructureProfileNames, decodeStructureProfiles, encodeStructureDescription, MAX_STRUCTURE_DESCRIPTION_LENGTH, type StructureBrowserDirectory } from "../bridge/structures.ts";
 import { decodeProfileSettingRows, profileSettingSignature, PROFILE_SETTING_CATEGORIES, type ProfileSettingRow } from "../bridge/structureProfileSettings.ts";
-import { decodeMercenaryDen, decodeMercenaryDenActivities, mercenaryDenID, mercenaryDenInteger, mercenaryDenRecord, type MercenaryDenActivities, type MercenaryDenRow, type MercenaryDensRead } from "../bridge/mercenaryDens.ts";
+import { decodeMercenaryDen, decodeMercenaryDenActivities, mercenaryDenID, mercenaryDenInteger, mercenaryDenRecord, type MercenaryDenActivities, type MercenaryDenActivity, type MercenaryDenRow, type MercenaryDensRead } from "../bridge/mercenaryDens.ts";
 import { NO_REINFORCEMENT_WEEKDAY, structureDecommissionAction, structureDecommissionSeconds } from "../bridge/structureBrowserFilters.ts";
 import {
   AVOIDING_DIALOGS,
@@ -4590,6 +4590,8 @@ export interface AppFlow {
   loadMyMercenaryDens(): Promise<MercenaryDensRead>;
   reloadMercenaryDen(denID: number): Promise<MercenaryDenRow | null>;
   loadMercenaryDenActivities(denID: number): Promise<MercenaryDenActivities>;
+  loadMercenaryOperations(): Promise<readonly MercenaryDenActivity[]>;
+  loadMercenaryOperationIntel(dungeonID: number): Promise<api.DungeonData | null>;
   loadMySkyhooks(systemID: number): Promise<{ rows: SkyhookRow[]; currentRegionID: number | null }>;
   loadSkyhookRegions(): Promise<readonly { id: number; name: string }[]>;
   readSkyhookFilters(): SkyhookFilters;
@@ -28937,6 +28939,27 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return result;
   }
 
+  async function loadMercenaryOperations(): Promise<readonly MercenaryDenActivity[]> {
+    const current = callOptions.captureRequestGuard!();
+    const reply = await mercenaryDenRequest("activity.api.GetAllRequest");
+    current();
+    if (reply.statusCode !== 200) throw new Error("Mercenary Tactical Operations could not be read.");
+    const { rows } = decodeMercenaryDenActivities(reply.payload, null);
+    requestNames(rows.filter(row => row.solarSystemID > 0).map(row => ({ kind: "system", id: row.solarSystemID })));
+    requestWords(rows.flatMap(row => [row.nameID, row.descriptionID].filter(Boolean).map(id => `#${id}`)));
+    return rows;
+  }
+
+  async function loadMercenaryOperationIntel(dungeonID: number): Promise<api.DungeonData | null> {
+    if (!dungeonID) return null;
+    const current = callOptions.captureRequestGuard!();
+    const data = await api.loadDungeons([dungeonID], callOptions);
+    current();
+    const intel = data?.[dungeonID] ?? null;
+    if (intel?.factionID) requestNames([{ kind: "owner", id: intel.factionID }]);
+    return intel;
+  }
+
   async function loadMySkyhooks(systemID: number): Promise<{ rows: SkyhookRow[]; currentRegionID: number | null }> {
     const scope = captureMemberOperation();
     const corporationID = scope.online.corporationID;
@@ -41181,6 +41204,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMyMercenaryDens,
     reloadMercenaryDen,
     loadMercenaryDenActivities,
+    loadMercenaryOperations,
+    loadMercenaryOperationIntel,
     loadSkyhookRegions,
     readSkyhookFilters: () => skyhookFilters(charUiSetting),
     saveSkyhookFilter: (key, value) => setCharUiSetting(skyhookFilterSetting(key), value === null ? "" : String(value)),

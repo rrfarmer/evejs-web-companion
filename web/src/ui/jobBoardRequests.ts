@@ -5,7 +5,7 @@
 import { createSignal, readonlySignal, type ReadableSignal } from "../store/signals.ts";
 import type { DungeonOpportunityIdentity } from "../bridge/dungeonJobs.ts";
 
-export interface JobBoardRequest { readonly n: number; readonly projectID: string | null; readonly corporationID: number | null; readonly page: "browse" | "active"; readonly dungeon?: DungeonOpportunityIdentity }
+export interface JobBoardRequest { readonly n: number; readonly projectID: string | null; readonly corporationID: number | null; readonly page: "browse" | "active"; readonly dungeon?: DungeonOpportunityIdentity; readonly mercenaryOperationID?: string }
 const request = createSignal<JobBoardRequest | null>(null);
 let serial = 0;
 export const jobBoardRequests: ReadableSignal<JobBoardRequest | null> = readonlySignal(request);
@@ -17,6 +17,9 @@ export function openJobBoard(projectID: string | null = null, corporationID: num
 }
 export function openDungeonJob(dungeon: DungeonOpportunityIdentity): void {
   request.set({ n: ++serial, projectID: null, corporationID: null, page: "active", dungeon });
+}
+export function openMercenaryOperation(mercenaryOperationID: string): void {
+  request.set({ n: ++serial, projectID: null, corporationID: null, page: "browse", mercenaryOperationID });
 }
 
 /** The window has taken the request. */

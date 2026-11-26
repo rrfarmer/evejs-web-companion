@@ -21,6 +21,9 @@ export interface MercenaryDenProgress {
 
 export interface MercenaryDenActivity {
   readonly id: string;
+  readonly denID: number;
+  readonly solarSystemID: number;
+  readonly dungeonID: number;
   readonly nameID: number;
   readonly descriptionID: number;
   readonly started: boolean;
@@ -150,12 +153,15 @@ export function decodeMercenaryDenActivities(payload: unknown, capacity: number 
     const anarchyImpact = Number(template.anarchy_impact ?? 0);
     return [{
       id, nameID: mercenaryDenID(template.name), descriptionID: mercenaryDenID(template.description),
+      denID: mercenaryDenID(attributes.mercenary_den), solarSystemID: mercenaryDenID(attributes.solar_system),
+      dungeonID: mercenaryDenID(template.dungeon),
       started: attributes.started === true, expiresAt: activityTimestamp(attributes.expiry),
       developmentImpact: Number.isSafeInteger(developmentImpact) ? developmentImpact : 0,
       anarchyImpact: Number.isSafeInteger(anarchyImpact) ? anarchyImpact : 0,
       infomorphBonus: mercenaryDenInteger(template.infomorph_bonus),
     }];
   });
+  rows.sort((left, right) => (left.expiresAt || Infinity) - (right.expiresAt || Infinity) || left.id.localeCompare(right.id));
   return { rows, nextAt: activityTimestamp(result.next_generation_at), capacity };
 }
 

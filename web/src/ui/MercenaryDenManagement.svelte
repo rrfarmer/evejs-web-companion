@@ -4,6 +4,7 @@
   import type { MercenaryDenActivities, MercenaryDenRow, MercenaryDenStage } from "../bridge/mercenaryDens.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
+  import { openMercenaryOperation } from "./jobBoardRequests.ts";
 
   let { store, flow, den, characterID, activityRevision }: {
     store: ClientStore; flow: AppFlow; den: MercenaryDenRow; characterID: number | null; activityRevision: number;
@@ -35,6 +36,7 @@
     developmentImpact: ["UI/Sovereignty/MercenaryDen/DevelopmentImpact", "Development Impact {impact}"],
     anarchyImpact: ["UI/Sovereignty/MercenaryDen/AnarchyImpact", "Anarchy Impact {impact}"],
     infomorphBonus: ["UI/Sovereignty/MercenaryDen/InfomorphBonus", "Infomorph Bonus {bonus}"],
+    openOpportunity: ["UI/Commands/OpenJobBoardWindow", "AIR Opportunities"],
   } as const;
   const word = (key: keyof typeof labels, args: Record<string, string | number> = {}) =>
     plainText(formatTemplate($words.templates[labels[key][0]] ?? labels[key][1], args, { nameOf: () => "" }));
@@ -160,9 +162,11 @@
       {#key den.id}
         <div class="activity-list">
           {#each visibleActivities as row, index (row.id)}
+            {@const name = message(row.nameID) || `${word("activityTitle")} ${index + 1}`}
+            <div class="operation-row">
             <details>
               <summary>
-                <strong>{message(row.nameID) || `${word("activityTitle")} ${index + 1}`}</strong>
+                <strong>{name}</strong>
                 <small>
                   {word(row.started ? "started" : "ready")}
                   {#if row.expiresAt > now}
@@ -179,6 +183,9 @@
                 <li>{word("infomorphBonus", { bonus: row.infomorphBonus })}</li>
               </ul>
             </details>
+            <button type="button" class="operation-open" title={word("openOpportunity")} aria-label={`${word("openOpportunity")} · ${name}`}
+              onclick={() => openMercenaryOperation(row.id)}>↗</button>
+            </div>
           {/each}
         </div>
       {/key}
@@ -214,6 +221,8 @@
   .evolution-detail:hover .evolution-tooltip, .evolution-detail:focus-within .evolution-tooltip { display: block; }
   small { color: #bcc6ce; }
   details { background: #ffffff0d; }
+  .operation-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  .operation-open { align-self: start; margin: 4px; }
   summary { cursor: pointer; padding: 6px 8px; }
   summary small { display: flex; justify-content: space-between; gap: 4px; flex-wrap: wrap; margin-left: 14px; }
   details p { padding: 0 8px 6px; white-space: pre-line; }

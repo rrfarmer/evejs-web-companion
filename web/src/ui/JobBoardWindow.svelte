@@ -45,6 +45,8 @@
   import EpicArcPage from "./EpicArcPage.svelte";
   import DungeonCard from "./DungeonCard.svelte";
   import DungeonPage from "./DungeonPage.svelte";
+  import MercenaryOperationPage from "./MercenaryOperationPage.svelte";
+  import { mercenaryDenNotice, type MercenaryDenActivity } from "../bridge/mercenaryDens.ts";
   import { ARC_AVAILABLE, ARC_STARTED } from "../bridge/epicArcs.ts";
   import type { JournalMission } from "../store/types.ts";
   import { jobBoardRequests, serveJobBoardRequest } from "./jobBoardRequests.ts";
@@ -81,6 +83,8 @@
   const O = "UI/Opportunities/", N = "UI/Corporations/FreelanceProjects/NoJobs/";
   const REWARDS_COUNT = "UI/Achievements/Window/Rewards/RewardsCount";
   const DAILY_CLAIM_ERROR = "UI/Inflight/JumpThroughError";
+  const MTO = "UI/Sovereignty/MercenaryDen/ConfigurationWindow/ActivitiesTitle";
+  const MTO_READY = "UI/Agency/MercDen/ReadyToStart", MTO_STARTED = "UI/Agency/MercDen/InProgress";
   const DAILY_GOAL_NOTICES = new Set([
     "eve_public.dailygoal.api.CurrentGoalsNotice",
     "eve_public.dailygoal.api.ProgressedNotice",
@@ -88,7 +92,7 @@
     "eve_public.dailygoal.api.RedeemedNotice",
   ]);
   const LABELS = [O + "WindowTitle", O + "TabNameActive", O + "TabNameUnclaimedRewards", O + "VisibilityFreelanceProjects", O + "NoOpportunitiesFound", O + "ClaimAll", O + "FailedToLoad",
-    N + "NoJobsDiscoveredTitle", N + "NoJobsDiscoveredDescription", "UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureHeader", "UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureBody", "UI/Corporations/FreelanceProjects/YouAreAParticipant", "UI/Corporations/Goals/ClaimValue", "UI/Common/ISK", "UI/Common/Track", "UI/Common/Untrack", REWARDS_COUNT, DAILY_CLAIM_ERROR, "#1056273", "#1056274"];
+    N + "NoJobsDiscoveredTitle", N + "NoJobsDiscoveredDescription", "UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureHeader", "UI/Corporations/FreelanceProjects/Dialogs/ConfirmClosureBody", "UI/Corporations/FreelanceProjects/YouAreAParticipant", "UI/Corporations/Goals/ClaimValue", "UI/Common/ISK", "UI/Common/Track", "UI/Common/Untrack", REWARDS_COUNT, DAILY_CLAIM_ERROR, MTO, MTO_READY, MTO_STARTED, "#1056273", "#1056274"];
   const nameAny = (k: Parameters<typeof resolvedName>[1], id: number) => resolvedName($names.resolved, k, id, "");
   const word = (label: string, values: Record<string, unknown> = {}) => plainText(formatTemplate($words.templates[label] ?? "", values as never, { nameOf: nameAny }));
   let tab = $state<"browse" | "active" | "unclaimed">("browse"), open = $state<string | null>(null), busy = $state(false);
@@ -98,6 +102,28 @@
   let daily = $state<readonly DailyGoal[]>([]), openDaily = $state<string | null>(null);
   let dailyRead = 0;
   let dailyRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  let operations = $state.raw<readonly MercenaryDenActivity[] | null | undefined>(undefined);
+  let operationsCharacter: number | null = null;
+  let operationID = $state<string | null>(null);
+  let operationsRevision = $state(0);
+  const shownOperations = $derived(tab === "browse" ? operations ?? [] : []);
+  const operationOpen = $derived(operations?.find(operation => operation.id === operationID) ?? null);
+  function operationName(row: MercenaryDenActivity) {
+    const index = operations?.filter(operation => operation.denID === row.denID).findIndex(operation => operation.id === row.id) ?? 0;
+    return word(`#${row.nameID}`) || `${word(MTO) || "Mercenary Tactical Operations"} ${index + 1}`;
+  }
+  $effect(() => {
+    const character = $station.online?.characterID ?? null;
+    if (character !== operationsCharacter) {
+      operationsCharacter = character;
+      operations = undefined;
+    }
+    if (character === null) return;
+    void operationsRevision;
+    let current = true;
+    void flow.loadMercenaryOperations().then(rows => { if (current) operations = rows; }, () => { if (current) operations = null; });
+    return () => { current = false; };
+  });
   const dailyDone = (d: DailyGoal) => d.target > 0 && d.current >= d.target;
   const dailyExpired = (d: DailyGoal) => d.activeUntilMs !== null && d.activeUntilMs <= Date.now();
   const dailyCanClaim = (d: DailyGoal) => d.claimable && (!d.omega || $station.cloneGrade !== 0);
@@ -204,6 +230,7 @@
     const stop = notices.subscribe(next => {
       if (!next || next.n === lastSeen) return;
       lastSeen = next.n;
+      if (mercenaryDenNotice(next.typeName, next.payload)?.operations) operationsRevision++;
       if (!DAILY_GOAL_NOTICES.has(next.typeName)) return;
       // Two daily completions can also progress the bonus and all eight milestones in one burst.
       clearTimeout(dailyRefreshTimer);
@@ -218,11 +245,21 @@
   // freelanceprojects util.is_project_manager_for_corporation.
   const managerOf = (corporationID: number) => corporationID === $station.online?.corporationID && (BigInt($station.online?.corpRole ?? "0") & (1n | 1152921504606846976n)) !== 0n;
   let openCorp = $state<number | null>(null), duplicating = $state<FreelanceProject | null>(null), notice = $state("");
+  function showOperation(id: string) {
+    operationID = id;
+    tab = "browse";
+    open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null;
+  }
   $effect(() => {
     const r = $jobBoardRequests;
     if (!r) return;
     serveJobBoardRequest(r.n);
     notice = "";
+    if (r.mercenaryOperationID) {
+      showOperation(r.mercenaryOperationID);
+      return;
+    }
+    operationID = null;
     openDungeon = r.dungeon ?? null;
     if (r.projectID) { tab = "browse"; open = r.projectID; openCorp = r.corporationID; } else { tab = r.page; open = null; }
   });
@@ -246,12 +283,17 @@
 
 <div class="jb">
   <div class="jb-tabs">
-    <button class:on={tab === "browse"} onclick={() => { tab = "browse"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; }}>{word(O + "WindowTitle")}</button>
-    <button class:on={tab === "active"} onclick={() => { tab = "active"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; }}>{word(O + "TabNameActive")}{#if activeCount}<span class="jb-count">{activeCount}</span>{/if}</button>
-    <button class:on={tab === "unclaimed"} onclick={() => { tab = "unclaimed"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; }}>{word(O + "TabNameUnclaimedRewards")}{#if unclaimedCount}<span class="jb-count gold">{unclaimedCount}</span>{/if}</button>
+    <button class:on={tab === "browse"} onclick={() => { tab = "browse"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; operationID = null; }}>{word(O + "WindowTitle")}</button>
+    <button class:on={tab === "active"} onclick={() => { tab = "active"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; operationID = null; }}>{word(O + "TabNameActive")}{#if activeCount}<span class="jb-count">{activeCount}</span>{/if}</button>
+    <button class:on={tab === "unclaimed"} onclick={() => { tab = "unclaimed"; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; openDungeon = null; operationID = null; }}>{word(O + "TabNameUnclaimedRewards")}{#if unclaimedCount}<span class="jb-count gold">{unclaimedCount}</span>{/if}</button>
   </div>
   <div class="jb-body">
-    {#if dungeonOpen}
+    {#if operationOpen}
+      <MercenaryOperationPage {store} {flow} operation={operationOpen} name={operationName(operationOpen)} onBack={() => { operationID = null; }} />
+    {:else if operationID !== null}
+      <button type="button" onclick={() => { operationID = null; }}>{word("UI/Commands/Back") || "Back"}</button>
+      <p class="jb-hint" role="status">{operations === undefined ? "Loading operation…" : "This operation is unavailable."}</p>
+    {:else if dungeonOpen}
       <DungeonPage {store} {flow} job={dungeonOpen} onBack={() => { openDungeon = null; }} />
     {:else if arcOpen}
       <EpicArcPage {store} {flow} arc={arcOpen} featureTag={epic?.featureTag ?? null} onBack={() => { openArc = null; }} onViewMission={(agentID) => { openArc = null; void openMissionPage(agentID); }} onTalk={async (agentID) => { await flow.openConversation(agentID); showAgents?.(); }} />
@@ -269,8 +311,8 @@
             onViewParticipants={(p) => { flow.requestFreelanceAdminDetails(p.projectID); openCorporation?.(); }} onCloseJob={closeJob} />
         {:else}<FreelanceJobPage {store} {flow} projectID={open} onBack={() => { open = null; notice = ""; void load(); }} />{/if}
       {/key}
-    {:else if board === undefined && shownMilitia === null}<p class="jb-hint">…</p>
-    {:else if board === null && shownMilitia === null}<p class="jb-hint">{word(O + "FailedToLoad")}</p>
+    {:else if board === undefined && shownMilitia === null && !shownOperations.length}<p class="jb-hint">…</p>
+    {:else if board === null && shownMilitia === null && !shownOperations.length}<p class="jb-hint">{word(O + "FailedToLoad")}</p>
     {:else}
       {#if tab === "unclaimed" && unclaimedCount}
         <div class="jb-claim"><strong>{word(REWARDS_COUNT, { amount: unclaimedCount }) || `${unclaimedCount} rewards`}</strong>
@@ -281,7 +323,7 @@
         <button class="jb-season" type="button" style:background-image={`linear-gradient(transparent, #000b), url('${clientTexture("res:/UI/Texture/classes/Opportunities/CH26_Air-Opportunities-Window_700x242.png")}')`}
           onclick={() => openAgencyGroup(34)}><strong>{word("#1056273")}</strong><span>{word("#1056274")}</span></button>
       {/if}
-      {#if shownMilitia === null && !jobs.length && !shownMissions.length && !shownGoals.length && !shownDaily.length && !shownArcs.length && !shownDungeons.length}
+      {#if shownMilitia === null && !jobs.length && !shownMissions.length && !shownGoals.length && !shownDaily.length && !shownArcs.length && !shownDungeons.length && !shownOperations.length}
         {#if tab === "browse"}<div class="jb-empty"><b>{word(N + "NoJobsDiscoveredTitle")}</b><span>{word(N + "NoJobsDiscoveredDescription")}</span></div>
         {:else}<p class="jb-hint">{word(O + "NoOpportunitiesFound")}</p>{/if}
       {/if}
@@ -301,6 +343,12 @@
         {#each shownDungeons as d (d.kind + ":" + d.instanceID)}
           <DungeonCard {store} {flow} job={d} onOpen={() => { openDungeon = { kind: d.kind, instanceID: d.instanceID }; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; }} />
         {/each}
+        {#each shownOperations as operation (operation.id)}
+          <button type="button" class="jb-mto" data-operation={operation.id} onclick={() => showOperation(operation.id)}>
+            <strong>{operationName(operation)}</strong>
+            <small>{nameAny("system", operation.solarSystemID)} · {operation.started ? word(MTO_STARTED) || "In Progress" : word(MTO_READY) || "Ready to Start"}</small>
+          </button>
+        {/each}
         {#each shownGoals as g (g.goalID)}
           <CorporationGoalCard {store} {flow} goal={g} methods={goals?.methods ?? {}} onOpen={() => { openGoal = g.goalID; open = null; openMission = null; }} />
         {/each}
@@ -318,6 +366,8 @@
   .jb-tabs { display: flex; gap: 2px; padding: 4px 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); flex: none; }
   .jb-tabs button { all: unset; cursor: pointer; padding: 4px 12px; opacity: 0.7; }
   .jb-tabs button.on { opacity: 1; border-bottom: 2px solid var(--theme-focus, #58a6dc); }
+  .jb-mto { display: grid; gap: 4px; align-content: start; text-align: left; padding: 10px; background: #ffffff0d; }
+  .jb-mto small { color: #bcc6ce; }
   .jb-count { margin-left: 6px; padding: 0 5px; border-radius: 8px; background: rgba(88, 166, 220, 0.4); font-size: 11px; }
   .jb-count.gold { background: rgba(212, 170, 60, 0.5); }
   .gold { color: #d4aa3c; }
