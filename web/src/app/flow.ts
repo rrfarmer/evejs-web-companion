@@ -3876,7 +3876,9 @@ export interface AppFlow {
   ownerEntryInfo(ownerID: number, onInfo: (typeID: number, itemID: number) => void): Promise<void>;
   ownerEntryDoubleClick(ownerID: number, onInfo: (typeID: number, itemID: number) => void): Promise<void>;
   openMoneyTransfer(toID: number, corporate?: boolean): Promise<void>;
-  confirmMoneyTransfer(n: number, amount: string, reason: string): Promise<void>;
+  openCorporationWalletTransfer(toID: number, fromAccountKey: number | null, toAccountKey?: number, toCorporation?: boolean): Promise<void>;
+  searchCorporationTransferRecipients(text: string): Promise<readonly MoneyTransferRecipient[]>;
+  confirmMoneyTransfer(n: number, amount: string, reason: string, toAccountKey?: number | null): Promise<void>;
   closeMoneyTransfer(n?: number): void;
   /** Give Money's OK (transferMoneyWnd.py Confirm, 138 to 152): the pilot's ISK given to a character. Fails as the call fails. */
   giveMoney(toID: number, amount: number, reason: string): Promise<void>;
@@ -6038,11 +6040,20 @@ export interface MoneyTransfer {
   readonly toID: number;
   readonly fromName: string;
   readonly toName: string;
+  readonly toCorporation: boolean;
+  readonly accounts: readonly { readonly key: number; readonly name: string }[];
+  readonly toAccountKey: number | null;
   readonly fromAccountKey: number | null;
   readonly divisionName: string | null;
   readonly maximum: number;
   readonly busy: boolean;
   readonly error: string | null;
+}
+
+export interface MoneyTransferRecipient {
+  readonly id: number;
+  readonly name: string;
+  readonly corporation: boolean;
 }
 
 export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}): AppFlow {
@@ -7202,7 +7213,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const scope = captureMemberOperation();
       return { corporationID: scope.online.corporationID, ask: scope.ask, current: scope.current };
     },
-    changed: change => { corporationWealthSignal.set(change); updateTransferWealth(change.balance, change.corporationID); },
+    changed: change => { corporationWealthSignal.set(change); updateTransferWealth(change.balance, change.corporationID, change.accountKey); },
   });
   // Whether every training slot of the account is used, as the client's queue service reckons and keeps it
   // (bridge/trainingSlots.ts): what says whether a change of the queue may start it.
@@ -8318,7 +8329,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       corporationRecords.membershipChanged(value === null ? null : Number(unwrapLong(value)));
     }
     if (sessionNames?.includes("charid") && sessionChangeValue(method, args, "charid") === null) infoWindows.reset();
-    if (sessionNames?.includes("corpid")) { corporationMembershipGeneration++; cancelCorporationWalletChoice(); cancelCorporationCEOChoice(); cancelCorporationAward(); corporationWealthSignal.set(null); if (moneyTransferSignal.get()?.corporate) closeMoneyTransfer(); }
+    if (sessionNames?.includes("corpid")) {
+      corporationMembershipGeneration++;
+      cancelCorporationWalletChoice(); cancelCorporationCEOChoice(); cancelCorporationAward();
+      corporationWealthSignal.set(null);
+      const transfer = moneyTransferSignal.get();
+      if (transfer && (transfer.corporate || transfer.accounts.length > 0)) closeMoneyTransfer();
+    }
     if (sessionNames?.includes("corpid")) {
       corpWalletSharesGeneration++;
       corpWalletSharesSignal.set(NO_WALLET_SHARES);
@@ -27160,9 +27177,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (n !== undefined && moneyTransferSignal.get()?.n !== n) return;
     moneyTransferGeneration++; moneyTransferSignal.set(null); moneyTransferCurrent = null; moneyTransferWrite = null;
   }
-  function updateTransferWealth(balance: number, corporationID?: number): void {
+  function updateTransferWealth(balance: number, corporationID?: number, accountKey?: number): void {
     const held = moneyTransferSignal.get();
-    if (!held || held.corporate !== (corporationID !== undefined) || held.corporate && held.fromID !== corporationID) return;
+    if (!held || held.corporate !== (corporationID !== undefined) ||
+        (held.corporate && (held.fromID !== corporationID || held.fromAccountKey !== accountKey))) return;
     moneyTransferSignal.set({ ...held, maximum: balance });
   }
   async function corporationCashMenu(ownerIDs: readonly number[]): Promise<{ readonly transfer: () => Promise<void> } | null> {
@@ -27175,41 +27193,73 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return { transfer: async () => { scope.current(); await openMoneyTransfer(target, true); } };
   }
   async function openMoneyTransfer(toID: number, corporate = false): Promise<void> {
+    return startMoneyTransfer(toID, corporate);
+  }
+  async function openCorporationWalletTransfer(toID: number, fromAccountKey: number | null, toAccountKey?: number, toCorporation = false): Promise<void> {
+    if (fromAccountKey !== null && !canReceiveCorporationWealth(store.station.get().online?.corpRole, fromAccountKey)) {
+      throw new Error("Your corporation roles do not allow using this wallet division.");
+    }
+    return startMoneyTransfer(toID, fromAccountKey !== null, { fromAccountKey, toAccountKey, toCorporation });
+  }
+  async function searchCorporationTransferRecipients(text: string): Promise<readonly MoneyTransferRecipient[]> {
+    const { ask, current } = captureMemberOperation();
+    const answer = await ask("lookupSvc", "LookupNoneNPCAccountOwners", [text.trim().slice(0, 32), 0]);
+    current();
+    if (answer === null) return [];
+    if (!isListValue(answer)) throw new Error("The recipient list could not be read.");
+    return answer.items.flatMap(row => {
+      const id = Number(unwrapLong(readKeyVal(row, "ownerID"))), name = allianceText(readKeyVal(row, "ownerName"));
+      const corporation = Number(unwrapLong(readKeyVal(row, "corporationID"))) === id;
+      return id > 0 && !isNpcOwner(id) && name ? [{ id, name, corporation }] : [];
+    });
+  }
+  async function startMoneyTransfer(toID: number, corporate: boolean, wallet?: {
+    fromAccountKey: number | null; toAccountKey?: number; toCorporation: boolean;
+  }): Promise<void> {
     const online = store.station.get().online;
     if (!online) throw new BridgeCallError("NO_LIVE_SESSION", "No character is online.", 409);
     closeMoneyTransfer(); const n = moneyTransferGeneration;
     const pilot = callOptions.captureRequestGuard!();
-    const scope = corporate ? captureMemberOperation() : { current: pilot, options: { ...callOptions, captureRequestGuard: () => pilot } };
+    const scope = corporate || wallet ? captureMemberOperation() : { current: pilot, options: { ...callOptions, captureRequestGuard: () => pilot } };
     const current = () => { scope.current(); if (moneyTransferGeneration !== n) throw new BridgeCallError("SESSION_REQUEST_RETIRED", "This transfer window was replaced.", 0); };
     const fromID = corporate ? online.corporationID! : online.characterID;
     // Native _InitVariables reads None BEFORE capturing the active source key.
-    const maximum = corporate ? await corporationWealthReads.fresh(null) : await pilotWealth(); current();
+    const maximum = corporate ? await corporationWealthReads.fresh(wallet?.fromAccountKey ?? null) : await pilotWealth(); current();
     if (maximum === null) throw new Error("The wallet returned no balance.");
-    const fromAccountKey = corporate ? store.station.get().online?.corpAccountKey ?? null : null;
+    const fromAccountKey = corporate ? wallet?.fromAccountKey ?? store.station.get().online?.corpAccountKey ?? null : null;
+    const hasDestinationDivision = wallet !== undefined && toID === online.corporationID;
+    const toCorporation = hasDestinationDivision || wallet?.toCorporation === true;
     await memberNames(scope, [{ kind: "owner", id: fromID }, { kind: "owner", id: toID }]); current();
     let divisionName: string | null = null;
-    if (corporate && fromAccountKey !== null) {
+    let accounts: readonly { readonly key: number; readonly name: string }[] = [];
+    if (fromAccountKey !== null || hasDestinationDivision) {
       const row = await api.bridgeAsk(scope.options)("corpRegistry", "GetCorporation", []); current();
-      const ordinal = (fromAccountKey ?? 1000) - 999;
-      const suffix = ["MasterWallet", "WalletSecond", "WalletThird", "WalletFourth", "WalletFifth", "WalletSixth", "WalletSeventh"][ordinal - 1] ?? "MasterWallet";
-      const label = `UI/Corporations/Common/CorporateDivision${suffix}`;
-      await wordsNow([label]); current();
-      divisionName = divisionNamesOf(row)[String(ordinal)] ?? templateWords(label, {}, ordinal === 1 ? "Master Wallet" : `Wallet Division ${ordinal}`);
+      const names = divisionNamesOf(row);
+      const labels = ["MasterWallet", "WalletSecond", "WalletThird", "WalletFourth", "WalletFifth", "WalletSixth", "WalletSeventh"]
+        .map(suffix => `UI/Corporations/Common/CorporateDivision${suffix}`);
+      await wordsNow(labels); current();
+      const divisions = labels.map((label, index) => ({ key: 1000 + index,
+        name: names[String(index + 1)] ?? templateWords(label, {}, index === 0 ? "Master Wallet" : `Wallet Division ${index + 1}`) }));
+      divisionName = divisions.find(division => division.key === fromAccountKey)?.name ?? null;
+      if (hasDestinationDivision) accounts = divisions;
     }
     if (corporate) { requestCorpLogos([fromID]); loadOwnerLogos(); }
-    await wordsNow(["UI/Wallet/WalletWindow/TransferMoney", "UI/Wallet/WalletWindow/FromCharacter", "UI/Wallet/WalletWindow/FromCharacterAcct", "UI/Wallet/WalletWindow/ToCharacter", "UI/Wallet/WalletWindow/ColHeaderAmount", "UI/Wallet/WalletWindow/Reason", "UI/Wallet/WalletWindow/TransferSuccessful", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel"]); current();
+    if (toCorporation) { requestCorpLogos([toID]); loadOwnerLogos(); }
+    await wordsNow(["UI/Wallet/WalletWindow/TransferMoney", "UI/Wallet/WalletWindow/FromCharacter", "UI/Wallet/WalletWindow/FromCharacterAcct", "UI/Wallet/WalletWindow/ToCharacter", "UI/Wallet/WalletWindow/Account", "UI/Wallet/WalletWindow/ColHeaderAmount", "UI/Wallet/WalletWindow/Reason", "UI/Wallet/WalletWindow/TransferSuccessful", "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel"]); current();
     void loadImageServer();
     moneyTransferCurrent = current; moneyTransferWrite = api.bridgeDo({ ...scope.options, captureRequestGuard: () => current });
-    moneyTransferSignal.set({ n, corporate, fromID, toID, fromName: nameCache.get(nameKey("owner", fromID)) ?? "…", toName: nameCache.get(nameKey("owner", toID)) ?? "…", fromAccountKey, divisionName, maximum, busy: false, error: null });
+    moneyTransferSignal.set({ n, corporate, fromID, toID, fromName: nameCache.get(nameKey("owner", fromID)) ?? "…", toName: nameCache.get(nameKey("owner", toID)) ?? "…", toCorporation, accounts, toAccountKey: hasDestinationDivision ? wallet?.toAccountKey ?? 1000 : null, fromAccountKey, divisionName, maximum, busy: false, error: null });
   }
-  async function confirmMoneyTransfer(n: number, typed: string, reason: string): Promise<void> {
+  async function confirmMoneyTransfer(n: number, typed: string, reason: string, selectedAccount?: number | null): Promise<void> {
     const held = moneyTransferSignal.get(), current = moneyTransferCurrent, write = moneyTransferWrite;
     if (!held || held.n !== n || held.busy || !current || !write) return;
     current(); const amount = transferValue(typed); if (!(amount > 0)) return;
+    const toAccountKey = selectedAccount ?? held.toAccountKey;
+    if (toAccountKey !== null && !held.accounts.some(account => account.key === toAccountKey)) return;
     moneyTransferSignal.set({ ...held, busy: true, error: null });
     try {
-      if (held.corporate) await write("account", "GiveCashFromCorpAccount", [held.toID, amount, held.fromAccountKey], { toAccountKey: null, reason: transferReason(reason) }, held.fromID);
-      else await giveMoneyCall(write, held.toID, amount, transferReason(reason));
+      if (held.corporate) await write("account", "GiveCashFromCorpAccount", [held.toID, amount, held.fromAccountKey], { toAccountKey, reason: transferReason(reason) }, held.fromID);
+      else await giveMoneyCall(write, held.toID, amount, transferReason(reason), toAccountKey);
       current();
       const text = templateWords("UI/Wallet/WalletWindow/TransferSuccessful", {}, "Transfer successful");
       sayDialog("CustomNotify", { type: "dict", entries: [["notify", text]] }, text);
@@ -40339,6 +40389,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     ownerEntryDoubleClick,
     ownerEntryInfo,
     openMoneyTransfer,
+    openCorporationWalletTransfer,
+    searchCorporationTransferRecipients,
     confirmMoneyTransfer,
     closeMoneyTransfer,
     moneyTransfer: readonlySignal(moneyTransferSignal),

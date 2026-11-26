@@ -18,6 +18,8 @@
   // This component is keyed by request.n: native CloseIfOpen/Open creates fresh edits.
   // svelte-ignore state_referenced_locally
   let amount = $state(String(transferAmount("0.1", request.maximum)));
+  // svelte-ignore state_referenced_locally
+  let destination = $state(request.toAccountKey);
   let reason = $state("");
   let amountInput: HTMLInputElement;
   let windowNode: HTMLElement;
@@ -42,17 +44,26 @@
 <svelte:window onkeydown={event => { if (inFront && event.key === "Escape" && windowNode?.contains(document.activeElement)) { event.preventDefault(); flow.closeMoneyTransfer(request.n); } }} />
 <div class="transfer-shade" class:inactive={!inFront}>
   <div bind:this={windowNode} class="transfer-window" role="dialog" aria-modal="false" tabindex="-1" aria-label={caption} data-dialog="TransferMoney" data-in-front={inFront}>
-    <form onsubmit={event => { event.preventDefault(); void flow.confirmMoneyTransfer(request.n, amount, reason); }}>
+    {#snippet owner(id: number, name: string, corporation: boolean)}
+      <span class="owner-picture">
+        {#if corporation && $logos[String(id)] && $library}<CorpLogo library={$library} logo={$logos[String(id)]!} {name} />
+        {:else if corporation && $ownerLogos?.corporations[String(id)]}<img src={clientTexture($ownerLogos.corporations[String(id)]!)} width="64" height="64" alt="" />
+        {:else}<OwnerPicture {name} urls={corporation ? [] : portrait(id)} size={64} />{/if}
+      </span>
+    {/snippet}
+    <form onsubmit={event => { event.preventDefault(); void flow.confirmMoneyTransfer(request.n, amount, reason, destination); }}>
       <h3>{caption}</h3>
       <div class="owner">
-        <span class="owner-picture">
-          {#if request.corporate && $logos[String(request.fromID)] && $library}<CorpLogo library={$library} logo={$logos[String(request.fromID)]!} name={request.fromName} />
-          {:else if request.corporate && $ownerLogos?.corporations[String(request.fromID)]}<img src={clientTexture($ownerLogos.corporations[String(request.fromID)]!)} width="64" height="64" alt="" />
-          {:else if request.corporate}<OwnerPicture name={request.fromName} urls={[]} size={64} />
-          {:else}<OwnerPicture name={request.fromName} urls={portrait(request.fromID)} size={64} />{/if}
-        </span><span>{from}</span>
+        {@render owner(request.fromID, request.fromName, request.corporate)}<span>{from}</span>
       </div>
-      <div class="owner"><OwnerPicture name={request.toName} urls={portrait(request.toID)} size={64} /><span>{to}</span></div>
+      <div class="owner">{@render owner(request.toID, request.toName, request.toCorporation)}<span>{to}</span></div>
+      {#if request.accounts.length > 0}
+        <label>{word(prefix + "Account", "Account")}
+          <select bind:value={destination} disabled={request.busy}>
+            {#each request.accounts as account (account.key)}<option value={account.key}>{account.name}</option>{/each}
+          </select>
+        </label>
+      {/if}
       <label>{word(prefix + "ColHeaderAmount", "Amount")}<input bind:this={amountInput} type="text" inputmode="decimal" value={amount} oninput={editAmount} onblur={amountLeft} /></label>
       <label>{word(prefix + "Reason", "Reason")}<input type="text" maxlength={TRANSFER_REASON_MAX} bind:value={reason} /></label>
       {#if request.error}<p class="error">{request.error}</p>{/if}
@@ -70,7 +81,7 @@
   .owner { display: flex; align-items: center; gap: .75rem; min-width: 0; overflow-wrap: anywhere; }
   .owner-picture { width: 64px; height: 64px; flex: 0 0 64px; }
   label { display: flex; flex-direction: column; gap: .25rem; }
-  input { min-width: 0; width: 100%; box-sizing: border-box; background: #0d1b29; color: inherit; border: 1px solid #3c6f9e; padding: .3rem .4rem; }
+  input, select { min-width: 0; width: 100%; box-sizing: border-box; background: #0d1b29; color: inherit; border: 1px solid #3c6f9e; padding: .3rem .4rem; }
   .answers { display: flex; justify-content: flex-end; gap: .5rem; }
   button { border: 1px solid #5b93c7; background: #1b3956; color: inherit; padding: .3rem 1rem; cursor: pointer; }
 </style>

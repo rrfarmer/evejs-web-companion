@@ -7627,12 +7627,13 @@ async function dispatchCorporationMedalWrite(req, res, next, body) {
 async function dispatchCorporationCashWrite(req, res, next, body) {
   const held = requireHeldBridgeSession(req, res); if (!held) return;
   const args = body.args, origin = strictPositiveID(body.of), kwargs = body.kwargs;
-  // Shared character-recipient TransferMoneyWnd. The origin is private metadata;
+  // Shared TransferMoneyWnd. The origin is private metadata;
   // only its three original arguments and two keywords reach the native service.
   if (!origin || !Array.isArray(args) || args.length !== 3 || strictPositiveID(args[0]) === null ||
       !Number.isFinite(args[1]) || !(args[1] > 0) || !(args[2] === null || Number.isInteger(args[2]) && args[2] >= 1000 && args[2] <= 1006) ||
-      !kwargs || kwargs.toAccountKey !== null || typeof kwargs.reason !== "string" || Object.keys(kwargs).some(key => !["toAccountKey", "reason"].includes(key))) {
-    res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "A corporation cash transfer names one character, amount and source division." }); return;
+      !kwargs || (kwargs.toAccountKey !== null && (args[0] !== origin || !Number.isInteger(kwargs.toAccountKey) || kwargs.toAccountKey < 1000 || kwargs.toAccountKey > 1006)) ||
+      typeof kwargs.reason !== "string" || Object.keys(kwargs).some(key => !["toAccountKey", "reason"].includes(key))) {
+    res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "Choose one recipient, amount, source division and an eligible destination division." }); return;
   }
   try {
     assertCurrentHeldSession(held, req.webSessionID);

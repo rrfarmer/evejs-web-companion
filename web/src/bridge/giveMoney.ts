@@ -120,7 +120,7 @@ export function readableIsk(amount: number, word: (label: string) => string | nu
 }
 
 /** Gives `amount` of the pilot's ISK to the character `toID`, with the reason. Fails as the call fails. */
-export async function giveMoney(act: Ask, toID: number, amount: number, reason: string): Promise<void> {
+export async function giveMoney(act: Ask, toID: number, amount: number, reason: string, toAccountKey: number | null = null): Promise<void> {
   if (!Number.isSafeInteger(toID) || toID <= 0) throw new Error("That is no one to give money to.");
-  await act("account", "GiveCash", [toID, amount, reason], { toAccountKey: null });
+  await act("account", "GiveCash", [toID, amount, reason], { toAccountKey });
 }

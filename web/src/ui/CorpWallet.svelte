@@ -14,7 +14,7 @@
   import { formatWalletCents, formatWholeIsk } from "./isk.ts";
   import { walletShowsCents } from "./walletSettings.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import type { AppFlow } from "../app/flow.ts";
+  import type { AppFlow, MoneyTransferRecipient } from "../app/flow.ts";
   import type { CorpWalletDivision } from "../store/types.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { canViewCorporateShares } from "../bridge/walletShares.ts";
@@ -22,6 +22,7 @@
   import WalletShares from "./WalletShares.svelte";
   import WalletJournal from "./WalletJournal.svelte";
   import WalletMarketTransactions from "./WalletMarketTransactions.svelte";
+  import WalletTransferRecipient from "./WalletTransferRecipient.svelte";
   import { canViewCorporateJournal } from "../bridge/walletJournal.ts";
   import { canViewCorporateMarketTransactions } from "../bridge/marketTransactions.ts";
   import { canReceiveCorporationWealth, corporationWalletTakeKeys } from "../bridge/corporationWealth.ts";
@@ -49,7 +50,10 @@
     : !journalAllowed && marketAllowed ? "market"
     : tab === "market" ? "divisions" : tab);
   const activeKey = $derived($station.online?.corpAccountKey ?? null);
+  const pilotID = $derived($station.online?.characterID ?? null);
+  const corporationID = $derived($station.online?.corporationID ?? null);
   const divisionReadable = $derived(activeKey !== null && canReceiveCorporationWealth(role, activeKey));
+  let recipientSource = $state<number | null>(null);
   const wealthChanges = $derived(flow.corporationWealthChanged);
   let divisionBalance = $state<number | null>(null);
   let divisionError = $state("");
@@ -68,6 +72,11 @@
     changeDivision: "UI/Wallet/WalletWindow/ChangeDivision",
     setActive: "UI/Wallet/WalletWindow/MenuSetActiveWallet",
     masterWallet: "UI/Corporations/Common/CorporateDivisionMasterWallet",
+    deposit: "UI/Wallet/WalletWindow/DepositISK",
+    withdraw: "UI/Wallet/WalletWindow/WithdrawISK",
+    transfer: "UI/Wallet/WalletWindow/TransferMoney",
+    transferTo: "UI/Wallet/WalletWindow/MenuTransferToCorp",
+    transferFrom: "UI/Wallet/WalletWindow/MenuTransferFromCorp",
   };
   $effect(() => { flow.requestWords(Object.values(labels)); });
   function word(label: string, fallback: string): string {
@@ -166,6 +175,14 @@
     marketDivision = division;
     divisionMenu = null;
     tab = "market";
+  }
+  function transfer(toID: number, fromAccount: number | null, toAccount?: number, toCorporation = false) {
+    divisionMenu = null;
+    recipientSource = null;
+    void run(() => flow.openCorporationWalletTransfer(toID, fromAccount, toAccount, toCorporation));
+  }
+  function transferToRecipient(row: MoneyTransferRecipient) {
+    if (recipientSource !== null) transfer(row.id, recipientSource, undefined, row.corporation);
   }
 </script>
 
@@ -266,6 +283,10 @@
                 {#if divisionMenu === division.key}
                   {#if canSet}<button type="button" class="minor" disabled={busy} onclick={() => changeDivision(division.key)}>{word(labels.setActive, "Set as Active Wallet")}</button>{/if}
                   {#if marketAllowed}<button type="button" class="minor" onclick={() => openMarket(division.key)}>{word(labels.marketMenu, "View Market Transactions")}</button>{/if}
+                  {#if canSet && corporationID !== null && activeKey !== null}
+                    {#if divisionReadable}<button type="button" class="minor" disabled={busy} onclick={() => transfer(corporationID!, activeKey, division.key)}>{word(labels.transferTo, "Transfer ISK to Division")}</button>{/if}
+                    <button type="button" class="minor" disabled={busy} onclick={() => transfer(corporationID!, division.key, activeKey!)}>{word(labels.transferFrom, "Transfer ISK from Division")}</button>
+                  {/if}
                 {/if}
                 {/if}
               </td>
@@ -276,8 +297,22 @@
     </table>
   {/if}
 
+  {#if embedded && corporationID !== null && pilotID !== null}
+    <div class="controls corp-wallet-actions">
+      <button type="button" disabled={busy || activeKey === null} onclick={() => transfer(corporationID!, null, activeKey ?? undefined)}>{word(labels.deposit, "Deposit ISK")}</button>
+      {#if divisionReadable}
+        <button type="button" disabled={busy} onclick={() => transfer(pilotID!, activeKey)}>{word(labels.withdraw, "Withdraw ISK")}</button>
+        <button type="button" disabled={busy || recipientSource !== null} onclick={() => (recipientSource = activeKey)}>{word(labels.transfer, "Transfer ISK")}</button>
+      {/if}
+    </div>
+    {#if recipientSource !== null}
+      <WalletTransferRecipient {store} {flow} selected={transferToRecipient} close={() => (recipientSource = null)} />
+    {/if}
+  {/if}
+
 </section>
 
 <style>
   .corp-active-division { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; }
+  .corp-wallet-actions { margin-top: 0.75rem; }
 </style>
