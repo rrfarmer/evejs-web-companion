@@ -12,6 +12,9 @@
   const words = store.words;
   const welcomeLabel = "UI/ProjectDiscovery/Covid/Intro/Welcome";
   const beginLabel = "UI/ProjectDiscovery/Covid/Intro/ButtonBegin";
+  const tutorialLabels = "UI/ProjectDiscovery/Covid/Tutorial/";
+  const introLabels = "UI/ProjectDiscovery/Covid/Intro/";
+  const word = (label: string, fallback: string) => plainText($words.templates[label] ?? "") || fallback;
   const sampleImage = clientTexture("res:/UI/Texture/classes/ProjectDiscovery/covid/intro/project_discovery.png");
   const practiceImage = clientTexture("res:/UI/Texture/classes/ProjectDiscovery/covid/tutorial/onegate.png");
   const practiceTargets = [[.77, .31], [.59, .50], [.48, .72], [.33, .70], [.26, .47], [.13, .36], [.19, .18], [.43, .10], [.72, .13]] as const;
@@ -26,7 +29,7 @@
   const service = "ProjectDiscovery";
   type Progress = { rank: number; experience: number; analysisKredits: number; finishedTutorial: boolean; tutorialLevel: number };
   type Point = readonly [number, number];
-  type Sample = { id: string; width: number; height: number; points: Point[]; lesson: number | null };
+  type Sample = { id: string; width: number; height: number; points: Point[]; lesson: number | null; review?: boolean };
   let progress = $state<Progress | null>(null);
   let briefing = $state(false);
   let loading = $state(false);
@@ -34,7 +37,9 @@
   let sample = $state.raw<Sample | null>(null);
   let score = $state<number | null>(null);
   let completion = $state<{ xp: number; kredits: number } | null>(null);
-  let regularReward = $state<{ xp: number; isk: number; kredits: number } | null>(null);
+  let regularReward = $state<{ xp: number; isk: number; kredits: number; bonus: boolean; rank: number | null; crates: number; tier: number | null } | null>(null);
+  let restarting = $state(false);
+  let retrainingOffer = $state(false);
   let polygons = $state.raw<Point[][]>([]);
   let outline = $state.raw<Point[]>([]);
   let solution = $state.raw<Point[][]>([]);
@@ -67,6 +72,15 @@
     error = "";
     try {
       progress = await readProgress();
+      if (progress.finishedTutorial) {
+        try {
+          const key = `evejs.user.${store.session.get().accountID ?? "local"}.projectDiscoveryRetrainingOffered`;
+          retrainingOffer = localStorage.getItem(key) !== "yes";
+          if (retrainingOffer) localStorage.setItem(key, "yes");
+        } catch {
+          retrainingOffer = false;
+        }
+      }
     } catch (cause) {
       error = cause instanceof Error ? cause.message : "Project Discovery could not be reached.";
     } finally {
@@ -93,13 +107,17 @@
     startedAt = performance.now();
   }
 
-  async function loadSample(advance = false) {
+  async function loadSample(advance = false, reviewStart = false) {
     if (loading || !progress) return;
     loading = true;
     error = "";
     try {
       const options = flow.requestOptions();
-      if (advance && sample?.lesson != null) {
+      let reviewLesson = reviewStart ? 2 : sample?.review ? sample.lesson : null;
+      if (reviewLesson !== null && advance) {
+        reviewLesson++;
+        if (reviewLesson === lessons.length) reviewLesson = null;
+      } else if (advance && sample?.lesson != null) {
         const prior = await readProgress();
         progress = prior;
         const last = sample.lesson === lessons.length - 1;
@@ -112,7 +130,7 @@
           return;
         }
       }
-      const lesson = progress.finishedTutorial ? null : Math.min(progress.tutorialLevel, lessons.length - 1);
+      const lesson = reviewLesson ?? (progress.finishedTutorial ? null : Math.min(progress.tutorialLevel, lessons.length - 1));
       if (lesson === 0) {
         showSample({ id: "one-gate", width: 768, height: 768, points: [], lesson });
         return;
@@ -131,12 +149,44 @@
       const points = positions.items.map(pair).filter((point): point is Point =>
         point !== null && point.every(n => n >= 0 && n <= 1));
       if (!points.length || points.length !== positions.items.length) throw new Error("The sample contains invalid points.");
-      showSample({ id, width: dimensions[0], height: dimensions[1], points, lesson });
+      showSample({ id, width: dimensions[0], height: dimensions[1], points, lesson, review: reviewLesson !== null });
+      retrainingOffer = false;
     } catch (cause) {
       error = cause instanceof Error ? cause.message : "The sample could not be loaded.";
     } finally {
       loading = false;
     }
+  }
+
+  async function restartTraining() {
+    if (loading) return;
+    loading = true;
+    error = "";
+    try {
+      progress = pilotProgress(await bridgeDo(flow.requestOptions())(service, "reset_tutorial", []));
+      sample = null;
+      briefing = false;
+      retrainingOffer = false;
+      restarting = false;
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : "Training could not be restarted.";
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function skipTraining() {
+    if (loading) return;
+    loading = true;
+    error = "";
+    try {
+      progress = pilotProgress(await bridgeDo(flow.requestOptions())(service, "skip_tutorial", []));
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : "Training could not be skipped.";
+    } finally {
+      loading = false;
+    }
+    if (!error) await loadSample();
   }
 
   function finishOutline() {
@@ -196,13 +246,19 @@
       if (resultScore === null || resultScore < 0 || resultScore > 1 || player === undefined) {
         throw new Error("The classification result could not be read.");
       }
+      const previousRank = progress?.rank;
       progress = pilotProgress(player);
       score = resultScore;
       if (sample.lesson === null) {
+        const crates = readDictEntry(result, "loot_crates");
         regularReward = {
           xp: unwrapReal(readDictEntry(result, "XP_Reward")) ?? 0,
           isk: unwrapReal(readDictEntry(result, "ISK_Reward")) ?? 0,
           kredits: unwrapReal(readDictEntry(result, "AK_Reward")) ?? 0,
+          bonus: unwrapBool(readDictEntry(result, "gotBonusXP")) === true,
+          rank: previousRank !== undefined && progress.rank > previousRank ? progress.rank : null,
+          crates: isListValue(crates) ? crates.items.length : 0,
+          tier: unwrapReal(readDictEntry(result, "tier_reward")),
         };
       }
       const returnedTask = readDictEntry(result, "task");
@@ -273,7 +329,9 @@
   });
 
   onMount(() => {
-    flow.requestWords([welcomeLabel, beginLabel]);
+    flow.requestWords([welcomeLabel, beginLabel, "UI/ProjectDiscovery/HelpTutorialTooltip",
+      ...["RestartCaption", "RestartText", "ButtonRestartOk", "ButtonRestartCancel"].map(label => tutorialLabels + label),
+      ...["RetrainingText", "RetrainingButtonContinue", "RetrainingButtonSkip", "TransitionButtonSkip"].map(label => introLabels + label)]);
     void load();
   });
 </script>
@@ -285,7 +343,27 @@
       <div><dt>Experience</dt><dd>{progress.experience.toLocaleString()}</dd></div>
       <div><dt>Analysis Kredits</dt><dd>{progress.analysisKredits.toLocaleString()}</dd></div>
     </dl>
-    {#if sample}
+    {#if restarting}
+      <article role="alertdialog" aria-labelledby="discovery-restart-title">
+        <h2 id="discovery-restart-title">{word(tutorialLabels + "RestartCaption", "Restart tutorial")}</h2>
+        <p>{word(tutorialLabels + "RestartText", "Start Project Discovery training again?")}</p>
+        <div class="actions">
+          <button type="button" disabled={loading} onclick={restartTraining}>{word(tutorialLabels + "ButtonRestartOk", "Restart")}</button>
+          <button type="button" disabled={loading} onclick={() => { restarting = false; error = ""; }}>{word(tutorialLabels + "ButtonRestartCancel", "Cancel")}</button>
+        </div>
+        {#if error}<p role="alert">{error}</p>{/if}
+      </article>
+    {:else if retrainingOffer}
+      <article>
+        <h2>Project Discovery refresher</h2>
+        <p>{word(introLabels + "RetrainingText", "Review the more advanced training samples or return to classification.")}</p>
+        <div class="actions">
+          <button type="button" disabled={loading} onclick={() => void loadSample(false, true)}>{word(introLabels + "RetrainingButtonContinue", "Retrain")}</button>
+          <button type="button" disabled={loading} onclick={() => void loadSample()}>{word(introLabels + "RetrainingButtonSkip", "Skip retraining")}</button>
+        </div>
+        {#if error}<p role="alert">{error}</p>{/if}
+      </article>
+    {:else if sample}
       <div class="sample">
         <div class="chart" style:aspect-ratio={`${sample.width} / ${sample.height}`}>
           {#if practice}
@@ -326,9 +404,15 @@
             {#if regularReward && (regularReward.xp || regularReward.isk || regularReward.kredits)}
               <p>{regularReward.xp.toLocaleString()} XP · {regularReward.isk.toLocaleString()} ISK · {regularReward.kredits.toLocaleString()} Analysis Kredits</p>
             {/if}
+            {#if regularReward?.bonus}<p>Bonus XP × 2</p>{/if}
+            {#if regularReward?.rank}<p>New rank reached · {regularReward.rank.toLocaleString()}</p>{/if}
+            {#if regularReward?.crates}
+              <p>{regularReward.crates.toLocaleString()} {regularReward.crates === 1 ? "reward crate" : "reward crates"} in Redeem Items</p>
+            {/if}
+            {#if regularReward?.tier}<p>Tier reward · Rank {regularReward.tier.toLocaleString()}</p>{/if}
             {@const advance = sample.lesson !== null && score > 0.5}
             <button type="button" disabled={loading} onclick={() => void loadSample(advance)}>
-              {sample.lesson === null ? "Next sample" : advance ? sample.lesson === lessons.length - 1 ? "Finish training" : "Next lesson" : "Try again"}
+              {sample.lesson === null ? "Next sample" : advance ? sample.lesson === lessons.length - 1 ? sample.review ? "Finish retraining" : "Finish training" : "Next lesson" : "Try again"}
             </button>
           {/if}
           <button type="button" disabled={loading} onclick={() => { sample = null; error = ""; }}>Back</button>
@@ -344,6 +428,9 @@
           <p>EveJS uses local training samples and tracks your results on this pilot.</p>
           <div class="actions">
             <button type="button" disabled={loading} onclick={() => void loadSample()}>{progress.finishedTutorial ? "Open sample" : progress.tutorialLevel > 0 ? "Resume training" : "Start training"}</button>
+            {#if !progress.finishedTutorial}
+              <button type="button" disabled={loading} onclick={skipTraining}>{word(introLabels + "TransitionButtonSkip", "Skip training")}</button>
+            {/if}
             <button type="button" disabled={loading} onclick={() => { briefing = false; error = ""; }}>Back</button>
           </div>
           {#if loading}<p role="status">Loading sample…</p>{/if}
@@ -357,6 +444,10 @@
         {/if}
       </article>
     {/if}
+    {#if !restarting}
+      <button class="discovery-help" type="button" aria-label="Project Discovery Help" title={word("UI/ProjectDiscovery/HelpTutorialTooltip", "Restart tutorial")}
+        disabled={loading || (sample !== null && score !== null)} onclick={() => { restarting = true; error = ""; }}>?</button>
+    {/if}
   {:else if loading}
     <p role="status">Loading Project Discovery…</p>
   {:else if error}
@@ -366,6 +457,7 @@
 
 <style>
   .discovery { box-sizing: border-box; display: grid; align-content: start; min-height: 100%; padding: 24px; }
+  .discovery-help { justify-self: start; margin-top: 16px; }
   .progress { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; margin: 0; }
   .progress div { min-width: 100px; padding: 8px 14px; border: 1px solid var(--line, #39444b); }
   dt { opacity: 0.75; }

@@ -981,6 +981,7 @@ const PAGE_WRITE_PAIR_KEYS = Object.freeze([
   "academy_ship.borrow_academy_ship",
   "ProjectDiscovery.get_new_task", "ProjectDiscovery.post_classification",
   "ProjectDiscovery.increase_tutorial_level", "ProjectDiscovery.skip_tutorial",
+  "ProjectDiscovery.reset_tutorial",
   "wormholeMgr.WormholeJump",
   "hackingMgr.ClickedOnTile", "hackingMgr.UsedUtilityElement", "hackingMgr.UsedUtilityElementOnVirus", "hackingMgr.QuitHackingAttempt",
   ...ORGANIZATION_ENLISTMENT_METHODS.map(method => `facWarMgr.${method}`),
