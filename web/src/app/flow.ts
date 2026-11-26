@@ -7,13 +7,18 @@
 import { getCharacterSelectionData } from "../bridge/characterSelection.ts";
 import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, decodeShipSkinrEntries, decodeShipSkinrEntry,
   decodeShipSkinrEarlyPricing, shipSkinrSequencingCapacity, type ShipSkinrDesign, type ShipSkinrEarlyPrice,
-  type ShipSkinrEntry, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
+  type SharedShipSkinrDesign, type ShipSkinrEntry, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
 import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
+import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
+  decodeShipSkinrComponentOffers, encodeShipSkinrBrowse, encodeShipSkinrListingTarget, shipSkinrListingLimit, shipSkinrListingQuote,
+  type ShipSkinrBrowseQuery, type ShipSkinrComponentOffer, type ShipSkinrCurrency, type ShipSkinrListing, type ShipSkinrListingInput,
+  type ShipSkinrListingTarget } from "../bridge/shipSkinrMarket.ts";
 import { setSessionToken } from "./sessionToken.ts";
+import { parseShipSkinrDesignUrl, parseShipSkinrListingUrl } from "../bridge/shipSkinrListingLink.ts";
 import { pageFetch } from "./pageFetch.ts";
 import {
   getStationGuests,
@@ -4611,6 +4616,24 @@ export interface AppFlow {
   readonly shipSkinrApplied: ReadableSignal<ShipSkinrAppliedState | null>;
   loadShipSkinrApplied(shipID: number): Promise<void>;
   applyShipSkinrLicense(hex: string, shipID: number, remove: boolean): Promise<void>;
+  loadShipSkinrOwnedListings(): Promise<ReturnType<typeof decodeOwnedShipSkinrListings>>;
+  browseShipSkinrListings(query: ShipSkinrBrowseQuery): Promise<ReturnType<typeof decodeShipSkinrBrowse>>;
+  readonly shipSkinrListingLink: ReadableSignal<(ShipSkinrListing & { design: ShipSkinrDesign | null }) | null>;
+  followShipSkinrListingLink(url: string): Promise<void>;
+  takeShipSkinrListingLink(): (ShipSkinrListing & { design: ShipSkinrDesign | null }) | null;
+  readonly shipSkinrDesignLink: ReadableSignal<SharedShipSkinrDesign | null>;
+  followShipSkinrDesignLink(url: string): Promise<void>;
+  takeShipSkinrDesignLink(): SharedShipSkinrDesign | null;
+  loadShipSkinrPurchaseTerms(tier: number, branded: boolean): Promise<ReturnType<typeof decodeShipSkinrBuyerTerms>>;
+  loadShipSkinrPurchaseFunds(currency: ShipSkinrCurrency, issuer?: number): Promise<{ balance: number; evermarks: number }>;
+  buyShipSkinrListing(listing: string, quantity: number, version: string): Promise<string>;
+  loadShipSkinrComponentOffers(): Promise<readonly ShipSkinrComponentOffer[]>;
+  buyShipSkinrComponentOffer(listing: string, quantity: number, activate: boolean): Promise<string>;
+  cancelShipSkinrListing(id: string): Promise<void>;
+  loadShipSkinrListingLimit(): Promise<number>;
+  quoteShipSkinrListing(hex: string, target: ShipSkinrListingTarget): Promise<ReturnType<typeof shipSkinrListingQuote>>;
+  createShipSkinrListing(input: ShipSkinrListingInput): Promise<string>;
+  waitForShipSkinrListing(transaction: string): Promise<"completed" | "failed" | "pending">;
   loadShipSkinrEarlyPricing(): Promise<readonly ShipSkinrEarlyPrice[]>;
   completeShipSkinrJob(id: string): Promise<void>;
   loadShipSkinrStartTerms(tier: number): Promise<ReturnType<typeof shipSkinrSequenceTerms>>;
@@ -14544,6 +14567,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     } else {
       url = dropped.url;
       text = dropped.text;
+      if (/^shipskinlisting:/i.test(url)) {
+        if (!parseShipSkinrListingUrl(url)) return null;
+        text = labelEscaped(text);
+      }
+      if (/^shipskindesign:/i.test(url)) {
+        if (!parseShipSkinrDesignUrl(url)) return null;
+        text = labelEscaped(text);
+      }
     }
     // AddLink: StripTags(text, stripOnly=['localized']).
     const markup = `<a href="${url}">${text.replace(/<\/?localized\b[^>]*>/gi, "")}</a>`;
@@ -29060,6 +29091,211 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await loadShipSkinrApplied(shipID);
   }
 
+  async function loadShipSkinrOwnedListings(): Promise<ReturnType<typeof decodeOwnedShipSkinrListings>> {
+    const current = callOptions.captureRequestGuard!();
+    const reply = await gatewayAsk(SHIP_SKINR_MARKET + "skin.listing.api.GetAllOwnedRequest");
+    current();
+    return decodeOwnedShipSkinrListings(reply);
+  }
+
+  async function browseShipSkinrListings(query: ShipSkinrBrowseQuery): Promise<ReturnType<typeof decodeShipSkinrBrowse>> {
+    const current = callOptions.captureRequestGuard!();
+    const reply = await gatewayAsk(SHIP_SKINR_MARKET + "skin.listing.api.GetAllRequest", encodeShipSkinrBrowse(query));
+    current();
+    const result = decodeShipSkinrBrowse(reply);
+    requestNames(result.listings.flatMap(row => row.seller ? [{ kind: "character" as const, id: row.seller }] : []));
+    return result;
+  }
+
+  const shipSkinrListingLink = createSignal<(ShipSkinrListing & { design: ShipSkinrDesign | null }) | null>(null);
+  let shipSkinrLinkRequest = 0;
+
+  async function followShipSkinrListingLink(url: string): Promise<void> {
+    const id = parseShipSkinrListingUrl(url);
+    if (!id || !store.station.get().online?.characterID) return;
+    const owner = callOptions.captureRequestGuard!();
+    const request = ++shipSkinrLinkRequest;
+    const current = () => { owner(); return request === shipSkinrLinkRequest; };
+    try {
+      const response = await api.publicGatewayRequest(SHIP_SKINR_MARKET + "skin.listing.api.GetRequest", { listing: { uuid: id } }, callOptions);
+      if (!current()) return;
+      const listing = decodeShipSkinrListing(shipSkinrRecord(response.payload ?? undefined)?.listing);
+      if (response.statusCode === 404 || (listing && (!(listing.quantity > 0) || listing.expires <= Date.now()))) {
+        const key = "UI/Personalization/ShipSkins/SKINR/Studio/ListingErrors/ListingNotFound";
+        await wordsNow([key]).catch(() => {});
+        if (current()) sayDialog("ShipSkinListingNotFound", null,
+          plainText(store.words.get().templates[key] ?? "This listing is no longer available."));
+        return;
+      }
+      if (response.statusCode !== 200 || !listing) throw new Error("The SKIN listing could not be loaded.");
+      const design = await loadShipSkinrDesign(listing.hex).catch(() => null);
+      if (!current()) return;
+      if (listing.seller) requestNames([{ kind: "character", id: listing.seller }]);
+      shipSkinrListingLink.set({ ...listing, design });
+    } catch (cause) {
+      if (current()) sayDialog("ShipSkinListingUnavailable", null, errorWords(cause));
+    }
+  }
+
+  function takeShipSkinrListingLink() {
+    const listing = shipSkinrListingLink.get();
+    shipSkinrListingLink.set(null);
+    return listing;
+  }
+
+  const shipSkinrDesignLink = createSignal<SharedShipSkinrDesign | null>(null);
+
+  async function followShipSkinrDesignLink(url: string): Promise<void> {
+    const subject = parseShipSkinrDesignUrl(url);
+    if (!subject || !store.station.get().online?.characterID) return;
+    const owner = callOptions.captureRequestGuard!();
+    const request = ++shipSkinrLinkRequest;
+    const current = () => { owner(); return request === shipSkinrLinkRequest; };
+    const prefix = "UI/Personalization/ShipSkins/";
+    let missing = false;
+    try {
+      const reply = await api.publicGatewayRequest(SHIP_SKINR_GATEWAY + "draft.api.GetSharedRequest", {
+        character: { sequential: subject.ownerID }, draft: { uuid: subject.id },
+      }, callOptions);
+      if (!current()) return;
+      missing = reply.statusCode === 404;
+      const entry = reply.statusCode === 200 ? decodeShipSkinrEntry({
+        id: { uuid: subject.id }, attributes: shipSkinrRecord(reply.payload ?? undefined)?.draft,
+      }) : null;
+      if (entry) {
+        const design = await loadShipSkinrDesign(entry.skin);
+        if (!current()) return;
+        if (design) {
+          requestNames([{ kind: "character", id: subject.ownerID }]);
+          shipSkinrDesignLink.set({ ownerID: subject.ownerID, entry, design });
+          return;
+        }
+      }
+    } catch {
+      if (!current()) return;
+    }
+    const key = prefix + (missing ? "DesignLinkNotFound" : "DesignLinkFailed");
+    await wordsNow([key]).catch(() => {});
+    if (current()) sayDialog(missing ? "ShipSkinDesignNotFound" : "ShipSkinDesignUnavailable", null,
+      plainText(store.words.get().templates[key] ?? (missing ? "This SKIN design is no longer available." : "The shared SKIN design could not be loaded.")));
+  }
+
+  function takeShipSkinrDesignLink() {
+    const design = shipSkinrDesignLink.get();
+    shipSkinrDesignLink.set(null);
+    return design;
+  }
+
+  async function loadShipSkinrPurchaseTerms(tier: number, branded: boolean) {
+    const current = callOptions.captureRequestGuard!();
+    const reply = await gatewayAsk(SHIP_SKINR_MARKET + "api.GetBuyerFeesDefinitionRequest");
+    current();
+    return decodeShipSkinrBuyerTerms(reply, tier, branded);
+  }
+
+  async function loadShipSkinrPurchaseFunds(currency: ShipSkinrCurrency, issuer?: number) {
+    const current = callOptions.captureRequestGuard!();
+    const [available, loyalty] = await Promise.all([
+      currency === "PLEX" ? readPlexVaultBalance(callOptions).then(cents => Number(cents) / 100)
+        : bridgeAsk("account", "GetCashBalance", []).then(value => {
+          const cash = decodeWalletCash(value);
+          if (cash === null) throw new Error("The ISK balance is unavailable.");
+          return Number(cash);
+        }),
+      issuer === undefined ? null : bridgeAsk("LPSvc", "GetAllMyCharacterWalletLPBalances", []),
+    ]);
+    current();
+    const evermarks = Number(decodeLpBalances(loyalty).find(row => row.issuerCorpID === issuer)?.loyaltyPoints ?? 0);
+    return { balance: available, evermarks };
+  }
+
+  async function buyShipSkinrListing(listing: string, quantity: number, version: string): Promise<string> {
+    const current = callOptions.captureRequestGuard!();
+    if (!store.station.get().online?.characterID) throw new Error("Select a pilot to buy a SKIN.");
+    const answer = await gatewayAsk(SHIP_SKINR_MARKET + "skin.listing.api.InitiatePurchaseListingRequest", {
+      listing: { uuid: listing }, quantity, buyer_fees_version: version,
+    }, true);
+    current();
+    return shipSkinrPurchaseReceipt(answer);
+  }
+
+  function shipSkinrPurchaseReceipt(answer: JsonValue | null): string {
+    const receipt = shipSkinrRecord(shipSkinrRecord(answer ?? undefined)?.transaction)?.uuid;
+    if (typeof receipt !== "string" || !receipt) throw new Error("The purchase receipt is unavailable. Check your Collection and balance before trying again.");
+    return receipt;
+  }
+
+  async function loadShipSkinrComponentOffers(): Promise<readonly ShipSkinrComponentOffer[]> {
+    const current = callOptions.captureRequestGuard!();
+    const answer = await gatewayAsk(SHIP_SKINR_MARKET + "component.listing.api.GetAllRequest");
+    current();
+    return decodeShipSkinrComponentOffers(answer);
+  }
+
+  async function buyShipSkinrComponentOffer(listing: string, quantity: number, activate: boolean): Promise<string> {
+    const current = callOptions.captureRequestGuard!();
+    if (!store.station.get().online?.characterID) throw new Error("Select a pilot to buy a design element.");
+    const answer = await gatewayAsk(SHIP_SKINR_MARKET + "component.listing.api.InitiatePurchaseListingRequest", {
+      listing: { uuid: listing }, quantity, immediately_activate: activate,
+    }, true);
+    current();
+    return shipSkinrPurchaseReceipt(answer);
+  }
+
+  async function cancelShipSkinrListing(id: string): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    await gatewayAsk(SHIP_SKINR_MARKET + "skin.listing.api.CancelListingRequest", { listing: { uuid: id } }, true);
+    current();
+  }
+
+  async function loadShipSkinrListingLimit(): Promise<number> {
+    const current = callOptions.captureRequestGuard!();
+    const skills = await bridgeAsk("skillHandler", "GetSkills", []);
+    current();
+    return shipSkinrListingLimit(skills);
+  }
+
+  async function quoteShipSkinrListing(hex: string, target: ShipSkinrListingTarget): Promise<ReturnType<typeof shipSkinrListingQuote>> {
+    const current = callOptions.captureRequestGuard!();
+    const wire = encodeShipSkinrListingTarget(target);
+    const [broker, tax, buyer] = await Promise.all([
+      gatewayAsk(SHIP_SKINR_MARKET + "api.GetBrokerFeesRequest", { target: wire }),
+      gatewayAsk(SHIP_SKINR_MARKET + "api.GetTaxRateRequest", { target: wire }),
+      target.kind === "public" ? null : gatewayAsk(SHIP_SKINR_MARKET + "api.GetBuyerFeeRequest", { target: wire, skin: { hex } }),
+    ]);
+    current();
+    return shipSkinrListingQuote(broker, tax, buyer);
+  }
+
+  async function createShipSkinrListing(input: ShipSkinrListingInput): Promise<string> {
+    const current = callOptions.captureRequestGuard!();
+    const pilot = store.station.get().online?.characterID;
+    if (!pilot) throw new Error("Select a pilot to list a SKIN.");
+    const answer = await gatewayAsk(SHIP_SKINR_MARKET + "skin.listing.api.InitiateCreateListingRequest", {
+      skin: { character: { sequential: pilot }, skin: { hex: input.hex } },
+      ...(input.currency === "PLEX" ? { price_plex: { total_in_cents: String(input.amount * 100) } } : { price_isk: { units: input.amount } }),
+      quantity: input.quantity, duration: { seconds: input.seconds }, target: encodeShipSkinrListingTarget(input.target),
+    }, true);
+    current();
+    const id = shipSkinrRecord(shipSkinrRecord(answer ?? undefined)?.transaction)?.uuid;
+    if (typeof id !== "string" || !id) throw new Error("The listing receipt is unavailable. Check your listings before submitting again.");
+    return id;
+  }
+
+  async function waitForShipSkinrListing(transaction: string): Promise<"completed" | "failed" | "pending"> {
+    const current = callOptions.captureRequestGuard!();
+    for (let attempt = 0; attempt < 14; attempt++) {
+      if (attempt) await new Promise(resolve => setTimeout(resolve, 600));
+      current();
+      const reply = await gatewayAsk(SHIP_SKINR_MARKET + "transaction.api.GetRequest", { transaction: { uuid: transaction } });
+      current();
+      const status = shipSkinrRecord(shipSkinrRecord(reply ?? undefined)?.status)?.status;
+      if (status === 3 || status === "SUCCESSFUL") return "completed";
+      if (status === 2 || status === "FAILED") return "failed";
+    }
+    return "pending";
+  }
+
   async function loadShipSkinrStartTerms(tier: number): Promise<ReturnType<typeof shipSkinrSequenceTerms>> {
     const current = callOptions.captureRequestGuard!();
     const [pricing, durations, skills] = await Promise.all([
@@ -41506,6 +41742,24 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     shipSkinrApplied: readonlySignal(shipSkinrAppliedSignal),
     loadShipSkinrApplied,
     applyShipSkinrLicense,
+    loadShipSkinrOwnedListings,
+    browseShipSkinrListings,
+    shipSkinrListingLink: readonlySignal(shipSkinrListingLink),
+    followShipSkinrListingLink,
+    takeShipSkinrListingLink,
+    shipSkinrDesignLink: readonlySignal(shipSkinrDesignLink),
+    followShipSkinrDesignLink,
+    takeShipSkinrDesignLink,
+    loadShipSkinrPurchaseTerms,
+    loadShipSkinrPurchaseFunds,
+    buyShipSkinrListing,
+    loadShipSkinrComponentOffers,
+    buyShipSkinrComponentOffer,
+    cancelShipSkinrListing,
+    loadShipSkinrListingLimit,
+    quoteShipSkinrListing,
+    createShipSkinrListing,
+    waitForShipSkinrListing,
     loadShipSkinrEarlyPricing,
     completeShipSkinrJob,
     loadShipSkinrStartTerms,

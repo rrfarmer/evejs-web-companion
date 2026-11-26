@@ -10,6 +10,7 @@
   import { resolvedName } from "../store/names.ts";
   import { typeIconUrl } from "./typeIcons.ts";
   import { showMarketDetails } from "./marketDetails.ts";
+  import ShipSkinrSell from "./ShipSkinrSell.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const words = $derived(store.words);
@@ -45,6 +46,7 @@
     shade: ["UI/Common/ColorShade", "Color Shade"],
     shadeReversed: ["UI/Common/ColorShadeReversed", "Color Shade Reversed"],
     market: ["UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details"],
+    sell: [prefix + "Collection/Sell", "Sell"],
   } as const;
   const skinSections = ["activated", "unactivated"] as const;
   const elementSections = ["nanocoatings", "metallics", "patterns"] as const;
@@ -72,6 +74,8 @@
   let detailError = $state("");
   let activating = $state(false);
   let rights = $state.raw<ShipSkinrSequenceLicense | null>(null);
+  let selling = $state.raw<ShipSkinrOwnedSkin | null>(null);
+  let listed = $state(false);
   const selectedSkin = $derived(tab === "skins" ? skins?.find(row => row.hex === selected) : undefined);
   const matchesActive = $derived(activeShip !== null && selectedSkin?.design?.shipTypeID === activeType);
   const currentlyApplied = $derived($applied && $applied.shipID === activeShip && $applied.skin?.hex === selected);
@@ -93,6 +97,8 @@
     tab = next;
     section = category;
     selected = null;
+    selling = null;
+    listed = false;
     hull = 0;
   }
 
@@ -124,6 +130,8 @@
     skins = null;
     elements = null;
     selected = null;
+    selling = null;
+    listed = false;
   });
   $effect(() => {
     void revision;
@@ -198,11 +206,16 @@
 </script>
 
 <section class="skinr-collection" aria-label={word("title")}>
+  {#if selling}
+    <ShipSkinrSell {store} {flow} skin={selling} onClose={() => selling = null}
+      onListed={() => { selling = null; listed = true; revision++; }} />
+  {:else}
   <nav aria-label={word("title")}>
     {#each (["skins", "elements"] as const) as option}
       <button type="button" aria-pressed={tab === option} onclick={() => choose(option)}>{word(option)}</button>
     {/each}
   </nav>
+  {#if listed}<p role="status">Listing created.</p>{/if}
   {#if error}
     <p role="alert">{error}</p><button type="button" onclick={() => revision++}>Retry</button>
   {:else if loading && (tab === "skins" ? !skins : !elements)}
@@ -290,6 +303,9 @@
               <button type="button" disabled={activating} onclick={() => void changeSkin(selectedSkin!, "activateApply")}>{word("activateApply")}</button>
             {/if}
           {/if}
+          {#if selectedSkinSection === "unactivated" && selectedSkin.design && selectedSkin.unactivated > 0}
+            <button type="button" disabled={activating} onclick={() => { listed = false; selling = selectedSkin ?? null; }}>{word("sell")}</button>
+          {/if}
         </div>
       </aside>
     {:else if selectedElement}
@@ -308,6 +324,7 @@
       </aside>
     {/if}
     {#if detailError}<p role="alert">{detailError}</p>{/if}
+  {/if}
   {/if}
 </section>
 
