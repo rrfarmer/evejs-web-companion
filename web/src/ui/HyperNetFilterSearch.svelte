@@ -21,6 +21,11 @@
   }
 
   $effect(() => {
+    void selected;
+    query = "";
+  });
+
+  $effect(() => {
     const text = query.trim();
     choices = [];
     status = "";

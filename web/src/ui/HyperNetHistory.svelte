@@ -8,6 +8,7 @@
   import { resolvedName } from "../store/names.ts";
   import OwnerPicture from "./OwnerPicture.svelte";
   import HyperNetFilterSearch from "./HyperNetFilterSearch.svelte";
+  import HyperNetSavedFilters from "./HyperNetSavedFilters.svelte";
   import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
   import { showInfo } from "./showInfo.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -95,6 +96,7 @@
     { label: "count", min: "minCount", max: "maxCount", price: false, bounds: hyperNetCountBounds },
   ] as const;
   let filters = $state.raw<Filters>(defaultFilters);
+  let selectedFilter = $state("");
   let metaGroups = $state.raw<readonly Option[]>([]);
   let metaError = $state("");
   const isBlueprint = (item: HyperNetItem | undefined) => (item?.key === "category_id" ? item.id : item?.categoryID) === 9;
@@ -104,36 +106,36 @@
   const filtersChanged = $derived(Object.keys(defaultFilters).some(key =>
     filters[key as keyof Filters] !== defaultFilters[key as keyof Filters]));
   const filterStorage = (owner: number) => `evejs.hypernet.history-filters.${owner}`;
-  function restoreFilters(owner: number): Filters {
+  function restoreFilters(stored: unknown): Filters {
     const restored = { ...defaultFilters };
-    try {
-      const saved: Partial<Filters> | null = JSON.parse(localStorage.getItem(filterStorage(owner)) ?? "null");
-      if (!saved) return restored;
-      for (const key of facetGroups.flat()) {
-        if (typeof saved[key] === "boolean") restored[key] = saved[key];
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) return restored;
+    const saved = stored as Partial<Filters>;
+    for (const key of facetGroups.flat()) {
+      if (typeof saved[key] === "boolean") restored[key] = saved[key];
+    }
+    for (const { min, max, bounds } of ranges) {
+      const low = saved[min], high = saved[max];
+      if (typeof low === "number" && typeof high === "number" &&
+          bounds.some(bound => bound === low) && bounds.some(bound => bound === high) && (!high || low <= high)) {
+        restored[min] = low;
+        restored[max] = high;
       }
-      for (const { min, max, bounds } of ranges) {
-        const low = saved[min], high = saved[max];
-        if (typeof low === "number" && typeof high === "number" &&
-            bounds.some(bound => bound === low) && bounds.some(bound => bound === high) && (!high || low <= high)) {
-          restored[min] = low;
-          restored[max] = high;
-        }
-      }
-      restored.item = isHyperNetItem(saved.item) ? saved.item : undefined;
-      const system = saved.system;
-      if (system && Number.isSafeInteger(system.id) && system.id > 0 && typeof system.name === "string" && system.name) {
-        restored.system = system;
-      }
-      if (typeof saved.metaGroup === "number" && Number.isSafeInteger(saved.metaGroup) && saved.metaGroup > 0) {
-        restored.metaGroup = saved.metaGroup;
-      }
-      if (saved.blueprintType === 1 || saved.blueprintType === 2) restored.blueprintType = saved.blueprintType;
-    } catch { /* use default filters */ }
+    }
+    restored.item = isHyperNetItem(saved.item) ? saved.item : undefined;
+    const system = saved.system;
+    if (system && Number.isSafeInteger(system.id) && system.id > 0 && typeof system.name === "string" && system.name) {
+      restored.system = system;
+    }
+    if (typeof saved.metaGroup === "number" && Number.isSafeInteger(saved.metaGroup) && saved.metaGroup > 0) {
+      restored.metaGroup = saved.metaGroup;
+    }
+    if (saved.blueprintType === 1 || saved.blueprintType === 2) restored.blueprintType = saved.blueprintType;
     return restored;
   }
   function setFilters(next: Filters) {
     filters = next;
+    selectedFilter = "";
+    presetSnapshot = { filters: next, sorting };
     if (pilot) {
       try { localStorage.setItem(filterStorage(pilot), JSON.stringify(next)); } catch { /* keep the window selection */ }
     }
@@ -158,7 +160,14 @@
   }
   const sortKeys = ["default", "item_name", "ticket_count", "ticket_price", "total_price", "end_time"] as const;
   type SortKey = typeof sortKeys[number];
-  let sorting = $state<{ key: SortKey; descending: boolean }>({ key: "default", descending: false });
+  type Sorting = { key: SortKey; descending: boolean };
+  type Preset = { filters: Filters; sorting: Sorting };
+  const defaultSorting: Sorting = { key: "default", descending: false };
+  let sorting = $state.raw<Sorting>(defaultSorting);
+  const preset = $derived({ filters, sorting });
+  // Native History snapshots the sort when the filter controller opens or its criteria change.
+  let presetSnapshot = $state.raw<Preset>({ filters: defaultFilters, sorting: defaultSorting });
+  const presetIsDefault = $derived(samePreset(presetSnapshot, { filters: defaultFilters, sorting: defaultSorting }));
   const sortStorage = (owner: number) => `evejs.hypernet.history-sort.${owner}`;
   function isSortKey(value: unknown): value is SortKey {
     return sortKeys.some(key => key === value);
@@ -169,16 +178,36 @@
       try { localStorage.setItem(sortStorage(pilot), JSON.stringify({ key, descending })); } catch { /* keep the window selection */ }
     }
   }
+  function restoreSorting(value: unknown): Sorting {
+    if (!value || typeof value !== "object") return defaultSorting;
+    const saved = value as Partial<Sorting>;
+    return isSortKey(saved.key) && typeof saved.descending === "boolean"
+      ? { key: saved.key, descending: saved.key !== "default" && saved.descending }
+      : defaultSorting;
+  }
+  function restorePreset(value: unknown): Preset {
+    const saved = value && typeof value === "object" ? value as Partial<Preset> : null;
+    return { filters: restoreFilters(saved?.filters), sorting: restoreSorting(saved?.sorting) };
+  }
+  function readActive(owner: number): Preset {
+    const read = (key: string): unknown => {
+      try { return JSON.parse(localStorage.getItem(key) ?? "null"); } catch { return null; }
+    };
+    return restorePreset({ filters: read(filterStorage(owner)), sorting: read(sortStorage(owner)) });
+  }
+  function samePreset(a: Preset, b: Preset): boolean {
+    return a.sorting.key === b.sorting.key && a.sorting.descending === b.sorting.descending &&
+      a.filters.item?.key === b.filters.item?.key && a.filters.item?.id === b.filters.item?.id &&
+      a.filters.system?.id === b.filters.system?.id &&
+      (Object.keys(defaultFilters) as (keyof Filters)[])
+        .every(key => key === "item" || key === "system" || a.filters[key] === b.filters[key]);
+  }
   $effect(() => {
     const owner = pilot;
-    filters = owner ? restoreFilters(owner) : defaultFilters;
-    let saved: { key?: unknown; descending?: unknown } | null = null;
-    if (owner) {
-      try { saved = JSON.parse(localStorage.getItem(sortStorage(owner)) ?? "null"); } catch { /* use default sorting */ }
-    }
-    sorting = saved && isSortKey(saved.key) && typeof saved.descending === "boolean"
-      ? { key: saved.key, descending: saved.key !== "default" && saved.descending }
-      : { key: "default", descending: false };
+    const restored = owner ? readActive(owner) : restorePreset(null);
+    filters = restored.filters;
+    sorting = restored.sorting;
+    presetSnapshot = restored;
   });
 
   const nameOf = (record: HyperNetHistoryOffer) =>
@@ -356,6 +385,10 @@
         </label>
       </fieldset>
     {/each}
+    <HyperNetSavedFilters {flow} {store} {pilot} scope="history" values={preset} snapshot={presetSnapshot}
+      isDefault={presetIsDefault} restore={restorePreset} {readActive}
+      sameFilters={samePreset} bind:selectedFilter
+      choose={saved => { setSort(saved.sorting.key, saved.sorting.descending); setFilters(saved.filters); }} />
   </details>
   {#if !loading && !error && rows.length < history.length}
     <p role="status" data-history-filter-count>

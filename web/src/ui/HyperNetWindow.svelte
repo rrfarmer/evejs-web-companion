@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { hyperNetCountBounds as countBounds, hyperNetPriceBounds as priceBounds, isHyperNetItem, type HyperNetConstraints, type HyperNetItem, type HyperNetOffer } from "../bridge/hyperNet.ts";
@@ -9,6 +9,7 @@
   import { resolvedName } from "../store/names.ts";
   import { showInfo } from "./showInfo.ts";
   import HyperNetHistory from "./HyperNetHistory.svelte";
+  import HyperNetSavedFilters from "./HyperNetSavedFilters.svelte";
   import { typeIconUrl } from "./typeIcons.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
@@ -41,17 +42,6 @@
     blueprintAll: ["UI/Generic/All", "All"],
     blueprintOriginal: ["UI/Generic/Original", "Original"],
     blueprintCopy: ["UI/Generic/Copy", "Copy"],
-    savedFilters: ["UI/HyperNet/SavedFilters", "Saved filters"],
-    saveFilter: ["UI/HyperNet/SaveFilterHint", "Save current filter settings"],
-    deleteFilter: ["UI/HyperNet/DeleteSavedFilter", "Delete"],
-    noFilter: ["UI/HyperNet/NoFilterSelected", "(no filter selected)"],
-    noSavedFilters: ["UI/HyperNet/NoSavedFiltersHint", "No saved filters"],
-    filterNameCaption: ["UI/HyperNet/FilterNamePromptCaption", "Filter name"],
-    filterName: ["UI/HyperNet/FilterNamePromptHint", "Type a name for the filter"],
-    save: ["UI/Generic/Save", "Save"],
-    cancel: ["UI/Generic/Cancel", "Cancel"],
-    yes: ["UI/Generic/Yes", "Yes"],
-    no: ["UI/Generic/No", "No"],
   } as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   const ticketCount = (offer: HyperNetOffer) => plainText(formatTemplate(word("tickets"),
@@ -62,18 +52,7 @@
   type Ranges = typeof defaults;
   type Option = { readonly id: number; readonly name: string };
   type Filters = Ranges & { item?: HyperNetItem; system?: Option; metaGroup?: number; blueprintType?: 1 | 2 };
-  type SavedFilter = { readonly name: string; readonly values: Filters };
-  type PendingFilter = { kind: "delete"; name: string } | { kind: "replace"; name: string; values: Filters };
-  const savedLimit = 20;
-  let savedFilters = $state.raw<readonly SavedFilter[]>([]);
   let selectedFilter = $state("");
-  let savedMenuOpen = $state(false);
-  const sortedSavedFilters = $derived([...savedFilters].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  let editingName = $state(false);
-  let draftName = $state("");
-  let nameInput: HTMLInputElement | undefined = $state();
-  let pending = $state<PendingFilter | null>(null);
-  let saveError = $state("");
   let filter = $state.raw<{ owner: number; values: Filters } | null>(null);
   const values = $derived(filter?.values ?? defaults);
   const ranges = $derived({ minPrice: values.minPrice, maxPrice: values.maxPrice, minCount: values.minCount, maxCount: values.maxCount });
@@ -82,10 +61,10 @@
   const isDefault = $derived(!selectedItem && !values.system && !values.metaGroup && !values.blueprintType &&
     ranges.minPrice === 0 && ranges.maxPrice === 0 && ranges.minCount === 8 && ranges.maxCount === 512);
   const storageKey = (owner: number) => `evejs.hypernet.ranges.${owner}`;
-  const savedKey = (owner: number) => `evejs.hypernet.browse-saved.${owner}`;
 
-  function restoreFilters(saved: Partial<Filters> | null): Filters {
-    if (!saved) return defaults;
+  function restoreFilters(stored: unknown): Filters {
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) return defaults;
+    const saved = stored as Partial<Filters>;
     const price = (bound: number | undefined) => priceBounds.some(value => value === bound) ? bound! : 0;
     const count = (bound: number | undefined, fallback: number) =>
       countBounds.some(value => value === bound) ? bound! : fallback;
@@ -113,30 +92,6 @@
     }
   }
 
-  function loadSavedFilters(owner: number): readonly SavedFilter[] {
-    try {
-      const entries: unknown = JSON.parse(localStorage.getItem(savedKey(owner)) ?? "[]");
-      if (!Array.isArray(entries)) return [];
-      const filters = new Map<string, Filters>();
-      for (const entry of entries) {
-        if (typeof entry?.name === "string" && entry.name.trim() && entry.name.length <= 100 &&
-            entry.values && typeof entry.values === "object" && !Array.isArray(entry.values)) {
-          filters.set(entry.name, restoreFilters(entry.values));
-          if (filters.size === savedLimit) break;
-        }
-      }
-      return [...filters].map(([name, values]) => ({ name, values }));
-    } catch {
-      return [];
-    }
-  }
-
-  function persistSaved(next: readonly SavedFilter[]) {
-    if (!pilot) return;
-    savedFilters = next;
-    try { localStorage.setItem(savedKey(pilot), JSON.stringify(next)); } catch { /* keep the filters for this window */ }
-  }
-
   function sameFilters(a: Filters, b: Filters): boolean {
     return a.minPrice === b.minPrice && a.maxPrice === b.maxPrice && a.minCount === b.minCount && a.maxCount === b.maxCount &&
       a.item?.key === b.item?.key && a.item?.id === b.item?.id && a.system?.id === b.system?.id &&
@@ -149,48 +104,6 @@
     filter = { owner, values: next };
     selectedFilter = name;
     try { localStorage.setItem(storageKey(owner), JSON.stringify(next)); } catch { /* keep the current selection */ }
-  }
-
-  async function startSaving() {
-    if (savedFilters.length >= savedLimit) {
-      saveError = "You can save up to 20 filters.";
-      return;
-    }
-    saveError = "";
-    pending = null;
-    savedMenuOpen = false;
-    draftName = "";
-    editingName = true;
-    await tick();
-    nameInput?.focus();
-  }
-
-  function saveNamed(name: string, snapshot: Filters) {
-    persistSaved([...savedFilters.filter(entry => entry.name !== name), { name, values: snapshot }]);
-    selectedFilter = sameFilters(values, snapshot) ? name : "";
-  }
-
-  function submitName(event: SubmitEvent) {
-    event.preventDefault();
-    const name = draftName.trim();
-    if (!name || isDefault) return;
-    editingName = false;
-    if (savedFilters.some(entry => entry.name === name)) pending = { kind: "replace", name, values };
-    else saveNamed(name, values);
-  }
-
-  function confirmSavedChange() {
-    const change = pending;
-    pending = null;
-    if (!change) return;
-    if (change.kind === "replace") {
-      saveNamed(change.name, change.values);
-    } else {
-      persistSaved(savedFilters.filter(entry => entry.name !== change.name));
-      if (selectedFilter === change.name) selectedFilter = "";
-      if (!savedFilters.length) savedMenuOpen = false;
-      saveError = "";
-    }
   }
 
   function applyRanges(next: Ranges) {
@@ -220,14 +133,7 @@
   $effect(() => {
     const owner = pilot;
     const restored = owner ? loadFilters(owner) : defaults;
-    const saved = owner ? loadSavedFilters(owner) : [];
     filter = owner ? { owner, values: restored } : null;
-    savedFilters = saved;
-    selectedFilter = saved.find(entry => sameFilters(entry.values, restored))?.name ?? "";
-    savedMenuOpen = false;
-    editingName = false;
-    pending = null;
-    saveError = "";
     search = "";
     systemSearch = "";
   });
@@ -485,45 +391,9 @@
         disabled={isDefault}>
         {word("reset")}
       </button>
-      <fieldset class="saved-filters">
-        <legend>{word("savedFilters")}</legend>
-        <button type="button" data-saved-selection aria-expanded={savedMenuOpen} disabled={!savedFilters.length}
-          title={savedFilters.length ? undefined : word("noSavedFilters")}
-          onclick={() => { savedMenuOpen = !savedMenuOpen; }}>{selectedFilter || word("noFilter")}</button>
-        <button type="button" data-save-filter disabled={!pilot || isDefault} onclick={startSaving}>{word("saveFilter")}</button>
-        {#if savedMenuOpen}
-          <ul class="saved-options">
-            {#each sortedSavedFilters as entry (entry.name)}
-              <li>
-                <button type="button" data-apply-saved={entry.name} aria-pressed={selectedFilter === entry.name}
-                  onclick={() => {
-                    search = "";
-                    systemSearch = "";
-                    savedMenuOpen = false;
-                    applyFilters(entry.values, entry.name);
-                  }}>{entry.name}</button>
-                <button type="button" data-delete-saved={entry.name} aria-label={`${word("deleteFilter")} ${entry.name}`}
-                  onclick={() => { editingName = false; pending = { kind: "delete", name: entry.name }; }}>{word("deleteFilter")}</button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-        {#if editingName}
-          <form aria-label={word("filterNameCaption")} onsubmit={submitName}>
-            <label>{word("filterName")} <input bind:this={nameInput} bind:value={draftName} maxlength={100} required /></label>
-            <button type="submit" disabled={!draftName.trim() || isDefault}>{word("save")}</button>
-            <button type="button" onclick={() => { editingName = false; }}>{word("cancel")}</button>
-          </form>
-        {/if}
-        {#if pending}
-          <div class="saved-confirm">
-            <p>{pending.kind === "replace" ? `Replace the saved filter “${pending.name}”?` : `Delete the saved filter “${pending.name}”?`}</p>
-            <button type="button" onclick={confirmSavedChange}>{word("yes")}</button>
-            <button type="button" onclick={() => { pending = null; }}>{word("no")}</button>
-          </div>
-        {/if}
-        {#if saveError}<p role="status">{saveError}</p>{/if}
-      </fieldset>
+      <HyperNetSavedFilters {flow} {store} {pilot} scope="browse" {values} {isDefault}
+        restore={restoreFilters} readActive={loadFilters} {sameFilters} bind:selectedFilter
+        choose={preset => { search = ""; systemSearch = ""; applyFilters(preset); }} />
     </details>
     <button type="button" onclick={refreshBrowse} disabled={loading || !pilot}>{word("refresh")}</button>
   </header>
@@ -566,11 +436,6 @@
   .item-suggestions { width: 100%; max-height: 12em; overflow: auto; display: grid; gap: 3px; }
   .item-suggestions button { text-align: start; }
   .meta-group { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
-  .saved-filters { align-items: center; }
-  .saved-options, .saved-filters form, .saved-confirm { width: 100%; }
-  .saved-options { grid-template-columns: 1fr; }
-  .saved-options li, .saved-filters form, .saved-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-  .saved-options li { justify-content: space-between; }
   small { color: #b8c3cc; margin-inline-start: 4px; }
   ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr)); gap: 8px; padding: 0; margin: 0; list-style: none; }
   li { display: grid; gap: 8px; padding: 8px; background: #ffffff08; }
