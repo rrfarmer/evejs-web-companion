@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
-  import { getShipTreeCatalogue } from "../app/api.ts";
+  import { getCloneGrade, getShipTreeCatalogue } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { plainText } from "../bridge/clientWords.ts";
+  import { CLONE_GRADE_ALPHA } from "../bridge/cloneGrade.ts";
+  import { requiredSkillsRecursive } from "../bridge/missingSkills.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { SHIP_SKINR_LINE_NAME_MAX, SHIP_SKINR_NAME_MAX, validShipSkinrName,
     type ShipSkinrDesign, type ShipSkinrEntry } from "../bridge/shipSkinr.ts";
@@ -54,6 +56,7 @@
     empty: ["UI/Wallet/WalletWindow/SearchNoResults", "No results"],
     blend: [prefix + "BlendModes", "Blend Modes"],
     finalize: [prefix + "FinalizeDesign", "Finalize Design"],
+    omegaHull: [prefix + "CannotSequenceForHullOmega", "Omega is required to sequence a SKIN for this hull."],
     designedBy: ["UI/Personalization/ShipSkins/SKINR/DesignedBy", "Designed by"],
     basedOn: ["UI/Personalization/ShipSkins/SKINR/BasedOnDesignBy", "Based on a design by"],
   } as const;
@@ -77,6 +80,7 @@
   let line = $state("");
   let saving = $state(false);
   let sequencing = $state(false);
+  let alphaEligibility = $state<"checking" | "omega-required" | null>(null);
   let startingSequence = $state(false);
   let saveError = $state("");
   let destroyed = false;
@@ -88,12 +92,34 @@
   let chosen = $state<number | null>(original?.design.shipTypeID ?? null);
   let pickerOverride = $state<boolean | null>(null);
   const requestedPilot = $derived($station.online?.characterID ?? null);
+  const pilotRace = $derived($station.online?.raceID);
+  const cloneGrade = $derived($station.cloneGrade);
   const foreignOwner = $derived(original?.ownerID && original.ownerID !== requestedPilot ? original.ownerID : null);
   const hulls = $derived(catalogue?.ships.filter(row => !row.academy) ?? []);
   const active = $derived(hulls.find(row => row.typeID === $flight.status?.shipTypeID && !excluded.has(row.typeID)));
   const defaultHull = $derived(active?.typeID ?? SKINR_HULL_RULES.fallbackByRace[$station.online?.raceID ?? 0] ?? null);
   const selectedTypeID = $derived(chosen ?? defaultHull);
   const selected = $derived(hulls.find(row => row.typeID === selectedTypeID));
+  $effect(() => {
+    const typeID = selectedTypeID;
+    const raceID = pilotRace;
+    if (!requestedPilot || !typeID || !raceID || cloneGrade !== CLONE_GRADE_ALPHA) {
+      alphaEligibility = null;
+      return;
+    }
+    let current = true;
+    alphaEligibility = "checking";
+    void Promise.all([flow.requiredSkillsFor([typeID]), getCloneGrade(raceID, flow.requestOptions())])
+      .then(([required, ceilings]) => {
+        if (!current) return;
+        const blocked = required && ceilings.available && [...requiredSkillsRecursive(typeID, required)]
+          .some(([skill, level]) => (ceilings.levels.get(skill) ?? 0) < level);
+        alphaEligibility = blocked ? "omega-required" : null;
+      }).catch(() => {
+        if (current) alphaEligibility = null;
+      });
+    return () => { current = false; };
+  });
   const configurationFor = (typeID: number) => coatings?.configurations.find(config => config.allHulls || config.hulls.includes(typeID));
   const configuration = $derived(selectedTypeID ? configurationFor(selectedTypeID) : null);
   const coatingSlots = $derived([...(coatings?.slots ?? []), ...(patterns?.slots ?? [])].filter(slot => configuration?.slots.includes(slot.id)));
@@ -366,7 +392,12 @@
         <button type="button" disabled={!canSave || !!naming} aria-describedby={!canSave ? "skinr-blank" : undefined}
           onclick={() => openName("save")}>{word("save")}</button>
       {/if}
-      <button type="button" disabled={!sequence || !!naming} onclick={() => sequencing = true}>{word("finalize")}</button>
+      <button type="button" disabled={!sequence || !!naming || alphaEligibility !== null}
+        aria-describedby={alphaEligibility === "omega-required" ? "skinr-omega-hull" : undefined}
+        onclick={() => sequencing = true}>{word("finalize")}</button>
+      {#if alphaEligibility === "omega-required"}
+        <span id="skinr-omega-hull">{word("omegaHull")}</span>
+      {/if}
       {#if original}
         <button type="button" disabled={!canSave || atSaveLimit || !!naming} aria-describedby={atSaveLimit ? "skinr-blank" : undefined}
           onclick={() => openName("copy")}>{word("saveAs")}</button>
