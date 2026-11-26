@@ -14,7 +14,7 @@
   // client-local service called `marketQuote`; there is no server call for it.
   // So it is implemented client-side here too, which is also why re-sorting the
   // book costs no round-trip.
-  import { getContext, onMount, tick } from "svelte";
+  import { getContext, onDestroy, onMount, tick } from "svelte";
   import { portal } from "./portal.ts";
   import { marketDetailsTarget } from "./marketDetails.ts";
   import {
@@ -80,8 +80,16 @@
   import { compareType } from "./typeCompare.ts";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import type { MarketGroupNode } from "../app/api.ts";
+  import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
+  import { celestialRouteEntries, isDeprecatedStationType, isWaypointPlace } from "../nav/waypoints.ts";
+  import { avoidanceItems } from "../nav/autopilotSettings.ts";
+  import { AVOID_WORDS, avoidEntryWords } from "./avoidLocation.ts";
+  import { startLinkDrag } from "./linkFollowers.ts";
+  import type { BookmarkPlace } from "../bridge/locationsList.ts";
+  import BookmarkWindow from "./BookmarkWindow.svelte";
+  import HomeStationPanel from "./HomeStationPanel.svelte";
 
-  let { store, flow, ordersOnly = false, onOpenOrders, onToggleStore, onOpenIndustry, onBuyPlex }: {
+  let { store, flow, ordersOnly = false, onOpenOrders, onToggleStore, onOpenIndustry, onBuyPlex, onShowSystem }: {
     store: ClientStore;
     flow: AppFlow;
     ordersOnly?: boolean;
@@ -89,6 +97,7 @@
     onToggleStore?: () => void;
     onOpenIndustry?: () => void;
     onBuyPlex?: () => void;
+    onShowSystem?: (systemID: number) => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -544,6 +553,34 @@
   let corporateOrderError = $state("");
   let corporateOrderRevision = $state(0);
   let corporateOrderDivisions = $state.raw<Readonly<Record<string, string | null>>>({});
+  const orderPilotID = $derived($station.online?.characterID);
+  const orderRowMenu = new ContextMenu();
+  let orderMenuRequest = 0;
+  let orderBookmark = $state<BookmarkPlace | null>(null);
+  let orderHomeStationID = $state<number | null>(null);
+  function closeOrderRowMenu() {
+    orderMenuRequest++;
+    orderRowMenu.close();
+  }
+  onDestroy(closeOrderRowMenu);
+  const orderMenuWords = {
+    cancel: ["UI/Market/Orders/CancelOrder", "Cancel Order"],
+    modify: ["UI/Market/Orders/ModifyOrder", "Modify Order"],
+    info: ["UI/Commands/ShowInfo", "Show Info"],
+    details: ["UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details"],
+    industry: ["UI/Industry/ViewInIndustry", "View in Industry"],
+    contracts: ["UI/Inventory/ItemActions/FindInContracts", "Find in Contracts"],
+    assets: ["UI/Inventory/ItemActions/FindPersonalAssets", "Find in Personal Assets"],
+    compare: ["UI/Compare/CompareButton", "Compare"],
+    location: ["UI/Common/Location", "Location"],
+    system: ["UI/Common/SolarSystem", "Solar System"],
+    destination: ["UI/Inflight/SetDestination", "Set Destination"],
+    add: ["UI/Inflight/AddWaypoint", "Add Waypoint"],
+    remove: ["UI/Inflight/RemoveWaypoint", "Remove Waypoint"],
+    bookmark: ["UI/Inflight/BookmarkLocation", "Save Location…"],
+    map: ["UI/Commands/ShowLocationOnMap", "Show on Map"],
+    home: ["UI/Menusvc/SetHomeStation", "Set Home Station"],
+  } as const;
   const orderExportWords = [
     "UI/Market/Orders/MyOrders", "UI/Market/Orders/CorporationOrders", "UI/Market/Orders/MyOrderHistory",
     "Tooltips/Market/MarketMyOrdersExportButton", "Tooltips/Market/MarketCorpOrdersExport", "UI/Market/MarketWindow/ExportNoData",
@@ -555,7 +592,7 @@
     "UI/Market/Marketbase/ExpiresIn", "UI/Market/MarketQuote/Expired", "UI/Common/LocationTypes/Station",
     "UI/Common/LocationTypes/SolarSystem", "UI/Market/MarketQuote/NumberOfJumps",
   ];
-  $effect(() => { if (orderPage === "corporation" && !canExportCorpOrders) orderPage = "orders"; });
+  $effect(() => { if (orderPage === "corporation" && !canExportCorpOrders) selectOrderPage("orders"); });
   $effect(() => {
     if (!corporationOrderPage) return;
     void corporateOrderRevision;
@@ -585,6 +622,7 @@
     return () => { current = false; };
   });
   function selectOrderPage(page: "orders" | "corporation" | "history") {
+    closeOrderRowMenu();
     closeModify();
     cancellingOrderID = null;
     corporateOrders = null;
@@ -594,6 +632,83 @@
     if (!key || key < 1000 || key > 1006) return "";
     return corporateOrderDivisions[String(key - 999)] ?? (key === 1000
       ? qbWord("UI/Corporations/Common/CorporateDivisionMasterWallet") || "Master Wallet" : `Wallet Division ${key - 999}`);
+  }
+  function canEditOpenOrder(order: MarketOwnOrderRow): boolean {
+    return !order.isCorp || (orderPilotID != null && order.issuerID === orderPilotID);
+  }
+  function orderMenuEntry(key: keyof typeof orderMenuWords, run?: () => void): ContextEntry {
+    const [path, fallback] = orderMenuWords[key];
+    return { path, label: qbWord(path) || fallback, run };
+  }
+  function orderLocationActions(place: NonNullable<Awaited<ReturnType<AppFlow["marketOrderLocation"]>>>): ContextEntry[] {
+    const { id, typeID, systemID } = place;
+    const answer: ContextEntry[] = [];
+    const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+    const route = celestialRouteEntries(id, isWaypointPlace(id, place.kind === "structure"), here, flow.waypoints.get());
+    if (route.setDestination) answer.push(orderMenuEntry("destination", () => flow.setDestination(id)));
+    if (route.addWaypoint) answer.push(orderMenuEntry("add", () => flow.addWaypoint(id)));
+    if (route.removeWaypoint) answer.push(orderMenuEntry("remove", () => flow.clearWaypoints(id)));
+    const deprecated = typeID !== null && isDeprecatedStationType(typeID);
+    const docked = store.flight.get().status?.docked ?? (store.station.get().online?.stationID != null);
+    if (place.kind !== "system" && docked && !deprecated) answer.push(orderMenuEntry("home", () => {
+      orderBookmark = null;
+      orderHomeStationID = id;
+    }));
+    if (typeID !== null && !deprecated) answer.push(orderMenuEntry("bookmark", () => {
+      orderHomeStationID = null;
+      flow.requestNames([{ kind: "type", id: typeID }]);
+      orderBookmark = { itemID: id, name: () => place.kind === "system" ? systemName(id) : stationName(id), typeName: () => typeName(typeID), askIfKnown: true };
+    }));
+    if (place.kind === "system" && isWaypointPlace(id)) {
+      if (systemID !== null && onShowSystem) answer.push(orderMenuEntry("map", () => onShowSystem?.(systemID)));
+      const avoided = avoidanceItems(flow.autopilotSettings()).includes(id);
+      answer.push({
+        path: avoided ? AVOID_WORDS.stopAvoiding : AVOID_WORDS.avoid,
+        label: avoidEntryWords(avoided, id, $words.templates, (kind, key) =>
+          resolvedName($names.resolved, kind, key, kind === "typeGroup" ? "Solar System" : String(key))),
+        run: () => { if (avoided) flow.stopAvoidingLocation(id); else flow.avoidLocation(id); },
+      });
+    }
+    if (typeID !== null) answer.push({ ...orderMenuEntry("info", () => showInfo(place.kind === "system"
+      ? { kind: "mapLocation", typeID, itemID: id } : { kind: "spaceObject", typeID, itemID: id })), info: true });
+    return answer;
+  }
+  async function openOrderRowMenu(order: MarketOwnOrderRow, row: HTMLElement, x: number, y: number) {
+    closeOrderRowMenu();
+    const request = orderMenuRequest;
+    const [facts, place] = await Promise.all([
+      flow.typeFacts([order.typeID]).catch(() => null),
+      flow.marketOrderLocation(order.stationID, order.solarSystemID),
+    ]);
+    if (request !== orderMenuRequest || !row.isConnected) return;
+    const entries: (ContextEntry | null)[] = [];
+    const typeID = order.typeID;
+    const type = facts?.get(typeID);
+    if (canEditOpenOrder(order) && !busy) {
+      entries.push(orderMenuEntry("cancel", () => { closeModify(); cancellingOrderID = order.orderID; }),
+        orderMenuEntry("modify", () => startModify(order)), null);
+    }
+    entries.push({ ...orderMenuEntry("info", () => showInfo({ kind: "type", typeID })), info: true });
+    if (onOpenIndustry && isBlueprintCategory(type?.categoryID)) {
+      entries.push(orderMenuEntry("industry", () => viewInIndustry(typeID, type?.categoryID)));
+    }
+    entries.push(orderMenuEntry("details", () => showMarketDetails(typeID)));
+    if (type?.published) {
+      entries.push(orderMenuEntry("contracts", () => findInContracts(typeID)),
+        orderMenuEntry("assets", () => findInPersonalAssets(assetSearchTextForType(qbWord("UI/Inventory/AssetSearch/KeywordTypeExact"), typeName(typeID)))));
+    }
+    if (type?.categoryID != null && COMPARE_CATEGORIES.includes(type.categoryID)) {
+      entries.push(orderMenuEntry("compare", () => compareType(typeID)));
+    }
+    if (place) {
+      const sub = orderLocationActions(place);
+      if (sub.length) entries.push(null, { ...orderMenuEntry(place.kind === "system" ? "system" : "location"), sub });
+    }
+    orderRowMenu.open(x, y, entries);
+  }
+  function dragOpenOrder(event: DragEvent, typeID: number) {
+    dragMarketType(event, typeID);
+    startLinkDrag(event, `showinfo:${typeID}`, typeName(typeID));
   }
   /** MarketBase.LoadDetails' detail tabs (the play page): Market Data (the order lists) or Price History. */
   let detailTab = $state<"marketdata" | "pricehistory">("marketdata");
@@ -1436,7 +1551,7 @@
 
   onMount(() => {
     if (ordersOnly) {
-      flow.requestWords(orderExportWords);
+      flow.requestWords([...orderExportWords, ...Object.values(orderMenuWords).map(([path]) => path), ...Object.values(AVOID_WORDS)]);
       refreshOrders();
       return;
     }
@@ -2263,8 +2378,9 @@
 {/if}
 
 {#snippet openOrderActions(order: MarketOwnOrderRow)}
+  {@const editable = !corporationOrderPage || canEditOpenOrder(order)}
   <div class="row-actions">
-    {#if (!corporationOrderPage || order.issuerID === $station.online?.characterID) && modifyingOrderID === order.orderID}
+    {#if editable && modifyingOrderID === order.orderID}
       <input
         type="number"
         min="0.01"
@@ -2301,7 +2417,7 @@
           Never mind
         </button>
       {/if}
-    {:else if (!corporationOrderPage || order.issuerID === $station.online?.characterID) && cancellingOrderID === order.orderID}
+    {:else if editable && cancellingOrderID === order.orderID}
       <button
         type="button"
         class="danger"
@@ -2318,7 +2434,7 @@
       >
         Leave it up
       </button>
-    {:else if !corporationOrderPage || order.issuerID === $station.online?.characterID}
+    {:else if editable}
       <button
         type="button"
         class="minor"
@@ -2375,7 +2491,31 @@
         </thead>
         <tbody>
           {#each visible as order (order.orderID)}
-            <tr data-open-order={order.orderID} data-corporation-order={corporationOrderPage ? order.orderID : undefined}>
+            <tr
+              data-open-order={order.orderID}
+              data-corporation-order={corporationOrderPage ? order.orderID : undefined}
+              tabindex="0"
+              draggable="true"
+              ondragstart={(event) => dragOpenOrder(event, order.typeID)}
+              oncontextmenu={(event) => {
+                event.preventDefault();
+                void openOrderRowMenu(order, event.currentTarget, event.clientX, event.clientY);
+              }}
+              ondblclick={(event) => {
+                if (event.target instanceof Element && !event.target.closest("button, input")) showMarketDetails(order.typeID);
+              }}
+              onkeydown={(event) => {
+                if (event.target !== event.currentTarget) return;
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  showMarketDetails(order.typeID);
+                } else if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+                  event.preventDefault();
+                  const bounds = event.currentTarget.getBoundingClientRect();
+                  void openOrderRowMenu(order, event.currentTarget, bounds.left, bounds.bottom);
+                }
+              }}
+            >
               {#each columns as key (key)}
                 {@const value = orderCell(order, key)}
                 <td class:num={key === "price" || key === "quantity" || key === "minimum"}>
@@ -2473,6 +2613,15 @@
     {/if}
   </section>
 
+{/if}
+
+{#if orderBookmark}
+  <BookmarkWindow {store} {flow} place={orderBookmark} onDone={() => orderBookmark = null} />
+{/if}
+{#if orderHomeStationID !== null}
+  {#key orderHomeStationID}
+    <HomeStationPanel {store} {flow} targetStationID={orderHomeStationID} onClose={() => orderHomeStationID = null} />
+  {/key}
 {/if}
 
 {#if ordersOnly ? ordersReady && orderPage === "history" : $market.loaded && tab === "orders" && $market.orderHistory.length > 0}

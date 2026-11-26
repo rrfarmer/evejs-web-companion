@@ -2765,6 +2765,9 @@ export interface AppFlow {
   loadMarketOrders(): Promise<void>;
   exportMarketOrders(corporation: boolean): Promise<string | null>;
   readCorporationMarketOrders(): Promise<readonly MarketOwnOrderRow[]>;
+  marketOrderLocation(stationID: number, systemID: number): Promise<{
+    kind: "station" | "structure" | "system"; id: number; systemID: number | null; typeID: number | null;
+  } | null>;
   exportMarketBook(typeID: number): Promise<{ text: string; region: string } | null>;
   marketGroupAsks(scope: MarketGroupScope): Promise<{
     scope: MarketGroupScope;
@@ -12323,6 +12326,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     current();
     requestMarketOrderNames(rows);
     return rows;
+  }
+
+  async function marketOrderLocation(stationID: number, systemID: number): ReturnType<AppFlow["marketOrderLocation"]> {
+    if (isStation(stationID)) {
+      const place = await api.resolveDestination(stationID, callOptions).catch(() => null);
+      if (place?.kind === "station") {
+        return { kind: "station", id: stationID, systemID: place.solarSystemID ?? (systemID || null), typeID: place.stationTypeID };
+      }
+    } else if (isPlayerItemID(stationID)) {
+      const place = await structureInfo(stationID).catch(() => null);
+      if (place) return { kind: "structure", id: stationID, systemID: place.solarSystemID ?? (systemID || null), typeID: place.typeID };
+    }
+    return systemID > 0 ? { kind: "system", id: systemID, systemID, typeID: TYPE_SOLAR_SYSTEM } : null;
   }
 
   async function exportMarketBook(typeID: number): Promise<{ text: string; region: string } | null> {
@@ -39708,6 +39724,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMarketOrders,
     exportMarketOrders,
     readCorporationMarketOrders,
+    marketOrderLocation,
     exportMarketBook,
     marketGroupAsks,
     marketGroupDistances,

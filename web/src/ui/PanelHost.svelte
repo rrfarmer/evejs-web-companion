@@ -231,7 +231,7 @@
     onOpenIndustry={onOpen ? () => onOpen?.("industry") : undefined}
     onBuyPlex={onBuyPlex ?? (onOpen ? () => onOpen?.("plexCheckout") : undefined)} />
 {:else if tab === "marketOrders"}
-  <Market {store} {flow} ordersOnly />
+  <Market {store} {flow} ordersOnly {onShowSystem} onOpenIndustry={onOpen ? () => onOpen?.("industry") : undefined} />
 {:else if tab === "activity"}
   <Activity {store} {flow} showMail={() => onOpen?.("mail")} openApplications={() => { flow.requestCorporationApplications(); onOpen?.("corporation"); }} />
 {:else if tab === "fleet"}
