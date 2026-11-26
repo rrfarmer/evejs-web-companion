@@ -23,6 +23,7 @@
     create: "UI/Chat/ChannelWindow/Create",
     joinChannel: "UI/Chat/ChannelWindow/JoinChannel",
     leaveChannel: "UI/Chat/ChannelWindow/LeaveChannel",
+    forgetChannel: "UI/Chat/ChannelWindow/ForgetChannel",
     deleteChannel: "UI/Chat/ChannelWindow/DeleteChannel",
     settings: "UI/Chat/Settings",
   } as const;
@@ -42,7 +43,12 @@
   let counts = $state.raw<ReadonlyMap<string, number>>(new Map());
   let tabVisible = $state(true);
   let settingsRoom = $state<string | null>(null);
+  let mounted = false;
   const rowMenu = new ContextMenu();
+  const directory = $derived.by(() => {
+    const listed = new Set(channels.map(row => row.roomName));
+    return [...channels, ...$conversations.rememberedChannels.filter(row => !listed.has(row.roomName))];
+  });
 
   function observeRoom(node: HTMLElement, roomName: string) {
     roomObserver?.observe(node);
@@ -111,7 +117,7 @@
   const groups = $derived.by(() => {
     const needle = query.trim().toLowerCase();
     const grouped = new Map<string, { id: string; label: string; channels: DirectoryRow[] }>();
-    for (const row of exact ?? channels) {
+    for (const row of exact ?? directory) {
       const label = channelName(row);
       if (exact === null && needle && !label.toLowerCase().includes(needle) && !row.roomName.toLowerCase().includes(needle)) continue;
       const affiliation = row.affiliation ?? channels.find(channel => channel.roomName === row.roomName)?.affiliation ?? null;
@@ -123,8 +129,21 @@
     return [...grouped.values()].sort((a, b) => a.label.localeCompare(b.label));
   });
 
+  async function refreshDirectory() {
+    try {
+      const rows = await flow.readChatChannelDirectory(null);
+      if (!mounted) return;
+      channels = rows;
+      requestDirectoryWords(rows);
+    } catch {
+      if (mounted) error = "The chat directory is unavailable.";
+    } finally {
+      if (mounted) loading = false;
+    }
+  }
+
   onMount(() => {
-    let mounted = true;
+    mounted = true;
     roomObserver = new IntersectionObserver(entries => {
       for (const { target, isIntersecting } of entries) {
         const room = (target as HTMLElement).dataset.roomName;
@@ -137,13 +156,8 @@
     updateTabVisibility();
     document.addEventListener("visibilitychange", updateTabVisibility);
     flow.requestWords(Object.values(paths));
-    void flow.readChatChannelDirectory(null).then(rows => {
-      if (!mounted) return;
-      channels = rows;
-      requestDirectoryWords(rows);
-    }).catch(() => { if (mounted) error = "The chat directory is unavailable."; }).finally(() => {
-      if (mounted) loading = false;
-    });
+    flow.conversations.loadRememberedDirectoryChannels();
+    void refreshDirectory();
     return () => {
       mounted = false;
       request++;
@@ -195,7 +209,7 @@
   }
   async function lookupChannel(name: string, refresh = false) {
     const folded = name.toLowerCase();
-    const held = (exact ?? channels).filter(row => (!refresh || systemLabels(row.roomName)) &&
+    const held = (exact ?? directory).filter(row => (!refresh || systemLabels(row.roomName)) &&
       (channelName(row).toLowerCase() === folded || row.name.trim().toLowerCase() === folded || row.roomName === folded));
     const rows = held.length ? held : await flow.readChatChannelDirectory(name);
     return rows.find(row => systemLabels(row.roomName)) ?? rows[0];
@@ -263,6 +277,14 @@
     }
     if (channel.affiliation === "owner") entries.push({ label: locale(paths.deleteChannel, "Delete Channel"), path: paths.deleteChannel,
       run: () => deleteChannel(channel) });
+    if (!joined && channel.roomName.startsWith("player_") && channel.affiliation !== "owner") {
+      entries.push({ label: locale(paths.forgetChannel, "Forget Channel"), path: paths.forgetChannel,
+        run: () => { void changeMembership(async () => {
+          flow.conversations.forgetDirectoryChannel(channel.roomName);
+          await refreshDirectory();
+          if (mounted && exact !== null) await findChannel();
+        }); } });
+    }
     rowMenu.open(pointer?.clientX ?? bounds.left, pointer?.clientY ?? bounds.bottom, entries);
   }
   function reflectSavedSettings(room: string, name: string) {

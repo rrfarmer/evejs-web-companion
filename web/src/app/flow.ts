@@ -6322,7 +6322,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (!online) throw new BridgeCallError("NO_LIVE_SESSION", "No character is online.", 409);
       const current = callOptions.captureRequestGuard!(), sink = callOptions.captureNotificationSink!();
       const scoped: api.ApiOptions = { ...callOptions, captureRequestGuard: () => current, captureNotificationSink: () => sink };
-      return { me: online.characterID, role: BigInt(online.role ?? "0"), options: scoped, current };
+      return { me: online.characterID, accountID: store.session.get().accountID, role: BigInt(online.role ?? "0"), options: scoped, current };
     },
     word: (label, values, fallback) => templateWords(label, values, fallback),
     say: (dialog, args, fallback) => sayDialog(dialog, { type: "dict", entries: Object.entries(args) }, fallback),

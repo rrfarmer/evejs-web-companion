@@ -15,10 +15,11 @@ export interface ChatConversation { readonly channel: string; readonly title: st
 export interface ChatInvitation { readonly id: string; readonly roomName: string; readonly senderCharacterID: number; readonly password: string }
 export interface ChatConversationState {
   readonly generation: number; readonly active: string | null; readonly rooms: readonly ChatConversation[];
+  readonly rememberedChannels: readonly api.ChatDirectoryChannel[];
   readonly invitations: readonly ChatInvitation[]; readonly contactAdds: readonly { readonly id: number; readonly action: ContactAction; readonly current: () => void }[];
   readonly openSerial: number; readonly busy: boolean; readonly error: string | null;
 }
-interface Scope { readonly me: number; readonly role: bigint; readonly options: api.ApiOptions; readonly current: () => void }
+interface Scope { readonly me: number; readonly accountID: number | null; readonly role: bigint; readonly options: api.ApiOptions; readonly current: () => void }
 interface Hooks {
   readonly capture: () => Scope;
   readonly word: (label: string, args: Readonly<Record<string, string | number>>, fallback: string) => string;
@@ -30,7 +31,7 @@ const ENGLISH_HELP_ROOM = "system_263238_263262";
 
 export function createChatConversations(hooks: Hooks) {
   let generation = 0, serial = 0, contactSerial = 0;
-  const blank = (): ChatConversationState => ({ generation, active: null, rooms: [], invitations: [], contactAdds: [], openSerial: serial, busy: false, error: null });
+  const blank = (): ChatConversationState => ({ generation, active: null, rooms: [], rememberedChannels: [], invitations: [], contactAdds: [], openSerial: serial, busy: false, error: null });
   const state = createSignal<ChatConversationState>(blank());
   const pendingPrivate = new Map<string, { target: number; invited: boolean }>();
   const pendingInvites = new Map<number, string>();
@@ -43,10 +44,36 @@ export function createChatConversations(hooks: Hooks) {
   let rules: ReturnType<typeof api.readChatRules> | null = null;
   let book: Promise<AddressBook> | null = null;
   let refreshWork: Promise<void> | null = null;
+  let rememberedKey: string | null = null;
   const patch = (change: Partial<ChatConversationState>) => state.set({ ...state.get(), ...change });
   function capture(): Scope {
     const scope = hooks.capture(), epoch = generation, held = scope.current;
     return { ...scope, current: () => { held(); if (epoch !== generation) throw Object.assign(new Error("This conversation belongs to a retired pilot."), { code: "SESSION_REQUEST_RETIRED" }); } };
+  }
+  // Native chatPlayerChannelsJoined is an account preference. The directory
+  // uses it only for player rooms missing from the server's current listing.
+  function loadRemembered(scope: Scope): string {
+    scope.current();
+    const key = `evejs.user.${scope.accountID ?? `character-${scope.me}`}.chatPlayerChannelsJoined`;
+    if (rememberedKey === key) return key;
+    let saved: Record<string, JsonValue> = {};
+    try { saved = record(JSON.parse(globalThis.localStorage?.getItem(key) ?? "{}")); } catch { /* browser storage unavailable */ }
+    rememberedKey = key;
+    patch({ rememberedChannels: Object.entries(saved).flatMap(([roomName, name]) =>
+      /^player_[a-z0-9_-]+$/.test(roomName) && typeof name === "string" && name ? [{ roomName, name, affiliation: null }] : []) });
+    return key;
+  }
+  function writeRemembered(key: string, rememberedChannels: readonly api.ChatDirectoryChannel[]) {
+    patch({ rememberedChannels });
+    try {
+      globalThis.localStorage?.setItem(key, JSON.stringify(Object.fromEntries(rememberedChannels.map(row => [row.roomName, row.name]))));
+    } catch { /* keep the preference in this session */ }
+  }
+  function forgetRemembered(scope: Scope, room: string) {
+    const key = loadRemembered(scope);
+    const rows = state.get().rememberedChannels;
+    const next = rows.filter(row => row.roomName !== room);
+    if (next.length !== rows.length) writeRemembered(key, next);
   }
   const name = (id: number) => ownerNames.get(id) ?? String(id);
   async function names(scope: Scope, ids: readonly number[]): Promise<void> {
@@ -102,7 +129,18 @@ export function createChatConversations(hooks: Hooks) {
     let kept = ""; try { kept = globalThis.localStorage?.getItem(`evejs-web-user-ui:${room}Password`) ?? ""; } catch { /* browser storage unavailable */ }
     if (password) { try { globalThis.localStorage?.setItem(`evejs-web-user-ui:${room}Password`, password); } catch { /* held in this invitation */ } }
     const raw = await api.joinChatRoom(room, password || kept, scope.options); scope.current();
-    await applyRoom(scope, raw); scope.current(); patch({ active: room, openSerial: ++serial });
+    await applyRoom(scope, raw); scope.current();
+    if (/^player_[a-z0-9_-]+$/.test(room)) {
+      const joined = state.get().rooms.find(entry => entry.channel === room);
+      if (joined) {
+        const key = loadRemembered(scope);
+        const rows = state.get().rememberedChannels;
+        if (!rows.some(row => row.roomName === room)) {
+          writeRemembered(key, [...rows, { roomName: room, name: joined.title, affiliation: null }]);
+        }
+      }
+    }
+    patch({ active: room, openSerial: ++serial });
   }
   async function close(scope: Scope, room: string): Promise<void> {
     await api.leaveChatRoom(room, scope.options); scope.current();
@@ -163,7 +201,9 @@ export function createChatConversations(hooks: Hooks) {
   return {
     state: readonlySignal(state),
     name,
-    reset() { generation++; pendingPrivate.clear(); pendingInvites.clear(); information.clear(); directoryTitles.clear(); destroyedRooms.clear(); seenDeclines.clear(); owners.clear(); rules = null; book = null; refreshWork = null; state.set(blank()); },
+    reset() { generation++; pendingPrivate.clear(); pendingInvites.clear(); information.clear(); directoryTitles.clear(); destroyedRooms.clear(); seenDeclines.clear(); owners.clear(); rules = null; book = null; refreshWork = null; rememberedKey = null; state.set(blank()); },
+    loadRememberedDirectoryChannels() { loadRemembered(capture()); },
+    forgetDirectoryChannel(room: string) { forgetRemembered(capture(), room); },
     invalidateContacts() { book = null; },
     async canStart(id: number) { return character(capture(), id); },
     async invitable(target: number) {
@@ -236,6 +276,7 @@ export function createChatConversations(hooks: Hooks) {
         scope.current();
         destroyedRooms.add(room);
         directoryTitles.delete(room);
+        forgetRemembered(scope, room);
         try { globalThis.localStorage?.removeItem(`evejs-web-user-ui:${room}Password`); } catch { /* browser storage unavailable */ }
         removeRoom(room);
       });
