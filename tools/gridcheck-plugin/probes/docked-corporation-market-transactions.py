@@ -1,5 +1,4 @@
 from eve.client.script.ui.shared.neocom.wallet import walletUtil
-from eve.client.script.ui.shared import marketSvc
 from eve.common.lib import appConst
 from localization import GetByLabel
 from utillib import KeyVal
@@ -32,10 +31,21 @@ def observe():
     for key in [1001, 1000]:
         row = get_row(KeyVal(accountID=key, **raw))
         rows.append([row.isBuyTransaction, row.characterID, row.clientID, row.totalPrice])
+    # Account identities can differ while two rows use the same division key.
+    separate = dict(raw, buyerAccountID=1568000001, sellerAccountID=1568000009,
+                    keyID=1000, transactionDate=134401429752530000L)
+    shared_division = []
+    for account_id in [separate['buyerAccountID'], separate['sellerAccountID']]:
+        row = get_row(KeyVal(accountID=account_id, **separate))
+        shared_division.append(dict(buy=row.isBuyTransaction, member=row.characterID,
+                                    client=row.clientID, total=row.totalPrice, division=row.keyID,
+                                    date=GetByLabel('UI/Wallet/WalletWindow/FmtWalletDate',
+                                                    dt=row.transactionDate)))
     path = 'UI/Wallet/WalletWindow/'
     labels = [GetByLabel(path + name) for name in
               ['MarketTransactions', 'Division', 'Member', 'ColHeaderWho',
                'ColHeaderWalletDivision', 'MenuViewMarketTransactions']]
-    return dict(station=session.stationid, roles=roles, labels=labels, rows=rows)
+    return dict(station=session.stationid, roles=roles, labels=labels, rows=rows,
+                sharedDivision=shared_division)
 
 result = observe()
