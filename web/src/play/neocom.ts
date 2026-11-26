@@ -3,6 +3,7 @@
 // EVE-time clock at the bottom. A button opens its window where the play page has one, and says so where not yet.
 
 import { clientTexture } from "./window.ts";
+import { neocomPointerName } from "./uiPointer.ts";
 import { shortcutOf } from "./shortcutKeys.ts";
 import { hideLabelShortcutTooltip, showLabelShortcutTooltip, tooltipDue, showSkillTrainingTooltip, type SkillTrainingTip, type TooltipValue } from "./labelShortcutTooltip.ts";
 import { playUiEvent } from "./uiAudio.ts";
@@ -176,6 +177,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
     { id: "compare", label: "Compare Tool", icon: icon("comparetool") },
     { id: "log", label: "Log", icon: icon("log") },
     { id: "structureBrowser", label: "Structure Browser", icon: icon("structureBrowser") },
+    { id: "pointerWindow", label: "Pointer Window", icon: icon("UIHelper") },
   ] },
 ];
 
@@ -673,6 +675,7 @@ export class Neocom {
     for (const b of NEOCOM_DEFAULT) {
       const el = document.createElement("button");
       el.className = "nc-btn";
+      el.dataset.uiPointer = neocomPointerName(b.id);
       el.setAttribute("aria-label", b.label);
       el.innerHTML = `<img src="${b.icon}" alt="">`;
       el.append(this.indicator(b.id));

@@ -1,5 +1,6 @@
 <script lang="ts">
   import Calculator from "./Calculator.svelte";
+  import PointerWindow from "./PointerWindow.svelte";
   import Help from "./Help.svelte";
   import AuraGuidance from "./AuraGuidance.svelte";
   import NewEdenStore from "./NewEdenStore.svelte";
@@ -380,6 +381,8 @@
   <NoticeLog {store} {flow} />
 {:else if tab === "calculator"}
   <Calculator />
+{:else if tab === "pointerWindow"}
+  <PointerWindow {store} {flow} />
 {:else if tab === "help"}
   <Help {store} {flow} showChat={() => onOpen?.("chat")} />
 {:else if tab === "auraGuidance"}

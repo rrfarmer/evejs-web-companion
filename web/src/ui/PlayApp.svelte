@@ -193,6 +193,7 @@
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import { combatMovingMode } from "./combatSettings.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
+  import { stationPointerName } from "../play/uiPointer.ts";
   import type { DogmaTypeFacts } from "../bridge/dogma/location.ts";
   import { typeIconUrl } from "./typeIcons.ts";
   import { cycleProgressPercent } from "./moduleRack.ts";
@@ -226,7 +227,7 @@
     // the EVE menu's commands (play/neocom.ts EVE_MENU)
     marketorders: "marketOrders", contracts: "contracts", industry: "industry", miningScan: "miningScan", miningLedger: "miningLedger", planets: "planets", locations: "locations",
     contacts: "contacts", fleet: "fleet", corporation: "corporation", structureBrowser: "structureBrowser", compare: "compare", log: "log", notepad: "notepad", calendar: "calendar",
-    calculator: "calculator", fittingmanagement: "fittingManagement",
+    calculator: "calculator", pointerWindow: "pointerWindow", fittingmanagement: "fittingManagement",
     accessGroups: "accessGroups",
     help: "help",
     auraGuidance: "auraGuidance",
@@ -1663,6 +1664,7 @@
     auraGuidance: { w: 400, h: 500 },
     fittingManagement: { w: 620, h: 600 },
     calculator: { w: 327, h: 340 },
+    pointerWindow: { w: 500, h: 500 },
     marketOrders: { w: 600, h: 500 },
     channels: { w: 440, h: 560 },
     characterSheet: { w: 1235, h: 768 }, assets: { w: 550, h: 450 }, locations: { w: 450, h: 450 }, contacts: { w: 600, h: 500 },
@@ -1680,6 +1682,7 @@
     characterRecustomization: { w: 610, h: 442 },
   };
   const FLIGHT_MINIMUMS: Partial<Record<TabID, { w: number; h: number }>> = {
+    pointerWindow: { w: 300, h: 300 },
     auraGuidance: { w: 270, h: 300 },
     fittingManagement: { w: 525, h: 400 },
     channels: { w: 400, h: 250 },
@@ -1884,6 +1887,7 @@
     plexCheckout: "UI/VirtualGoodsStore/Buttons/BuyPlex",
     fittingManagement: "UI/Fitting/FittingWindow/FittingManagement/WindowCaption",
     calculator: "UI/Accessories/Calculator/Calculator",
+    pointerWindow: "UI/Help/PointerWndName",
     marketOrders: "Tooltips/StationServices/MarketOrders",
     channels: "UI/Neocom/ChatChannelsBtn",
     scanner: "UI/Inflight/Scanner/ProbeScanner", miningScan: "UI/Inflight/Scanner/MiningScanResults", miningLedger: "UI/Ledger/LedgerWnd", finder: "UI/Agency/Caption", contacts: "UI/PeopleAndPlaces/WindowTitle",
@@ -2055,6 +2059,7 @@
     OpenAchievementsWindow: "achievements", OpenFleetWatchlist: "watchlist", OpenStructureBrowser: "structureBrowser",
     OpenAccessGroupsWindow: "accessGroups", OpenChannels: "channels",
     OpenHelp: "help",
+    OpenPointerWnd: "pointerWindow",
     OpenOmegaUpsellWindow: "omegaUpsell",
     ToggleTheatersOfWarWindow: "theatersOfWar", CmdToggleShipTree: "shipTree",
     // (ToggleOpenClose in the client too: ContractsWindow, CorporationWindow, NotepadWindow, PlanetWindow, the comparison
@@ -4529,7 +4534,7 @@
           {#if error}<div class="error lobby-error">{error}</div>{/if}
           <div class="lobby-services">
             {#each lobbyServices as svc (svc.label)}
-              <button type="button" class="lobby-svc" title={svc.label} aria-label={svc.label} onclick={svc.select}>
+              <button type="button" class="lobby-svc" title={svc.label} aria-label={svc.label} data-ui-pointer={stationPointerName(svc.icon)} onclick={svc.select}>
                 <img alt="" src={clientTexture(`res:/UI/Texture/WindowIcons/${svc.icon}.png`)} />
               </button>
             {/each}

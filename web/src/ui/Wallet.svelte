@@ -276,7 +276,7 @@
        moved to the band every other window keeps its controls in. -->
   {#if retail}
     <nav class="tabs wl-head-tabs">
-      <button type="button" class:active={walletTab === "mine"} aria-pressed={walletTab === "mine"}
+      <button type="button" data-ui-pointer="unique_UI_myWallet" class:active={walletTab === "mine"} aria-pressed={walletTab === "mine"}
         onclick={() => (walletTab = "mine")}>{tabWord("UI/Wallet/WalletWindow/MyWallet", "My Wallet")}</button>
       {#if corporationAllowed}
         <button type="button" class:active={walletTab === "corporation"} aria-pressed={walletTab === "corporation"}
@@ -352,7 +352,7 @@
           <span class="amount">{$wallet.loaded ? balance : ""}</span></span>
       </button>
       <div class="wl-tab plex-tab" class:sel={currency === "plex"}>
-        <button type="button" class="currency-tab plex-select" aria-pressed={currency === "plex"} disabled={plexBalance === null}
+        <button type="button" data-ui-pointer="unique_UI_plexWallet" class="currency-tab plex-select" aria-pressed={currency === "plex"} disabled={plexBalance === null}
           title={plexUnavailable ? tabWord(PLEX_UNAVAILABLE_HINT, "PLEX wallet currently unavailable. Please try again later.") : tabWord(PLEX_DESCRIPTION, "")}
           onclick={() => (currency = "plex")}>
           <span class="ic"><img alt="" src="/client-res/ui/texture/plex/plex_128_gradient_yellow.png" /></span>
@@ -372,7 +372,7 @@
           <span class="data"><b>{loyalty === null ? tabWord("UI/Journal/JournalWindow/Agents/LoyaltyPoints", "Loyalty Points")
             : loyaltyWord(LP_COUNT, { numLPCorps: loyalty.length }, `${loyalty.length} LP Corporations`)}</b></span>
         </button>
-        <button type="button" class="wl-tab small currency-tab evermarks-tile" class:sel={currency === "evermarks"}
+        <button type="button" data-ui-pointer="unique_UI_everMarks" class="wl-tab small currency-tab evermarks-tile" class:sel={currency === "evermarks"}
           aria-pressed={currency === "evermarks"} onclick={() => (currency = "evermarks")}><span class="ic"><img alt="" src="/client-res/ui/texture/windowicons/evermark_24px.png" /></span>
           <span class="data evermarks-balance"><b>{lpBalances === null ? tabWord("UI/Wallet/WalletWindow/EverMarks", "EverMarks")
             : loyaltyWord(EM_AMOUNT, { everMarkAmount: evermarks }, `${evermarks.toLocaleString("en-US")} EverMarks`)}</b></span></button>
@@ -482,8 +482,8 @@
 
   <nav class="tabs">
     <button type="button" class:active={tab === "overview"} onclick={() => (tab = "overview")}>{tabWord(TAB_WORDS.overview, "Overview")}</button>
-    <button type="button" class:active={tab === "transactions"} onclick={() => (tab = "transactions")}>{tabWord(TAB_WORDS.transactions, "Transactions")}</button>
-    <button type="button" class:active={tab === "market"} onclick={() => (tab = "market")}>{tabWord(TAB_WORDS.market, "Market Transactions")}</button>
+    <button type="button" data-ui-pointer="unique_UI_walletTransactions" class:active={tab === "transactions"} onclick={() => (tab = "transactions")}>{tabWord(TAB_WORDS.transactions, "Transactions")}</button>
+    <button type="button" data-ui-pointer="unique_UI_walletMarketTransactions" class:active={tab === "market"} onclick={() => (tab = "market")}>{tabWord(TAB_WORDS.market, "Market Transactions")}</button>
     <button type="button" class:active={tab === "shares"} onclick={() => (tab = "shares")}>{tabWord(TAB_WORDS.shares, "Shares")}</button>
     <button type="button" class:active={tab === "give"} onclick={() => (tab = "give")}>{tabWord(TAB_WORDS.give, "Give ISK")}</button>
   </nav>

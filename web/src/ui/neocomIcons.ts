@@ -142,6 +142,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   log: ["M5 4h14v16H5z", "M8 9h8M8 13h8M8 17h5"],
   notepad: ["M6 3h9l3 3v15H6z", "M9 9h6M9 13h6M9 17h4"],
   calculator: ["M5 3h14v18H5z", "M8 7h8M8 12h2m4 0h2M8 16h2m4 0h2"],
+  pointerWindow: ["M4 4h16v16H4z", "m8 16 4-8 4 8m-6-3h4"],
   fittingManagement: ["M5 4h14v16H5z", "M8 8h8M8 12h8M8 16h5"],
   calendar: ["M4 5h16v15H4z", "M4 9h16", "M8 3v4M16 3v4"],
   // The compare tool: two columns side by side, a line between them.
