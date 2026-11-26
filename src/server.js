@@ -16046,6 +16046,7 @@ const PUBLIC_GATEWAY_READS = new Set([
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
   "eve_public.cosmetic.ship.skin.thirdparty.draft.api.DeleteRequest",
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.SaveRequest",
   "eve_public.cosmetic.ship.skin.thirdparty.draft.api.UpdateRequest",
   "eve_public.sovereignty.mercenaryden.activity.api.StartRequest",
   "eve_public.achievement.reward.api.ClaimRequest",

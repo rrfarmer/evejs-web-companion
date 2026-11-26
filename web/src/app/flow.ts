@@ -4592,7 +4592,7 @@ export interface AppFlow {
   loadMyMercenaryDens(): Promise<MercenaryDensRead>;
   loadShipSkinrStudio(): Promise<ShipSkinrStudio>;
   loadShipSkinrDesign(skin: string): Promise<ShipSkinrDesign | null>;
-  updateShipSkinrDesign(entry: ShipSkinrEntry, design: ShipSkinrDesign, name: string, lineName: string): Promise<ShipSkinrEntry>;
+  saveShipSkinrDesign(entry: ShipSkinrEntry, design: ShipSkinrDesign, name: string, lineName: string, asNew: boolean): Promise<ShipSkinrEntry>;
   deleteShipSkinrDesign(id: string): Promise<void>;
   reloadMercenaryDen(denID: number): Promise<MercenaryDenRow | null>;
   loadMercenaryDenActivities(denID: number): Promise<MercenaryDenActivities>;
@@ -28900,15 +28900,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return design;
   }
 
-  async function updateShipSkinrDesign(entry: ShipSkinrEntry, design: ShipSkinrDesign, name: string, lineName: string): Promise<ShipSkinrEntry> {
+  async function saveShipSkinrDesign(entry: ShipSkinrEntry, design: ShipSkinrDesign, name: string, lineName: string, asNew: boolean): Promise<ShipSkinrEntry> {
     const current = callOptions.captureRequestGuard!();
-    const result = await gatewayAsk(SHIP_SKINR_GATEWAY + "draft.api.UpdateRequest", {
-      id: { uuid: entry.id }, name, line_name: lineName, layout: design.layout,
+    const request = SHIP_SKINR_GATEWAY + (asNew ? "draft.api.SaveRequest" : "draft.api.UpdateRequest");
+    const result = await gatewayAsk(request, {
+      ...(!asNew ? { id: { uuid: entry.id } } : {}),
+      name, line_name: lineName, layout: design.layout,
       editor_configurations: entry.editorConfigurations,
     }, true);
     current();
     const updated = decodeShipSkinrEntry(result);
-    if (!updated || updated.id !== entry.id) throw new Error("The saved design could not be confirmed.");
+    if (!updated || (asNew ? updated.id === entry.id : updated.id !== entry.id)) {
+      throw new Error("The saved design could not be confirmed.");
+    }
     return updated;
   }
 
@@ -41277,7 +41281,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMyMercenaryDens,
     loadShipSkinrStudio,
     loadShipSkinrDesign,
-    updateShipSkinrDesign,
+    saveShipSkinrDesign,
     deleteShipSkinrDesign,
     reloadMercenaryDen,
     loadMercenaryDenActivities,

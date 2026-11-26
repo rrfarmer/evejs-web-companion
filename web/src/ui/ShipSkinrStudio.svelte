@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
-  import { plainText } from "../bridge/clientWords.ts";
+  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { ShipSkinrDesign, ShipSkinrEntry, ShipSkinrStudio } from "../bridge/shipSkinr.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -23,9 +23,12 @@
     name: [prefix + "SKINName", "SKIN Name"],
     line: [prefix + "SKINLineNameOptional", "SKIN Line Name (Optional)"],
     save: ["UI/Common/Buttons/Save", "Save"],
+    saveAs: [prefix + "SaveAs", "Save As"],
+    saveAsNew: [prefix + "SaveAsNew", "Save as New"],
     cancel: ["UI/Common/Buttons/Cancel", "Cancel"],
   } as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
+  const limitPath = prefix + "DesignErrors/SaveLimitReached";
   let studio = $state.raw<ShipSkinrStudio | null>(null);
   let designs = $state.raw<ReadonlyMap<string, ShipSkinrDesign | null>>(new Map());
   let error = $state("");
@@ -34,11 +37,18 @@
   let editor = $state.raw<{ entry: ShipSkinrEntry; design: ShipSkinrDesign } | null>(null);
   let name = $state("");
   let lineName = $state("");
+  let beforeCopy = $state.raw<{ name: string; lineName: string } | null>(null);
   let saving = $state(false);
   let saveError = $state("");
   let deleting = $state.raw<ShipSkinrEntry | null>(null);
   let deleteError = $state("");
   let destroyed = false;
+  const atSaveLimit = $derived(studio !== null && studio.designs.length >= studio.capacity);
+  const saveLimit = $derived(studio ? plainText(formatTemplate(
+    $words.templates[limitPath] ?? "All saved design slots are in use.",
+    { current: studio.designs.length, limit: studio.capacity },
+    { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, "") },
+  )) : "");
   const validName = $derived(name.trim() !== "" && [...name].length <= 20 && [...lineName].length <= 50 &&
     !/[\p{Cc}\p{Cs}]/u.test(name + lineName));
   const selectedEntry = $derived([...(studio?.designs ?? []), ...(studio?.jobs ?? [])].find(row => row.id === selected));
@@ -58,23 +68,43 @@
     saveError = "";
   }
 
+  function startCopy() {
+    if (atSaveLimit || saving) return;
+    beforeCopy = { name, lineName };
+    saveError = "";
+  }
+
+  function cancelEdit() {
+    if (beforeCopy) {
+      ({ name, lineName } = beforeCopy);
+      beforeCopy = null;
+      saveError = "";
+    } else {
+      editor = null;
+    }
+  }
+
   async function save(event: SubmitEvent) {
     event.preventDefault();
     if (!editor || !studio || saving || !validName) return;
     const target = editor;
+    const asNew = beforeCopy !== null;
+    if (asNew && atSaveLimit) return;
     const edited = { ...target.design, name, lineName };
     saving = true;
     saveError = "";
     try {
-      const updated = await flow.updateShipSkinrDesign(target.entry, target.design, edited.name, edited.lineName);
-      if (editor !== target || !studio) return;
+      const updated = await flow.saveShipSkinrDesign(target.entry, target.design, edited.name, edited.lineName, asNew);
+      if (destroyed || editor !== target || !studio) return;
       designs = new Map(designs).set(updated.skin, edited);
-      studio = { ...studio, designs: studio.designs.map(row => row.id === updated.id ? updated : row) };
+      studio = { ...studio, designs: asNew ? [...studio.designs, updated] : studio.designs.map(row => row.id === updated.id ? updated : row) };
+      selected = updated.id;
+      beforeCopy = null;
       editor = null;
     } catch (cause) {
-      if (editor === target) saveError = panelErrorWords(cause);
+      if (!destroyed && editor === target) saveError = panelErrorWords(cause);
     } finally {
-      if (editor === target || !editor) saving = false;
+      if (!destroyed && (editor === target || !editor)) saving = false;
     }
   }
 
@@ -98,13 +128,14 @@
     }
   }
 
-  $effect(() => { flow.requestWords(Object.values(labels).map(([path]) => path)); });
+  $effect(() => { flow.requestWords([...Object.values(labels).map(([path]) => path), limitPath]); });
   $effect(() => {
     void attempt;
     studio = null;
     designs = new Map();
     selected = null;
     editor = null;
+    beforeCopy = null;
     saving = false;
     deleting = null;
     deleteError = "";
@@ -156,7 +187,7 @@
     </div>
     {#if editor}
       <form class="skinr-editor" aria-labelledby="skinr-editor-heading" onsubmit={save}>
-        <h3 id="skinr-editor-heading">{word("edit")}</h3>
+        <h3 id="skinr-editor-heading">{word(beforeCopy ? "saveAsNew" : "edit")}</h3>
         <label>{word("name")} <input bind:value={name} required disabled={saving} /></label>
         <label>{word("line")} <input bind:value={lineName} disabled={saving} /></label>
         {#if [...name].length > 20 || [...lineName].length > 50}
@@ -164,9 +195,13 @@
         {/if}
         {#if saveError}<p role="alert">{saveError}</p>{/if}
         <footer>
-          <button type="submit" disabled={saving || !validName}>{word("save")}</button>
-          <button type="button" disabled={saving} onclick={() => editor = null}>{word("cancel")}</button>
+          <button type="submit" disabled={saving || !validName || (!!beforeCopy && atSaveLimit)}>{word("save")}</button>
+          {#if !beforeCopy}
+            <button type="button" disabled={saving || atSaveLimit} onclick={startCopy}>{word("saveAs")}</button>
+          {/if}
+          <button type="button" disabled={saving} onclick={cancelEdit}>{word("cancel")}</button>
         </footer>
+        {#if atSaveLimit}<p>{saveLimit}</p>{/if}
       </form>
     {:else if selectedEntry && selectedDesign}
       {@const icon = typeIconUrl(selectedDesign.shipTypeID)}
