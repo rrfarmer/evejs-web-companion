@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { loadDds } from "../three/ddsTexture.ts";
 import { effectObject, startEffect, type SofChildNode } from "../three/hullChildren.ts";
-import { loadSofMaterials, paintedTypeModel, setControllerVariable, setDirtLevel, setThrust, typeModel, updateSkinrProjection, type SofArea } from "../three/hullModel.ts";
+import { setControllerVariable, setDirtLevel, setThrust, typeModel, updateSkinrProjection } from "../three/hullModel.ts";
+import { disposeShipSkinrMaterials, shipSkinrPreviewModel } from "../three/shipSkinrModel.ts";
 import type { ShipSkinrBlendMode, ShipSkinrPatternPreview } from "../bridge/shipSkinrPatterns.ts";
 import { useHullTextureRenderer } from "../three/hullAlbedo";
 import { SHIP_INFO_FAR_CLIP, shipInfoZoomRange } from "./shipInfoCamera.ts";
@@ -123,22 +124,12 @@ export class ShipInfoScene {
       if (patterns.length) updateSkinrProjection(this.model, patterns.map(({ layer }) => layer), blendMode);
       return true;
     }
-    const needsMaterials = coatings.some(Boolean) || patterns.some(pattern => pattern.material);
-    const custom = needsMaterials || patterns.length > 0 || darkhullChannel !== undefined;
-    const materialRead = needsMaterials ? loadSofMaterials() : Promise.resolve<Record<string, never>>({});
-    const modelRead = custom ? materialRead.then(materials => {
-      const overrides = coatings.map(name => name ? materials[name] ?? null : null);
-      if (coatings.some((name, index) => name && !overrides[index])) return null;
-      const patternMaterials = patterns.map(pattern => pattern.material ? materials[pattern.material] ?? null : null);
-      return paintedTypeModel(typeID, overrides, skinrCoatingArea, patterns.length ? {
-        layers: patterns.map(pattern => pattern.layer),
-        pmtl1: patternMaterials[0] ?? null, pmtl2: patternMaterials[1] ?? null,
-        blendMode,
-      } : undefined, darkhullChannel === undefined ? undefined : { channel: darkhullChannel, cleared: clearedTechCoating });
-    }) : typeModel(typeID);
+    const custom = coatings.some(Boolean) || patterns.length > 0 || darkhullChannel !== undefined;
+    const modelRead = custom ? shipSkinrPreviewModel(typeID, coatings, patterns, blendMode, darkhullChannel, clearedTechCoating)
+      : typeModel(typeID);
     const [model] = await Promise.all([modelRead.catch(() => null), this.ready.catch(() => {})]);
     if (this.closed || request !== this.serial) {
-      if (model && custom) disposePreviewMaterials(model);
+      if (model && custom) disposeShipSkinrMaterials(model);
       return false;
     }
     this.removeModel();
@@ -235,7 +226,7 @@ export class ShipInfoScene {
   private removeModel(): void {
     this.lightRig?.removeFromParent();
     this.model?.removeFromParent();
-    if (this.model) disposePreviewMaterials(this.model);
+    if (this.model) disposeShipSkinrMaterials(this.model);
     this.model = null;
   }
 
@@ -249,17 +240,4 @@ export class ShipInfoScene {
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
-}
-
-function skinrCoatingArea(area: SofArea): boolean {
-  const shader = area.shader?.toLowerCase().replace(/^skinned_/, "quad/skinned_") ?? "";
-  return area.kind === "opaque" && (["Primary", "SimplePrimary", "Reactor", "Ornament"].includes(area.areaType) ||
-    (area.name.includes("area_hull") && ["quad/quaddetailv5.fx", "quad/quadv5.fx", "quad/skinned_quadheatv5.fx",
-      "quad/skinned_quaddetailv5.fx"].includes(shader)));
-}
-
-function disposePreviewMaterials(model: THREE.Object3D): void {
-  model.traverse(object => {
-    if (object instanceof THREE.Mesh && object.userData.ownMaterial && !Array.isArray(object.material)) object.material.dispose();
-  });
 }

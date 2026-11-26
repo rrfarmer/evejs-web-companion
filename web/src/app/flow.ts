@@ -11,7 +11,8 @@ import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, dec
 import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
-import type { ShipSkinrOwnedComponent, ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
+import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
+  type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { setSessionToken } from "./sessionToken.ts";
 import { pageFetch } from "./pageFetch.ts";
 import {
@@ -4600,6 +4601,9 @@ export interface AppFlow {
   loadShipSkinrCollectionSkins(): Promise<readonly ShipSkinrOwnedSkin[]>;
   loadShipSkinrCollectionComponents(): Promise<readonly ShipSkinrOwnedComponent[]>;
   activateShipSkinrLicense(hex: string): Promise<void>;
+  readonly shipSkinrApplied: ReadableSignal<ShipSkinrAppliedState | null>;
+  loadShipSkinrApplied(shipID: number): Promise<void>;
+  applyShipSkinrLicense(hex: string, shipID: number, remove: boolean): Promise<void>;
   loadShipSkinrEarlyPricing(): Promise<readonly ShipSkinrEarlyPrice[]>;
   completeShipSkinrJob(id: string): Promise<void>;
   loadShipSkinrStartTerms(tier: number): Promise<ReturnType<typeof shipSkinrSequenceTerms>>;
@@ -7590,6 +7594,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const notice = (event.notice ?? {}) as Record<string, JsonValue>;
       if (typeof notice.typeName === "string") {
         const payload = notice.payload ?? null;
+        if (notice.typeName === SHIP_COSMETIC_GATEWAY + "SetNotice") {
+          const applied = decodeShipSkinrAppliedState(payload);
+          const activeShip = store.flight.get().status?.shipID ?? store.fitting.get().activeShipID;
+          if (applied && applied.characterID === store.station.get().online?.characterID && applied.shipID === activeShip) {
+            shipSkinrAppliedRequest++;
+            shipSkinrAppliedSignal.set(applied);
+          }
+        }
         if (isVanguardTrackCompleted(notice.typeName, payload) && pushesTaken.take(record.cursor)) {
           agencyVanguardCompleted.update(n => n + 1);
         }
@@ -14389,6 +14401,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // The client's books window (MissingSkillbooksWnd), one at a time; and what it has bought, which its end answers.
   const skillBooksAskedSignal = createSignal<SkillBooksAsk | null>(null);
   const gatewayNoticesSignal = createSignal<GatewayNotice | null>(null);
+  const shipSkinrAppliedSignal = createSignal<ShipSkinrAppliedState | null>(null);
+  let shipSkinrAppliedRequest = 0;
   const shipSkinrSkillsChanged = createSignal(0);
   let gatewayNoticesHeard = 0;
   const skillPlanLinksSignal = createSignal<SkillPlanLinkFollowed | null>(null);
@@ -28995,6 +29009,25 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     current();
   }
 
+  async function loadShipSkinrApplied(shipID: number): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    const request = ++shipSkinrAppliedRequest;
+    const applied = decodeShipSkinrAppliedState(await gatewayAsk(SHIP_COSMETIC_GATEWAY + "GetRequest", { ship: { sequential: shipID } }));
+    current();
+    if (request === shipSkinrAppliedRequest && applied?.shipID === shipID &&
+      applied.characterID === store.station.get().online?.characterID) shipSkinrAppliedSignal.set(applied);
+  }
+
+  async function applyShipSkinrLicense(hex: string, shipID: number, remove: boolean): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    const pilot = store.station.get().online?.characterID;
+    if (!pilot) throw new Error("Select a pilot to change this ship's SKIN.");
+    await gatewayAsk(SHIP_SKINR_GATEWAY + `license.api.${remove ? "Unapply" : "Apply"}Request`,
+      { license: { character: { sequential: pilot }, skin: { hex } }, ship: { sequential: shipID } }, true);
+    current();
+    await loadShipSkinrApplied(shipID);
+  }
+
   async function loadShipSkinrStartTerms(tier: number): Promise<ReturnType<typeof shipSkinrSequenceTerms>> {
     const current = callOptions.captureRequestGuard!();
     const [pricing, durations, skills] = await Promise.all([
@@ -41436,6 +41469,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadShipSkinrCollectionSkins,
     loadShipSkinrCollectionComponents,
     activateShipSkinrLicense,
+    shipSkinrApplied: readonlySignal(shipSkinrAppliedSignal),
+    loadShipSkinrApplied,
+    applyShipSkinrLicense,
     loadShipSkinrEarlyPricing,
     completeShipSkinrJob,
     loadShipSkinrStartTerms,

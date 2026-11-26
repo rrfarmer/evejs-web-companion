@@ -444,6 +444,7 @@
   const planets = $derived(session?.store.planets);
   const targeting = $derived(session?.store.targeting);
   const fitting = $derived(session?.store.fitting);
+  const appliedSkinr = $derived(session?.flow.shipSkinrApplied);
   const inventory = $derived(session?.store.inventory);
   const fleet = $derived(session?.store.fleet);
   const memberDetails = $derived(session?.flow.memberDetailsShown);
@@ -1119,6 +1120,10 @@
     hangarHost.appendChild(hangar.root);
     (window as unknown as { __hangar: unknown }).__hangar = hangar;
     const stop = $effect.root(() => {
+      $effect(() => {
+        const shipID = $flight?.status?.shipID ?? $fitting?.activeShipID;
+        if (shipID) void session?.flow.loadShipSkinrApplied(shipID).catch(() => {});
+      });
       // the ship flown: the flight's word of it, else the character's row (the flight is not read while docked)
       // in the station's hangar (hangarRegistry: by the station's race, its type's from the client's type data)
       $effect(() => {
@@ -1131,6 +1136,9 @@
         if (structureID !== null && structure?.id !== structureID) return;
         const solarSystemID = status?.solarSystemID ?? null;
         const flow = session?.flow;
+        const shipID = status?.shipID ?? $fitting?.activeShipID;
+        const applied = $appliedSkinr;
+        const skin = applied && applied.shipID === shipID && applied.characterID === $station?.online?.characterID ? applied.skin : null;
         const knownSecurity = solarSystemID === null ? null : $hudNames?.systemSecurity[solarSystemID] ?? null;
         let stale = false;
         void typeData().then((names) => {
@@ -1138,12 +1146,12 @@
           if (structureID) {
             const shipGroup = status?.shipGroupID ?? names?.types[String(shipTypeID)]?.[1] ?? null;
             const security = knownSecurity ?? (solarSystemID === null ? null : flow?.systemSecurity(solarSystemID) ?? null);
-            return hangar.show(shipTypeID, upwellHangarGraphics(structure?.typeID ?? null, shipGroup, security));
+            return hangar.show(shipTypeID, upwellHangarGraphics(structure?.typeID ?? null, shipGroup, security), skin, flow?.requestOptions());
           }
           const t = st?.stationTypeID != null ? names?.types[String(st.stationTypeID)] : undefined;
           const raceID = (t as unknown as (number | null)[] | undefined)?.[2] ?? null;
           const categoryID = t?.[1] != null ? names?.groups[String(t[1])]?.[1] ?? null : null;
-          return hangar.show(shipTypeID, st ? hangarGraphics(st.stationID, { raceID, categoryID }) : null);
+          return hangar.show(shipTypeID, st ? hangarGraphics(st.stationID, { raceID, categoryID }) : null, skin, flow?.requestOptions());
         });
         return () => { stale = true; };
       });

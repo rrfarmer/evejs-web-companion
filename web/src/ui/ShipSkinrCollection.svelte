@@ -14,6 +14,12 @@
   const words = $derived(store.words);
   const names = $derived(store.names);
   const station = $derived(store.station);
+  const flight = $derived(store.flight);
+  const fitting = $derived(store.fitting);
+  const characters = $derived(store.character);
+  const applied = $derived(flow.shipSkinrApplied);
+  const activeShip = $derived($flight.status?.shipID ?? $fitting.activeShipID);
+  const activeType = $derived($flight.status?.shipTypeID ?? $characters.characters.find(row => row.characterID === $station.online?.characterID)?.shipTypeID);
   const pilot = $derived($station.online?.characterID ?? null);
   const prefix = "UI/Personalization/ShipSkins/SKINR/";
   const labels = {
@@ -26,6 +32,10 @@
     metallics: [prefix + "Studio/Metallics", "Metallic Nanocoatings"],
     patterns: [prefix + "Studio/Patterns", "Patterns"],
     activate: [prefix + "Collection/Activate", "Activate"],
+    apply: [prefix + "Collection/Apply", "Apply"],
+    remove: [prefix + "Collection/UnApply", "Remove from Ship"],
+    activateApply: [prefix + "Collection/ActivateAndApply", "Activate and Apply"],
+    wrongHull: [prefix + "Collection/SkinApplyDisabledHint", "SKINs can only be applied to your active ship"],
     view: ["UI/Common/ViewAll", "View All"],
     back: ["UI/Common/Buttons/Back", "Back"],
     sort: ["UI/Common/SortBy", "Sort By"],
@@ -46,6 +56,7 @@
   let skins = $state.raw<readonly ShipSkinrOwnedSkin[] | null>(null);
   let elements = $state.raw<readonly ElementRow[] | null>(null);
   let selected = $state<string | null>(null);
+  let selectedSkinSection = $state<"activated" | "unactivated">("activated");
   let hull = $state(0);
   let reverse = $state(false);
   let revision = $state(0);
@@ -55,6 +66,8 @@
   let activating = $state(false);
   let rights = $state.raw<ShipSkinrSequenceLicense | null>(null);
   const selectedSkin = $derived(tab === "skins" ? skins?.find(row => row.hex === selected) : undefined);
+  const matchesActive = $derived(activeShip !== null && selectedSkin?.design?.shipTypeID === activeType);
+  const currentlyApplied = $derived($applied && $applied.shipID === activeShip && $applied.skin?.hex === selected);
   const selectedElement = $derived(tab === "elements" ? elements?.find(row => elementKey(row) === selected) : undefined);
   const hulls = $derived([...new Set(skins?.flatMap(row => row.design ? [row.design.shipTypeID] : []) ?? [])]
     .sort((a, b) => hullName(a).localeCompare(hullName(b))));
@@ -88,6 +101,9 @@
   }
 
   $effect(() => { flow.requestWords(Object.values(labels).map(([path]) => path)); });
+  $effect(() => {
+    if (tab === "skins" && activeShip) void flow.loadShipSkinrApplied(activeShip).catch(() => {});
+  });
   $effect(() => {
     void pilot;
     skins = null;
@@ -137,14 +153,27 @@
     });
   });
 
-  async function activate(row: ShipSkinrOwnedSkin) {
-    if (activating || row.activated || row.unactivated < 1) return;
+  async function changeSkin(row: ShipSkinrOwnedSkin, action: "activate" | "activateApply" | "apply" | "remove") {
+    if (activating || (action !== "activate" && !matchesActive)) return;
     const owner = pilot;
+    const ship = activeShip;
+    const activates = action === "activate" || action === "activateApply";
     activating = true;
     detailError = "";
     try {
-      await flow.activateShipSkinrLicense(row.hex);
-      if (owner === pilot) revision++;
+      if (activates) {
+        const dialog = action === "activate" ? "ActivateSkin" : "ActivateAndApply";
+        const confirmed = await flow.askClientDialogWith(dialog, {}, `${word(action)} this SKIN?`);
+        if (!confirmed || owner !== pilot || (action === "activateApply" && ship !== activeShip)) return;
+        await flow.activateShipSkinrLicense(row.hex);
+        if (owner !== pilot) return;
+        revision++;
+      }
+      if (ship && ship === activeShip && action !== "activate") await flow.applyShipSkinrLicense(row.hex, ship, action === "remove");
+      if (owner === pilot && action === "activateApply") {
+        section = null;
+        selectedSkinSection = "activated";
+      }
     } catch (cause) {
       if (owner === pilot) detailError = panelErrorWords(cause);
     } finally {
@@ -186,7 +215,8 @@
           <div class="collection-rows">
             {#each section ? rows : rows.slice(0, 6) as row (row.hex)}
               {@const icon = row.design ? typeIconUrl(row.design.shipTypeID) : null}
-              <button type="button" data-skin={row.hex} aria-pressed={selected === row.hex} onclick={() => selected = row.hex}>
+              <button type="button" data-skin={row.hex} aria-pressed={selected === row.hex && selectedSkinSection === category}
+                onclick={() => { selected = row.hex; selectedSkinSection = category; detailError = ""; }}>
                 {#if icon}<img src={icon} alt="" width="32" height="32" loading="lazy" />{/if}
                 <strong>{skinName(row)}</strong>
                 {#if category === "unactivated"}<span>{row.unactivated}</span>{/if}
@@ -225,9 +255,21 @@
         {#if selectedSkin.activated}<p>{word("activated")}</p>{/if}
         {#if selectedSkin.unactivated}<p>{word("unactivated")} · {selectedSkin.unactivated}</p>{/if}
         {#if selectedSkin.escrowed}<p>Listed · {selectedSkin.escrowed}</p>{/if}
-        {#if !selectedSkin.activated && selectedSkin.unactivated}
-          <button type="button" disabled={activating} onclick={() => void activate(selectedSkin!)}>{word("activate")}</button>
-        {/if}
+        <div class="collection-actions">
+          {#if selectedSkinSection === "activated" && selectedSkin.activated}
+            {#if currentlyApplied}
+              <button type="button" disabled={activating} onclick={() => void changeSkin(selectedSkin!, "remove")}>{word("remove")}</button>
+            {:else}
+              <button type="button" disabled={activating || !matchesActive} title={!matchesActive ? word("wrongHull") : undefined}
+                onclick={() => void changeSkin(selectedSkin!, "apply")}>{word("apply")}</button>
+            {/if}
+          {:else if !selectedSkin.activated && selectedSkin.unactivated}
+            <button type="button" disabled={activating} onclick={() => void changeSkin(selectedSkin!, "activate")}>{word("activate")}</button>
+            {#if matchesActive}
+              <button type="button" disabled={activating} onclick={() => void changeSkin(selectedSkin!, "activateApply")}>{word("activateApply")}</button>
+            {/if}
+          {/if}
+        </div>
       </aside>
     {:else if selectedElement}
       <aside class="collection-details">
@@ -250,6 +292,7 @@
   h3 span { color: #b8c3cc; font-size: .8em; }
   .collection-section, .collection-details { display: grid; gap: 8px; background: #ffffff08; padding: 12px; }
   .collection-details button { justify-self: start; }
+  .collection-actions { display: flex; gap: 6px; flex-wrap: wrap; }
   .collection-rows { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); }
   .collection-rows button { display: flex; align-items: center; text-align: left; gap: 8px; }
   button[aria-pressed="true"] { border-color: #94b8c2; }

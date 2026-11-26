@@ -8,6 +8,9 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { typeModel, graphicModel, setThrust, setDirtLevel, setControllerVariable, setActivationStrength } from "../three/hullModel.ts";
+import type { ApiOptions } from "../app/api.ts";
+import type { ShipSkinrApplication } from "../bridge/shipSkinrCollection.ts";
+import { appliedShipSkinrModel, disposeShipSkinrMaterials } from "../three/shipSkinrModel.ts";
 import { useHullTextureRenderer } from "../three/hullAlbedo";
 import { effectObject, effectOutput, effectCurve, type SofChildNode } from "../three/hullChildren.ts";
 import { SHIP_FLOATING_HEIGHT } from "./hangarRegistry.ts";
@@ -88,6 +91,8 @@ export class HangarView {
   private readonly turntable = new THREE.Group();
   private shownType: number | null = null;
   private shownHangar: string | null = null;
+  private shownSkin: string | null = null;
+  private showRequest = 0;
   private readonly studioEnvironment: THREE.Texture | null;
   private readonly sun = new THREE.DirectionalLight(0xffffff, 0);
   private hangar: THREE.Object3D | null = null;
@@ -102,7 +107,7 @@ export class HangarView {
   private zoom = { near: 10, far: 2050 };
   private capitalCamera = false;
   private swing: Swing = DEFAULT_SWING;
-  private ship: { model: THREE.Object3D; restY: number; lookY: number; radius: number; since: number } | null = null;
+  private ship: { model: THREE.Object3D; customSkin: boolean; restY: number; lookY: number; radius: number; since: number } | null = null;
   /** The hangar VFX for the ship shown (its "ship" parameter bound to the ship's EVE-space group). */
   private vfx: THREE.Object3D | null = null;
   /** The docked ship's damage state (setDamage), applied to each ship shown. */
@@ -186,29 +191,48 @@ export class HangarView {
     if (this.ship && level !== null) setDirtLevel(this.ship.model, level);
   }
 
-  async show(typeID: number | null, hangarGraphics: HangarGraphics | null = null): Promise<void> {
+  async show(typeID: number | null, hangarGraphics: HangarGraphics | null = null,
+    skin: ShipSkinrApplication | null = null, options?: ApiOptions): Promise<void> {
     const hangarKey = hangarGraphics ? `${hangarGraphics.model}:${hangarGraphics.scene}` : null;
     this.hangarType = hangarGraphics?.hangarType ?? 0;
     if (hangarGraphics) void hangarColorSet(hangarGraphics.model).then((c) => { if (this.shownHangar === `${hangarGraphics.model}:${hangarGraphics.scene}`) this.hangarColors = c; });
     else this.hangarColors = null;
-    if (typeID === this.shownType && hangarKey === this.shownHangar) return;
+    const skinKey = skin?.hex ?? null;
+    if (typeID === this.shownType && hangarKey === this.shownHangar && skinKey === this.shownSkin) return;
+    const request = ++this.showRequest;
     // another ship boarded in the same hangar (hangarView.OnActiveShipChanged, a hangar that is not modular):
     // fadeToFromBlack(True, isQuick=True), the ship replaced 0.2 s on (REPLACE_SWITCHSHIPS)
-    const switching = !!typeID && !!this.ship && !!this.vfx && hangarKey === this.shownHangar;
+    const switching = !!typeID && !!this.ship && !!this.vfx && hangarKey === this.shownHangar && typeID !== this.shownType;
     this.shownType = typeID;
     this.shownHangar = hangarKey;
-    if (!typeID) { this.turntable.clear(); return; }
+    this.shownSkin = skinKey;
+    if (!typeID) {
+      this.turntable.clear();
+      if (this.ship?.customSkin) disposeShipSkinrMaterials(this.ship.model);
+      this.ship = null;
+      return;
+    }
     if (switching) this.fadeToFromBlack(true, true);
     // The station keeps its model and controller state when the pilot boards a different ship.
     const loadHangar = hangarKey !== this.loadedHangar;
     const currentHangar = loadHangar ? null : this.hangar;
-    const [model, hangar, scene] = await Promise.all([
-      typeModel(typeID).catch(() => null),
+    const modelRead = (async () => {
+      const painted = skin ? await appliedShipSkinrModel(typeID, skin, options).catch(() => null) : null;
+      return { model: painted ?? await typeModel(typeID).catch(() => null), customSkin: painted !== null };
+    })();
+    const [{ model, customSkin }, hangar, scene] = await Promise.all([
+      modelRead,
       loadHangar && hangarGraphics ? (hangarGraphics.modular ? modularHangar(hangarGraphics) : graphicModel(hangarGraphics.model)).catch(() => null) : Promise.resolve(currentHangar),
       loadHangar && hangarGraphics ? fetch(`/client-assets/graphic/${hangarGraphics.scene}`).then((r) => r.json()).then((g: { scene?: HangarScene }) => g.scene ?? null).catch(() => null) : Promise.resolve(null),
       switching ? new Promise<void>((r) => setTimeout(r, 200)) : null,
     ]);
-    if (!model || this.stopped || this.shownType !== typeID || this.shownHangar !== hangarKey) return;
+    if (!model) return;
+    const retired = () => {
+      if (!this.stopped && request === this.showRequest) return false;
+      if (customSkin) disposeShipSkinrMaterials(model);
+      return true;
+    };
+    if (retired()) return;
     // in the hangar the engines are at rest
     setThrust(model, 0);
     const dynamicCamera = gfx().dynamicCameraMovement;
@@ -217,7 +241,7 @@ export class HangarView {
       this.loadedHangar = hangar ? hangarKey : null;
       this.setHangar(hangar);
       await this.setScene(hangar ? scene : null);
-      if (this.stopped || this.shownType !== typeID || this.shownHangar !== hangarKey) return;
+      if (retired()) return;
     }
     // DefaultHangarShipBehaviour.PlaceShip: turned half round about y, its bounding box's bottom on the hangar's anchor
     // point (SHIP_FLOATING_HEIGHT up where the hangar has none), moved by half its bounding sphere's centre.
@@ -241,6 +265,7 @@ export class HangarView {
     if (dock) dock.getWorldPosition(model.position).add(capitalOffset.applyQuaternion(model.quaternion));
     else model.position.copy(anchor).add(new THREE.Vector3(0, hangar ? -box.min.y : 0, 0)).addScaledVector(centre, 0.5);
     this.turntable.clear();
+    if (this.ship?.customSkin) disposeShipSkinrMaterials(this.ship.model);
     this.turntable.add(model);
     this.switchFade = switching;
     const radius = (model.userData as { radius?: number }).radius ?? 50;
@@ -262,7 +287,7 @@ export class HangarView {
     this.controls.maxPolarAngle = this.capitalCamera ? Math.PI : MAX_PITCH;
     this.camera.near = Math.max(0.5, radius / 50);
     this.camera.far = hangar ? 1e5 : radius * 400;
-    this.ship = { model, restY: model.position.y, lookY: look.y, radius: sphere.radius, since: performance.now() };
+    this.ship = { model, customSkin, restY: model.position.y, lookY: look.y, radius: sphere.radius, since: performance.now() };
     void this.applyVfx(model, sphere.radius);
     // its damage (LoadShipModel's SetShipDamage)
     this.repairRun++;
@@ -595,6 +620,7 @@ export class HangarView {
 
   dispose(): void {
     this.stopped = true;
+    if (this.ship?.customSkin) disposeShipSkinrMaterials(this.ship.model);
     this.renderer.setAnimationLoop(null);
     this.sceneEnv?.dispose();
     removeEventListener("resize", this.onResize);
