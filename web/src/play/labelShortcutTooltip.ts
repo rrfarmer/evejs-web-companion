@@ -114,7 +114,12 @@ function drawPointer(panel: HTMLElement, [fx, fy]: PointFlag): void {
  * lines: a command's detailed description by default (AddCommandTooltip: AddLabelMedium wrapWidth 200, TextColor.SECONDARY);
  * plain: AddLabelMedium as it is (no wrap, the normal colour) - a Selected Item button's disabled hint.
  */
-export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, shortcut: string, lines: readonly (string | { text: string; color: string })[] = [], pointer: "top" | "left" = "top", plain: boolean | "wrap" = false): void {
+export interface TooltipValue {
+  readonly label: string;
+  readonly value: string;
+}
+
+export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, shortcut: string, lines: readonly (string | { text: string; color: string } | TooltipValue)[] = [], pointer: "top" | "left" = "top", plain: boolean | "wrap" = false): void {
   if (!tip) {
     tip = document.createElement("div");
     tip.className = "label-shortcut-tooltip";
@@ -147,6 +152,16 @@ export function showLabelShortcutTooltip(anchor: HTMLElement, label: string, sho
   grid.append(head, hint);
   const wrapped: HTMLElement[] = [];
   for (const entry of lines) {
+    if (typeof entry === "object" && "value" in entry) {
+      const name = document.createElement("div");
+      name.textContent = entry.label;
+      Object.assign(name.style, { fontWeight: "bold", paddingRight: "8px" });
+      const value = document.createElement("div");
+      value.textContent = entry.value;
+      Object.assign(value.style, { textAlign: "right", color: "rgba(255,255,255,0.5)" });
+      grid.append(name, value);
+      continue;
+    }
     const d = document.createElement("div");
     // a line given with its own colour (an EveLabelMedium coloured by its caller, as ButtonSkills' alert line)
     const line = typeof entry === "string" ? entry : entry.text;

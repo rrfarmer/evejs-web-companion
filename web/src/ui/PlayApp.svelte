@@ -142,6 +142,9 @@
   import { hasSecurityOffice } from "../bridge/securityOffice.ts";
   import { tabLabel, deriveDocked, type TabID } from "./tabs.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { canReceiveCorporationWealth } from "../bridge/corporationWealth.ts";
+  import { formatWalletCents, formatWholeIsk } from "./isk.ts";
+  import { walletShowsCents } from "./walletSettings.ts";
   import { canClaimNow } from "../bridge/loginRewards.ts";
   import { seasonalClaimable } from "../bridge/seasonalCampaigns.ts";
   import { dronesToLaunch, watchLaunches, DRONE_DRAG_TYPE, INV_FROM_DRAG_TYPE, INV_ITEMS_DRAG_TYPE, type DroneDragPayload, type InvItemsDragPayload } from "./droneGroups.ts";
@@ -1057,6 +1060,37 @@
     return () => { neocomInst = null; neocom.root.remove(); neocom.dispose(); };
   });
   let neocomInst = $state<Neocom | null>(null);
+  const WALLET_BALANCE_LABEL = "Tooltips/Neocom/Balance";
+  const CORPORATION_BALANCE_LABEL = "Tooltips/Neocom/CorporationBalance";
+  const readWalletTip: NonNullable<Neocom["walletTip"]> = async () => {
+    const currentSession = session;
+    const pilot = currentSession?.store.station.get().online;
+    if (!currentSession || !pilot) return [];
+    const { flow, store } = currentSession;
+    const key = pilot.corpAccountKey ?? null;
+    const canReadCorp = key !== null && canReceiveCorporationWealth(pilot.corpRole, key);
+    const [personal, corporation] = await Promise.all([
+      flow.pilotWealth().catch(() => null),
+      canReadCorp ? flow.cachedCorporationWealth(key).catch(() => null) : null,
+    ]);
+    const current = store.station.get().online;
+    if (session !== currentSession || current?.characterID !== pilot.characterID) return [];
+    const templates = store.words.get().templates;
+    const words = (label: string, fallback: string) => plainText(templates[label] ?? "") || fallback;
+    const showCents = walletShowsCents(current.characterID);
+    const format = (amount: number) => showCents ? formatWalletCents(amount) : formatWholeIsk(String(amount), "round");
+    const rows = [];
+    if (personal !== null) rows.push({ label: words(WALLET_BALANCE_LABEL, "ISK Balance"), value: format(personal) });
+    if (corporation !== null && current.corporationID === pilot.corporationID && current.corpAccountKey === key &&
+        canReceiveCorporationWealth(current.corpRole, key)) {
+      rows.push({ label: words(CORPORATION_BALANCE_LABEL, "Corporation Balance"), value: format(corporation) });
+    }
+    return rows;
+  };
+  $effect(() => {
+    session?.flow.requestWords([WALLET_BALANCE_LABEL, CORPORATION_BALANCE_LABEL]);
+    if (neocomInst) neocomInst.walletTip = readWalletTip;
+  });
   // ButtonSkillsTooltipPanel's training rows: the queue's head (skillqueue.SkillInTraining), its name and next level in
   // Roman, the time left (GetTimeLeftToTrainText: FormatTimeIntervalShortWritten from day to hour over a day, minute over
   // an hour, second below), its SkillBar (the trained levels CC, the one in training (0.653, 0.753, 0.784) - g309) and
@@ -4013,6 +4047,7 @@
     });
     host.appendChild(v.root);
     view = v;
+    v.neocomWalletTip(readWalletTip);
     // the Neocom's character sheet button: the pilot's portrait (photo.GetPortrait at 64)
     const stopNeocomPortrait = s.store.character.subscribe((ch) => { const id = ch.selectedCharacterID; v.setNeocomPortrait(id ? portraitUrl(s.flow.imageServer.get(), id, 64) ?? clientTexture(portraitDefaultPath(64)) : null); });
     // the drone groups follow launched stacks (droneGroupsController.OnItemLaunch)

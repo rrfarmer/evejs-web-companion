@@ -4,7 +4,7 @@
 
 import { clientTexture } from "./window.ts";
 import { shortcutOf } from "./shortcutKeys.ts";
-import { hideLabelShortcutTooltip, showLabelShortcutTooltip, tooltipDue, showSkillTrainingTooltip, type SkillTrainingTip } from "./labelShortcutTooltip.ts";
+import { hideLabelShortcutTooltip, showLabelShortcutTooltip, tooltipDue, showSkillTrainingTooltip, type SkillTrainingTip, type TooltipValue } from "./labelShortcutTooltip.ts";
 import { playUiEvent } from "./uiAudio.ts";
 import type { SkillsState } from "../store/types.ts";
 
@@ -62,9 +62,13 @@ const NEOCOM_TOOLTIPS: Readonly<Record<string, { cmd: string | null; name: strin
   calendar: { cmd: "OpenCalendar", name: "Calendar", description: "" },
 };
 /** tooltipHandler: a panel after the generic delay, the renew time (a fifth) while one shows or just closed. */
-function neocomTipOn(el: HTMLElement, id: string, blinkHint = ""): void {
+type NeocomTipDetails = () => Promise<readonly TooltipValue[]>;
+let tipRequest = 0;
+
+function neocomTipOn(el: HTMLElement, id: string, blinkHint = "", details: NeocomTipDetails | null = null): void {
   const t = NEOCOM_TOOLTIPS[id];
   if (!t) return;
+  const request = ++tipRequest;
   // BaseNeocomButton.LoadTooltipPanel: a blink hint (btnData.GetBlinkHint) under the command, AddLabelMedium width 200 in
   // THEME_ALERT
   const hint = blinkHint ? blinkHint.split("\n").map((text) => ({ text, color: "rgb(243, 144, 88)" })) : [];
@@ -72,11 +76,17 @@ function neocomTipOn(el: HTMLElement, id: string, blinkHint = ""): void {
     // ButtonReward.LoadTooltipPanel: its description AddLabelMedium (wrapWidth 200) in (0.6, 0.6, 0.6, 1), not the
     // command tooltip's secondary colour
     const desc = t.description ? [id === "loginRewards" ? { text: t.description, color: "rgb(153, 153, 153)" } : t.description] : [];
-    if (t.cmd) showLabelShortcutTooltip(el, t.name, shortcutOf(t.cmd), [...desc, ...hint], "left");
-    else showLabelShortcutTooltip(el, "", "", [t.name, ...hint], "left", true);
+    const show = (rows: readonly TooltipValue[]) => {
+      if (request !== tipRequest || !el.isConnected) return;
+      if (t.cmd) showLabelShortcutTooltip(el, t.name, shortcutOf(t.cmd), [...desc, ...rows, ...hint], "left");
+      else showLabelShortcutTooltip(el, "", "", [t.name, ...rows, ...hint], "left", true);
+    };
+    if (details) void details().then(show, () => show([]));
+    else show([]);
   });
 }
 function neocomTipOff(): void {
+  tipRequest++;
   hideLabelShortcutTooltip();
 }
 
@@ -377,6 +387,7 @@ export class Neocom {
   }
   /** What the Skills tooltip shows of the skill in training, read as the tooltip opens. */
   skillTip: (() => Promise<SkillTrainingTip | null>) | null = null;
+  walletTip: NeocomTipDetails | null = null;
   /** The EVE menu's panels, on the page's body. */
   private menuParts: HTMLElement[] = [];
   /** Takes the EVE menu's panels off the page. */
@@ -569,7 +580,7 @@ export class Neocom {
       el.addEventListener("mouseenter", () => {
         const bl = this.blinks.get(b.id);
         // GetBlinkHint: the blink hint, then the unseen items' hint under it
-        neocomTipOn(el, b.id, [bl?.hint ?? "", this.unseen.get(b.id) ?? ""].filter(Boolean).join("\n"));
+        neocomTipOn(el, b.id, [bl?.hint ?? "", this.unseen.get(b.id) ?? ""].filter(Boolean).join("\n"), b.id === "wallet" ? this.walletTip : null);
         if (bl) { bl.left = 0; bl.newUntil = 0; this.paintIndicators(); }
       });
       el.addEventListener("mouseleave", () => {
