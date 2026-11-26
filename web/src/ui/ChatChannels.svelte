@@ -7,6 +7,8 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { ContextMenu } from "../play/contextMenu.ts";
   import ChatChannelSettings from "./ChatChannelSettings.svelte";
+  import ChatChannelPassword from "./ChatChannelPassword.svelte";
+  import type { ChatPasswordAnswer } from "../app/chatConversations.ts";
 
   let { store, flow, showChat }: { store: ClientStore; flow: AppFlow; showChat?: () => void } = $props();
   const words = $derived(store.words);
@@ -43,6 +45,7 @@
   let counts = $state.raw<ReadonlyMap<string, number>>(new Map());
   let tabVisible = $state(true);
   let settingsRoom = $state<string | null>(null);
+  let passwordPrompt = $state<{ name: string; retry: boolean; finish: (answer: ChatPasswordAnswer) => void } | null>(null);
   let mounted = false;
   const rowMenu = new ContextMenu();
   const directory = $derived.by(() => {
@@ -160,6 +163,7 @@
     void refreshDirectory();
     return () => {
       mounted = false;
+      passwordPrompt?.finish(null);
       request++;
       rowMenu.close();
       roomObserver?.disconnect();
@@ -204,8 +208,13 @@
     }
   }
   async function joinChannel(roomName: string, name: string) {
-    await flow.conversations.joinDirectoryChannel(roomName, name);
-    showChat?.();
+    const joined = await flow.conversations.joinDirectoryChannel(roomName, name, retry => {
+      if (!mounted) return Promise.resolve(null);
+      return new Promise<ChatPasswordAnswer>(resolve => {
+        passwordPrompt = { name, retry, finish: answer => { passwordPrompt = null; resolve(answer); } };
+      });
+    });
+    if (joined) showChat?.();
   }
   async function lookupChannel(name: string, refresh = false) {
     const folded = name.toLowerCase();
@@ -343,6 +352,9 @@
   {@const room = settingsRoom}
   <ChatChannelSettings {store} {flow} {room} close={() => { settingsRoom = null; }} saved={(value) => reflectSavedSettings(room, value.name)}
     ownershipLost={() => reflectLostOwnership(room)} />
+{/if}
+{#if passwordPrompt}
+  <ChatChannelPassword {store} {flow} name={passwordPrompt.name} retry={passwordPrompt.retry} finish={passwordPrompt.finish} />
 {/if}
 
 <style>

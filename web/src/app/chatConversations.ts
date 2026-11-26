@@ -13,6 +13,7 @@ import type { JsonValue } from "../bridge/wire.ts";
 import type { ContactAction } from "../ui/contactAction.ts";
 
 export type ChatInviteChoice = "accept" | "acceptadd" | "reject" | "block";
+export type ChatPasswordAnswer = { readonly password: string; readonly remember: boolean } | null;
 export interface ChatConversation { readonly channel: string; readonly title: string; readonly state: ChatChannelState }
 export interface ChatInvitation { readonly id: string; readonly roomName: string; readonly senderCharacterID: number; readonly password: string }
 export interface ChatConversationState {
@@ -176,10 +177,20 @@ export function createChatConversations(hooks: Hooks) {
     const room = { channel, title, state: decoded };
     patch({ rooms: [...state.get().rooms.filter(entry => entry.channel !== channel), room] });
   }
-  async function join(scope: Scope, room: string, password = ""): Promise<void> {
-    let kept = ""; try { kept = globalThis.localStorage?.getItem(`evejs-web-user-ui:${room}Password`) ?? ""; } catch { /* browser storage unavailable */ }
-    if (password) { try { globalThis.localStorage?.setItem(`evejs-web-user-ui:${room}Password`, password); } catch { /* held in this invitation */ } }
-    const raw = await api.joinChatRoom(room, password || kept, scope.options); scope.current();
+  const passwordKey = (scope: Scope, room: string): string =>
+    `evejs.user.${scope.accountID ?? `character-${scope.me}`}.${room}Password`;
+  function readPassword(scope: Scope, room: string): string {
+    try { return globalThis.localStorage?.getItem(passwordKey(scope, room)) ?? ""; } catch { return ""; }
+  }
+  function keepPassword(scope: Scope, room: string, password: string | null): void {
+    try {
+      const key = passwordKey(scope, room);
+      if (password === null) globalThis.localStorage?.removeItem(key);
+      else globalThis.localStorage?.setItem(key, password);
+    } catch { /* browser storage unavailable */ }
+  }
+  async function join(scope: Scope, room: string, password = readPassword(scope, room)): Promise<void> {
+    const raw = await api.joinChatRoom(room, password, scope.options); scope.current();
     await applyRoom(scope, raw); scope.current();
     if (/^player_[a-z0-9_-]+$/.test(room)) {
       const joined = state.get().rooms.find(entry => entry.channel === room);
@@ -204,7 +215,7 @@ export function createChatConversations(hooks: Hooks) {
     patch({ rooms: state.get().rooms.filter(entry => entry.channel !== room), active: state.get().active === room ? null : state.get().active });
   }
   async function accept(scope: Scope, invitation: ChatInvitation): Promise<void> {
-    await join(scope, invitation.roomName, invitation.password); scope.current();
+    await join(scope, invitation.roomName, invitation.password || undefined); scope.current();
     await api.acknowledgeChatInvitation(invitation.id, scope.options); scope.current();
   }
   async function addContact(scope: Scope, id: number): Promise<void> {
@@ -301,16 +312,39 @@ export function createChatConversations(hooks: Hooks) {
       refreshWork = work; return work;
     },
     select(room: string | null) { patch({ active: room }); },
-    async joinDirectoryChannel(room: string, title: string) {
+    async joinDirectoryChannel(room: string, title: string, askPassword?: (retry: boolean) => Promise<ChatPasswordAnswer>): Promise<boolean> {
       if (!/^(?:system_\d+_\d+|player_[a-z0-9_-]+)$/.test(room)) throw new Error("Choose a channel from the directory.");
       if (state.get().rooms.some(entry => entry.channel === room)) {
         patch({ active: room, openSerial: ++serial });
-        return;
+        return true;
       }
-      await task(scope => {
+      let joined = false;
+      await task(async scope => {
         directoryTitles.set(room, title);
-        return join(scope, room);
+        let answer: ChatPasswordAnswer = null;
+        let password = readPassword(scope, room);
+        for (let attempt = 0; attempt < 4; attempt++) {
+          try {
+            await join(scope, room, password);
+            if (answer?.remember) keepPassword(scope, room, password);
+            joined = true;
+            return;
+          } catch (error) {
+            scope.current();
+            if ((error as { code?: string })?.code !== "CHAT_PASSWORD_REQUIRED" || !askPassword) throw error;
+            keepPassword(scope, room, null);
+            if (attempt === 3) {
+              hooks.say("LSCWrongPassword", { channelName: title }, "The channel password is incorrect.");
+              return;
+            }
+            answer = await askPassword(attempt > 0);
+            scope.current();
+            if (!answer) return;
+            password = answer.password;
+          }
+        }
       });
+      return joined;
     },
     async openHelpChannel() {
       if (state.get().rooms.some(room => room.channel === ENGLISH_HELP_ROOM)) {
@@ -360,7 +394,7 @@ export function createChatConversations(hooks: Hooks) {
         destroyedRooms.add(room);
         directoryTitles.delete(room);
         forgetRemembered(scope, room);
-        try { globalThis.localStorage?.removeItem(`evejs-web-user-ui:${room}Password`); } catch { /* browser storage unavailable */ }
+        keepPassword(scope, room, null);
         removeRoom(room);
       });
     },

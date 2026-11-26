@@ -990,6 +990,23 @@ class XmppChatSession {
    * own answer, not a guess assembled from message senders.
    */
   onPresence(xml) {
+    if (attr(xml.match(/^<presence\b[^>]*>/i)?.[0] ?? "", "type") === "error") {
+      const id = attr(xml, "id");
+      const errorTag = xml.match(/<error\b[^>]*>/i)?.[0] ?? "";
+      const code = attr(errorTag, "code");
+      const text = decodeXml(xml.match(/<text\b[^>]*>([\s\S]*?)<\/text>/i)?.[1] ?? "");
+      for (const [channel, room] of this.rooms) {
+        if (!room.pending || room.pending.joinID !== id) continue;
+        const pending = room.pending;
+        room.pending = null;
+        this.rooms.delete(channel);
+        pending.reject(new XmppChatError(text || "The chat server refused to join this channel.", {
+          code: code === "401" ? "CHAT_PASSWORD_REQUIRED" : "CHAT_JOIN_REFUSED", statusCode: 403,
+        }));
+        break;
+      }
+      return;
+    }
     const from = attr(xml, "from");
     const slash = from.indexOf("/");
     if (slash === -1) {
@@ -1730,11 +1747,12 @@ class XmppChatSession {
       channel === "local"
         ? ""
         : `<history seconds='${CORP_HISTORY_SECONDS}'/>`;
+    const password = context.password ? `<password>${escapeXml(context.password)}</password>` : "";
     this.write(
       retail
         ? retail.xml
         : `<presence id='${escapeXml(joinID)}' to='${escapeXml(room.alias)}'>` +
-          `<x xmlns='http://jabber.org/protocol/muc'>${history}</x></presence>`,
+          `<x xmlns='http://jabber.org/protocol/muc'>${password}${history}</x></presence>`,
     );
     const timer = setTimeout(() => {
       if (room.pending) {
