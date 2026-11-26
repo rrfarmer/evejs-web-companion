@@ -589,7 +589,7 @@
     const wanted = contractsSearchTarget.take();
     if (wanted !== null) {
       chosenTab = "search";
-      searchedType = wanted;
+      searchedType = wanted.typeID;
       untrack(() => {
         if (retail) {
           setCourier(false);
@@ -604,7 +604,7 @@
           for (const filter of SECURITY_FILTERS) setSecurity(filter.key, true);
           setAdvanced(true);
         }
-        search(wanted, true);
+        search(wanted.typeID, true);
       });
     }
   });

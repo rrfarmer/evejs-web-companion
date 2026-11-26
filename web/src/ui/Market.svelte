@@ -204,7 +204,8 @@
     "/Carbon/UI/Common/WrittenDateTimeQuantityShort/Day": "{value}d",
     "UI/PriceHistory/DonchianChannel": "Donchian Channel",
     "UI/PriceHistory/Volume": "Volume",
-    "UI/Market/Marketbase/NoTypeSelected": "No type selected",
+    "UI/Market/Marketbase/NoTypeSelected": "No Type Selected",
+    "UI/Market/Marketbase/NoTypeToBuy": "You cannot place a buy order when there is no type selected",
     "UI/Market/MarketData": "Market Data",
     "UI/Market/Marketbase/PriceHistory": "Price History",
     "Tooltips/Market/MarketDetailsData": "The orders for the selected item",
@@ -1307,6 +1308,15 @@
     void bringToTop("draft");
   }
 
+  function placeBuyOrder() {
+    if ($market.typeID !== null) {
+      startDraft("buy");
+      return;
+    }
+    const note = qbWord("UI/Market/Marketbase/NoTypeToBuy");
+    flow.sayDialog("CustomNotify", { type: "dict", entries: [["notify", note]] }, note, "notify");
+  }
+
   /**
    * R84 — TAKE A PRICE OFF THE BOOK.
    *
@@ -2176,12 +2186,12 @@
           {/if}
         </div>
       </div>
-      {#if $market.typeID !== null}
-        <nav class="mkt-dtabs">
-          <button type="button" class:active={detailTab === "marketdata"} data-ui-pointer={MARKET_POINTERS.data} title={qbWord("Tooltips/Market/MarketDetailsData")} onclick={() => (detailTab = "marketdata")}>{qbWord("UI/Market/MarketData")}</button>
-          <button type="button" class:active={detailTab === "pricehistory"} data-ui-pointer={MARKET_POINTERS.history} title={qbWord("Tooltips/Market/MarketDetailsHistory")} onclick={() => (detailTab = "pricehistory")}>{qbWord("UI/Market/Marketbase/PriceHistory")}</button>
-        </nav>
-      {/if}
+      <nav class="mkt-dtabs">
+        <button type="button" class:active={detailTab === "marketdata"} aria-pressed={detailTab === "marketdata"} data-ui-pointer={MARKET_POINTERS.data}
+          title={qbWord("Tooltips/Market/MarketDetailsData")} onclick={() => (detailTab = "marketdata")}>{qbWord("UI/Market/MarketData")}</button>
+        <button type="button" class:active={detailTab === "pricehistory"} aria-pressed={detailTab === "pricehistory"} data-ui-pointer={MARKET_POINTERS.history}
+          title={qbWord("Tooltips/Market/MarketDetailsHistory")} onclick={() => (detailTab = "pricehistory")}>{qbWord("UI/Market/Marketbase/PriceHistory")}</button>
+      </nav>
     {/if}
     <h2 bind:this={bookHeading}>
       {#if $market.typeID === null}
@@ -2191,7 +2201,7 @@
       {/if}
     </h2>
     {#if $market.typeID === null}
-      <p class="note">Search for an item above to see who is buying and selling it.</p>
+      {#if !retail}<p class="note">Search for an item above to see who is buying and selling it.</p>{/if}
     {:else}
       {#if $market.bookError}
         <p class="error">This item's market could not be read: {$market.bookError}</p>
@@ -2224,6 +2234,7 @@
           Offer to sell…
         </button>
       </p>
+    {/if}
 
       <!--
         R84 — THE BOOKS ARE LISTS, AND THE ROWS DO SOMETHING.
@@ -2241,10 +2252,11 @@
         <!-- marketbase.MarketData: Sellers over Buyers (EveCaptionMedium heads), each an eveScroll of quote.py's columns -
              sellers Jumps, Quantity, Price, Location, Expires in (by price up); buyers Jumps, Quantity, Price, Location,
              Range, Min Volume, Expires in (by price down); a row's price carried into the order draft as before. -->
-        <div class="mkt-quote">
+        <div class="mkt-quote" class:empty-book={$market.typeID === null}>
           <div data-ui-pointer={MARKET_POINTERS.sellers.list}>
           <h3 class="mkt-quote-cap">{qbWord("UI/Market/Marketbase/Sellers")}</h3>
           <div class="mkt-quote-scroll">
+            {#if $market.typeID !== null}
             <table>
               <thead><tr>
                 <th class="r" data-ui-pointer={MARKET_POINTERS.sellers.jumps} aria-sort={sellSort.key === "jumps" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "jumps"))}>{qbWord("UI/Market/Marketbase/Jumps")}{sellSort.key === "jumps" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th><th class="r" data-ui-pointer={MARKET_POINTERS.sellers.qty} aria-sort={sellSort.key === "qty" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "qty"))}>{qbWord("UI/Common/Quantity")}{sellSort.key === "qty" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th>
@@ -2259,11 +2271,13 @@
                 {/each}
               </tbody>
             </table>
+            {/if}
           </div>
           </div>
           <div data-ui-pointer={MARKET_POINTERS.buyers.list}>
           <h3 class="mkt-quote-cap">{qbWord("UI/Market/Marketbase/Buyers")}</h3>
           <div class="mkt-quote-scroll">
+            {#if $market.typeID !== null}
             <table>
               <thead><tr>
                 <th class="r" data-ui-pointer={MARKET_POINTERS.buyers.jumps} aria-sort={buySort.key === "jumps" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "jumps"))}>{qbWord("UI/Market/Marketbase/Jumps")}{buySort.key === "jumps" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th><th class="r" data-ui-pointer={MARKET_POINTERS.buyers.qty} aria-sort={buySort.key === "qty" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "qty"))}>{qbWord("UI/Common/Quantity")}{buySort.key === "qty" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th>
@@ -2280,25 +2294,23 @@
                 {/each}
               </tbody>
             </table>
+            {/if}
           </div>
           </div>
           <!-- The Market Data footer exports the regional book, including rows outside the display filter. -->
-          {#if $market.typeID !== null}
-            {@const quotedTypeID = $market.typeID}
             <div class="mkt-quote-buttons">
-              <button type="button" class="mkt-primary" disabled={busy} onclick={() => startDraft("buy")}>
+              <button type="button" class="mkt-primary" disabled={busy} onclick={placeBuyOrder}>
                 <img alt="" src="/client-res/ui/texture/eveicon/category_icons/isk_16px.png" />{qbWord("UI/Market/Marketbase/CommandPlaceBuyOrder")}
               </button>
+              <button type="button" class="mkt-ghost" onclick={() => findInContracts($market.typeID)}>{qbWord("UI/Inventory/ItemActions/FindInContracts")}</button>
               <button type="button" class="mkt-ghost mkt-export-book" disabled={busy}
-                title={qbWord("Tooltips/Market/MarketDetailsExportFile")} onclick={() => exportBook(quotedTypeID)}>
+                title={qbWord("Tooltips/Market/MarketDetailsExportFile")} onclick={() => { if ($market.typeID !== null) void exportBook($market.typeID); }}>
                 {qbWord("UI/Market/Marketbase/ExportToFile")}
               </button>
-              <button type="button" class="mkt-ghost" onclick={() => findInContracts(quotedTypeID)}>{qbWord("UI/Inventory/ItemActions/FindInContracts")}</button>
             </div>
             {#if exportNote}<p class="note" role="status">{exportNote}</p>{/if}
-          {/if}
         </div>
-      {:else}
+      {:else if $market.typeID !== null}
       <h3>On sale (you can buy these)</h3>
       {#if sells.length === 0}
         <p class="empty">Nobody is selling this here right now.</p>
@@ -2365,7 +2377,9 @@
 
       {/if}
 
-      {#if $market.priceHistory.length > 0}
+      {#if retail && $market.typeID === null}
+        <div class="mkt-history empty-history"></div>
+      {:else if $market.typeID !== null && $market.priceHistory.length > 0}
         <div class="mkt-history">
         {#if retail}
           <MarketPriceHistory rows={$market.priceHistory} word={(label, args = {}) => qbWord(label, args)} isk={(v) => formatIsk(v === null ? null : String(v))} />
@@ -2393,7 +2407,6 @@
         {/if}
         </div>
       {/if}
-    {/if}
   </section>
 
   {#if draft !== null && $market.typeID !== null}

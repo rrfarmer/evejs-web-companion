@@ -4925,6 +4925,9 @@
      white (quote.py GetPrice's 0xFFFFFFFF) */
   .fly-windows :global(.mkt-quote-cap) { font-size: 16px; text-transform: none; letter-spacing: 0; color: #fff; margin: 6px 0 4px; }
   .fly-windows :global(.mkt-quote-scroll) { max-height: 220px; overflow: auto; border: 1px solid rgba(255, 255, 255, 0.08); }
+  .fly-windows :global(.mkt-quote.empty-book .mkt-quote-scroll) { min-height: clamp(72px, 22vh, 220px); }
+  .fly-windows :global(.mkt-quote.empty-book [data-ui-pointer="unique_UI_buyersList"] .mkt-quote-scroll) { min-height: clamp(64px, 17vh, 170px); }
+  .fly-windows :global(.mkt-history.empty-history) { min-height: clamp(160px, 44vh, 430px); }
   .fly-windows :global(.mkt-quote-scroll table) { width: 100%; border-collapse: collapse; font-size: 12px; }
   .fly-windows :global(.mkt-quote-scroll th) { position: sticky; top: 0; background: #1b1d20; text-align: left; font-weight: 400; color: rgba(255, 255, 255, 0.6);
     padding: 3px 6px; white-space: nowrap; border-bottom: 1px solid rgba(255, 255, 255, 0.12); }

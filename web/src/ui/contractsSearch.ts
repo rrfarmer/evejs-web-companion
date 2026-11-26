@@ -10,18 +10,18 @@ import { createSignal, readonlySignal, type ReadableSignal } from "../store/sign
 export interface ContractsSearchTarget {
   /** How many times a search has been asked for. */
   readonly requests: ReadableSignal<number>;
-  ask(typeID: number): void;
-  /** The type asked for and not yet taken by the contracts window, which takes it; null where there is none. */
-  take(): number | null;
+  ask(typeID: number | null): void;
+  /** A pending search may have no type filter. */
+  take(): { readonly typeID: number | null } | null;
 }
 
 export function createContractsSearchTarget(): ContractsSearchTarget {
   const requests = createSignal(0);
-  let pending: number | null = null;
+  let pending: { readonly typeID: number | null } | null = null;
   return {
     requests: readonlySignal(requests),
     ask(typeID) {
-      pending = typeID;
+      pending = { typeID };
       requests.update((count) => count + 1);
     },
     take() {
@@ -35,6 +35,6 @@ export function createContractsSearchTarget(): ContractsSearchTarget {
 export const contractsSearchTarget: ContractsSearchTarget = createContractsSearchTarget();
 
 /** contracts.FindRelated(typeID, None, None, None, None, None): the contracts window searching the type. */
-export function findInContracts(typeID: number): void {
+export function findInContracts(typeID: number | null): void {
   contractsSearchTarget.ask(typeID);
 }
