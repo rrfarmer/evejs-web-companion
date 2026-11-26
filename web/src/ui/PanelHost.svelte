@@ -122,11 +122,13 @@
     onShowPlexOffers,
     reprocessingInput,
     onReprocessingInputTaken,
+    upwellLpIssuer = null,
   }: {
     store: ClientStore;
     flow: AppFlow;
     tab: TabID;
     chatUnread?: ReadonlySet<string>;
+    upwellLpIssuer?: number | null;
     /**
      * Lets a panel navigate to another tab (e.g. Agent Finder -> Travel).
      *
@@ -331,9 +333,11 @@
   {#key $stationSlice.online?.characterID}<StationCharacterRecustomization {store} {flow} />{/key}
 {:else if tab === "lpStore" && isDocked}
   {@const stationID = $stationSlice.online?.stationID}
-  {@const issuerID = $stationSlice.bits?.ownerID}
-  {#if stationID && issuerID}
-    {#key stationID}<StationLpStore {store} {flow} {stationID} {issuerID} />{/key}
+  {@const structureID = $stationSlice.online?.structureID}
+  {@const placeID = structureID ?? stationID}
+  {@const issuerID = structureID ? upwellLpIssuer : $stationSlice.bits?.ownerID}
+  {#if placeID && issuerID}
+    {#key placeID}<StationLpStore {store} {flow} {placeID} {issuerID} stationID={stationID ?? null} />{/key}
   {/if}
 {:else if tab === "drones"}
   <DronesPanel {store} {flow} />

@@ -1634,11 +1634,18 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       }
     }
     if (stationLpPurchase) {
-      const dockedAt = await assertDockedInventoryAccess(heldBridgeSession, req.webSessionID);
-      const issuer = Number(staticData.getStation(dockedAt)?.corporationID);
-      if (heldBridgeSession.structureID || issuer !== body.args[0] ||
-          !buildStationStatic(dockedAt)?.serviceIDs?.includes(25)) {
-        res.status(409).json({ ok: false, error: "LP_STORE_NOT_LOCAL", message: "This station does not offer that issuer's Loyalty Point Store." });
+      const dockedAt = await assertDockedInventoryAccess(heldBridgeSession, req.webSessionID, 11);
+      let local;
+      if (heldBridgeSession.structureID) {
+        const info = await heldTopLevelCall(heldBridgeSession, req.webSessionID, "structureDirectory", "GetStructureInfo", [dockedAt], null);
+        const issuer = Number(readKeyValField(keyValEntries(info.result), "ownerID"));
+        local = issuer === body.args[0] && issuer >= 1_000_000 && issuer <= 1_999_999 && heldBridgeSession.structureID === dockedAt;
+      } else {
+        const issuer = Number(staticData.getStation(dockedAt)?.corporationID);
+        local = issuer === body.args[0] && buildStationStatic(dockedAt)?.serviceIDs?.includes(25);
+      }
+      if (!local) {
+        res.status(409).json({ ok: false, error: "LP_STORE_NOT_LOCAL", message: "This location does not offer that issuer's Loyalty Point Store." });
         return;
       }
     }

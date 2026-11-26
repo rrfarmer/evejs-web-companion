@@ -171,6 +171,7 @@
   import type { OverviewAffiliation } from "../play/overview.ts";
   import { authoritativeFleetMemberCharacterIDs } from "../bridge/fleetCenter.ts";
   import { hangarGraphics, upwellHangarGraphics } from "../play/hangarRegistry.ts";
+  import { isNpcCorporation } from "../bridge/ownerInfo.ts";
   import { HangarView } from "../play/hangarView.ts";
   import UpwellExterior from "./UpwellExterior.svelte";
   import { dirtLevelFromTime } from "../three/hullModel.ts";
@@ -561,7 +562,7 @@
     stationServicesPlace = pilot ? untrack(() => keptPlace(stationServicesID)) : null;
   });
   const dockedStructureID = $derived(docked ? ($flight?.status ? $flight.status.structureID : $station?.online?.structureID) ?? null : null);
-  let dockedHangarStructure = $state<{ id: number; typeID: number | null } | null>(null);
+  let dockedHangarStructure = $state<{ id: number; typeID: number | null; ownerID: number | null } | null>(null);
   $effect(() => {
     const id = dockedStructureID;
     const flow = session?.flow;
@@ -572,7 +573,7 @@
     void flow.structureInfo(id, true).catch(() => null).then(info => {
       if (stale) return;
       if (info?.solarSystemID != null) flow.requestSystemSecurity([info.solarSystemID]);
-      dockedHangarStructure = { id, typeID: info?.typeID ?? null };
+      dockedHangarStructure = { id, typeID: info?.typeID ?? null, ownerID: info?.ownerID ?? null };
     });
     return () => { stale = true; };
   });
@@ -1025,9 +1026,12 @@
     ? cloneBayAvailable($station.structureServiceIDs, true)
     : $station?.online?.stationID != null && $station.station?.stationID === $station.online.stationID &&
       cloneBayAvailable($station.station.serviceIDs, false));
-  const lpStoreAvailable = $derived(!$station?.online?.structureID && $station?.online?.stationID != null &&
+  const upwellLpIssuer = $derived(dockedStructureID !== null && dockedHangarStructure?.id === dockedStructureID &&
+    dockedHangarStructure.ownerID !== null && isNpcCorporation(dockedHangarStructure.ownerID) &&
+    structureServiceIDs?.includes(11) ? dockedHangarStructure.ownerID : null);
+  const lpStoreAvailable = $derived(upwellLpIssuer !== null || (!$station?.online?.structureID && $station?.online?.stationID != null &&
     $station.station?.stationID === $station.online.stationID && $station.station.serviceIDs?.includes(25) === true &&
-    ($station.bits?.ownerID ?? 0) > 0);
+    ($station.bits?.ownerID ?? 0) > 0));
   const securityOfficeAvailable = $derived(stationServiceIDs?.includes(27) === true &&
     $station?.bits?.stationID === $station?.online?.stationID &&
     hasSecurityOffice($station?.bits?.ownerID ?? null, $station?.station?.security ?? null));
@@ -4719,6 +4723,7 @@
             <FlyInventoryWindow store={session.store} flow={session.flow} />
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} chatUnread={win.id === "chat" ? chatUnread : undefined} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
+              {upwellLpIssuer}
               {inventoryVaultRequested}
               {storeCategoryRequest} onShowOmegaOffers={showOmegaOffers} onShowMultipleTraining={showMultipleTraining}
               onToggleStore={() => neocomOpen("newEdenStore")}

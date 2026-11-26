@@ -3206,7 +3206,7 @@ export interface AppFlow {
   askClientDialog(dialog: string, fallback: string, suppressYes?: boolean): Promise<boolean>;
   /** A solar system's security status from the route graph, null until the graph is read (asked for then). */
   systemSecurity(solarSystemID: number): number | null;
-  structureInfo(structureID: number, refresh?: boolean): Promise<{ readonly solarSystemID: number | null; readonly typeID: number | null } | null>;
+  structureInfo(structureID: number, refresh?: boolean): Promise<{ readonly solarSystemID: number | null; readonly typeID: number | null; readonly ownerID: number | null } | null>;
   /**
    * InBayDroneDamageTracker.FetchInBayDroneDamageToServer: the bay drones' layers (dogmaLM.GetLayerDamageValuesByItems),
    * each [shield, armor, structure] as fractions left; drones the answer has not, left out.
@@ -9683,13 +9683,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return null;
   }
 
-  async function loadStationLpStore(stationID: number, issuerID: number): Promise<StationLpStore> {
+  async function loadStationLpStore(placeID: number, issuerID: number): Promise<StationLpStore> {
     const identity = store.station.get().online?.characterID;
     const current = () => {
       const station = store.station.get();
-      if (identity == null || identity !== station.online?.characterID || dockedNow() !== stationID ||
-          station.online.stationID !== stationID || station.bits?.ownerID !== issuerID ||
-          station.station?.stationID !== stationID || !station.station.serviceIDs?.includes(25)) {
+      const local = station.online?.structureID === placeID
+        ? isNpcCorporation(issuerID) && knownStructures.get(placeID)?.ownerID === issuerID && station.structureServiceIDs?.includes(11)
+        : station.online?.stationID === placeID && station.bits?.ownerID === issuerID &&
+          station.station?.stationID === placeID && station.station.serviceIDs?.includes(25);
+      if (identity == null || identity !== station.online?.characterID || dockedNow() !== placeID || !local) {
         throw new Error("The pilot is no longer at this Loyalty Point Store.");
       }
     };
@@ -9728,14 +9730,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await bridgeDo("LPSvc", "ExchangeConcordLP", [issuerID, amount]);
   }
 
-  async function buyStationLpOffer(stationID: number, issuerID: number, offer: StationLpOffer, quantity: number): Promise<void> {
+  async function buyStationLpOffer(placeID: number, issuerID: number, offer: StationLpOffer, quantity: number): Promise<void> {
     if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100) throw new Error("Choose between 1 and 100 offers.");
     const pilotID = store.station.get().online?.characterID;
-    const latest = await loadStationLpStore(stationID, issuerID);
+    const latest = await loadStationLpStore(placeID, issuerID);
     const fresh = latest.offers.find(row => row.id === offer.id);
     if (!fresh || JSON.stringify(fresh) !== JSON.stringify(offer)) throw new Error("The offer changed. Refresh and review the new terms.");
     if (fresh.ak > 0) throw new Error("This offer requires Analysis Kredits.");
-    if (dockedNow() !== stationID || pilotID !== store.station.get().online?.characterID) {
+    if (dockedNow() !== placeID || pilotID !== store.station.get().online?.characterID) {
       throw new Error("The pilot is no longer at this Loyalty Point Store.");
     }
     const accepted = await bridgeDo("LPStoreMgr", "TakeOfferForCharacter", [issuerID, offer.id, quantity]);
@@ -31892,8 +31894,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * once for each, by the remote service, and kept): its system and type where it knows one, null where it does not.
    * A read that fails is not kept.
    */
-  const knownStructures = new Map<number, { readonly solarSystemID: number | null; readonly typeID: number | null } | null>();
-  async function structureInfo(structureID: number, refresh = false): Promise<{ readonly solarSystemID: number | null; readonly typeID: number | null } | null> {
+  const knownStructures = new Map<number, { readonly solarSystemID: number | null; readonly typeID: number | null; readonly ownerID: number | null } | null>();
+  async function structureInfo(structureID: number, refresh = false) {
     const kept = knownStructures.get(structureID);
     if (!refresh && kept !== undefined) return kept;
     const info = await bridgeAsk("structureDirectory", "GetStructureInfo", [structureID]);
@@ -31901,7 +31903,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const value = Number(readKeyVal(info, key));
       return Number.isSafeInteger(value) && value > 0 ? value : null;
     };
-    const known = info === null || info === undefined ? null : { solarSystemID: idOf("solarSystemID"), typeID: idOf("typeID") };
+    const known = info === null || info === undefined ? null : { solarSystemID: idOf("solarSystemID"), typeID: idOf("typeID"), ownerID: idOf("ownerID") };
     knownStructures.set(structureID, known);
     return known;
   }

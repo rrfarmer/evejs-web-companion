@@ -10,10 +10,11 @@
   import { plainText } from "../bridge/clientWords.ts";
   import { CONCORD_LP_ISSUER } from "../bridge/concordLp.ts";
 
-  let { store, flow, stationID, issuerID }: {
+  let { store, flow, placeID, stationID, issuerID }: {
     store: ClientStore;
     flow: AppFlow;
-    stationID: number;
+    placeID: number;
+    stationID: number | null;
     issuerID: number;
   } = $props();
   const names = $derived(store.names);
@@ -59,8 +60,8 @@
   function refresh(): Promise<void> {
     return run(async () => {
       review = null;
-      data = await flow.loadStationLpStore(stationID, issuerID);
-      rate = data.concordLp > 0 ? (await flow.concordLpExchangeRates()).get(issuerID) ?? 0 : 0;
+      data = await flow.loadStationLpStore(placeID, issuerID);
+      rate = stationID !== null && data.concordLp > 0 ? (await flow.concordLpExchangeRates()).get(issuerID) ?? 0 : 0;
     });
   }
 
@@ -76,10 +77,10 @@
     if (!terms || busy) return;
     review = null;
     void run(async () => {
-      await flow.buyStationLpOffer(stationID, issuerID, terms.offer, terms.count);
+      await flow.buyStationLpOffer(placeID, issuerID, terms.offer, terms.count);
       status = "Offer accepted. Check your item hangar.";
       data = null;
-      data = await flow.loadStationLpStore(stationID, issuerID);
+      data = await flow.loadStationLpStore(placeID, issuerID);
     });
   }
 
@@ -153,7 +154,7 @@
     </div>
   {/if}
 </div>
-{#if exchange && data && rate > 0}
+{#if stationID !== null && exchange && data && rate > 0}
   <ConcordLpExchange {store} {flow} {stationID} {issuerID} {rate} source={data.concordLp} target={Number(data.lp)}
     close={() => (exchange = false)} exchanged={() => void refresh()} />
 {/if}
