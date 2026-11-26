@@ -1020,7 +1020,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "ownerGroupManager.AddMembers", "ownerGroupManager.UpdateMembershipTypes", "ownerGroupManager.DeleteMembers",
   // A shared folder disconnected from (bookmarkSvc.py 460), and an access list the pilot has not got asked by its
   // number (accessGroupsController.py 184). The gateway's list has neither.
-  "accessGroupBookmarkMgr.RemoveFromKnownFolders", "ownerGroupManager.GetGroup",
+  "accessGroupBookmarkMgr.RemoveFromKnownFolders", "ownerGroupManager.GetGroup", "ownerGroupManager.GetGroupsMany",
   // Bookmarks copied into a folder (bookmarkSvc.py 701). The gateway's list has their moving and not this.
   "accessGroupBookmarkMgr.CopyBookmarksToFolderAndSubfolder",
   // A folder added to those the pilot knows (bookmarkSvc.py 357). The gateway's list has not got it.
@@ -2841,6 +2841,10 @@ const RETAIL_CALLS = Object.freeze({
     "self.remoteSvc.GetGroup(groupID), of ownerGroupManager by its name: an access list that is none of the pilot's, asked where its name is wanted (GetGroupInfoFromID with fetchToServer: a folder's lists in the folder window and in Folder Information). Answered the list. In no recording."),
   "ownerGroupManager.GetMyGroups": judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:105", sentWithNothing,
     "self.remoteSvc.GetMyGroups(), of ownerGroupManager by its name and with nothing: the pilot's access lists, asked once and kept by the client's controller; the folder window offers a shared folder's access levels from them. In no recording."),
+  "ownerGroupManager.GetGroupsMany": judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:198",
+    (args, kwargs) => args.length === 1 && itemIDsListed(args[0]) && Object.keys(kwargs).length === 0
+      ? {} : { status: "differs", note: "The client asks for a list of access group IDs." },
+    "Read the current groups referenced by a structure profile before saving its settings."),
   "ownerGroupManager.GetMembers": judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:47", listAsked,
     "Read the selected list's member IDs and membership types, including member ID zero for Public."),
   "ownerGroupManager.GetGroupLogs": judged("eve/client/script/ui/structure/accessGroups/accessGroupsController.py:40", listAsked,

@@ -1406,6 +1406,14 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       return;
     }
   }
+  if (body.service === "ownerGroupManager" && body.method === "GetGroupsMany") {
+    const ids = body.args?.[0];
+    if (body.pilot !== true || body.of != null || body.kwargs != null || !Array.isArray(body.args) || body.args.length !== 1 ||
+        !Array.isArray(ids) || ids.length === 0 || ids.some(id => !Number.isSafeInteger(id) || id <= 0)) {
+      res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "The group lookup requires a held pilot and a list of access group IDs." });
+      return;
+    }
+  }
   if (body.service === "moonExtractions" || body.service === "structureControl"
     || (body.service === "structureProfiles" && ["GetProfiles", "CreateProfile", "UpdateProfile", "DuplicateProfile", "DeleteProfile",
       "SetDefaultProfile", "GetProfileSettings", "SaveProfileSettings"].includes(body.method))

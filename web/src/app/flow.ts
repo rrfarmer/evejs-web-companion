@@ -1002,7 +1002,7 @@ import { systemGraphOnce } from "../nav/systemGraphKept.ts";
 import { autopilotDistances, autopilotJumpCounts, autopilotMap, autopilotPath, type AutopilotMap, type AutopilotRouteType, type AutopilotSettings } from "../nav/autopilotRoute.ts";
 import { availableJumpGateJumps, type JumpGateJump } from "../nav/jumpGates.ts";
 import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, decodeStructureProfileNames, decodeStructureProfiles, encodeStructureDescription, MAX_STRUCTURE_DESCRIPTION_LENGTH, type StructureBrowserDirectory } from "../bridge/structures.ts";
-import { decodeProfileSettingRows, profileSettingSignature, type ProfileSettingRow } from "../bridge/structureProfileSettings.ts";
+import { decodeProfileSettingRows, profileSettingSignature, PROFILE_SETTING_CATEGORIES, type ProfileSettingRow } from "../bridge/structureProfileSettings.ts";
 import { NO_REINFORCEMENT_WEEKDAY, structureDecommissionAction, structureDecommissionSeconds } from "../bridge/structureBrowserFilters.ts";
 import {
   AVOIDING_DIALOGS,
@@ -1202,7 +1202,7 @@ import { BULK_FIT_SHIPS_CONFIG, fitShips, isShipAssembled, listPlace, maxAvailab
 import { readAccessGroup, readFolderInfo, readFoldersWithAdminAccess, readMyAccessGroups, readMyActiveBookmarks } from "../bridge/bookmarkReads.ts";
 import { classifySalvageModules } from "../nav/salvageModules.ts";
 import { splitNeverFits } from "../bridge/bayRouting.ts";
-import { decodeAccessGroup, decodeAccessGroupMembers, type AccessGroup, type AccessGroupMember, type ActiveBookmarks, type BookmarkFolder } from "../bridge/bookmarks.ts";
+import { decodeAccessGroup, decodeAccessGroups, decodeAccessGroupMembers, type AccessGroup, type AccessGroupMember, type ActiveBookmarks, type BookmarkFolder } from "../bridge/bookmarks.ts";
 import { decodeAccessGroupAudit, type AccessGroupAuditRow } from "../bridge/accessGroupAudit.ts";
 import { agentsAtStation, readAgentsTable } from "../bridge/agentReads.ts";
 import { authoritativeFleetMemberCharacterIDs, decodeFleetCenter, decodeFleetInviteAnswerNotification, decodeFleetInviteNotification, fleetInviteAnswerWords, memberWhereabouts, type FleetInviteAnswer } from "../bridge/fleetCenter.ts";
@@ -4605,7 +4605,8 @@ export interface AppFlow {
   duplicateStructureProfile(profileID: number): Promise<void>;
   deleteStructureProfile(profileID: number): Promise<boolean>;
   setDefaultStructureProfile(profileID: number): Promise<void>;
-  loadStructureProfileSettings(profileID: number): Promise<{ rows: readonly ProfileSettingRow[]; groups: readonly AccessGroup[] }>;
+  loadStructureProfileSettings(profileID: number): Promise<readonly ProfileSettingRow[]>;
+  readStructureProfileAccessLists(groupIDs: readonly number[]): Promise<{ available: readonly AccessGroup[]; referenced: readonly AccessGroup[] }>;
   saveStructureProfileSettings(profileID: number, baseline: readonly ProfileSettingRow[], rows: readonly ProfileSettingRow[]): Promise<readonly ProfileSettingRow[]>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
@@ -5619,6 +5620,7 @@ export interface AppFlow {
    * Each fails as its call fails.
    */
   readFolderInfo(folderID: number): Promise<BookmarkFolder>;
+  readonly accessGroupsChanged: ReadableSignal<number>;
   readAccessGroups(): Promise<readonly AccessGroup[]>;
   readAccessGroupMembers(groupID: number): Promise<readonly AccessGroupMember[]>;
   readAccessGroupAudit(groupID: number): Promise<readonly AccessGroupAuditRow[]>;
@@ -6228,6 +6230,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const academyChangedSignal = createSignal(0);
   const logonSkillsTrainedSignal = createSignal<{ readonly n: number; readonly args: readonly unknown[] } | null>(null);
   const moonExtractionChanged = createSignal(0);
+  const accessGroupsChanged = createSignal(0);
   const moonFuelChanged = createSignal(0);
   const moonFracturing = createSignal<{ structureID: number; extractionID: number; endsAtMs: number } | null>(null);
   const epicArcsChanged = createSignal(0);
@@ -7782,6 +7785,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       for (const listener of plexTransferListeners) listener(method, args);
     }
     if (method === "OnMoonExtractionUpdate") moonExtractionChanged.update(revision => revision + 1);
+    if (method === "OnOwnerGroupsUpdated") accessGroupsChanged.update(revision => revision + 1);
     if (method === "OnStructureServiceChanged" || method === "OnDockingAccessChangedForCurrentSolarSystem") {
       const structureID = store.station.get().online?.structureID;
       if (structureID != null && (method === "OnDockingAccessChangedForCurrentSolarSystem" || moonMiningID(args[0]) === structureID)) {
@@ -29159,31 +29163,58 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function loadStructureProfileSettings(profileID: number) {
     const scope = captureMemberOperation();
     requireStructureProfileManager(scope);
-    const [settings, groups] = await Promise.all([
-      scope.ask("structureProfiles", "GetProfileSettings", [profileID]),
-      readMyAccessGroups(scope.ask),
+    const settings = await scope.ask("structureProfiles", "GetProfileSettings", [profileID]);
+    scope.current();
+    return decodeProfileSettingRows(settings);
+  }
+
+  async function resolveStructureProfileGroups(scope: MemberOperation, groupIDs: readonly number[]): Promise<readonly AccessGroup[]> {
+    const ids = [...new Set(groupIDs.filter(id => Number.isSafeInteger(id) && id > 0))];
+    if (ids.length === 0) return [];
+    const result = await scope.ask("ownerGroupManager", "GetGroupsMany", [ids]);
+    scope.current();
+    const groups = decodeAccessGroups(result);
+    if (!isListValue(result) || groups.length !== result.items.length || groups.some(group => !ids.includes(group.groupID))) {
+      throw new Error("The server did not return valid access list information.");
+    }
+    return groups;
+  }
+
+  async function readStructureProfileAccessLists(groupIDs: readonly number[]) {
+    const scope = captureMemberOperation();
+    requireStructureProfileManager(scope);
+    const [available, referenced] = await Promise.all([
+      readMyAccessGroups(scope.ask), resolveStructureProfileGroups(scope, groupIDs),
     ]);
     scope.current();
-    return { rows: decodeProfileSettingRows(settings), groups };
+    return { available, referenced };
   }
 
   async function saveStructureProfileSettings(profileID: number, baseline: readonly ProfileSettingRow[], rows: readonly ProfileSettingRow[]) {
     const scope = captureMemberOperation();
     requireStructureProfileManager(scope);
-    const [profiles, settings] = await Promise.all([
+    const definedSettings = new Set<number>(PROFILE_SETTING_CATEGORIES.flatMap(category => category.settings.map(setting => setting.id)));
+    const [profiles, settings, groups] = await Promise.all([
       scope.ask("structureProfiles", "GetProfiles", []),
       scope.ask("structureProfiles", "GetProfileSettings", [profileID]),
+      resolveStructureProfileGroups(scope, rows.filter(row => definedSettings.has(row.settingID)).map(row => row.groupID)),
     ]);
     requireStructureProfileManager(scope);
     if (!decodeStructureProfiles(profiles).has(profileID)) throw new Error("This corporation profile is unavailable.");
     if (profileSettingSignature(decodeProfileSettingRows(settings)) !== profileSettingSignature(baseline)) {
       throw new Error("The profile changed while you were editing it. Reopen Profile Settings to read the saved values.");
     }
-    const items = rows.map(row => ({ type: "tuple", items: [row.settingID, row.value, row.groupID] }));
+    const validGroups = new Set(groups.map(group => group.groupID));
+    const accepted = rows.filter(row => row.groupID === 0 || !definedSettings.has(row.settingID) || validGroups.has(row.groupID));
+    const items = accepted.map(row => ({ type: "tuple", items: [row.settingID, row.value, row.groupID] }));
     await scope.write("structureProfiles", "SaveProfileSettings", [profileID, { type: "list", items }]);
     const saved = decodeProfileSettingRows(await scope.ask("structureProfiles", "GetProfileSettings", [profileID]));
     scope.current();
-    if (profileSettingSignature(saved) !== profileSettingSignature(rows)) throw new Error("The profile settings could not be confirmed.");
+    if (profileSettingSignature(saved) !== profileSettingSignature(accepted)) throw new Error("The profile settings could not be confirmed.");
+    if (accepted.length !== rows.length) {
+      const message = templateWords("UI/StructureSettingWnd/AccessListNotValid", {}, "Unavailable access lists were removed from the profile.");
+      sayDialog("CustomNotify", { type: "dict", entries: [["notify", message]] }, message, "notify");
+    }
     return saved;
   }
 
@@ -41039,6 +41070,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     deleteStructureProfile,
     setDefaultStructureProfile,
     loadStructureProfileSettings,
+    readStructureProfileAccessLists,
     saveStructureProfileSettings,
     startMoonPull,
     controlMoonPull,
@@ -41271,6 +41303,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return readFolderInfo(bridgeAsk, folderID);
     },
 
+    accessGroupsChanged: readonlySignal(accessGroupsChanged),
     readAccessGroups() {
       return readMyAccessGroups(bridgeAsk);
     },
@@ -41306,6 +41339,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     async createAccessGroup(name, description) {
       const group = decodeAccessGroup(await bridgeDo("ownerGroupManager", "Create", [name, description]));
       if (group === null) throw new Error("The server did not return the new access list.");
+      accessGroupsChanged.update(revision => revision + 1);
       return group.groupID;
     },
 

@@ -21,6 +21,7 @@
     none: ["UI/StructureSettingWnd/NoGroups", "No Access Lists"],
     remove: ["UI/StructureSettingWnd/RemoveGroup", "Remove Access List"],
     save: ["UI/Common/Buttons/Save", "Save"],
+    invalidGroup: ["UI/StructureSettingWnd/AccessListNotValid", "Unavailable access lists were removed from the profile."],
   } as const;
   function word([key, fallback]: readonly [string, string]): string {
     return plainText($words.templates[key] ?? fallback);
@@ -34,7 +35,9 @@
   let available = $state.raw<ReadonlyMap<number, string>>(new Map());
   let names = $state.raw<ReadonlyMap<number, string>>(new Map());
   let error = $state("");
+  let groupError = $state("");
   let active = false;
+  let groupRequest = 0;
 
   $effect(() => {
     dirty = baseline !== null && profileSettingSignature(baseline) !== profileSettingSignature(draft);
@@ -44,19 +47,29 @@
     active = true;
     flow.requestWords([...Object.values(labels).map(([key]) => key), ...PROFILE_SETTING_CATEGORIES.map(item => `UI/StructureSettings/${item.label}`),
       ...[...definitions.values()].map(item => item.label)]);
-    void flow.loadStructureProfileSettings(profile.id).then(({ rows, groups }) => {
+    void flow.loadStructureProfileSettings(profile.id).then(rows => {
       if (!active) return;
       baseline = draft = rows;
-      available = names = new Map(groups.map(group => [group.groupID, group.name]));
-      for (const id of new Set(rows.map(row => row.groupID))) {
-        if (id <= 0 || names.has(id)) continue;
-        void flow.readAccessGroup(id).then(group => {
-          if (active && group) names = new Map(names).set(id, group.name);
-        }).catch(() => {});
-      }
+      void refreshAccessLists();
     }).catch(cause => { if (active) error = panelErrorWords(cause); });
-    return () => { active = false; };
+    const stopGroups = flow.accessGroupsChanged.subscribe(() => {
+      if (baseline !== null) void refreshAccessLists();
+    });
+    return () => { active = false; stopGroups(); };
   });
+
+  async function refreshAccessLists(): Promise<void> {
+    const request = ++groupRequest;
+    try {
+      const groups = await flow.readStructureProfileAccessLists(draft.map(row => row.groupID));
+      if (!active || request !== groupRequest) return;
+      available = new Map(groups.available.map(group => [group.groupID, group.name]));
+      names = new Map([...available, ...groups.referenced.map(group => [group.groupID, group.name] as const)]);
+      groupError = "";
+    } catch (cause) {
+      if (active && request === groupRequest) groupError = panelErrorWords(cause);
+    }
+  }
 
   const groupName = (id: number) => names.get(id) ?? (id === 0 ? "Public" : `Access List ${id}`);
 
@@ -118,6 +131,7 @@
     {#if onManageAccessGroups}<button type="button" onclick={onManageAccessGroups}>{word(labels.manage)}</button>{/if}
   </header>
   {#if error}<p role="alert">{error}</p>{/if}
+  {#if groupError}<p role="alert">{groupError}</p>{/if}
   {#if baseline === null}
     {#if !error}<p role="status">Loading profile settings…</p>{/if}
   {:else}
