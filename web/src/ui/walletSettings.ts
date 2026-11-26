@@ -3,6 +3,8 @@ import { SvelteMap } from "svelte/reactivity";
 const defaults = {
   notifyAccountChange: false,
   notifyAccountChangeCorp: false,
+  notifyShareChange: true,
+  notifyShareChangeCorp: true,
   walletShowCents: false,
   walletShowBalanceUpdates: true,
   iskNotifyThreshold: 0,

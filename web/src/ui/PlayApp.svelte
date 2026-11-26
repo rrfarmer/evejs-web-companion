@@ -1064,8 +1064,12 @@
   const CORPORATION_BALANCE_LABEL = "Tooltips/Neocom/CorporationBalance";
   const WALLET_CREDIT_LABEL = "Tooltips/Neocom/WalletCredit";
   const WALLET_DEBIT_LABEL = "Tooltips/Neocom/WalletDebit";
-  const WALLET_ISK_BLINK = "UI/Neocom/Blink/ISKBalanceChanged";
-  const CORP_ISK_BLINK = "UI/Neocom/Blink/CorpISKBalanceChanged";
+  const WALLET_BLINKS = {
+    personalIsk: ["notifyAccountChange", "UI/Neocom/Blink/ISKBalanceChanged", "Your ISK balance has changed"],
+    corporationIsk: ["notifyAccountChangeCorp", "UI/Neocom/Blink/CorpISKBalanceChanged", "Corp ISK balance changed"],
+    personalShares: ["notifyShareChange", "UI/Neocom/Blink/SharesChanged", "Your shares have changed"],
+    corporationShares: ["notifyShareChangeCorp", "UI/Neocom/Blink/CorpSharesChanged", "Corp shares have changed"],
+  } as const;
   const readWalletTip: NonNullable<Neocom["walletTip"]> = async () => {
     const currentSession = session;
     const pilot = currentSession?.store.station.get().online;
@@ -1093,21 +1097,20 @@
   };
   $effect(() => {
     session?.flow.requestWords([WALLET_BALANCE_LABEL, CORPORATION_BALANCE_LABEL, WALLET_CREDIT_LABEL, WALLET_DEBIT_LABEL,
-      WALLET_ISK_BLINK, CORP_ISK_BLINK]);
+      ...Object.values(WALLET_BLINKS).map(([, label]) => label)]);
     if (neocomInst) neocomInst.walletTip = readWalletTip;
   });
   $effect(() => {
     const current = session;
     if (!current) return;
-    const updates = current.flow.walletIskChanged;
+    const updates = current.flow.walletBlink;
     let previous = updates.get();
     return updates.subscribe((change) => {
       if (previous === change) return;
       previous = change;
       if (!change || stage !== "game" || current.store.station.get().online?.characterID !== change.characterID) return;
-      if (!walletSetting(change.characterID, change.corporate ? "notifyAccountChangeCorp" : "notifyAccountChange")) return;
-      const label = change.corporate ? CORP_ISK_BLINK : WALLET_ISK_BLINK;
-      const fallback = change.corporate ? "Corp ISK balance changed" : "Your ISK balance has changed";
+      const [setting, label, fallback] = WALLET_BLINKS[change.kind];
+      if (!walletSetting(change.characterID, setting)) return;
       const hint = plainText(current.store.words.get().templates[label] ?? "") || fallback;
       if (docked) neocomInst?.blink("wallet", hint);
       else view?.neocomBlink("wallet", hint);

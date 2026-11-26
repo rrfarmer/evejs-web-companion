@@ -70,6 +70,7 @@
   const retail = getContext("retailChrome") === true;
   let walletTab = $state<"mine" | "settings">("mine");
   const NOTIFY_ISK = "UI/Wallet/WalletWindow/NotifyAccountChange";
+  const NOTIFY_SHARES = "UI/Wallet/WalletWindow/NotifyShareChange";
   const CORP_WALLET = "UI/Wallet/WalletWindow/CorporationWallet";
   const SHOW_CENTS = "UI/Wallet/WalletWindow/WalletShowCents";
   const SHOW_BALANCE_UPDATES = "UI/Wallet/WalletWindow/Configuration/WalletShowBalanceChange";
@@ -83,7 +84,7 @@
   }
   const RETAIL_WORDS = ["UI/Wallet/WalletWindow/MyWallet", "UI/Common/Settings", "UI/Common/ISK", "UI/Common/PLEX",
     "UI/Journal/JournalWindow/Agents/LoyaltyPoints", "UI/Wallet/WalletWindow/EverMarks", "UI/Wallet/WalletWindow/ISKDescription",
-    SHOW_CENTS, SHOW_BALANCE_UPDATES, BALANCE_THRESHOLD, NOTIFY_ISK, CORP_WALLET];
+    SHOW_CENTS, SHOW_BALANCE_UPDATES, BALANCE_THRESHOLD, NOTIFY_ISK, NOTIFY_SHARES, CORP_WALLET];
   $effect(() => { if (retail) flow.requestWords(RETAIL_WORDS); });
 
   let busy = $state(false);
@@ -136,6 +137,11 @@
             onchange={(event) => { if (characterID !== null) setWalletSetting(characterID, "notifyAccountChange", event.currentTarget.checked); }} />
           {tabWord(NOTIFY_ISK, "Blink Wallet Button on ISK Balance Changes")}
         </label>
+        <label class="wallet-personal-share-blink">
+          <input type="checkbox" checked={walletSetting(characterID, "notifyShareChange")} disabled={characterID === null}
+            onchange={(event) => { if (characterID !== null) setWalletSetting(characterID, "notifyShareChange", event.currentTarget.checked); }} />
+          {tabWord(NOTIFY_SHARES, "Blink Wallet Button on Share Changes")}
+        </label>
         <label class="wallet-cents">
           <input type="checkbox" checked={showCents} disabled={characterID === null}
             onchange={(event) => { if (characterID !== null) setWalletShowsCents(characterID, event.currentTarget.checked); }} />
@@ -157,6 +163,11 @@
           <input type="checkbox" checked={walletSetting(characterID, "notifyAccountChangeCorp")} disabled={characterID === null}
             onchange={(event) => { if (characterID !== null) setWalletSetting(characterID, "notifyAccountChangeCorp", event.currentTarget.checked); }} />
           {tabWord(NOTIFY_ISK, "Blink Wallet Button on ISK Balance Changes")}
+        </label>
+        <label class="wallet-corporation-share-blink">
+          <input type="checkbox" checked={walletSetting(characterID, "notifyShareChangeCorp")} disabled={characterID === null}
+            onchange={(event) => { if (characterID !== null) setWalletSetting(characterID, "notifyShareChangeCorp", event.currentTarget.checked); }} />
+          {tabWord(NOTIFY_SHARES, "Blink Wallet Button on Share Changes")}
         </label>
       </div>
     {/if}

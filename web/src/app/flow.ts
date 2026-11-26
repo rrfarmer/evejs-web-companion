@@ -300,7 +300,7 @@ import {
   normalizeDivisionNames,
 } from "../bridge/wallet.ts";
 import { createWalletReads, divisionNamesOf } from "../bridge/walletReads.ts";
-import { canReceiveCorporationWealth, corporationWalletKey, createCorporationWealth, type CorporationWealthChange } from "../bridge/corporationWealth.ts";
+import { canReceiveCorporationWealth, corporationWalletKey, createCorporationWealth, hasAccessToCorporationWallet, type CorporationWealthChange } from "../bridge/corporationWealth.ts";
 import { ownerDoubleClickSetting } from "./ownerDoubleClickSetting.ts";
 import { memberQuerySetting } from "./memberQuerySetting.ts";
 import { memberQueryArguments, type MemberQueryCriterion, type MemberQueryContext, type CorporationAdministration } from "../bridge/corporationMemberQuery.ts";
@@ -2250,6 +2250,11 @@ interface DockedPortraitDraft {
   readonly initialFrame?: api.PortraitFrame;
 }
 
+interface WalletBlink {
+  readonly characterID: number;
+  readonly kind: "personalIsk" | "corporationIsk" | "personalShares" | "corporationShares";
+}
+
 export interface AppFlow {
   infoUsedWith(typeID: number): Promise<readonly TypeUsedWithGroup[]>;
   /** What a plugin's loop flies this pilot with. */
@@ -3821,7 +3826,7 @@ export interface AppFlow {
   /** The pilot's own ISK as the client keeps it (walletSvc.py wealth); null where it could not be read. */
   pilotWealth(): Promise<number | null>;
   readonly personalWalletChanged: ReadableSignal<{ readonly characterID: number; readonly balance: number; readonly difference: number } | null>;
-  readonly walletIskChanged: ReadableSignal<{ readonly characterID: number; readonly corporate: boolean } | null>;
+  readonly walletBlink: ReadableSignal<WalletBlink | null>;
   /** walletSvc.GetCorpWealth: fresh, None for active division; native UserError becomes0. */
   corporationWealth(accountKey?: number | null): Promise<number>;
   /** walletSvc.GetCorpWealthCached1Min, keyed separately from fresh window reads. */
@@ -7155,7 +7160,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // (bridge/walletReads.ts), with what those services keep kept for this pilot.
   const walletReads = createWalletReads(bridgeAsk);
   const personalWalletSignal = createSignal<{ characterID: number; balance: number; difference: number } | null>(null);
-  const walletIskSignal = createSignal<{ characterID: number; corporate: boolean } | null>(null);
+  const walletBlinkSignal = createSignal<WalletBlink | null>(null);
   const corporationWealthSignal = createSignal<CorporationWealthChange | null>(null);
   const incursionSignal = createSignal<IncursionData | null>(null);
   const corporationWealthReads = createCorporationWealth({
@@ -7183,7 +7188,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // accountsvc.ProcessSessionChange: another character, and what the account service kept was the last one's.
     walletReads.forget();
     personalWalletSignal.set(null);
-    walletIskSignal.set(null);
+    walletBlinkSignal.set(null);
     corporationWealthReads.forget();
     corporationWealthSignal.set(null);
     closeMoneyTransfer();
@@ -8021,7 +8026,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         corporationID: online?.corporationID ?? null,
       });
       if (personal && online) {
-        walletIskSignal.set({ characterID: online.characterID, corporate: false });
+        walletBlinkSignal.set({ characterID: online.characterID, kind: "personalIsk" });
         updateTransferWealth(personal.balance);
         if (personal.difference !== null) {
           personalWalletSignal.set({ characterID: online.characterID, balance: personal.balance, difference: personal.difference });
@@ -8030,7 +8035,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const key = corporationWalletKey(args[0]);
       if (online && key !== null && Number(args[1]) === online.corporationID &&
           canReceiveCorporationWealth(online.corpRole, key) && decodeWalletCash(args[2] as JsonValue) !== null) {
-        walletIskSignal.set({ characterID: online.characterID, corporate: true });
+        walletBlinkSignal.set({ characterID: online.characterID, kind: "corporationIsk" });
       }
       void corporationWealthReads.accountChanged(args[0], args[1], (args[2] ?? null) as JsonValue, {
         corporationID: online?.corporationID ?? null,
@@ -8228,7 +8233,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // corporation, once the tab has been chosen.
     if (method === "OnShareChange") {
       const online = store.station.get().online;
-      const ownerChanged = (owner: number | null | undefined): boolean => owner != null && (Number(args[0]) === owner || Number(args[1]) === owner);
+      const shareholder = Number(wholeDigits(args[0]) ?? Number.NaN);
+      const issuer = Number(wholeDigits(args[1]) ?? Number.NaN);
+      const ownerChanged = (owner: number | null | undefined): boolean => owner != null && (shareholder === owner || issuer === owner);
+      if (online && shareholder === online.characterID) {
+        walletBlinkSignal.set({ characterID: online.characterID, kind: "personalShares" });
+      } else if (online && ownerChanged(online.corporationID) && hasAccessToCorporationWallet(online.corpRole)) {
+        walletBlinkSignal.set({ characterID: online.characterID, kind: "corporationShares" });
+      }
       if (walletSharesWanted && ownerChanged(online?.characterID)) void loadWalletShares().catch(() => undefined);
       if (corpWalletSharesWanted && ownerChanged(online?.corporationID)) void loadWalletShares(true).catch(() => undefined);
     }
@@ -39875,7 +39887,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadWallet,
     pilotWealth,
     personalWalletChanged: readonlySignal(personalWalletSignal),
-    walletIskChanged: readonlySignal(walletIskSignal),
+    walletBlink: readonlySignal(walletBlinkSignal),
     corporationWealth: accountKey => corporationWealthReads.fresh(accountKey),
     cachedCorporationWealth: accountKey => corporationWealthReads.cached(accountKey),
     corporationWealthChanged: readonlySignal(corporationWealthSignal),

@@ -31,6 +31,12 @@ export function corporationWalletKey(accountName: unknown): number | null {
   return index < 0 ? null : 1000 + index;
 }
 
+/** walletUtil.HaveAccessToCorpWallet, including members with access to any division. */
+export function hasAccessToCorporationWallet(corpRole: string | null | undefined): boolean {
+  try { return (BigInt(corpRole ?? "0") & (ACCOUNTANTS | TAKE_ALL)) !== 0n; }
+  catch { return false; }
+}
+
 /** walletUtil.HaveAccessToCorpWallet, then HaveReadAccessToCorpWalletDivision.
  * The latter uses take bits, even for an Accountant/Junior who can RPC-read all.
  */
