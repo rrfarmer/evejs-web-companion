@@ -5,7 +5,7 @@ const MIN_COLUMN_WIDTH = 24;
 const TAB_MARGIN = 8;
 
 /** The width ResetColumnWidth gives the column of this header cell, measured from the table's text as drawn. */
-export function fittedColumnWidth(th: HTMLTableCellElement): number {
+export function fittedColumnWidth(th: HTMLTableCellElement, cellContentSelector?: string): number {
   const table = th.closest("table");
   const index = th.cellIndex;
   const columns = th.parentElement instanceof HTMLTableRowElement ? th.parentElement.cells.length : 0;
@@ -21,7 +21,9 @@ export function fittedColumnWidth(th: HTMLTableCellElement): number {
   for (const body of table?.tBodies ?? []) {
     for (const tr of body.rows) {
       if (tr.cells.length !== columns) continue; // a group's heading row spans the columns
-      widest = Math.max(widest, textWidth(tr.cells[index]));
+      const cell = tr.cells[index];
+      const content = cellContentSelector ? cell?.querySelector(cellContentSelector) : cell;
+      widest = Math.max(widest, textWidth(content ?? cell));
     }
   }
   return Math.max(MIN_COLUMN_WIDTH, Math.ceil(widest) + TAB_MARGIN * 2);

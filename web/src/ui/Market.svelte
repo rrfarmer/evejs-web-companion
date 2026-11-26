@@ -88,6 +88,7 @@
   import type { BookmarkPlace } from "../bridge/locationsList.ts";
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import HomeStationPanel from "./HomeStationPanel.svelte";
+  import { fittedColumnWidth } from "./scrollColumnFit.ts";
 
   let { store, flow, ordersOnly = false, onOpenOrders, onToggleStore, onOpenIndustry, onBuyPlex, onShowSystem }: {
     store: ClientStore;
@@ -1013,9 +1014,10 @@
     hide: "/Carbon/UI/Common/Hide",
     show: "/Carbon/UI/Common/Show",
   };
-  type OrderColumnLayout = { hidden: OrderColumn[]; primary: OrderColumn | null };
+  const minOrderColumnWidth = 24;
+  type OrderColumnLayout = { hidden: OrderColumn[]; primary: OrderColumn | null; widths: Partial<Record<OrderColumn, number>> };
   function readOrderLayout() {
-    const defaults = { split: 0.5, sell: { hidden: [], primary: null }, buy: { hidden: [], primary: null } };
+    const defaults = { split: 0.5, sell: { hidden: [], primary: null, widths: {} }, buy: { hidden: [], primary: null, widths: {} } };
     try {
       const saved = JSON.parse(localStorage.getItem(orderLayoutKey) ?? "null");
       if (!saved) return defaults;
@@ -1023,6 +1025,9 @@
       const side = (key: MarketSide): OrderColumnLayout => ({
         hidden: Array.isArray(saved[key]?.hidden) ? saved[key].hidden.filter(isColumn) : [],
         primary: isColumn(saved[key]?.primary) ? saved[key].primary : null,
+        widths: Object.fromEntries(Object.entries(saved[key]?.widths ?? {}).filter(
+          ([column, width]) => isColumn(column) && typeof width === "number" && Number.isFinite(width) && width >= minOrderColumnWidth,
+        )),
       });
       return { split: Number.isFinite(saved.split) ? clampOrderSplit(saved.split) : 0.5, sell: side("sell"), buy: side("buy") };
     } catch {
@@ -1070,6 +1075,52 @@
     event.preventDefault();
     orderLayout.split = key === "Home" ? 0.25 : key === "End" ? 0.75 :
       clampOrderSplit(orderLayout.split + (key === "ArrowDown" ? 0.05 : -0.05));
+    saveOrderLayout();
+  }
+  let releaseOrderColumn: (() => void) | null = null;
+  onDestroy(() => releaseOrderColumn?.());
+  function resizeOrderColumn(side: MarketSide, key: OrderColumn, event: PointerEvent) {
+    const handle = event.currentTarget as HTMLElement;
+    const header = handle.closest("th");
+    if (event.button !== 0 || !header) return;
+    event.preventDefault();
+    handle.focus();
+    releaseOrderColumn?.();
+    const start = header.getBoundingClientRect().width;
+    const initial = orderLayout[side].widths[key];
+    const move = (next: PointerEvent) => {
+      if (next.pointerId === event.pointerId) {
+        orderLayout[side].widths[key] = Math.max(minOrderColumnWidth, Math.round(start + next.clientX - event.clientX));
+      }
+    };
+    const finish = (next: PointerEvent) => {
+      if (next.pointerId !== event.pointerId) return;
+      releaseOrderColumn?.();
+      if (next.type === "pointercancel") orderLayout[side].widths[key] = initial;
+      else saveOrderLayout();
+    };
+    releaseOrderColumn = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      releaseOrderColumn = null;
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+  }
+  function fitOrderColumn(side: MarketSide, key: OrderColumn, header: HTMLTableCellElement | null) {
+    if (!header) return;
+    orderLayout[side].widths[key] = fittedColumnWidth(header, ".order-cell");
+    saveOrderLayout();
+  }
+  function keyOrderColumn(side: MarketSide, key: OrderColumn, event: KeyboardEvent) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    const header = (event.currentTarget as HTMLElement).closest("th");
+    if (!header) return;
+    event.preventDefault();
+    const change = event.key === "ArrowLeft" ? -8 : 8;
+    orderLayout[side].widths[key] = Math.max(minOrderColumnWidth, Math.round(header.getBoundingClientRect().width + change));
     saveOrderLayout();
   }
   function visibleOrderColumns(side: MarketSide, columns: readonly OrderColumn[]): OrderColumn[] {
@@ -2563,6 +2614,7 @@
 {#snippet activeOrderList(side: MarketSide, rows: readonly MarketOwnOrderRow[], columns: readonly OrderColumn[])}
   {@const controls = activeOrderControls[side]}
   {@const shown = visibleOrderColumns(side, columns)}
+  {@const widths = orderLayout[side].widths}
   {@const primary = orderLayout[side].primary}
   {@const sort = controls.sort && shown.includes(controls.sort.key) ? controls.sort : primary && shown.includes(primary) ? { key: primary, up: true } : null}
   {@const visible = orderList(rows, controls.filter, sort)}
@@ -2579,19 +2631,22 @@
       />
     </div>
     <div class="table-wrap">
-      <table class="guests active-order-table">
+      <table class="guests active-order-table" class:sized={shown.some(key => widths[key] != null)}>
         <thead>
           <tr>
             {#each shown as key (key)}
               {@const direction = sort?.key === key ? (sort.up ? "ascending" : "descending") : undefined}
               <th scope="col" aria-sort={direction} class:num={key === "price" || key === "quantity" || key === "minimum"}
+                class:order-sized={widths[key] != null} style:--order-column-width={widths[key] == null ? null : `${widths[key]}px`}
                 oncontextmenu={(event) => {
                   event.preventDefault();
                   orderHeaderMenu(side, key, columns, event.clientX, event.clientY);
                 }}>
                 <button
                   type="button"
+                  class="order-header-label"
                   onclick={() => (controls.sort = { key, up: direction !== "ascending" })}
+                  ondblclick={(event) => fitOrderColumn(side, key, event.currentTarget.closest("th"))}
                   onkeydown={(event) => {
                     if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
                     event.preventDefault();
@@ -2601,6 +2656,12 @@
                 >
                   {orderColumnLabel(key)}{direction ? (direction === "ascending" ? " ▲" : " ▼") : ""}
                 </button>
+                <button type="button" class="scaler order-column-scaler"
+                  aria-label={`Resize ${orderColumnLabel(key)} column`}
+                  onpointerdown={(event) => resizeOrderColumn(side, key, event)}
+                  onkeydown={(event) => keyOrderColumn(side, key, event)}
+                  onclick={(event) => { if (event.detail === 0) fitOrderColumn(side, key, event.currentTarget.closest("th")); }}
+                  ondblclick={(event) => fitOrderColumn(side, key, event.currentTarget.closest("th"))}></button>
               </th>
             {/each}
             <th scope="col">Action</th>
@@ -2635,15 +2696,18 @@
             >
               {#each shown as key (key)}
                 {@const value = orderCell(order, key)}
-                <td class:num={key === "price" || key === "quantity" || key === "minimum"}>
-                  {#if key === "type"}
-                    <span class="cell-item"><TypeIcon typeID={order.typeID} name={value} />{value}</span>
-                  {:else}
-                    {value}
-                    {#if key === "station" && order.stationID}
-                      <PlaceRouteMenu {store} {flow} placeID={order.stationID} />
+                <td class:num={key === "price" || key === "quantity" || key === "minimum"}
+                  class:order-sized={widths[key] != null} style:--order-column-width={widths[key] == null ? null : `${widths[key]}px`}>
+                  <div class="order-cell">
+                    {#if key === "type"}
+                      <span class="cell-item"><TypeIcon typeID={order.typeID} name={value} />{value}</span>
+                    {:else}
+                      {value}
+                      {#if key === "station" && order.stationID}
+                        <PlaceRouteMenu {store} {flow} placeID={order.stationID} />
+                      {/if}
                     {/if}
-                  {/if}
+                  </div>
                 </td>
               {/each}
               <td>{@render openOrderActions(order)}</td>
@@ -2910,9 +2974,20 @@
   .active-order-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .active-order-tools h3 { margin: 0; }
   .active-order-tools input { width: min(150px, 60%); }
-  .active-order-table th { white-space: nowrap; }
-  .active-order-table th button { border: 0; background: transparent; padding: 3px 0; font: inherit; color: inherit; }
-  .active-order-table td { min-width: max-content; }
+  .active-order-table.sized { width: max-content; }
+  .active-order-table th { position: relative; white-space: nowrap; }
+  .active-order-table .order-header-label { border: 0; background: transparent; padding: 3px 0; font: inherit; color: inherit; }
+  .active-order-table .order-sized { width: var(--order-column-width); min-width: var(--order-column-width); max-width: var(--order-column-width); }
+  .order-sized .order-header-label, .order-sized .order-cell {
+    max-width: max(0px, calc(var(--order-column-width) - 0.7rem));
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  }
+  .active-order-table .order-column-scaler {
+    position: absolute; top: 0; bottom: 0; right: 0; width: 8px; min-width: 0;
+    border: 0; padding: 0; background: transparent; cursor: col-resize; touch-action: none;
+  }
+  .order-column-scaler::after { content: ""; position: absolute; inset: 4px 3px; border-right: 1px solid var(--color-line); }
+  .order-column-scaler:hover::after, .order-column-scaler:focus-visible::after { border-color: var(--color-line-strong); }
   .active-order-table td.num { white-space: nowrap; }
   .mkt-variant-folder summary { cursor: pointer; }
   .mkt-variant-folder > ul { margin-left: 16px; }
