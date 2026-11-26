@@ -1787,6 +1787,7 @@
     characterSheet: { w: 1235, h: 768 }, assets: { w: 550, h: 450 }, locations: { w: 450, h: 450 }, contacts: { w: 600, h: 500 },
     mail: { w: 800, h: 600 }, finder: { w: 1188, h: 694 }, wallet: { w: 900, h: 600 }, planets: { w: 500, h: 500 }, log: { w: 400, h: 200 },
     notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, paintTool: { w: 1030, h: 650 }, locationSearch: { w: 420, h: 480 }, achievements: { w: 1040, h: 825 },
+    mercenaryDens: { w: 900, h: 572 },
     fleetComposition: { w: 680, h: 420 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 570, h: 550 },
     structureBrowser: { w: 800, h: 600 }, accessGroups: { w: 800, h: 600 }, autoMoonMiner: { w: 700, h: 515 },
     metenoxTransfer: { w: 400, h: 340 }, metenoxFuel: { w: 435, h: 285 },
@@ -1799,6 +1800,7 @@
     characterRecustomization: { w: 610, h: 442 },
   };
   const FLIGHT_MINIMUMS: Partial<Record<TabID, { w: number; h: number }>> = {
+    mercenaryDens: { w: 650, h: 572 },
     projectDiscovery: { w: 1268, h: 726 },
     pointerWindow: { w: 300, h: 300 },
     auraGuidance: { w: 270, h: 300 },
@@ -2175,7 +2177,7 @@
   const WINDOW_COMMANDS: Record<string, TabID> = {
     ToggleProbeScanner: "scanner", OpenInventory: "inventory", OpenFitting: "fitting", OpenMail: "mail", OpenMarket: "market", OpenMarketOrders: "marketOrders",
     OpenWallet: "wallet", OpenCharactersheet: "characterSheet", OpenSkillsWindow: "skills", OpenPeopleAndPlaces: "contacts",
-    OpenLocations: "locations", OpenAgencyNew: "finder", OpenJobBoardWindow: "jobBoard", OpenAssets: "assets", OpenIndustry: "industry", OpenLedger: "miningLedger",
+    OpenLocations: "locations", OpenAgencyNew: "finder", OpenJobBoardWindow: "jobBoard", OpenMyMercenaryDens: "mercenaryDens", OpenAssets: "assets", OpenIndustry: "industry", OpenLedger: "miningLedger",
     OpenAchievementsWindow: "achievements", OpenFleetWatchlist: "watchlist", OpenStructureBrowser: "structureBrowser",
     OpenAccessGroupsWindow: "accessGroups", OpenChannels: "channels",
     OpenHelp: "help",

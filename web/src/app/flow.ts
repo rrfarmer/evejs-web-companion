@@ -1003,6 +1003,7 @@ import { autopilotDistances, autopilotJumpCounts, autopilotMap, autopilotPath, t
 import { availableJumpGateJumps, type JumpGateJump } from "../nav/jumpGates.ts";
 import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, decodeStructureProfileNames, decodeStructureProfiles, encodeStructureDescription, MAX_STRUCTURE_DESCRIPTION_LENGTH, type StructureBrowserDirectory } from "../bridge/structures.ts";
 import { decodeProfileSettingRows, profileSettingSignature, PROFILE_SETTING_CATEGORIES, type ProfileSettingRow } from "../bridge/structureProfileSettings.ts";
+import { decodeMercenaryDen, mercenaryDenID, mercenaryDenInteger, mercenaryDenRecord, type MercenaryDensRead } from "../bridge/mercenaryDens.ts";
 import { NO_REINFORCEMENT_WEEKDAY, structureDecommissionAction, structureDecommissionSeconds } from "../bridge/structureBrowserFilters.ts";
 import {
   AVOIDING_DIALOGS,
@@ -4586,6 +4587,7 @@ export interface AppFlow {
   startMetenoxDrill(structureID: number): Promise<void>;
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
   loadStructureBrowser(systemID: number, corporation?: boolean): Promise<StructureBrowserDirectory>;
+  loadMyMercenaryDens(): Promise<MercenaryDensRead>;
   loadMySkyhooks(systemID: number): Promise<{ rows: SkyhookRow[]; currentRegionID: number | null }>;
   loadSkyhookRegions(): Promise<readonly { id: number; name: string }[]>;
   readSkyhookFilters(): SkyhookFilters;
@@ -28852,6 +28854,48 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       canEditDescriptions };
   }
 
+  async function loadMyMercenaryDens(): Promise<MercenaryDensRead> {
+    const current = callOptions.captureRequestGuard!();
+    const prefix = "eve_public.sovereignty.mercenaryden.";
+    const request = (suffix: string, payload: Record<string, JsonValue> = {}) =>
+      api.publicGatewayRequest(prefix + suffix, payload, callOptions);
+    const [ownedReply, capacityReply] = await Promise.all([
+      request("api.GetAllOwnedRequest"), request("api.GetMaximumForCharacterRequest"),
+    ]);
+    current();
+    if (ownedReply.statusCode !== 200 || capacityReply.statusCode !== 200) throw new Error("Mercenary dens could not be read.");
+    const ids = mercenaryDenRecord(ownedReply.payload).id;
+    const owned = Array.isArray(ids) ? [...new Set(ids.map(mercenaryDenID).filter(id => id > 0))] : [];
+    const capacity = mercenaryDenRecord(capacityReply.payload);
+    const maximum = mercenaryDenInteger(capacity.current_maximum);
+    const absoluteMaximum = mercenaryDenInteger(capacity.absolute_maximum);
+    if (!owned.length) return { owned, rows: [], maximum, absoluteMaximum };
+    const [activityReply, detailReplies] = await Promise.all([
+      request("activity.api.GetAllRequest").catch(() => null),
+      Promise.all(owned.map(id => request("api.GetAsOwnerRequest", { id: { sequential: id } }).catch(() => null))),
+    ]);
+    current();
+    const counts = new Map<number, number>();
+    const activities = mercenaryDenRecord(activityReply?.payload).activities;
+    if (Array.isArray(activities)) {
+      for (const activity of activities) {
+        const id = mercenaryDenID(mercenaryDenRecord(mercenaryDenRecord(activity).attributes).mercenary_den);
+        counts.set(id, (counts.get(id) ?? 0) + 1);
+      }
+    }
+    const rows = owned.flatMap((id, index) => {
+      const reply = detailReplies[index];
+      const row = reply?.statusCode === 200 ? decodeMercenaryDen(id, reply.payload, activityReply?.statusCode === 200 ? counts.get(id) ?? 0 : null) : null;
+      return row ? [row] : [];
+    });
+    requestNames(rows.flatMap(row => [
+      { kind: "type" as const, id: row.typeID },
+      { kind: "system" as const, id: row.solarSystemID },
+      { kind: "planet" as const, id: row.planetID },
+    ]));
+    return { owned, rows, maximum, absoluteMaximum };
+  }
+
   async function loadMySkyhooks(systemID: number): Promise<{ rows: SkyhookRow[]; currentRegionID: number | null }> {
     const scope = captureMemberOperation();
     const corporationID = scope.online.corporationID;
@@ -41093,6 +41137,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadCorporationMoonSchedule,
     loadStructureBrowser,
     loadMySkyhooks,
+    loadMyMercenaryDens,
     loadSkyhookRegions,
     readSkyhookFilters: () => skyhookFilters(charUiSetting),
     saveSkyhookFilter: (key, value) => setCharUiSetting(skyhookFilterSetting(key), value === null ? "" : String(value)),

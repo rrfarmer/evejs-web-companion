@@ -47,6 +47,7 @@
   import PvpFilamentEvents from "./PvpFilamentEvents.svelte";
   import TheatersOfWar from "./TheatersOfWar.svelte";
   import JobBoardWindow from "./JobBoardWindow.svelte";
+  import MyMercenaryDens from "./MyMercenaryDens.svelte";
   import AchievementsWindow from "./AchievementsWindow.svelte";
   import PaintToolWindow from "./PaintToolWindow.svelte";
   import Flight from "./Flight.svelte";
@@ -308,6 +309,8 @@
   <LocationSearchWindow {store} {flow} />
 {:else if tab === "jobBoard"}
   <JobBoardWindow {store} {flow} openCorporation={() => onOpen?.("corporation")} showAgents={() => onOpen?.("agents")} />
+{:else if tab === "mercenaryDens"}
+  <MyMercenaryDens {store} {flow} />
 {:else if tab === "finder"}
   <AgencyWindow {store} {flow} {onShowConvoys} showTravel={() => onOpen?.("travel")} onOpenTab={(tab) => onOpen?.(tab as never)} />
 {:else if tab === "projectDiscovery"}

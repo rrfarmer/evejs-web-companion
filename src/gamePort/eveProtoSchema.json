@@ -14151,6 +14151,686 @@
      "label": 1
     }
    ]
+  },
+  "eve_public.dungeon.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.AnarchyDefinition": {
+   "fields": [
+    {
+     "name": "unit_increase_time_seconds",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "stages",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.mercenaryden.AnarchyDefinition.AnarchyStage"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.AnarchyDefinition.AnarchyStage": {
+   "fields": [
+    {
+     "name": "stage",
+     "number": 1,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.AnarchyStage"
+    },
+    {
+     "name": "level_lower_bound",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "level_upper_bound",
+     "number": 3,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "workforce_consumption",
+     "number": 4,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.AnarchySimulation": {
+   "fields": [
+    {
+     "name": "level",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "stage",
+     "number": 2,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.AnarchyStage"
+    },
+    {
+     "name": "paused_at",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp",
+     "oneof": "state"
+    },
+    {
+     "name": "simulated_at",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp",
+     "oneof": "state"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.Attributes": {
+   "fields": [
+    {
+     "name": "owner",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "skyhook",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.planet.skyhook.Identifier"
+    },
+    {
+     "name": "solar_system",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    },
+    {
+     "name": "planet",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.planet.Identifier"
+    },
+    {
+     "name": "type",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenarydentype.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.DevelopmentDefinition": {
+   "fields": [
+    {
+     "name": "unit_increase_time_seconds",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "stages",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.mercenaryden.DevelopmentDefinition.DevelopmentStage"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.DevelopmentDefinition.DevelopmentStage": {
+   "fields": [
+    {
+     "name": "stage",
+     "number": 1,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.DevelopmentStage"
+    },
+    {
+     "name": "level_lower_bound",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "level_upper_bound",
+     "number": 3,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.DevelopmentSimulation": {
+   "fields": [
+    {
+     "name": "level",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "stage",
+     "number": 2,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.DevelopmentStage"
+    },
+    {
+     "name": "paused_at",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp",
+     "oneof": "state"
+    },
+    {
+     "name": "simulated_at",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp",
+     "oneof": "state"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.Evolution": {
+   "fields": [
+    {
+     "name": "definition",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.EvolutionDefinition"
+    },
+    {
+     "name": "simulation",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.EvolutionSimulation"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.EvolutionDefinition": {
+   "fields": [
+    {
+     "name": "development",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.DevelopmentDefinition"
+    },
+    {
+     "name": "anarchy",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.AnarchyDefinition"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.EvolutionSimulation": {
+   "fields": [
+    {
+     "name": "paused",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "state"
+    },
+    {
+     "name": "started",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "state"
+    },
+    {
+     "name": "development",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.DevelopmentSimulation"
+    },
+    {
+     "name": "anarchy",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.AnarchySimulation"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.Infomorphs": {
+   "fields": [
+    {
+     "name": "definition",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.InfomorphsGenerationDefinition"
+    },
+    {
+     "name": "contents",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.InfomorphsContents"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.InfomorphsContents": {
+   "fields": [
+    {
+     "name": "infomorphs_count",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "last_generation_tick",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.InfomorphsGenerationDefinition": {
+   "fields": [
+    {
+     "name": "infomorph_type",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.infomorph.itemtype.Identifier"
+    },
+    {
+     "name": "generation_tick_seconds",
+     "number": 2,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "generation_bands",
+     "number": 3,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.mercenaryden.InfomorphsGenerationDefinition.GenerationBand"
+    },
+    {
+     "name": "cargo_capacity",
+     "number": 4,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.InfomorphsGenerationDefinition.GenerationBand": {
+   "fields": [
+    {
+     "name": "stage",
+     "number": 1,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.DevelopmentStage"
+    },
+    {
+     "name": "lower_band",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "upper_band",
+     "number": 3,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.activity.Attributes": {
+   "fields": [
+    {
+     "name": "activitytemplate",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.activitytemplate.Definition"
+    },
+    {
+     "name": "mercenary_den",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.Identifier"
+    },
+    {
+     "name": "started",
+     "number": 3,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "expiry",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "solar_system",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.activity.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.activity.activitytemplate.Definition": {
+   "fields": [
+    {
+     "name": "name",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "description",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.message.Identifier"
+    },
+    {
+     "name": "dungeon",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.dungeon.Identifier"
+    },
+    {
+     "name": "development_impact",
+     "number": 4,
+     "type": 5,
+     "label": 1
+    },
+    {
+     "name": "anarchy_impact",
+     "number": 5,
+     "type": 5,
+     "label": 1
+    },
+    {
+     "name": "infomorph_bonus",
+     "number": 6,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.activity.api.GetAllRequest": {
+   "fields": []
+  },
+  "eve_public.sovereignty.mercenaryden.activity.api.GetAllResponse": {
+   "fields": [
+    {
+     "name": "activities",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.api.GetAllResponse.Activity"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.activity.api.GetAllResponse.Activity": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.Attributes"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.activity.api.GetCapacityRequest": {
+   "fields": []
+  },
+  "eve_public.sovereignty.mercenaryden.activity.api.GetCapacityResponse": {
+   "fields": [
+    {
+     "name": "capacity",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.activity.api.GetForMercenaryDenRequest": {
+   "fields": [
+    {
+     "name": "mercenary_den",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.activity.api.GetForMercenaryDenResponse": {
+   "fields": [
+    {
+     "name": "activities",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.api.GetForMercenaryDenResponse.Activity"
+    },
+    {
+     "name": "next_generation_at",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.activity.api.GetForMercenaryDenResponse.Activity": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.Attributes"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.activity.api.StartRequest": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.activity.api.StartResponse": {
+   "fields": [
+    {
+     "name": "attributes",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.Attributes"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.api.GetAllOwnedRequest": {
+   "fields": []
+  },
+  "eve_public.sovereignty.mercenaryden.api.GetAllOwnedResponse": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.sovereignty.mercenaryden.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.api.GetAsOwnerRequest": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.api.GetAsOwnerResponse": {
+   "fields": [
+    {
+     "name": "attributes",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.Attributes"
+    },
+    {
+     "name": "enabled",
+     "number": 2,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "evolution",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.Evolution"
+    },
+    {
+     "name": "infomorphs",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.Infomorphs"
+    },
+    {
+     "name": "cargo_extraction_enabled",
+     "number": 5,
+     "type": 8,
+     "label": 1
+    },
+    {
+     "name": "skyhook_owner",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.api.GetMaximumForCharacterRequest": {
+   "fields": []
+  },
+  "eve_public.sovereignty.mercenaryden.api.GetMaximumForCharacterResponse": {
+   "fields": [
+    {
+     "name": "current_maximum",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "absolute_maximum",
+     "number": 2,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.infomorph.itemtype.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 4,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenarydentype.Identifier": {
+   "fields": [
+    {
+     "name": "sequential",
+     "number": 1,
+     "type": 13,
+     "label": 1
+    }
+   ]
   }
  },
  "enums": {
@@ -14272,6 +14952,26 @@
     "CLASSIFICATION_GAMEMASTER": 4,
     "CLASSIFICATION_VOLUNTEER": 5,
     "CLASSIFICATION_NPC": 6
+   }
+  },
+  "eve_public.sovereignty.mercenaryden.AnarchyStage": {
+   "values": {
+    "ANARCHY_STAGE_UNSPECIFIED": 0,
+    "ANARCHY_STAGE_1": 1,
+    "ANARCHY_STAGE_2": 2,
+    "ANARCHY_STAGE_3": 3,
+    "ANARCHY_STAGE_4": 4,
+    "ANARCHY_STAGE_5": 5
+   }
+  },
+  "eve_public.sovereignty.mercenaryden.DevelopmentStage": {
+   "values": {
+    "DEVELOPMENT_STAGE_UNSPECIFIED": 0,
+    "DEVELOPMENT_STAGE_1": 1,
+    "DEVELOPMENT_STAGE_2": 2,
+    "DEVELOPMENT_STAGE_3": 3,
+    "DEVELOPMENT_STAGE_4": 4,
+    "DEVELOPMENT_STAGE_5": 5
    }
   }
  }

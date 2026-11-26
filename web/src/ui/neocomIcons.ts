@@ -96,6 +96,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   shipTree: ["M4 12h6l4-6h6m-10 6 4 6h6", "M2 12h2m16-6h2m-2 12h2"],
   contracts: ["M6 3h8l4 4v14H6z", "M14 3v4h4", "M9 13h6M9 17h6"],
   jobBoard: ["M4 7h16v12H4z", "M9 7V4h6v3", "M4 12h16"],
+  mercenaryDens: ["M3 12l9-7 9 7-9 7z", "M9 12h6"],
   paintTool: ["M5 19l4-1 10-10-3-3L6 15z", "M14 6l3 3"],
   locationSearch: ["M10 4a6 6 0 1 0 0 12a6 6 0 1 0 0-12", "M15 15l5 5"],
   achievements: ["M8 4h8v5a4 4 0 0 1-8 0z", "M8 6H5v2a3 3 0 0 0 3 3M16 6h3v2a3 3 0 0 1-3 3M12 13v5m-4 2h8"],

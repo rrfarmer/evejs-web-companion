@@ -5,8 +5,6 @@
   // Omega, Open Skill Training where Mercenary Den Management (85233) is below level 5) and States (StatesText); the
   // right column Activities (ActivitiesText, Open MTO Opportunities: the job board's browse page) and My Mercenary Dens
   // (MyMercDensText, Open My Mercenary Dens). Each section 10 apart, its buttons BTN_TOP_PADDING 12 below the text.
-  // Not here (later parts): the job board's browse page filtered to the Mercenary Tactical Ops tag, the clone upgrade
-  // window, the My Mercenary Dens window (neither is built: those two buttons do nothing yet).
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
@@ -55,7 +53,7 @@
     <section class="amd-section"><h3>{word(`${M}ActivitiesHeader`)}</h3><p>{word(`${M}ActivitiesText`)}</p>
       <button type="button" class="amd-wide" onclick={() => openJobBoard()}>{word(`${M}OpenMTOOpportunities`)}</button></section>
     <section class="amd-section"><h3>{word(`${M}MyMercDensHeader`)}</h3><p>{word(`${M}MyMercDensText`)}</p>
-      <button type="button" class="amd-wide" disabled>{word(`${M}OpenMyMercDenBtn`)}</button></section>
+      <button type="button" class="amd-wide" disabled={!onOpenTab} onclick={() => onOpenTab?.("mercenaryDens")}>{word(`${M}OpenMyMercDenBtn`)}</button></section>
   </div>
 </div>
 

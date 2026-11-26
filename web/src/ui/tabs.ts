@@ -43,6 +43,7 @@ export type CoreTabID =
   | "finder"
   | "theatersOfWar"
   | "jobBoard"
+  | "mercenaryDens"
   | "paintTool"
   | "locationSearch"
   | "achievements"
@@ -255,6 +256,7 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "theatersOfWar", label: "Theaters of War", where: "both" },
   // The client's job board (JobBoardWindow, "Opportunities"): here its freelance jobs.
   { id: "jobBoard", label: "Opportunities", where: "both" },
+  { id: "mercenaryDens", label: "My Mercenary Dens", where: "both" },
   // The structure paint tool (PaintToolWnd, "Structure SKINR"), opened from Brand Management's Open SKINR.
   { id: "paintTool", label: "Structure SKINR", where: "both", launchable: false },
   // searchUtil.GetResultsInNewWindow's window, from the route info panel's search box.
