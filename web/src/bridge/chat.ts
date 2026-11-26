@@ -40,6 +40,7 @@ function decodeMember(value: JsonValue): ChatMember | null {
   return {
     characterID,
     name: asString(row.name, `Character ${characterID}`),
+    role: row.role === "moderator" || row.role === "participant" || row.role === "visitor" || row.role === "none" ? row.role : null,
     corporationID: numOrNull(row.corporationID),
     allianceID: numOrNull(row.allianceID),
     solarSystemID: numOrNull(row.solarSystemID),

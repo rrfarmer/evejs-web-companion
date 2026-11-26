@@ -531,12 +531,12 @@ class XmppChatSession {
         const query = `<query xmlns='http://jabber.org/protocol/muc#${namespace}'>${payload}</query>`;
         return { id, xml: `<iq id='${id}' type='${type}' from='${escapeXml(jid())}' to='${escapeXml(target)}'>${query}</iq>` };
       },
-      roomRestrictionRecords: (roomName, category, ownerID) => {
+      roomRestrictionRecords: (roomName, category, ownerID, duration) => {
         const id = requestID();
         const room = escapeXml(`${roomName}@${this.conferenceDomain}`);
         const read = ownerID === undefined;
         const query = read ? `<query xmlns='urn:xmpp:expiring_record#search' room='${room}' category='${category}'/>` :
-          `<query xmlns='urn:xmpp:expiring_record' room='${room}' category='${category}' jid='${escapeXml(`${ownerID}@${this.domain}`)}' action='delete'/>`;
+          `<query xmlns='urn:xmpp:expiring_record' room='${room}' category='${category}' jid='${escapeXml(`${ownerID}@${this.domain}`)}' ${duration === undefined ? "action='delete'" : `action='set' duration='${duration}'`}/>`;
         return { id, xml: `<iq id='${id}' type='${read ? "get" : "set"}' from='${escapeXml(jid())}' to='${escapeXml(this.domain)}'>${query}</iq>` };
       },
       roomSubject: (roomName, subject) => {
@@ -1036,11 +1036,19 @@ class XmppChatSession {
     const oldMember = roster.get(characterID);
     if (roomName.startsWith("private_") && heldRoom?.seenMembers) heldRoom.seenMembers.add(characterID);
     if (unavailable) {
+      if (characterID === this.characterID && roomName.startsWith("player_") && heldRoom?.roomName === roomName &&
+        !heldRoom.pending && /<status\b[^>]*\bcode=['"]110['"]/i.test(xml)) {
+        this.leaveRoom(heldRoom, false);
+        return;
+      }
       roster.delete(characterID);
       this.memberOrder.get(roomName)?.delete(characterID);
       if (currentLocal && oldMember) this.localChanged();
       return;
     }
+    const item = xml.match(/<item\b[^>]*>/i)?.[0] ?? "";
+    // A MUC outcast is not an occupant, including after a role update.
+    if (attr(item, "affiliation") === "outcast") return;
     let name = "";
     const info = attr(xml, "info");
     if (info) {
@@ -1059,6 +1067,7 @@ class XmppChatSession {
       name: name || `Character ${characterID}`,
       corporationID: positiveInt(attr(xml, "corpid")) || null,
       allianceID: positiveInt(attr(xml, "allianceid")) || null,
+      role: attr(item, "role") || oldMember?.role || null,
       spokeAtMs: oldMember?.spokeAtMs,
     };
     roster.set(characterID, member);
@@ -1807,6 +1816,7 @@ class XmppChatSession {
         name: member.name,
         corporationID: member.corporationID,
         allianceID: member.allianceID,
+        role: member.role ?? null,
         solarSystemID: channel === "local" ? suffix || null : null,
       }); }),
       messages: log.slice(-capped),
@@ -2023,6 +2033,44 @@ class XmppChatSession {
     await request(stanzas.roomIq(roomName, "admin", "set", item));
     if (!change.listed && current?.temporary) await request(stanzas.roomRestrictionRecords(roomName, "ban", change.ownerID));
     return read();
+  }
+
+  async moderateChannelMember(roomName, target, action, minutes, reason, context = {}) {
+    await this.managedPlayerChannel(roomName, context);
+    const roster = this.rosters.get(roomName);
+    const actor = roster?.get(this.characterID);
+    const member = roster?.get(target);
+    if (actor?.role !== "moderator" || !member || target <= 1 || target === this.characterID || member.role === "moderator") {
+      throw new XmppChatError("Choose a current channel member you can moderate.", { code: "CHAT_MODERATION_REFUSED", statusCode: 403 });
+    }
+    const stanzas = this.retailStanzas();
+    const request = async (stanza) => {
+      this.assertChatCurrent(context);
+      const response = await this.requestChatInformation(stanza, "channel member moderation");
+      this.assertChatCurrent(context);
+      if (attr(response.match(/^<iq\b[^>]*>/i)?.[0] || "", "type") !== "result") {
+        throw new XmppChatError("The chat server refused this moderation action.", { code: "CHAT_MODERATION_REFUSED", statusCode: 403 });
+      }
+    };
+    const role = (next) => stanzas.roomIq(roomName, "admin", "set",
+      `<item nick='${target}' role='${next}'><reason>${escapeXml(reason)}</reason></item>`);
+    const affiliation = (next) => stanzas.roomIq(roomName, "admin", "set",
+      `<item jid='${escapeXml(`${target}@${this.domain}`)}' affiliation='${next}'><reason>${escapeXml(reason)}</reason></item>`);
+    if (action === "unmute") {
+      await request(role("participant"));
+      await request(stanzas.roomRestrictionRecords(roomName, "mute", target));
+      return;
+    }
+    const mute = action === "mute";
+    await request(mute ? role("visitor") : affiliation("outcast"));
+    if (!mute && minutes === 0) return;
+    try {
+      await request(stanzas.roomRestrictionRecords(roomName, mute ? "mute" : "ban", target, minutes ? minutes * 60 : 315360000));
+    } catch (error) {
+      await request(mute ? role("participant") : affiliation("none")).catch(() => {});
+      throw error;
+    }
+    if (!mute) await request(affiliation("none"));
   }
 
   async channelMembers(roomNames, context = {}) {

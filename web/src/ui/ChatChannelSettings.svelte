@@ -18,7 +18,7 @@
     title: "UI/Chat/ChannelConfiguration", general: "UI/Generic/General", name: "UI/Chat/ChannelName",
     password: "UI/Chat/Password", retype: "UI/Chat/RetypePassword", access: "UI/Chat/DefaultAccess",
     motd: "UI/Chat/Motd", allowed: "UI/Chat/Allowed", moderated: "UI/Chat/Moderated", blocked: "UI/Chat/Blocked", muted: "UI/Chat/Muted", operators: "UI/Chat/Operators", owners: "UI/Chat/Owners",
-    ok: "UI/Common/Buttons/OK", cancel: "UI/Common/Buttons/Cancel",
+    ok: "UI/Common/Buttons/OK", cancel: "UI/Common/Buttons/Cancel", muteHint: "UI/Chat/HowtoMuteHint",
   } as const;
   const words = $derived(store.words);
   const label = (key: keyof typeof paths, fallback: string) => plainText($words.templates[paths[key]] ?? "") || fallback;
@@ -124,6 +124,7 @@
     {/if}
   </form>
   {#if tab !== "general"}
+    {#if tab === "muted"}<p>{label("muteHint", "To mute a character, right-click their name in the channel.")}</p>{/if}
     {#key tab}<ChatChannelAccessList {store} {flow} {room} {ownershipLost} list={tab} roomOwner={current?.owner === true} bind:mutating={changingAccess} />{/key}
   {/if}
   {#if error}<p class="error" role="alert">{error}</p>{/if}

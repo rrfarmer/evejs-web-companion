@@ -2113,6 +2113,10 @@ export async function readChatRoomInfo(roomName: string, options: ApiOptions = {
 export type ChatChannelAccess = "allowed" | "moderated" | "blocked";
 export type ChatAccessOwnerKind = "character" | "corporation" | "alliance";
 export type ChatAccessList = "allowed" | "blocked" | "muted" | "operators" | "owners";
+export type ChatModerationAction = "mute" | "unmute" | "kick";
+export async function moderateChatMember(room: string, target: number, action: ChatModerationAction, minutes: number, reason: string, options: ApiOptions = {}): Promise<void> {
+  await postJson(`/api/bridge/chat/${encodeURIComponent(room)}/moderate`, { target, action, minutes, reason }, options);
+}
 export interface ChatAccessChange {
   readonly ownerID: number;
   readonly kind: ChatAccessOwnerKind;

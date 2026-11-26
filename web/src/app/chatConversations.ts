@@ -345,6 +345,13 @@ export function createChatConversations(hooks: Hooks) {
       await applyRoom(scope, await api.readChat(room, scope.options));
     }); },
     async close(room: string) { await task(scope => close(scope, room)); },
+    async moderate(room: string, target: number, action: api.ChatModerationAction, minutes = 0, reason = "") {
+      await task(async scope => {
+        await api.moderateChatMember(room, target, action, minutes, reason, scope.options);
+        scope.current();
+      });
+      await this.refresh();
+    },
     isElevatedPlayer() { return (capture().role & ELEVATED_PLAYER_ROLES) !== 0n; },
     async destroyDirectoryChannel(room: string) {
       await task(async scope => {

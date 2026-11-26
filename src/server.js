@@ -9852,6 +9852,23 @@ for (const list of ["allowed", "blocked", "muted", "operators", "owners"]) app.a
   } catch (error) { next(error); }
 });
 
+app.post("/api/bridge/chat/:roomName/moderate", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  const { target, action, minutes, reason } = req.body ?? {};
+  if (!Number.isSafeInteger(target) || target <= 1 || !["mute", "unmute", "kick"].includes(action) ||
+      !Number.isInteger(minutes) || minutes < 0 || minutes > 43200 || typeof reason !== "string" || reason.length > 255 ||
+      /\p{Cc}/u.test(reason.replace(/[\n\t]/g, ""))) {
+    return res.status(400).json({ ok: false, error: "INVALID_CHAT_MODERATION", message: "Check the character, moderation duration, and reason." });
+  }
+  const session = heldChatSession(held);
+  if (!session) return chatUnavailable(res);
+  try {
+    await session.moderateChannelMember(req.params.roomName, target, action, minutes, reason, chatContext(held, req));
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
 app.post("/api/bridge/chat/:roomName/destroy", requireAuth, async (req, res, next) => {
   const held = requireHeldBridgeSession(req, res);
   if (!held) return;

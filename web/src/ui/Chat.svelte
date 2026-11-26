@@ -34,6 +34,8 @@
   import { ContextMenu } from "../play/contextMenu.ts";
   import { chatWordPattern } from "../bridge/chatWordFilters.ts";
   import ChatWordFilters from "./ChatWordFilters.svelte";
+  import ChatModeration from "./ChatModeration.svelte";
+  import type { ChatMember } from "../store/types.ts";
 
   let { store, flow, unread, openSkillPlanLink = null, openInventoryFilterLink = null }: {
     store: ClientStore;
@@ -55,6 +57,7 @@
   const BLINK_LABEL = "UI/Chat/BlinkOnNewActivity";
   const FILTERS_LABEL = "UI/Chat/ConfigureWordFiltersAndHighlights";
   let wordFiltersOpen = $state(false);
+  let moderation = $state<{ room: string; action: "mute" | "kick"; member: ChatMember } | null>(null);
   // svelte-ignore state_referenced_locally
   const names = store.names;
   // svelte-ignore state_referenced_locally
@@ -124,6 +127,30 @@
         run: () => { wordFiltersOpen = true; },
       },
     ]);
+  }
+
+  function canModerate(member: ChatMember): boolean {
+    return !!activeRoom?.channel.startsWith("player_") && member.characterID > 1 && member.characterID !== pilotID &&
+      member.role !== "moderator" && activeRoom.state.roster.some(row => row.characterID === pilotID && row.role === "moderator");
+  }
+  function openMemberMenu(event: MouseEvent | KeyboardEvent, member: ChatMember) {
+    const room = activeRoom?.channel;
+    if (!room || !canModerate(member)) return;
+    event.preventDefault();
+    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const pointer = event instanceof MouseEvent && (event.clientX || event.clientY) ? event : null;
+    const muted = member.role === "visitor";
+    const muteLabel = muted ? "Unmute" : "Mute";
+    channelMenu.open(pointer?.clientX ?? bounds.left, pointer?.clientY ?? bounds.bottom, [{
+      label: linkWord("UI/Chat/Channel") || "Channel",
+      sub: [
+        { label: linkWord(`UI/Chat/${muteLabel}`) || muteLabel, run: () => {
+          if (muted) void run(() => flow.conversations.moderate(room, member.characterID, "unmute"));
+          else moderation = { room, action: "mute", member };
+        } },
+        { label: linkWord("UI/Chat/Kick") || "Kick", run: () => { moderation = { room, action: "kick", member }; } },
+      ],
+    }]);
   }
 
   function displayWords(text: string): readonly { text: string; highlighted?: boolean }[] {
@@ -300,7 +327,7 @@
   }
 
   onMount(() => {
-    flow.requestWords([...Object.keys(LINK_WORDS), BLINK_LABEL, FILTERS_LABEL]);
+    flow.requestWords([...Object.keys(LINK_WORDS), BLINK_LABEL, FILTERS_LABEL, ...["Channel", "Mute", "Unmute", "Kick"].map(label => `UI/Chat/${label}`)]);
     void refresh();
     poller.start();
   });
@@ -418,6 +445,9 @@
           <ul class="roster-list">
             {#each active.roster as member (member.characterID)}
               <li draggable="true" ondragstart={event => dragCharacter(event, member.characterID, member.name)}
+                tabindex={canModerate(member) ? 0 : undefined}
+                oncontextmenu={(event) => openMemberMenu(event, member)}
+                onkeydown={(event) => { if (event.key === "ContextMenu" || event.shiftKey && event.key === "F10") openMemberMenu(event, member); }}
                 ondblclick={() => void run(() => doubleClickOwner(flow, member.characterID))}>{localMode ? resolvedName($names.resolved, "owner", member.characterID, member.name) : member.name}</li>
             {/each}
           </ul>
@@ -445,6 +475,7 @@
   {#each displayWords(text) as word}{#if word.highlighted}<strong class="chat-highlight">{word.text}</strong>{:else}{word.text}{/if}{/each}
 {/snippet}
 {#if wordFiltersOpen}<ChatWordFilters {store} {flow} close={() => { wordFiltersOpen = false; }} />{/if}
+{#if moderation}<ChatModeration {store} {flow} {...moderation} close={() => { moderation = null; }} />{/if}
 
 <style>
   .chat-highlight { color: #64c75b; }

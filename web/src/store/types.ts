@@ -3043,6 +3043,7 @@ export interface DestinationMatch {
 
 /** One member of a chat channel (Local occupants / Corp members). */
 export interface ChatMember {
+  readonly role?: "moderator" | "participant" | "visitor" | "none" | null;
   readonly characterID: number;
   readonly name: string;
   readonly corporationID: number | null;
