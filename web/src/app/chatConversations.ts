@@ -6,6 +6,8 @@ import { decodeChatChannel } from "../bridge/chat.ts";
 import { addressBookOf, contactLabelsOf, type AddressBook, type NamedAddressBook } from "../bridge/contacts.ts";
 import { isNpcOwner } from "../bridge/mail.ts";
 import { autoRejectInvitations } from "./autoRejectInvitations.ts";
+import { readCharacterSetting, saveCharacterSetting } from "../bridge/characterSettings.ts";
+import { CHAT_WORD_FILTERS_SETTING, readChatWordFilters, writeChatWordFilters, type ChatWordFilters } from "../bridge/chatWordFilters.ts";
 import type { ChatChannelState } from "../store/types.ts";
 import type { JsonValue } from "../bridge/wire.ts";
 import type { ContactAction } from "../ui/contactAction.ts";
@@ -35,6 +37,7 @@ export function createChatConversations(hooks: Hooks) {
   let generation = 0, serial = 0, contactSerial = 0;
   const blank = (): ChatConversationState => ({ generation, active: null, rooms: [], rememberedChannels: [], invitations: [], contactAdds: [], openSerial: serial, busy: false, error: null });
   const state = createSignal<ChatConversationState>(blank());
+  const activity = createSignal({ disabled: new Set<string>() as ReadonlySet<string>, filters: readChatWordFilters(null) });
   const pendingPrivate = new Map<string, { target: number; invited: boolean }>();
   const pendingInvites = new Map<number, string>();
   const information = new Map<string, Record<string, JsonValue>>();
@@ -47,10 +50,41 @@ export function createChatConversations(hooks: Hooks) {
   let book: Promise<AddressBook> | null = null;
   let refreshWork: Promise<void> | null = null;
   let rememberedKey: string | null = null;
+  let blinkKey: string | null = null;
+  let filtersWork: Promise<ChatWordFilters> | null = null;
   const patch = (change: Partial<ChatConversationState>) => state.set({ ...state.get(), ...change });
   function capture(): Scope {
     const scope = hooks.capture(), epoch = generation, held = scope.current;
     return { ...scope, current: () => { held(); if (epoch !== generation) throw Object.assign(new Error("This conversation belongs to a retired pilot."), { code: "SESSION_REQUEST_RETIRED" }); } };
+  }
+  function readDisabled(key: string): ReadonlySet<string> {
+    try {
+      const saved: unknown = JSON.parse(globalThis.localStorage?.getItem(key) ?? "[]");
+      if (Array.isArray(saved)) return new Set(saved.filter((channel): channel is string => typeof channel === "string"));
+    } catch { /* keep the in-session preference */ }
+    return activity.get().disabled;
+  }
+  function loadBlinkPreference(scope: Scope): string {
+    const key = `evejs.user.${scope.accountID ?? `character-${scope.me}`}.chatWindowBlinkDisabled`;
+    if (key !== blinkKey) {
+      blinkKey = key;
+      activity.set({ ...activity.get(), disabled: readDisabled(key) });
+    }
+    return key;
+  }
+  function loadWordFilters(scope: Scope): Promise<ChatWordFilters> {
+    if (filtersWork) return filtersWork;
+    const work = readCharacterSetting(api.bridgeAsk(scope.options), CHAT_WORD_FILTERS_SETTING).then(text => {
+      scope.current();
+      const filters = readChatWordFilters(text);
+      activity.set({ ...activity.get(), filters });
+      return filters;
+    }).catch(error => {
+      if (filtersWork === work) filtersWork = null;
+      throw error;
+    });
+    filtersWork = work;
+    return work;
   }
   // Native chatPlayerChannelsJoined is an account preference. The directory
   // uses it only for player rooms missing from the server's current listing.
@@ -202,8 +236,30 @@ export function createChatConversations(hooks: Hooks) {
   }
   return {
     state: readonlySignal(state),
+    activity: readonlySignal(activity),
     name,
-    reset() { generation++; pendingPrivate.clear(); pendingInvites.clear(); information.clear(); directoryTitles.clear(); destroyedRooms.clear(); seenDeclines.clear(); owners.clear(); rules = null; book = null; refreshWork = null; rememberedKey = null; state.set(blank()); },
+    reset() { generation++; pendingPrivate.clear(); pendingInvites.clear(); information.clear(); directoryTitles.clear(); destroyedRooms.clear(); seenDeclines.clear(); owners.clear(); rules = null; book = null; refreshWork = null; rememberedKey = blinkKey = null; filtersWork = null; activity.set({ disabled: new Set(), filters: readChatWordFilters(null) }); state.set(blank()); },
+    loadActivity() {
+      const scope = capture();
+      loadBlinkPreference(scope);
+      return loadWordFilters(scope);
+    },
+    toggleActivityBlink(channel: string) {
+      const key = loadBlinkPreference(capture());
+      const disabled = new Set(readDisabled(key));
+      if (!disabled.delete(channel)) disabled.add(channel);
+      activity.set({ ...activity.get(), disabled });
+      try { globalThis.localStorage?.setItem(key, JSON.stringify([...disabled])); } catch { /* keep the in-session preference */ }
+    },
+    async saveWordFilters(filters: ChatWordFilters) {
+      const scope = capture();
+      await loadWordFilters(scope);
+      scope.current();
+      await saveCharacterSetting(api.bridgeDo(scope.options), CHAT_WORD_FILTERS_SETTING, writeChatWordFilters(filters));
+      scope.current();
+      filtersWork = Promise.resolve(filters);
+      activity.set({ ...activity.get(), filters });
+    },
     loadRememberedDirectoryChannels() { loadRemembered(capture()); },
     forgetDirectoryChannel(room: string) { forgetRemembered(capture(), room); },
     invalidateContacts() { book = null; },

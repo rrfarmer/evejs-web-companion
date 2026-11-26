@@ -31,6 +31,9 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { doubleClickOwner } from "./ownerDoubleClick.ts";
   import { dragCharacter } from "./characterDrag.ts";
+  import { ContextMenu } from "../play/contextMenu.ts";
+  import { chatWordPattern } from "../bridge/chatWordFilters.ts";
+  import ChatWordFilters from "./ChatWordFilters.svelte";
 
   let { store, flow, unread, openSkillPlanLink = null, openInventoryFilterLink = null }: {
     store: ClientStore;
@@ -45,6 +48,13 @@
   const chat = store.chat;
   // svelte-ignore state_referenced_locally
   const conversations = flow.conversations.state;
+  const activity = $derived(flow.conversations.activity);
+  const bannedWords = $derived(chatWordPattern($activity.filters.bannedWords, true));
+  const highlightedWords = $derived(chatWordPattern($activity.filters.highlightWords, true));
+  const channelMenu = new ContextMenu();
+  const BLINK_LABEL = "UI/Chat/BlinkOnNewActivity";
+  const FILTERS_LABEL = "UI/Chat/ConfigureWordFiltersAndHighlights";
+  let wordFiltersOpen = $state(false);
   // svelte-ignore state_referenced_locally
   const names = store.names;
   // svelte-ignore state_referenced_locally
@@ -98,6 +108,36 @@
   function linkWord(label: string): string {
     const template = $words.templates[label];
     return plainText(formatTemplate(typeof template === "string" ? template : LINK_WORDS[label] ?? "", {}, { nameOf: () => "" }));
+  }
+
+  function openChannelMenu(event: MouseEvent | KeyboardEvent, channel: string) {
+    event.preventDefault();
+    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const pointer = event instanceof MouseEvent && (event.clientX || event.clientY) ? event : null;
+    channelMenu.open(pointer?.clientX ?? bounds.left, pointer?.clientY ?? bounds.bottom, [
+      {
+        label: linkWord(BLINK_LABEL) || "Blink on New Activity", path: BLINK_LABEL,
+        checked: !$activity.disabled.has(channel), checkbox: true, run: () => flow.conversations.toggleActivityBlink(channel),
+      },
+      {
+        label: linkWord(FILTERS_LABEL) || "Configure Word Filters and Highlights", path: FILTERS_LABEL,
+        run: () => { wordFiltersOpen = true; },
+      },
+    ]);
+  }
+
+  function displayWords(text: string): readonly { text: string; highlighted?: boolean }[] {
+    const cleaned = bannedWords ? text.replace(bannedWords, "***") : text;
+    if (!highlightedWords) return [{ text: cleaned }];
+    const runs: { text: string; highlighted?: boolean }[] = [];
+    let end = 0;
+    for (const match of cleaned.matchAll(highlightedWords)) {
+      if (match.index > end) runs.push({ text: cleaned.slice(end, match.index) });
+      runs.push({ text: match[0], highlighted: true });
+      end = match.index + match[0].length;
+    }
+    if (end < cleaned.length) runs.push({ text: cleaned.slice(end) });
+    return runs;
   }
 
   /** How a link in a message is followed (ui/linkFollowers.ts: the client's link registry), or null where it is not. */
@@ -260,7 +300,7 @@
   }
 
   onMount(() => {
-    flow.requestWords(Object.keys(LINK_WORDS));
+    flow.requestWords([...Object.keys(LINK_WORDS), BLINK_LABEL, FILTERS_LABEL]);
     void refresh();
     poller.start();
   });
@@ -274,6 +314,7 @@
   onDestroy(() => {
     // Closing the tab stops polling.
     poller.stop();
+    channelMenu.close();
   });
 
   // The active channel's decoded state (roster + backlog).
@@ -316,6 +357,8 @@
         class:active={$conversations.active === null && $chat.activeChannel === channel.id}
         data-unread={unread?.has(channel.id) || undefined}
         disabled={busy}
+        oncontextmenu={(event) => openChannelMenu(event, channel.id)}
+        onkeydown={(event) => { if (event.key === "ContextMenu" || event.shiftKey && event.key === "F10") openChannelMenu(event, channel.id); }}
         onclick={() => switchChannel(channel.id)}
       >
         {channel.label}
@@ -323,7 +366,9 @@
     {/each}
     {#each $conversations.rooms as room (room.channel)}
       <button type="button" class:active={$conversations.active === room.channel} data-unread={unread?.has(room.channel) || undefined}
-        disabled={busy} onclick={() => flow.conversations.select(room.channel)}>{room.title}</button>
+        disabled={busy} onclick={() => flow.conversations.select(room.channel)}
+        oncontextmenu={(event) => openChannelMenu(event, room.channel)}
+        onkeydown={(event) => { if (event.key === "ContextMenu" || event.shiftKey && event.key === "F10") openChannelMenu(event, room.channel); }}>{room.title}</button>
     {/each}
     {#if activeRoom}<button type="button" class="minor" disabled={busy || $conversations.busy} aria-label="Close conversation" onclick={() => run(() => flow.conversations.close(activeRoom!.channel))}>×</button>{/if}
     <button type="button" disabled={busy} onclick={() => refresh()}>Refresh</button>
@@ -359,7 +404,7 @@
             {#each active.messages as message, index (index)}
               <li>
                 <span class="author">{speakerName(message)}</span>:
-                <span class="body">{#each mailBodyLines(message.message) as line, place (place)}{#if place > 0}<br />{/if}{#each line as run, at (at)}{@const follower = run.link === null ? null : followerOf(run.link, run.text)}{#if follower !== null}<button type="button" class="evelink {follower.kind}" title={follower.hint} onclick={follower.follow} draggable="true" ondragstart={(event) => startLinkDrag(event, run.link ?? "", run.text)}>{run.text}</button>{:else}<span class:chat-bold={run.bold} class:chat-italic={run.italic} class:chat-underline={run.underline || run.link !== null} title={run.link ?? undefined}>{run.text}</span>{/if}{/each}{/each}</span>
+                <span class="body">{#each mailBodyLines(message.message) as line, place (place)}{#if place > 0}<br />{/if}{#each line as run, at (at)}{@const follower = run.link === null ? null : followerOf(run.link, run.text)}{#if follower !== null}<button type="button" class="evelink {follower.kind}" title={follower.hint} onclick={follower.follow} draggable="true" ondragstart={(event) => startLinkDrag(event, run.link ?? "", run.text)}>{@render filteredWords(run.text)}</button>{:else}<span class:chat-bold={run.bold} class:chat-italic={run.italic} class:chat-underline={run.underline || run.link !== null} title={run.link ?? undefined}>{@render filteredWords(run.text)}</span>{/if}{/each}{/each}</span>
               </li>
             {/each}
           </ul>
@@ -396,7 +441,13 @@
   {/if}
 </section>
 
+{#snippet filteredWords(text: string)}
+  {#each displayWords(text) as word}{#if word.highlighted}<strong class="chat-highlight">{word.text}</strong>{:else}{word.text}{/if}{/each}
+{/snippet}
+{#if wordFiltersOpen}<ChatWordFilters {store} {flow} close={() => { wordFiltersOpen = false; }} />{/if}
+
 <style>
+  .chat-highlight { color: #64c75b; }
   .tabs button[data-unread="true"] { box-shadow: inset 0 -2px rgb(243, 144, 88); }
   .chat-bold { font-weight: 700; }
   .chat-italic { font-style: italic; }

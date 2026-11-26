@@ -173,6 +173,7 @@
   import { dirtLevelFromTime } from "../three/hullModel.ts";
   import { Neocom, neocomSkillState, type ChatRailEntry } from "../play/neocom.ts";
   import { createChatUnread } from "../play/chatUnread.ts";
+  import { chatWordPattern } from "../bridge/chatWordFilters.ts";
   import { clientTexture } from "../play/window.ts";
   import { techLevelIcon } from "../play/techLevelIcon.ts";
   import { raiseClientNotification } from "./clientNotifications.ts";
@@ -1066,13 +1067,16 @@
   let neocomInst = $state<Neocom | null>(null);
   const chatStore = $derived(session?.store.chat);
   const chatConversations = $derived(session?.flow.conversations.state);
+  const chatActivity = $derived(session?.flow.conversations.activity);
+  const chatHighlight = $derived(chatWordPattern($chatActivity?.filters.highlightWords ?? []));
   const chatTracking = new WeakMap<Session, { pilot: number; observe: ReturnType<typeof createChatUnread> }>();
   let chatUnread = $state.raw<ReadonlySet<string>>(new Set());
   $effect(() => {
     const pilot = $station?.online?.characterID;
     const chat = $chatStore, conversations = $chatConversations;
     const stackShown = wins.some(win => win.id === "chat" && !win.minimized);
-    if (!session || !pilot || !chat || !conversations) {
+    const activity = $chatActivity;
+    if (!session || !pilot || !chat || !conversations || !activity) {
       const unread = new Set<string>();
       chatUnread = unread;
       neocomInst?.setChatUnread(unread, stackShown);
@@ -1086,7 +1090,7 @@
     const rooms = new Map([["local", chat.local], ["corp", chat.corp]]);
     for (const room of conversations.rooms) rooms.set(room.channel, room.state);
     const displayed = stackShown ? conversations.active ?? chat.activeChannel : null;
-    const unread = track.observe(rooms, pilot, displayed);
+    const unread = track.observe(rooms, pilot, displayed, activity.disabled, chatHighlight);
     chatUnread = unread;
     neocomInst?.setChatUnread(unread, stackShown);
   });

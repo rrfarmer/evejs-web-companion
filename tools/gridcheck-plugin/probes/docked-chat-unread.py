@@ -1,7 +1,9 @@
 import uthread2
 from carbonui import const as uiconst
 from carbonui.uicore import uicore
+from chatutil import filter as chat_filter
 from eveservices.xmppchat import GetChatService
+from localization import GetByLabel
 from neocom2.btnIDs import CHAT_ID
 
 
@@ -13,6 +15,8 @@ def observe():
     was_joined = chat.IsJoined(room)
     window = None
     stack = None
+    blink_setting = None
+    original_patterns = chat_filter.BANNED_PATTERN, chat_filter.HIGHLIGHT_PATTERN
     original_focus = uicore.registry.GetFocus()
     try:
         if not was_joined:
@@ -29,6 +33,12 @@ def observe():
         original_blink = window.isBlinking
         stack_display = stack.display if stack else None
         caption = window.GetCaption()
+        blink_setting = window._chat_notifications_enabled_setting
+        original_setting = blink_setting.is_enabled()
+        blink_label = GetByLabel('UI/Chat/BlinkOnNewActivity')
+        blink_entry = next(item for item in window.GetMenu().GetEntries()
+                           if getattr(item, 'setting', None) is blink_setting)
+        blink_setting.enable()
         uicore.registry.SetFocus(None)
         window.SetNotBlinking()
 
@@ -56,9 +66,27 @@ def observe():
         picker = bool(row.btnData.IsBlinking())
         window.SetNotBlinking()
         cleared = sample()
+        blink_entry.setting.toggle()
+        toggle_off = not blink_setting.is_enabled()
+        chat_filter.UpdateChatFilterVariables([], ['gridcheck wake+'])
+        window._BlinkIfNeeded(140000001, 'Gridcheck ordinary words')
+        muted = sample()
+        window._BlinkIfNeeded(140000001, 'prefixGRIDCHECK WAKE+suffix')
+        highlighted = sample()
+        window.SetNotBlinking()
+        window._BlinkIfNeeded(140000001, 'prefixGRIDCHECK WAKEsuffix')
+        literal = sample()
+        blink_entry.setting.toggle()
+        window._BlinkIfNeeded(140000001, 'Gridcheck ordinary words again')
+        enabled = sample()
         return dict(station=session.stationid, caption=caption, own=own, system=system, displayed=displayed,
-                    hidden=hidden, picker=picker, cleared=cleared)
+                    hidden=hidden, picker=picker, cleared=cleared, blinkLabel=blink_label,
+                    menuLabel=blink_entry.GetTextDescriptive(), toggleOff=toggle_off, muted=muted,
+                    highlighted=highlighted, literal=literal, enabled=enabled)
     finally:
+        chat_filter.BANNED_PATTERN, chat_filter.HIGHLIGHT_PATTERN = original_patterns
+        if blink_setting is not None:
+            blink_setting.set(original_setting)
         neocom.CloseAllPanels()
         if window is not None:
             window.state = original_state

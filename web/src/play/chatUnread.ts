@@ -10,7 +10,8 @@ interface SeenRoom {
 export function createChatUnread() {
   const seen = new Map<string, SeenRoom>();
   let lastUnread: ReadonlySet<string> = new Set();
-  return (rooms: ReadonlyMap<string, ChatChannelState>, pilot: number, displayed: string | null): ReadonlySet<string> => {
+  return (rooms: ReadonlyMap<string, ChatChannelState>, pilot: number, displayed: string | null,
+    disabled: ReadonlySet<string>, highlight: RegExp | null): ReadonlySet<string> => {
     const unread = new Set<string>();
     for (const id of seen.keys()) if (!rooms.has(id)) seen.delete(id);
     for (const [id, { roomName, messages }] of rooms) {
@@ -22,6 +23,7 @@ export function createChatUnread() {
       // or replay the latest entries, including multiple entries at one time.
       const incoming = sameRoom && previous.messages !== messages && messages.some(message =>
         message.characterID > 1 && message.characterID !== pilot && message.createdAtMs >= previous.latest &&
+        (!disabled.has(id) || highlight?.test(message.message)) &&
         !previous.messages.some(known => known.createdAtMs === message.createdAtMs &&
           known.characterID === message.characterID && known.message === message.message));
       const pending = id !== displayed && sameRoom && (previous.unread || incoming);
