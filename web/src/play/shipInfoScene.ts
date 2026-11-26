@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { loadDds } from "../three/ddsTexture.ts";
 import { effectObject, startEffect, type SofChildNode } from "../three/hullChildren.ts";
 import { loadSofMaterials, paintedTypeModel, setControllerVariable, setDirtLevel, setThrust, typeModel, updateSkinrProjection, type SofArea } from "../three/hullModel.ts";
-import type { ShipSkinrPatternPreview } from "../bridge/shipSkinrPatterns.ts";
+import type { ShipSkinrBlendMode, ShipSkinrPatternPreview } from "../bridge/shipSkinrPatterns.ts";
 import { useHullTextureRenderer } from "../three/hullAlbedo";
 import { SHIP_INFO_FAR_CLIP, shipInfoZoomRange } from "./shipInfoCamera.ts";
 
@@ -114,12 +114,12 @@ export class ShipInfoScene {
   }
 
   async show(typeID: number, factionID: number | null, coatings: readonly (string | null)[] = [],
-    patterns: readonly ShipSkinrPatternPreview[] = []): Promise<boolean> {
+    patterns: readonly ShipSkinrPatternPreview[] = [], blendMode: ShipSkinrBlendMode = 1): Promise<boolean> {
     const request = ++this.serial;
     const variant = JSON.stringify([typeID, factionID, coatings, patterns.map(({ layer, material }) =>
       [layer.texture, layer.projectionU, layer.projectionV, material])]);
     if (this.model && variant === this.variant) {
-      if (patterns.length) updateSkinrProjection(this.model, patterns.map(({ layer }) => layer));
+      if (patterns.length) updateSkinrProjection(this.model, patterns.map(({ layer }) => layer), blendMode);
       return true;
     }
     const custom = coatings.some(Boolean) || patterns.length > 0;
@@ -130,6 +130,7 @@ export class ShipInfoScene {
       return paintedTypeModel(typeID, overrides, skinrCoatingArea, patterns.length ? {
         layers: patterns.map(pattern => pattern.layer),
         pmtl1: patternMaterials[0] ?? null, pmtl2: patternMaterials[1] ?? null,
+        blendMode,
       } : undefined);
     }) : typeModel(typeID);
     const [model] = await Promise.all([modelRead.catch(() => null), this.ready.catch(() => {})]);

@@ -21,6 +21,7 @@ import { hullFx,type SofSpriteSet, type SofPlaneSet, type SofSpotlightSet, type 
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { loadHullAlbedo } from "./hullAlbedo";
 import { loadDds } from "./ddsTexture.ts";
+import type { ShipSkinrBlendMode } from "../bridge/shipSkinrPatterns.ts";
 import { logDepth } from "./logDepth";
 import { SOFT_DEPTH } from "./softDepth.ts";
 import { distortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
@@ -39,7 +40,7 @@ export function loadSofMaterials(): Promise<Record<string, SofMaterial>> {
 export interface SofArea { kind: string; name: string; index: number; areaType: string; shader: string | null; textures: Record<string, string | null>; params: Record<string, number[] | null>; materials: (SofMaterial | null)[]; glowColor?: number[] | null; heatGlowColor?: number[] | null }
 /** A hull's default pattern layer (sof.mjs): its mask texture, projection and the materials it pulls toward. */
 export interface SofPatternLayer { texture: string | null; projectionU: number; projectionV: number; source: number; targets: number[]; position: number[]; scaling: number[]; rotation: number[]; mirrored: boolean }
-export interface SofPattern { layers: SofPatternLayer[]; pmtl1: SofMaterial | null; pmtl2?: SofMaterial | null }
+export interface SofPattern { layers: SofPatternLayer[]; pmtl1: SofMaterial | null; pmtl2?: SofMaterial | null; blendMode?: ShipSkinrBlendMode }
 /** A pattern layer as a material draws it: its loaded mask with the hull's PMtl1. */
 interface HullPattern { layer: SofPatternLayer; mask: THREE.Texture }
 export interface SofBooster { glowColor: number[] | null; glowScale: number | null; haloColor: number[] | null; haloScaleX: number | null; haloScaleY: number | null; shape0Color: number[] | null; shape1Color: number[] | null; symHaloScale?: number | null; warpGlowColor?: number[] | null; warpHaloColor?: number[] | null; volumetric?: BoosterVolumetricData | null }
@@ -464,7 +465,7 @@ function thrustOf(o: THREE.Object3D): number {
 const heatClock = { get value() { return performance.now() / 1000; } };
 
 export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>, area: SofArea,
-  patterns: readonly HullPattern[] = [], patternMaterials: readonly (SofMaterial | null)[] = [], studioPatterns = false): THREE.MeshStandardMaterial {
+  patterns: readonly HullPattern[] = [], patternMaterials: readonly (SofMaterial | null)[] = [], studioPatterns?: SofPattern): THREE.MeshStandardMaterial {
   // the glow (quadv5.sm_hi): GeneralGlowColor x the ship's activation strength (1) x GlowMap.r^2.4, added
   const m = eveHullMaterial(maps, area.name, true, { color: area.glowColor ?? [1, 1, 1], power: 2.4 });
   m.metalness = 0;
@@ -530,7 +531,11 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
       [`patGloss${i}`]: { value: param("Gloss")?.[0] ?? src?.gloss ?? 0.4 },
     };
   }));
-  if (studioPatterns) m.userData.updateSkinrProjection = (layers: readonly SofPatternLayer[]) => {
+  const hasBlend = Boolean(studioPatterns && patterns.length === 2);
+  const blendUniform = { value: studioPatterns?.blendMode ?? 1 };
+  if (hasBlend) patternUniforms.patBlendMode = blendUniform;
+  if (studioPatterns) m.userData.updateSkinrProjection = (layers: readonly SofPatternLayer[], blendMode: ShipSkinrBlendMode) => {
+    blendUniform.value = blendMode;
     layers.forEach((layer, i) => {
       patternUniforms[`patPos${i}`]?.value.fromArray(layer.position);
       patternUniforms[`patScale${i}`]?.value.fromArray(layer.scaling);
@@ -540,12 +545,29 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
       if (mirror) mirror.value = Number(layer.mirrored);
     });
   };
-  const patternFragment = patterns.map((_, i) => `uniform sampler2D patMask${i}; uniform vec2 patModes${i}; uniform vec4 patTargets${i};
+  const patternFragment = (hasBlend ? "uniform float patBlendMode;\n" : "") + patterns.map((_, i) => `uniform sampler2D patMask${i}; uniform vec2 patModes${i}; uniform vec4 patTargets${i};
     uniform vec3 patDiffuse${i}; uniform vec3 patFresnel${i}; uniform float patGloss${i}; varying vec2 vPatUv${i};`).join("\n");
-  const patternMix = patterns.map((_, i) => `{
+  const patternSamples = patterns.map((_, i) => `float patAlpha${i};
+  {
     vec2 uv = vPatUv${i}; vec2 modes = patModes${i};
     bool off = (modes.x == 2.0 && (uv.x < 0.0 || uv.x > 1.0)) || (modes.y == 2.0 && (uv.y < 0.0 || uv.y > 1.0));
-    vec4 weights = (off ? 0.0 : texture2D(patMask${i}, uv).r) * patTargets${i};
+    patAlpha${i} = off ? 0.0 : texture2D(patMask${i}, uv).r;
+  }`).join("\n");
+  // quadv5.sm_hi SOPPT records 4, 100, 196, 292 and 388 combine the sampled masks before applying area weights.
+  const combineMasks = hasBlend ? `
+    if (patBlendMode == 2.0) {
+      patAlpha0 = max(patAlpha0 - patAlpha1, 0.0);
+      patAlpha1 = 0.0;
+    } else if (patBlendMode == 3.0) {
+      patAlpha0 = patAlpha0 + patAlpha1 - 2.0 * patAlpha0 * patAlpha1;
+      patAlpha1 = 0.0;
+    } else if (patBlendMode == 4.0) {
+      patAlpha1 *= patAlpha0;
+    } else if (patBlendMode == 5.0) {
+      patAlpha1 *= 1.0 - patAlpha0;
+    }` : "";
+  const patternMix = patternSamples + combineMasks + patterns.map((_, i) => `{
+    vec4 weights = patAlpha${i} * patTargets${i};
     for (int slot = 0; slot < 4; ++slot) {
       patD[slot] = mix(patD[slot], patDiffuse${i}, weights[slot]);
       patF[slot] = mix(patF[slot], patFresnel${i}, weights[slot]);
@@ -793,7 +815,7 @@ ${change(change(shader.fragmentShader, "vec4 emissiveColor = texture2D( emissive
   followDynamicLights(m);
   m.userData.sofHull = true;
   if (dust) followDirt(m, dirtLevel);
-  const key = `sofHull5cl${dust ? "u" : ""}${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}${glass ? "g" : ""}${env ? "e" : ""}${oil ? "o" : ""}t${patterns.length}`;
+  const key = `sofHull5cl${dust ? "u" : ""}${sails ? "s" : ""}${heat ? "h" : ""}${maps.paintMask ? "p" : ""}${detail ? "d" : ""}${wreck ? "w" : ""}${glass ? "g" : ""}${env ? "e" : ""}${oil ? "o" : ""}t${patterns.length}${hasBlend ? "b" : ""}`;
   m.customProgramCacheKey = function () { return warpLightingByMaterial.has(this) ? key + ":warp" : key; };
   return m;
 }
@@ -879,13 +901,13 @@ export async function paintedTypeModel(typeID: number, materials: readonly (SofM
   return loadModel(info, typeID, materials, appliesTo, patterns);
 }
 
-export function updateSkinrProjection(model: THREE.Object3D, layers: readonly SofPatternLayer[]): void {
+export function updateSkinrProjection(model: THREE.Object3D, layers: readonly SofPatternLayer[], blendMode: ShipSkinrBlendMode): void {
   const applied = new Set<unknown>();
   model.traverse(object => {
     if (!(object instanceof THREE.Mesh) || Array.isArray(object.material)) return;
     const update = object.material.userData.updateSkinrProjection;
     if (typeof update === "function" && !applied.has(update)) {
-      update(layers);
+      update(layers, blendMode);
       applied.add(update);
     }
   });
@@ -975,7 +997,7 @@ async function loadModel(info: TypeModelInfo, typeID: number | null, materialOve
       const shader = area.shader ?? "";
       const m = area.kind === "distortion" ? (/^fx\/fxdistortionv5/i.test(shader) ? distortionMaterial(area.params, areaMaps.get(area) ?? {}) : null)
         : /^fx\/fx(directional)?v5/i.test(shader) ? fxHullMaterial(area, areaMaps.get(area) ?? {})
-        : /^quad\//i.test(shader) ? sofHullMaterial({ ...maps, ...areaMaps.get(area) }, area, patterns, patternMaterials, !!studioPatterns)
+        : /^quad\//i.test(shader) ? sofHullMaterial({ ...maps, ...areaMaps.get(area) }, area, patterns, patternMaterials, studioPatterns)
         : null;
       if (!m) return null;
       materials.set(key, m);

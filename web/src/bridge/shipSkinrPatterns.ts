@@ -24,6 +24,21 @@ export const PATTERN_SLOTS = [5, 7] as const;
 export const isPatternSlot = (id: number) => id === 5 || id === 7;
 export const isPatternMaterial = (id: number) => id === 6 || id === 8;
 
+export const SHIP_SKINR_BLEND_MODES = [
+  { id: 1, label: "Normal", wire: "BLEND_MODE_NORMAL" },
+  { id: 2, label: "Subtractive", wire: "BLEND_MODE_SUBTRACT" },
+  { id: 3, label: "Exclusion", wire: "BLEND_MODE_EXCLUSION" },
+  { id: 4, label: "Nested", wire: "BLEND_MODE_NESTED" },
+  { id: 5, label: "NestedInverted", wire: "BLEND_MODE_NESTED_INVERTED" },
+] as const;
+export type ShipSkinrBlendMode = typeof SHIP_SKINR_BLEND_MODES[number]["id"];
+
+export function shipSkinrBlendMode(value: JsonValue | undefined): ShipSkinrBlendMode {
+  return SHIP_SKINR_BLEND_MODES.find(mode => mode.wire === value || mode.id === Number(value))?.id ?? 1;
+}
+
+export const usesShipSkinrSecondaryMaterial = (mode: ShipSkinrBlendMode) => mode !== 2 && mode !== 3;
+
 function patternData(row: JsonValue | undefined) {
   return record(record(record(row)?.configuration)?.pattern);
 }

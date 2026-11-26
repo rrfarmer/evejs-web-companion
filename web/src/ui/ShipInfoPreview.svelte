@@ -1,12 +1,13 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import type { ShipInfoScene } from "../play/shipInfoScene.ts";
-  import type { ShipSkinrPatternPreview } from "../bridge/shipSkinrPatterns.ts";
+  import type { ShipSkinrBlendMode, ShipSkinrPatternPreview } from "../bridge/shipSkinrPatterns.ts";
 
-  let { typeID, factionID, active, expanded, coatings, patterns }: {
+  let { typeID, factionID, active, expanded, coatings, patterns, blendMode }: {
     typeID: number; factionID: number | null | undefined; active: boolean; expanded: boolean;
     coatings?: readonly (string | null)[];
     patterns?: readonly ShipSkinrPatternPreview[];
+    blendMode?: ShipSkinrBlendMode;
   } = $props();
   const keyboardHelp = $props.id();
   let host = $state<HTMLElement | null>(null);
@@ -32,7 +33,7 @@
     if (!view || faction === undefined) return;
     let current = true;
     if (untrack(() => load) !== "shown") load = "waiting";
-    void view.show(id, faction, coatings, patterns).then(shown => {
+    void view.show(id, faction, coatings, patterns, blendMode).then(shown => {
       if (current) load = shown ? "shown" : "unavailable";
     }).catch(() => { if (current) load = "unavailable"; });
     return () => { current = false; };

@@ -9,8 +9,9 @@
   import { coatingFits, shipSkinrCoatingID, shipSkinrCoatingSlot, shipSkinrCoatingMaterials, shipSkinrLayoutSlots, shipSkinrSlotID,
     type ShipSkinrCoating, type ShipSkinrCoatingCatalogue } from "../bridge/shipSkinrCoatings.ts";
   import { SKINR_HULL_RULES } from "../bridge/shipSkinrHullRules.ts";
-  import { DEFAULT_PATTERN_CONTROLS, isPatternSlot, isPatternMaterial, loadShipSkinrProjector, readShipSkinrPatternControls,
-    shipSkinrPatternID, shipSkinrPatternPreview, shipSkinrPatternSettings, shipSkinrPatternSlot, shipSkinrProjection, updateShipSkinrPattern,
+  import { DEFAULT_PATTERN_CONTROLS, SHIP_SKINR_BLEND_MODES, isPatternSlot, isPatternMaterial, loadShipSkinrProjector, readShipSkinrPatternControls,
+    shipSkinrBlendMode, shipSkinrPatternID, shipSkinrPatternPreview, shipSkinrPatternSettings, shipSkinrPatternSlot, shipSkinrProjection,
+    updateShipSkinrPattern, usesShipSkinrSecondaryMaterial,
     type ShipSkinrPattern, type ShipSkinrPatterns, type ShipSkinrProjector, type ShipSkinrPatternControls } from "../bridge/shipSkinrPatterns.ts";
   import { shipTreeFaction, type ShipTreeCatalogue, type ShipTreeHull } from "../bridge/shipTree.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -27,6 +28,7 @@
   } = $props();
   const original = untrack(() => saved);
   const initialSlots = shipSkinrLayoutSlots(original?.design.layout);
+  const initialBlend = shipSkinrBlendMode(original?.design.layout.pattern_blend_mode);
   const initialEditor = new Map(original?.entry.editorConfigurations.map(row => [shipSkinrSlotID(row), row]));
   const { flight, station, names, words } = $derived(store);
   const prefix = "UI/Personalization/ShipSkins/SKINR/Studio/";
@@ -44,6 +46,7 @@
     back: ["UI/Common/Buttons/Back", "Back"],
     search: ["UI/Common/Search", "Search"],
     empty: ["UI/Wallet/WalletWindow/SearchNoResults", "No results"],
+    blend: [prefix + "BlendModes", "Blend Modes"],
   } as const;
   const factions = SKINR_HULL_RULES.factions.flatMap(id => shipTreeFaction(id) ?? []);
   const excluded = new Set(SKINR_HULL_RULES.excluded);
@@ -56,6 +59,7 @@
   let editedProjectors = $state.raw(new Map<number, ShipSkinrPatternControls>());
   let projectionFailed = $state(false);
   let layoutSlots = $state.raw(initialSlots);
+  let blend = $state(initialBlend);
   let selectedSlot = $state<number | null>(null);
   let coatingSearch = $state("");
   let naming = $state<"save" | "copy" | null>(null);
@@ -99,12 +103,12 @@
     return result;
   });
   const materialNames = $derived(shipSkinrCoatingMaterials(areaMap, fitted));
-  const dirty = $derived(original ? selectedTypeID !== original.design.shipTypeID || layoutSlots.size !== initialSlots.size ||
+  const dirty = $derived(original ? blend !== initialBlend || selectedTypeID !== original.design.shipTypeID || layoutSlots.size !== initialSlots.size ||
     [...layoutSlots].some(([id, row]) => row !== initialSlots.get(id)) : layoutSlots.size > 0);
-  const blend = original?.design.layout.pattern_blend_mode ?? 1;
-  const noSecondaryMaterial = [2, 3, "BLEND_MODE_SUBTRACT", "BLEND_MODE_EXCLUSION"].includes(blend as string | number);
+  const secondaryMaterial = $derived(usesShipSkinrSecondaryMaterial(blend));
+  const canBlend = $derived(layoutSlots.has(5) && layoutSlots.has(7));
   const incomplete = $derived(layoutSlots.has(5) !== layoutSlots.has(6) ||
-    (noSecondaryMaterial ? layoutSlots.has(8) : layoutSlots.has(7) !== layoutSlots.has(8)));
+    (secondaryMaterial && layoutSlots.has(7) !== layoutSlots.has(8)));
   const canSave = $derived(layoutSlots.size > 0 && !incomplete && (!!original || !atSaveLimit));
   const validName = $derived(validShipSkinrName(name, line));
   const pickerOpen = $derived(pickerOverride ?? !active);
@@ -232,6 +236,11 @@
     naming = mode;
   }
 
+  function changeBlend(value: string) {
+    blend = shipSkinrBlendMode(value);
+    if (!usesShipSkinrSecondaryMaterial(blend) && selectedSlot === 8) selectedSlot = 7;
+  }
+
   async function save(event: SubmitEvent) {
     event.preventDefault();
     const id = naming === "save" ? original?.entry.id : undefined;
@@ -243,7 +252,7 @@
         ...original?.design.layout,
         ship_type: { sequential: selectedTypeID },
         pattern_blend_mode: blend,
-        slots: [...layoutSlots.values()],
+        slots: [...layoutSlots].filter(([slotID]) => slotID !== 8 || secondaryMaterial).map(([, row]) => row),
       };
       const editor = new Map([...initialEditor].filter(([slotID]) => configuration.slots.includes(slotID)));
       if (!original) {
@@ -269,6 +278,7 @@
     if (!requestedPilot) return;
     let current = true;
     flow.requestWords(Object.values(labels).map(([path]) => path));
+    flow.requestWords(SHIP_SKINR_BLEND_MODES.map(mode => prefix + "BlendMode/" + mode.label));
     flow.requestWords(["ProjectionPresets", "PatternProjectionTop", "PatternProjectionFront", "PatternProjectionRight",
       "OrbitalPanelButton", "OffsetPanelButton", "RotateScalePanelButton", "MirrorToggle"].map(key => prefix + "Gizmo/" + key)
       .concat(["ResetPatternProjection", "PrimaryArea", "SecondaryArea", "DetailingArea", "TechArea"].map(key => prefix + key)));
@@ -385,21 +395,29 @@
           <h3>{selectedName}</h3>
           <div class="preview-scene">
             <ShipInfoPreview typeID={selectedTypeID} factionID={selected?.factionID ?? null}
-              coatings={materialNames} patterns={previewPatterns} active expanded={false} />
+              coatings={materialNames} patterns={previewPatterns} blendMode={blend} active expanded={false} />
           </div>
           <div class="coating-slots" aria-label="Design slots">
-            {#each coatingSlots as row (row.id)}
+            {#each coatingSlots.filter(row => row.id !== 8 || secondaryMaterial) as row (row.id)}
               {@const componentID = isPatternSlot(row.id) ? shipSkinrPatternID(layoutSlots.get(row.id)) : shipSkinrCoatingID(layoutSlots.get(row.id))}
               {@const coating = fitted.get(row.id)}
               {@const component = isPatternSlot(row.id) ? patternIndex.get(componentID ?? 0) : coating}
               <button type="button" data-slot={row.id} aria-pressed={selectedSlot === row.id}
-                disabled={!!naming || isPatternMaterial(row.id) && (!layoutSlots.has(row.id - 1) || row.id === 8 && noSecondaryMaterial) ||
+                disabled={!!naming || isPatternMaterial(row.id) && !layoutSlots.has(row.id - 1) ||
                   row.id === 7 && !layoutSlots.has(5)}
                 onclick={() => { selectedSlot = selectedSlot === row.id ? null : row.id; coatingSearch = ""; }}>
                 {message(row.nameID)}
                 {#if componentID}<small>{component ? message(component.nameID) : String(componentID)}</small>{/if}
               </button>
             {/each}
+            <label class="blend-select">{word("blend")}
+              <select value={String(blend)} disabled={!canBlend || !!naming} onchange={event => changeBlend(event.currentTarget.value)}>
+                {#each SHIP_SKINR_BLEND_MODES as mode (mode.id)}
+                  <option value={String(mode.id)}>{plainText($words.templates[prefix + "BlendMode/" + mode.label] ??
+                    (mode.label === "NestedInverted" ? "Nested Inverted" : mode.label))}</option>
+                {/each}
+              </select>
+            </label>
           </div>
           {#if slot && !naming}
             <section class="coating-picker" aria-label={message(slot.nameID)}>
@@ -469,6 +487,7 @@
   .coating-slots { display: flex; flex-wrap: wrap; gap: 6px; }
   .coating-slots button { display: grid; gap: 3px; text-align: left; padding: 6px 8px; }
   .coating-slots small { color: #b8c3cc; }
+  .blend-select { display: grid; gap: 3px; align-content: center; }
   .coating-picker header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
   .coating-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 5px; max-height: 220px; overflow: auto; }
   .coating-results button { display: flex; text-align: left; align-items: center; gap: 6px; }
