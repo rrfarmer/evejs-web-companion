@@ -1,11 +1,16 @@
 <script lang="ts">
-  import { loadStationStatic, resolveDestination } from "../app/api.ts";
+  import { loadStationStatic } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { npcStationServices, NPC_STATION_SERVICE_LABELS } from "../bridge/npcStationServices.ts";
+  import type { BookmarkPlace } from "../bridge/locationsList.ts";
+  import { isDeprecatedStationType } from "../nav/waypoints.ts";
   import type { ClientStore } from "../store/clientStore.ts";
+  import type { StationStatic } from "../store/types.ts";
   import { resolvedName, type NameKind } from "../store/names.ts";
+  import BookmarkWindow from "./BookmarkWindow.svelte";
+  import HomeStationPanel from "./HomeStationPanel.svelte";
   import { showInfo } from "./showInfo.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
@@ -13,6 +18,7 @@
   const names = $derived(store.names);
   const words = $derived(store.words);
   const station = $derived(store.station);
+  const flight = $derived(store.flight);
   const waypoints = $derived(flow.waypoints);
   const name = (kind: NameKind, id: number) => resolvedName($names.resolved, kind, id, "");
   const routeWords = "UI/InfoWindow/LocationAndRoute";
@@ -21,6 +27,8 @@
   const addWaypoint = "UI/Inflight/AddWaypoint";
   const removeWaypoint = "UI/Inflight/RemoveWaypoint";
   const showInfoLabel = "UI/Commands/ShowInfo";
+  const bookmarkLabel = "UI/Inflight/BookmarkLocation";
+  const homeLabel = "UI/Menusvc/SetHomeStation";
   const requiredStanding = "UI/Standings/StationServiceStandingsRequired";
   const word = (path: string, own: string) => plainText($words.templates[path] ?? "") || own;
   type Rows = Awaited<ReturnType<AppFlow["npcCorporationStations"]>>;
@@ -28,12 +36,19 @@
   let error = $state("");
   let stationError = $state("");
   let menu = $state<number | null>(null);
+  let menuDetails = $state.raw<StationStatic | null>(null);
+  let bookmark = $state.raw<BookmarkPlace | null>(null);
+  let home = $state<number | null>(null);
+  const stationReads = new Map<number, Promise<StationStatic>>();
+  const docked = $derived($flight.status?.docked ?? !!($station.online?.stationID || $station.online?.structureID));
+  const canBookmark = $derived(menuDetails?.stationTypeID != null && !isDeprecatedStationType(menuDetails.stationTypeID));
+  const canSetHome = $derived(canBookmark && docked && menuDetails?.systemFactionID !== 500026);
   type ServiceRows = ReturnType<typeof npcStationServices>;
   type Expansion = { status: "loading" } | { status: "ready"; rows: ServiceRows } | { status: "error"; message: string };
   let expanded = $state.raw<ReadonlyMap<number, Expansion>>(new Map());
   $effect(() => {
     const owner = corporationID;
-    flow.requestWords([routeWords, noRouteWords, destination, addWaypoint, removeWaypoint, showInfoLabel, requiredStanding,
+    flow.requestWords([routeWords, noRouteWords, destination, addWaypoint, removeWaypoint, showInfoLabel, bookmarkLabel, homeLabel, requiredStanding,
       ...NPC_STATION_SERVICE_LABELS.map(([label]) => label)]);
     let current = true;
     rows = null;
@@ -63,13 +78,50 @@
     return label ? plainText(formatTemplate(label, { locationName: path, numJump: jumps }, { nameOf: () => "" }))
       : jumps === null ? path : `${path} (${jumps} jumps)`;
   }
+  function stationDetails(id: number): Promise<StationStatic> {
+    let read = stationReads.get(id);
+    if (!read) {
+      read = loadStationStatic(id, flow.requestOptions()).then(details => {
+        if (!details) throw new Error("The station could not be read.");
+        return details;
+      }).catch(cause => { stationReads.delete(id); throw cause; });
+      stationReads.set(id, read);
+    }
+    return read;
+  }
+  function closeMenu() {
+    menu = null;
+    menuDetails = null;
+  }
+  async function toggleMenu(id: number) {
+    if (menu === id) { closeMenu(); return; }
+    menu = id;
+    menuDetails = null;
+    stationError = "";
+    try {
+      const details = await stationDetails(id);
+      if (menu === id) menuDetails = details;
+    } catch (cause) {
+      if (menu === id) stationError = panelErrorWords(cause);
+    }
+  }
   async function inspect(id: number) {
     stationError = "";
     try {
-      const place = await resolveDestination(id, flow.requestOptions());
+      const place = await stationDetails(id);
       if (place.stationTypeID === null) throw new Error("The station's type could not be read.");
       showInfo({ kind: "spaceObject", itemID: id, typeID: place.stationTypeID });
     } catch (cause) { stationError = panelErrorWords(cause); }
+  }
+  function saveBookmark(details: StationStatic) {
+    closeMenu();
+    home = null;
+    bookmark = {
+      itemID: details.stationID,
+      typeName: () => details.stationTypeName ?? "Station",
+      name: () => details.stationName,
+      askIfKnown: true,
+    };
   }
   async function toggleServices(id: number) {
     const next = new Map(expanded);
@@ -82,7 +134,7 @@
     try {
       const here = $station.online?.solarSystemID;
       const [details, restrictions, pilotSecurity] = await Promise.all([
-        loadStationStatic(id, flow.requestOptions()),
+        stationDetails(id),
         flow.stationStandingsRestrictions(),
         $station.station?.security ?? (here ? flow.loadStarMap().then(map => map.systems.find(row => row[0] === here)?.[8] ?? null) : null),
       ]);
@@ -103,6 +155,12 @@
 </script>
 
 <section class="npc-corporation-stations" aria-label="Stations">
+  {#if bookmark}
+    <BookmarkWindow {store} {flow} place={bookmark} onDone={() => (bookmark = null)} />
+  {/if}
+  {#if home !== null}
+    {#key home}<HomeStationPanel {store} {flow} targetStationID={home} onClose={() => (home = null)} />{/key}
+  {/if}
   {#if error}
     <p role="alert">{error}</p>
   {:else if rows === null}
@@ -118,23 +176,30 @@
           <li data-npc-station={station.id}>
             <div class="station-actions">
               <button type="button" class="station-title" aria-expanded={!!expansion} onclick={() => void toggleServices(station.id)}
-                oncontextmenu={(event) => { event.preventDefault(); menu = menu === station.id ? null : station.id; }}>
+                oncontextmenu={(event) => { event.preventDefault(); void toggleMenu(station.id); }}>
                 <span aria-hidden="true">{expansion ? "▾" : "▸"}</span> {station.name || "Station"}
               </button>
               <button type="button" class="minor station-menu-toggle" aria-label="Station actions" aria-expanded={menu === station.id}
-                onclick={() => (menu = menu === station.id ? null : station.id)}>⋯</button>
+                onclick={() => void toggleMenu(station.id)}>⋯</button>
             </div>
             {#if menu === station.id}
               <div class="controls station-menu">
-                <button type="button" class="minor" onclick={() => { menu = null; void inspect(station.id); }}>{word(showInfoLabel, "Show Info")}</button>
                 {#if $waypoints.at(-1) !== station.id}
-                  <button type="button" class="minor" onclick={() => { menu = null; flow.setDestination(station.id); }}>{word(destination, "Set Destination")}</button>
+                  <button type="button" class="minor" onclick={() => { closeMenu(); flow.setDestination(station.id); }}>{word(destination, "Set Destination")}</button>
                 {/if}
                 {#if $waypoints.includes(station.id)}
-                  <button type="button" class="minor" onclick={() => { menu = null; flow.clearWaypoints(station.id); }}>{word(removeWaypoint, "Remove Waypoint")}</button>
+                  <button type="button" class="minor" onclick={() => { closeMenu(); flow.clearWaypoints(station.id); }}>{word(removeWaypoint, "Remove Waypoint")}</button>
                 {:else}
-                  <button type="button" class="minor" onclick={() => { menu = null; flow.addWaypoint(station.id); }}>{word(addWaypoint, "Add Waypoint")}</button>
+                  <button type="button" class="minor" onclick={() => { closeMenu(); flow.addWaypoint(station.id); }}>{word(addWaypoint, "Add Waypoint")}</button>
                 {/if}
+                {#if canSetHome}
+                  <button type="button" class="minor" onclick={() => { closeMenu(); bookmark = null; home = station.id; }}>{word(homeLabel, "Set Home Station")}</button>
+                {/if}
+                {#if canBookmark && menuDetails}
+                  {@const details = menuDetails}
+                  <button type="button" class="minor" onclick={() => saveBookmark(details)}>{word(bookmarkLabel, "Save Location")}</button>
+                {/if}
+                <button type="button" class="minor" onclick={() => { closeMenu(); void inspect(station.id); }}>{word(showInfoLabel, "Show Info")}</button>
               </div>
             {/if}
             {#if expansion?.status === "loading"}
