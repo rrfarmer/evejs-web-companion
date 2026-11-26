@@ -5,6 +5,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { setMercenaryOperationTracked, trackedJobsChanged, trackedMercenaryOperations } from "./jobTracking.ts";
   import { openMercenaryOperation } from "./jobBoardRequests.ts";
+  import MercenaryOperationTravel from "./MercenaryOperationTravel.svelte";
 
   let { store, flow, onCount }: { store: ClientStore; flow: AppFlow; onCount: (count: number) => void } = $props();
   const station = $derived(store.station);
@@ -74,6 +75,7 @@
     <button class="mto-tracker-untrack" type="button" onclick={() => setMercenaryOperationTracked(character, operation.id, false)}>
       {word("untrack")}
     </button>
+    <div class="mto-tracker-travel"><MercenaryOperationTravel {store} {flow} solarSystemID={operation.solarSystemID} /></div>
   </article>
 {/each}
 
@@ -85,4 +87,6 @@
   .mto-tracker-name:hover { text-decoration: underline; }
   small { color: #b8c3cc; }
   .mto-tracker-untrack { padding: 2px 5px; }
+  .mto-tracker-travel { grid-column: 1 / -1; }
+  .mto-tracker-travel:empty { display: none; }
 </style>

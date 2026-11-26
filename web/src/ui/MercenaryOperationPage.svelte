@@ -5,10 +5,10 @@
   import type { ShipRestrictions } from "../bridge/dungeonTracking.ts";
   import type { MercenaryDenActivity } from "../bridge/mercenaryDens.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
-  import { celestialRouteEntries, isWaypointPlace } from "../nav/waypoints.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import MercenaryOperationTrackButton from "./MercenaryOperationTrackButton.svelte";
+  import MercenaryOperationTravel from "./MercenaryOperationTravel.svelte";
   import { showInfo } from "./showInfo.ts";
 
   let { store, flow, operation, name, onBack }: {
@@ -16,11 +16,6 @@
   } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
-  const flight = $derived(store.flight);
-  const station = $derived(store.station);
-  const waypoints = $derived(flow.waypoints);
-  const here = $derived($flight.status?.solarSystemID ?? $station.online?.solarSystemID ?? null);
-  const route = $derived(celestialRouteEntries(operation.solarSystemID, isWaypointPlace(operation.solarSystemID), here, $waypoints));
   const system = $derived(resolvedName($names.resolved, "system", operation.solarSystemID, String(operation.solarSystemID)));
   const dungeonID = $derived(operation.dungeonID);
   let intel = $state.raw<DungeonData | null>(null);
@@ -43,7 +38,6 @@
     level: ["UI/Agency/LevelX", "Level {level}"],
     enemy: ["UI/Agency/RoamingEnemies", "Roaming Enemies"],
     restrictions: ["UI/Objectives/Titles/ShipRestrictions", "Ship Restrictions"],
-    destination: ["UI/Inflight/SetDestination", "Set Destination"],
     start: ["UI/Sovereignty/MercenaryDen/StartOperation", "Start Operation"],
     startHint: ["UI/Sovereignty/MercenaryDen/StartMTOAtMercDen", "Start Operation at Den"],
     development: ["UI/Sovereignty/MercenaryDen/DevelopmentImpact", "Development Impact {impact}"],
@@ -105,7 +99,7 @@
         </time>
       {/if}
       <MercenaryOperationTrackButton {store} {flow} id={operation.id} eligible={!operation.expiresAt || operation.expiresAt > now} />
-      {#if route.setDestination}<button type="button" onclick={() => flow.setDestination(operation.solarSystemID)}>{word("destination")}</button>{/if}
+      <MercenaryOperationTravel {store} {flow} solarSystemID={operation.solarSystemID} />
       {#if !started && (!operation.expiresAt || operation.expiresAt > now)}
         <button type="button" class="mto-start" title={word("startHint")} disabled={starting} onclick={() => void startOperation()}>{word("start")}</button>
       {/if}
