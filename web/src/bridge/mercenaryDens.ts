@@ -73,6 +73,31 @@ export function mercenaryDenID(value: unknown): number {
   return mercenaryDenInteger(mercenaryDenRecord(value).sequential);
 }
 
+const NOTICE_PREFIX = "eve_public.sovereignty.mercenaryden.";
+
+export function mercenaryDenNotice(typeName: string, payload: unknown) {
+  if (!typeName.startsWith(NOTICE_PREFIX)) return null;
+  const body = mercenaryDenRecord(payload);
+  const notice = typeName.slice(NOTICE_PREFIX.length);
+  const denID = mercenaryDenID(body.mercenary_den);
+  switch (notice) {
+    case "api.EvolutionStateChangedNotice":
+    case "api.DefinitionsUpdatedNotice":
+      return denID ? { denID, roster: true, operations: false } : null;
+    case "activity.api.CompletedNotice":
+    case "activity.api.RemovedNotice":
+      return denID ? { denID, roster: true, operations: true } : null;
+    case "activity.api.AddedNotice":
+    case "activity.api.ExpiryChangedNotice":
+    case "activity.api.StartedNotice": {
+      const id = mercenaryDenID(mercenaryDenRecord(body.activity).mercenary_den);
+      return id ? { denID: id, roster: notice === "activity.api.AddedNotice", operations: true } : null;
+    }
+    default:
+      return null;
+  }
+}
+
 function evolutionStage(value: unknown): number {
   const named = typeof value === "string" ? /^(?:DEVELOPMENT|ANARCHY)_STAGE_([1-5])$/.exec(value) : null;
   return mercenaryDenInteger(named?.[1] ?? value);

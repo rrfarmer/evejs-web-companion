@@ -14610,6 +14610,128 @@
     }
    ]
   },
+  "eve_public.sovereignty.mercenaryden.activity.api.AddedNotice": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.Identifier"
+    },
+    {
+     "name": "activity",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.Attributes"
+    },
+    {
+     "name": "solar_system",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.solarsystem.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.activity.api.CompletedNotice": {
+   "fields": [
+    {
+     "name": "mercenary_den",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.Identifier"
+    },
+    {
+     "name": "id",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.Identifier"
+    },
+    {
+     "name": "development_impact",
+     "number": 3,
+     "type": 5,
+     "label": 1
+    },
+    {
+     "name": "anarchy_impact",
+     "number": 4,
+     "type": 5,
+     "label": 1
+    },
+    {
+     "name": "infomorph_bonus",
+     "number": 5,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.activity.api.ExpiryChangedNotice": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.Identifier"
+    },
+    {
+     "name": "activity",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.Attributes"
+    },
+    {
+     "name": "previous_expiry",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.activity.api.RemovedNotice": {
+   "fields": [
+    {
+     "name": "mercenary_den",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.Identifier"
+    },
+    {
+     "name": "id",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.Identifier"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.activity.api.StartedNotice": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.Identifier"
+    },
+    {
+     "name": "activity",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.activity.Attributes"
+    }
+   ]
+  },
   "eve_public.sovereignty.mercenaryden.activity.api.GetAllRequest": {
    "fields": []
   },
@@ -14721,6 +14843,49 @@
      "type": 11,
      "label": 1,
      "typeName": "eve_public.sovereignty.mercenaryden.activity.Attributes"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.api.DefinitionsUpdatedNotice": {
+   "fields": [
+    {
+     "name": "mercenary_den",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.Identifier"
+    },
+    {
+     "name": "evolution",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.EvolutionDefinition"
+    },
+    {
+     "name": "infomorphs",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.InfomorphsGenerationDefinition"
+    }
+   ]
+  },
+  "eve_public.sovereignty.mercenaryden.api.EvolutionStateChangedNotice": {
+   "fields": [
+    {
+     "name": "mercenary_den",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.Identifier"
+    },
+    {
+     "name": "state",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.sovereignty.mercenaryden.EvolutionSimulation"
     }
    ]
   },

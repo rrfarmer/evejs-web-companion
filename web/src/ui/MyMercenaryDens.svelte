@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { SvelteSet } from "svelte/reactivity";
+  import { SvelteMap, SvelteSet } from "svelte/reactivity";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { BookmarkPlace } from "../bridge/locationsList.ts";
-  import type { MercenaryDenRow, MercenaryDensRead } from "../bridge/mercenaryDens.ts";
+  import { mercenaryDenNotice, type MercenaryDenRow, type MercenaryDensRead } from "../bridge/mercenaryDens.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { avoidanceItems, isAvoidablePlace } from "../nav/autopilotSettings.ts";
   import { celestialRouteEntries, isWaypointPlace } from "../nav/waypoints.ts";
@@ -85,6 +85,9 @@
   let bookmark = $state.raw<BookmarkPlace | null>(null);
   const menu = new ContextMenu();
   const reloading = new SvelteSet<number>();
+  const reloadAgain = new Set<number>();
+  const pendingRosterRefresh = new Set<number>();
+  const activityRevisions = new SvelteMap<number, number>();
   let loadSerial = 0;
   let selection = $state(0);
   const selectionKey = $derived(`evejs.play.${characterID}.mercDenSelected`);
@@ -148,17 +151,25 @@
     }
     return entries;
   }
-  async function reloadRow(id: number) {
-    if (reloading.has(id)) return;
+  async function reloadRow(id: number, showError = true) {
+    if (reloading.has(id)) {
+      reloadAgain.add(id);
+      return;
+    }
     const serial = loadSerial;
     reloading.add(id);
     try {
-      const row = await flow.reloadMercenaryDen(id);
-      if (serial === loadSerial && row && directory?.owned.includes(id)) {
-        directory = { ...directory, rows: [...directory.rows.filter(item => item.id !== id), row] };
-      }
-    } catch (cause) {
-      if (serial === loadSerial) notify({ kind: "danger", title: word("reload"), detail: panelErrorWords(cause) });
+      do {
+        reloadAgain.delete(id);
+        try {
+          const row = await flow.reloadMercenaryDen(id);
+          if (serial === loadSerial && row && directory?.owned.includes(id)) {
+            directory = { ...directory, rows: [...directory.rows.filter(item => item.id !== id), row] };
+          }
+        } catch (cause) {
+          if (showError && serial === loadSerial) notify({ kind: "danger", title: word("reload"), detail: panelErrorWords(cause) });
+        }
+      } while (serial === loadSerial && reloadAgain.has(id));
     } finally {
       if (serial === loadSerial) reloading.delete(id);
     }
@@ -188,15 +199,38 @@
     selection = saved;
   });
   $effect(() => {
+    const notices = flow.gatewayNotices;
+    let lastSeen = notices.get()?.n;
+    return notices.subscribe(notice => {
+      if (!notice || notice.n === lastSeen) return;
+      lastSeen = notice.n;
+      const change = mercenaryDenNotice(notice.typeName, notice.payload);
+      if (!change || (directory && !directory.owned.includes(change.denID))) return;
+      if (change.operations) activityRevisions.set(change.denID, notice.n);
+      if (change.roster) {
+        if (directory) void reloadRow(change.denID, false);
+        else pendingRosterRefresh.add(change.denID);
+      }
+    });
+  });
+  $effect(() => {
     void revision;
     void characterID;
     let current = true;
     reloading.clear();
+    reloadAgain.clear();
+    pendingRosterRefresh.clear();
+    activityRevisions.clear();
     directory = null;
     error = "";
     flow.requestWords(Object.values(labels).map(([key]) => key));
     void flow.loadMyMercenaryDens().then(result => {
-      if (current) directory = result;
+      if (!current) return;
+      directory = result;
+      for (const id of pendingRosterRefresh) {
+        if (result.owned.includes(id)) void reloadRow(id, false);
+      }
+      pendingRosterRefresh.clear();
     }).catch(cause => { if (current) error = panelErrorWords(cause); });
     return () => { current = false; loadSerial++; menu.close(); };
   });
@@ -278,7 +312,7 @@
               <dt>{word("workforce")}</dt>
               <dd title={word("workforceHint", { workforce_units: selected.workforceCost, workforce_cost_percentage: workforcePercent })}>{workforcePercent}</dd>
             </dl>
-            <MercenaryDenManagement {store} {flow} den={selected} {characterID} />
+            <MercenaryDenManagement {store} {flow} den={selected} {characterID} activityRevision={activityRevisions.get(selected.id) ?? 0} />
           </aside>
         {/if}
       </div>

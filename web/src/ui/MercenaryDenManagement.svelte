@@ -5,10 +5,11 @@
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
-  let { store, flow, den, characterID }: {
-    store: ClientStore; flow: AppFlow; den: MercenaryDenRow; characterID: number | null;
+  let { store, flow, den, characterID, activityRevision }: {
+    store: ClientStore; flow: AppFlow; den: MercenaryDenRow; characterID: number | null; activityRevision: number;
   } = $props();
   const words = $derived(store.words);
+  const denID = $derived(den.id);
   const hintID = $props.id();
   const path = "UI/Sovereignty/MercenaryDen/MyMercenaryDensWindow/";
   const config = "UI/Sovereignty/MercenaryDen/ConfigurationWindow/";
@@ -69,6 +70,7 @@
   }
 
   let activity = $state.raw<MercenaryDenActivities | null>(null);
+  let activityDenID: number | null = null;
   let error = $state("");
   let retry = $state(0);
   let now = $state(Date.now());
@@ -83,17 +85,26 @@
     try { return localStorage.getItem(key); } catch { return null; }
   }
   $effect(() => {
-    activity = null;
+    const id = tab === "activities" ? denID : null;
+    if (id !== activityDenID) {
+      activity = null;
+      activityDenID = id;
+    }
     error = "";
-    if (tab !== "activities") return;
+    if (id === null) return;
+    void activityRevision;
     void retry;
     let current = true;
-    now = Date.now();
-    void flow.loadMercenaryDenActivities(den.id).then(result => {
+    void flow.loadMercenaryDenActivities(id).then(result => {
       if (current) activity = result;
     }).catch(cause => { if (current) error = panelErrorWords(cause); });
+    return () => { current = false; };
+  });
+  $effect(() => {
+    if (tab !== "activities") return;
+    now = Date.now();
     const clock = setInterval(() => { now = Date.now(); }, 1000);
-    return () => { current = false; clearInterval(clock); };
+    return () => clearInterval(clock);
   });
   $effect(() => { flow.requestWords(Object.values(labels).map(([key]) => key)); });
 </script>
