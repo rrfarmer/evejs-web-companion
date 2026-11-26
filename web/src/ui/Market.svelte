@@ -41,6 +41,7 @@
   import type { MarketTypeMatch } from "../app/api.ts";
   import type { MarketOrderRow, MarketOwnOrderRow, MarketSide } from "../store/types.ts";
   import type { MarketGroupScope } from "../bridge/market.ts";
+  import { MARKET_POINTERS } from "../play/uiPointer.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
   // R27 — the shared item icon: one cached picture per thing, falling back
   // to a name-derived tile whenever the icon cache has no entry (or no cache).
@@ -2000,7 +2001,7 @@
        wallet, and the balance, TextColor.SECONDARY). -->
   <section class="mkt-tabbar">
     {#if $market.loaded}<nav class="mkt-tabs">
-      <button type="button" class:active={tab === "book"} title={qbWord("Tooltips/Market/MarketDetailsTab")} onclick={() => (tab = "book")}>{qbWord("UI/Common/Details")}</button>
+      <button type="button" class:active={tab === "book"} data-ui-pointer={MARKET_POINTERS.details} title={qbWord("Tooltips/Market/MarketDetailsTab")} onclick={() => (tab = "book")}>{qbWord("UI/Common/Details")}</button>
       <button type="button" class:active={tab === "groups"} aria-pressed={tab === "groups"} title={qbWord("Tooltips/Market/MarketGroupsTab")}
         onclick={() => (tab = "groups")}>{qbWord("UI/Common/Groups")}</button>
     </nav>{/if}
@@ -2177,8 +2178,8 @@
       </div>
       {#if $market.typeID !== null}
         <nav class="mkt-dtabs">
-          <button type="button" class:active={detailTab === "marketdata"} title={qbWord("Tooltips/Market/MarketDetailsData")} onclick={() => (detailTab = "marketdata")}>{qbWord("UI/Market/MarketData")}</button>
-          <button type="button" class:active={detailTab === "pricehistory"} title={qbWord("Tooltips/Market/MarketDetailsHistory")} onclick={() => (detailTab = "pricehistory")}>{qbWord("UI/Market/Marketbase/PriceHistory")}</button>
+          <button type="button" class:active={detailTab === "marketdata"} data-ui-pointer={MARKET_POINTERS.data} title={qbWord("Tooltips/Market/MarketDetailsData")} onclick={() => (detailTab = "marketdata")}>{qbWord("UI/Market/MarketData")}</button>
+          <button type="button" class:active={detailTab === "pricehistory"} data-ui-pointer={MARKET_POINTERS.history} title={qbWord("Tooltips/Market/MarketDetailsHistory")} onclick={() => (detailTab = "pricehistory")}>{qbWord("UI/Market/Marketbase/PriceHistory")}</button>
         </nav>
       {/if}
     {/if}
@@ -2241,12 +2242,13 @@
              sellers Jumps, Quantity, Price, Location, Expires in (by price up); buyers Jumps, Quantity, Price, Location,
              Range, Min Volume, Expires in (by price down); a row's price carried into the order draft as before. -->
         <div class="mkt-quote">
+          <div data-ui-pointer={MARKET_POINTERS.sellers.list}>
           <h3 class="mkt-quote-cap">{qbWord("UI/Market/Marketbase/Sellers")}</h3>
           <div class="mkt-quote-scroll">
             <table>
               <thead><tr>
-                <th class="r" aria-sort={sellSort.key === "jumps" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "jumps"))}>{qbWord("UI/Market/Marketbase/Jumps")}{sellSort.key === "jumps" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th><th class="r" aria-sort={sellSort.key === "qty" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "qty"))}>{qbWord("UI/Common/Quantity")}{sellSort.key === "qty" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th>
-                <th class="r" aria-sort={sellSort.key === "price" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "price"))}>{qbWord("UI/Market/Marketbase/Price")}{sellSort.key === "price" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th><th aria-sort={sellSort.key === "location" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "location"))}>{qbWord("UI/Common/Location")}{sellSort.key === "location" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th><th aria-sort={sellSort.key === "expires" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "expires"))}>{qbWord("UI/Market/Marketbase/ExpiresIn")}{sellSort.key === "expires" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th>
+                <th class="r" data-ui-pointer={MARKET_POINTERS.sellers.jumps} aria-sort={sellSort.key === "jumps" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "jumps"))}>{qbWord("UI/Market/Marketbase/Jumps")}{sellSort.key === "jumps" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th><th class="r" data-ui-pointer={MARKET_POINTERS.sellers.qty} aria-sort={sellSort.key === "qty" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "qty"))}>{qbWord("UI/Common/Quantity")}{sellSort.key === "qty" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th>
+                <th class="r" data-ui-pointer={MARKET_POINTERS.sellers.price} aria-sort={sellSort.key === "price" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "price"))}>{qbWord("UI/Market/Marketbase/Price")}{sellSort.key === "price" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th><th aria-sort={sellSort.key === "location" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "location"))}>{qbWord("UI/Common/Location")}{sellSort.key === "location" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th><th aria-sort={sellSort.key === "expires" ? (sellSort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (sellSort = quoteHeader(sellSort, "expires"))}>{qbWord("UI/Market/Marketbase/ExpiresIn")}{sellSort.key === "expires" ? (sellSort.up ? " ▲" : " ▼") : ""}</button></th>
               </tr></thead>
               <tbody>
                 {#each quoteSorted(sells, sellSort) as order (order.orderID)}
@@ -2258,12 +2260,14 @@
               </tbody>
             </table>
           </div>
+          </div>
+          <div data-ui-pointer={MARKET_POINTERS.buyers.list}>
           <h3 class="mkt-quote-cap">{qbWord("UI/Market/Marketbase/Buyers")}</h3>
           <div class="mkt-quote-scroll">
             <table>
               <thead><tr>
-                <th class="r" aria-sort={buySort.key === "jumps" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "jumps"))}>{qbWord("UI/Market/Marketbase/Jumps")}{buySort.key === "jumps" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th><th class="r" aria-sort={buySort.key === "qty" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "qty"))}>{qbWord("UI/Common/Quantity")}{buySort.key === "qty" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th>
-                <th class="r" aria-sort={buySort.key === "price" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "price"))}>{qbWord("UI/Market/Marketbase/Price")}{buySort.key === "price" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th><th aria-sort={buySort.key === "location" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "location"))}>{qbWord("UI/Common/Location")}{buySort.key === "location" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th><th aria-sort={buySort.key === "range" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "range"))}>{qbWord("UI/Common/Range")}{buySort.key === "range" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th>
+                <th class="r" data-ui-pointer={MARKET_POINTERS.buyers.jumps} aria-sort={buySort.key === "jumps" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "jumps"))}>{qbWord("UI/Market/Marketbase/Jumps")}{buySort.key === "jumps" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th><th class="r" data-ui-pointer={MARKET_POINTERS.buyers.qty} aria-sort={buySort.key === "qty" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "qty"))}>{qbWord("UI/Common/Quantity")}{buySort.key === "qty" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th>
+                <th class="r" data-ui-pointer={MARKET_POINTERS.buyers.price} aria-sort={buySort.key === "price" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "price"))}>{qbWord("UI/Market/Marketbase/Price")}{buySort.key === "price" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th><th aria-sort={buySort.key === "location" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "location"))}>{qbWord("UI/Common/Location")}{buySort.key === "location" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th><th aria-sort={buySort.key === "range" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "range"))}>{qbWord("UI/Common/Range")}{buySort.key === "range" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th>
                 <th class="r" aria-sort={buySort.key === "minvol" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "minvol"))}>{qbWord("UI/Market/MarketQuote/HeaderMinVolumn")}{buySort.key === "minvol" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th><th aria-sort={buySort.key === "expires" ? (buySort.up ? "ascending" : "descending") : undefined}><button type="button" onclick={() => (buySort = quoteHeader(buySort, "expires"))}>{qbWord("UI/Market/Marketbase/ExpiresIn")}{buySort.key === "expires" ? (buySort.up ? " ▲" : " ▼") : ""}</button></th>
               </tr></thead>
               <tbody>
@@ -2276,6 +2280,7 @@
                 {/each}
               </tbody>
             </table>
+          </div>
           </div>
           <!-- The Market Data footer exports the regional book, including rows outside the display filter. -->
           {#if $market.typeID !== null}
@@ -2426,7 +2431,7 @@
             How many
             <input type="number" min="1" step="1" bind:value={draft.quantity} />
           </label>
-          <label>
+          <label data-ui-pointer={draft.side === "sell" ? MARKET_POINTERS.duration : undefined}>
             How long to leave it open
             <select bind:value={draft.durationDays}>
               {#each DURATION_CHOICES as choice (choice.days)}

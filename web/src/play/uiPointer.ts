@@ -32,6 +32,25 @@ export const INDUSTRY_LOCATION_POINTERS = {
   output: "unique_UI_industryOutputLocation",
 } as const;
 
+export const MARKET_POINTERS = {
+  details: "unique_UI_marketDetailsTab",
+  data: "unique_UI_marketDataTab",
+  history: "unique_UI_marketPriceHistoryTab",
+  duration: "unique_UI_orderDuration",
+  sellers: {
+    list: "unique_UI_sellersList",
+    jumps: "unique_UI_marketSellersJumpsColumn",
+    qty: "unique_UI_marketSellersQtyColumn",
+    price: "unique_UI_marketSellersPriceColumn",
+  },
+  buyers: {
+    list: "unique_UI_buyersList",
+    jumps: "unique_UI_marketBuyersJumpsColumn",
+    qty: "unique_UI_marketBuyersQtyColumn",
+    price: "unique_UI_marketBuyersPriceColumn",
+  },
+} as const;
+
 export function dragUiPointer(event: DragEvent, name: string) {
   if (!event.dataTransfer) return;
   event.dataTransfer.effectAllowed = "copyMove";

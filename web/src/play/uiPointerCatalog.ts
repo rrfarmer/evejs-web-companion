@@ -3,20 +3,20 @@ import { helpPointerLinksFromDrop, helpPointerUrl, parseHelpPointerUrl } from ".
 import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
 import { clientTexture } from "../ui/skillGroupIcons.ts";
 import { EVE_MENU, NEOCOM_DEFAULT } from "./neocom.ts";
-import { INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
+import { INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, MARKET_POINTERS, neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
 
 const industryParent = neocomPointerName("industry");
 const industryEntry = EVE_MENU.flatMap(group => group.items).find(item => item.id === "industry");
 export const NEOCOM_POINTERS: readonly UiPointerTarget[] = [...NEOCOM_DEFAULT.map(item => ({
   name: neocomPointerName(item.id), label: item.label, icon: item.icon,
 })), ...(industryEntry ? [{ name: industryParent, label: industryEntry.label, icon: industryEntry.icon }] : [])];
-const industryTabIcon = clientTexture("res:/UI/Texture/Classes/HelpPointer/tabFlat.png");
+const tabIcon = clientTexture("res:/UI/Texture/Classes/HelpPointer/tabFlat.png");
 const industryTabs: readonly UiPointerTarget[] = ([
   [INDUSTRY_TAB_POINTERS.blueprints, "Blueprints"],
   [INDUSTRY_TAB_POINTERS.facilities, "Facilities"],
   [INDUSTRY_TAB_POINTERS.jobs, "Jobs"],
   [INDUSTRY_TAB_POINTERS.research, "Research"],
-] as const).map(([name, label]) => ({ name, label: `Industry - ${label}`, icon: industryTabIcon, parent: industryParent }));
+] as const).map(([name, label]) => ({ name, label: `Industry - ${label}`, icon: tabIcon, parent: industryParent }));
 const industryActivities: readonly UiPointerTarget[] = ([
   [INDUSTRY_ACTIVITY_POINTERS.manufacturing, "Manufacturing", "manufacturing"],
   [INDUSTRY_ACTIVITY_POINTERS.copying, "Copying", "copying"],
@@ -26,12 +26,26 @@ const industryActivities: readonly UiPointerTarget[] = ([
 ] as const).map(([name, label, asset]) => ({
   name, label: `Industry - ${label}`, icon: clientTexture(`res:/UI/Texture/classes/Industry/activity/${asset}.png`), parent: industryParent,
 }));
+const marketQuotePointers = ([
+  [MARKET_POINTERS.buyers, "Buyers", "Quantity column"],
+  [MARKET_POINTERS.sellers, "Sellers", "Quantity"],
+] as const).flatMap(([ids, side, quantity]) => [
+  { name: ids.list, label: `Market - ${side}`, parent: MARKET_POINTERS.data },
+  { name: ids.jumps, label: `Market - ${side} - Jumps column`, parent: ids.list },
+  { name: ids.qty, label: `Market - ${side} - ${quantity}`, parent: ids.list },
+  { name: ids.price, label: `Market - ${side} - Price column`, parent: ids.list },
+]);
 export const INTERFACE_POINTERS: readonly UiPointerTarget[] = [
   ...WALLET_POINTERS,
   ...industryTabs,
   ...industryActivities,
   { name: INDUSTRY_LOCATION_POINTERS.input, label: "Industry - Input material location" },
   { name: INDUSTRY_LOCATION_POINTERS.output, label: "Industry - Output location" },
+  { name: MARKET_POINTERS.details, label: "Market - Details", icon: tabIcon, parent: neocomPointerName("market") },
+  { name: MARKET_POINTERS.data, label: "Market Data", icon: tabIcon, parent: MARKET_POINTERS.details },
+  { name: MARKET_POINTERS.history, label: "Market - Price History", icon: tabIcon, parent: MARKET_POINTERS.details },
+  { name: MARKET_POINTERS.duration, label: "Market - Sell Order Duration" },
+  ...marketQuotePointers,
 ];
 export const UI_POINTER_TARGETS = [...NEOCOM_POINTERS, ...INTERFACE_POINTERS, ...STATION_POINTERS];
 export const UI_POINTER_BY_NAME = new Map(UI_POINTER_TARGETS.map(target => [target.name, target]));
