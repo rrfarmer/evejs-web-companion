@@ -9772,6 +9772,21 @@ app.get("/api/bridge/chat/directory", requireAuth, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.get("/api/bridge/chat/directory/members", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  const session = heldChatSession(held);
+  if (!session) return chatUnavailable(res);
+  const rooms = typeof req.query.rooms === "string" ? [...new Set(req.query.rooms.split(","))] : [];
+  if (!rooms.length || rooms.length > 32 || rooms.some(room => room.length > 128 || !/^[a-z0-9]+_[a-z0-9_-]+$/i.test(room))) {
+    return res.status(400).json({ ok: false, error: "INVALID_CHANNEL", message: "Enter up to 32 directory room IDs." });
+  }
+  try {
+    const counts = await session.channelMembers(rooms, chatContext(held, req));
+    res.json({ ok: true, counts });
+  } catch (error) { next(error); }
+});
+
 app.get("/api/bridge/chat/:roomName/info", requireAuth, async (req, res, next) => {
   const held = requireHeldBridgeSession(req, res);
   if (!held) return;

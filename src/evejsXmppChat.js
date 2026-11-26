@@ -285,6 +285,14 @@ function attr(xml, name) {
   return match ? decodeXml(match[1]) : "";
 }
 
+function occupantsFromRoomInfo(xml) {
+  const field = /<field\b[^>]*\bvar=['"]muc#roominfo_occupants['"][^>]*>([\s\S]*?)<\/field>/i.exec(xml);
+  const value = field && /<value>([\s\S]*?)<\/value>/i.exec(field[1]);
+  const written = value ? decodeXml(value[1]).trim() : "";
+  const count = /^\d+$/.test(written) ? Number(written) : null;
+  return Number.isSafeInteger(count) ? count : null;
+}
+
 function positiveInt(value) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
@@ -502,9 +510,9 @@ class XmppChatSession {
         `<message from='${escapeXml(username)}' to='${escapeXml(roomJid)}'><x xmlns='http://jabber.org/protocol/muc#user'><decline to='${target}@${escapeXml(this.domain)}'><reason>${escapeXml(reason)}</reason></decline></x></message>`,
       // GetDisplayName: private room target, player conference target + node.
       // xmpphandler.issue_request (283-294) owns the shared request counter.
-      roomInfo: (roomName) => {
+      roomInfo: (roomName, direct = false) => {
         const id = requestID();
-        const player = roomName.startsWith("player_");
+        const player = !direct && roomName.startsWith("player_");
         const target = player ? this.conferenceDomain : `${roomName}@${this.conferenceDomain}`;
         const query = player
           ? `<query xmlns='http://jabber.org/protocol/disco#info' node='${escapeXml(roomName)}'/>`
@@ -1795,15 +1803,11 @@ class XmppChatSession {
     const response = await this.requestChatInformation(request, "room information");
     this.assertChatCurrent(context);
     const identity = /<identity\b[^>]*>/i.exec(response);
-    const field = /<field\b[^>]*\bvar=['"]muc#roominfo_occupants['"][^>]*>([\s\S]*?)<\/field>/i.exec(response);
-    const value = field && /<value>([\s\S]*?)<\/value>/i.exec(field[1]);
-    const written = value ? decodeXml(value[1]).trim() : "";
-    const occupants = /^[+-]?\d+$/.test(written) ? Number(written) : 0;
     return {
       roomName,
       result: attr(response.match(/^<iq\b[^>]*>/i)?.[0] || "", "type") === "result",
       name: identity ? attr(identity[0], "name") || null : null,
-      occupants: Number.isFinite(occupants) ? occupants : 0,
+      occupants: occupantsFromRoomInfo(response) ?? 0,
     };
   }
 
@@ -1825,6 +1829,21 @@ class XmppChatSession {
       rows.push({ roomName, name: attr(item, "name"), affiliation: attr(item, "node") || null });
     }
     return rows;
+  }
+
+  async channelMembers(roomNames, context = {}) {
+    const directory = await this.channelDirectory(null, context);
+    const visible = new Set(directory.map(channel => channel.roomName));
+    this.assertChatCurrent(context);
+    const stanzas = this.retailStanzas();
+    const results = await Promise.allSettled(roomNames.filter(roomName => visible.has(roomName)).map(async roomName => {
+      const response = await this.requestChatInformation(stanzas.roomInfo(roomName, true), "channel member count");
+      if (attr(response.match(/^<iq\b[^>]*>/i)?.[0] || "", "type") !== "result") return null;
+      const count = occupantsFromRoomInfo(response);
+      return count === null ? null : { roomName, count };
+    }));
+    this.assertChatCurrent(context);
+    return results.flatMap(result => result.status === "fulfilled" && result.value !== null ? [result.value] : []);
   }
 
   requestChatInformation(request, description) {

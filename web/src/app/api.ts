@@ -2086,6 +2086,19 @@ export async function readChatChannelDirectory(name: string | null, options: Api
   });
 }
 
+export async function readChatChannelMembers(rooms: readonly string[], options: ApiOptions = {}): Promise<ReadonlyMap<string, number>> {
+  const data = await getJson(`/api/bridge/chat/directory/members?rooms=${encodeURIComponent(rooms.join(","))}`, options);
+  if (!Array.isArray(data.counts)) throw new Error("Channel member counts could not be read.");
+  const counts = new Map<string, number>();
+  for (const row of data.counts) {
+    if (row && typeof row === "object" && !Array.isArray(row) && typeof row.roomName === "string" &&
+        typeof row.count === "number" && Number.isSafeInteger(row.count) && row.count >= 0) {
+      counts.set(row.roomName, row.count);
+    }
+  }
+  return counts;
+}
+
 export async function readChatRules(options: ApiOptions = {}): Promise<{ readonly groupCharacter: number; readonly elevated: bigint }> {
   const data = await getJson("/api/client-data/chat-rules", options);
   const rules = data.rules as Record<string, JsonValue> | null;

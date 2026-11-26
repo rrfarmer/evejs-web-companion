@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import type { AppFlow } from "../app/flow.ts";
   import type { ChatDirectoryChannel } from "../app/api.ts";
   import { plainText } from "../bridge/clientWords.ts";
@@ -7,9 +8,12 @@
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const words = $derived(store.words);
+  const conversations = $derived(flow.conversations.state);
+  const joinedRooms = $derived($conversations.rooms.map(room => room.channel).sort().join(","));
   const paths = {
     channelName: "UI/Chat/ChannelName",
     name: "UI/Chat/ChannelWindow/Name",
+    members: "UI/Chat/ChannelWindow/Members",
     player: "UI/Chat/ChannelWindow/PlayerChannels",
     owned: "UI/Chat/ChannelWindow/MyChannels",
   } as const;
@@ -22,6 +26,47 @@
   let searching = $state(false);
   let error = $state("");
   let request = 0;
+  const visibleRooms = new SvelteSet<string>();
+  let roomObserver: IntersectionObserver | null = null;
+  let counts = $state.raw<ReadonlyMap<string, number>>(new Map());
+  let tabVisible = $state(true);
+
+  function observeRoom(node: HTMLElement, roomName: string) {
+    roomObserver?.observe(node);
+    return { destroy() { roomObserver?.unobserve(node); visibleRooms.delete(roomName); } };
+  }
+
+  $effect(() => {
+    // The client refreshes the channel list when the current pilot joins or leaves.
+    void joinedRooms;
+    const rooms = [...visibleRooms];
+    if (!tabVisible || rooms.length === 0) return;
+    let current = true;
+    let pending = false;
+    const refresh = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        // The bridge accepts at most 32 rooms in one request.
+        const batches = [];
+        for (let at = 0; at < rooms.length; at += 32) batches.push(flow.readChatChannelMembers(rooms.slice(at, at + 32)));
+        const results = await Promise.allSettled(batches);
+        if (!current) return;
+        const next = new Map(counts);
+        for (const room of rooms) next.delete(room);
+        for (const result of results) if (result.status === "fulfilled") {
+          for (const [room, count] of result.value) next.set(room, count);
+        }
+        counts = next;
+      } finally {
+        pending = false;
+      }
+    };
+    const first = setTimeout(refresh, 50);
+    // Default client interval in globalConfig.const.
+    const timer = setInterval(refresh, 300_000);
+    return () => { current = false; clearTimeout(first); clearInterval(timer); };
+  });
 
   function systemLabels(roomName: string) {
     return /^system_(\d+)_(\d+)$/.exec(roomName);
@@ -66,6 +111,17 @@
 
   onMount(() => {
     let mounted = true;
+    roomObserver = new IntersectionObserver(entries => {
+      for (const { target, isIntersecting } of entries) {
+        const room = (target as HTMLElement).dataset.roomName;
+        if (!room || !target.isConnected) continue;
+        if (isIntersecting) visibleRooms.add(room);
+        else visibleRooms.delete(room);
+      }
+    });
+    const updateTabVisibility = () => { tabVisible = !document.hidden; };
+    updateTabVisibility();
+    document.addEventListener("visibilitychange", updateTabVisibility);
     flow.requestWords(Object.values(paths));
     void flow.readChatChannelDirectory(null).then(rows => {
       if (!mounted) return;
@@ -74,7 +130,12 @@
     }).catch(() => { if (mounted) error = "The chat directory is unavailable."; }).finally(() => {
       if (mounted) loading = false;
     });
-    return () => { mounted = false; request++; };
+    return () => {
+      mounted = false;
+      request++;
+      roomObserver?.disconnect();
+      document.removeEventListener("visibilitychange", updateTabVisibility);
+    };
   });
 
   function changeQuery(value: string) {
@@ -116,12 +177,16 @@
 {/if}
 {#if groups.length}
   <table class="guests channel-directory">
-    <thead><tr><th scope="col">{locale(paths.name, "Name")}</th></tr></thead>
+    <thead><tr><th scope="col">{locale(paths.name, "Name")}</th><th scope="col" class="num">{locale(paths.members, "Members")}</th></tr></thead>
     {#each groups as group (group.id)}
       <tbody>
-        <tr><th scope="rowgroup">{group.label}</th></tr>
+        <tr><th scope="rowgroup" colspan="2">{group.label}</th></tr>
         {#each group.channels as channel (channel.roomName)}
-          <tr data-room-name={channel.roomName}><td>{channel.label}</td></tr>
+          {@const count = counts.get(channel.roomName)}
+          <tr data-room-name={channel.roomName} use:observeRoom={channel.roomName}>
+            <td>{channel.label}</td>
+            <td class="num" data-members={count}>{count ? count.toLocaleString() : ""}</td>
+          </tr>
         {/each}
       </tbody>
     {/each}
