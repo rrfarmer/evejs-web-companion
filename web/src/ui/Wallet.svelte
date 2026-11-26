@@ -23,13 +23,22 @@
   import type { AppFlow } from "../app/flow.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { plainText } from "../bridge/clientWords.ts";
+  import { readPlexVaultBalance } from "../bridge/plexVault.ts";
+  import { decodePlexWalletNotice, PLEX_WALLET_NOTICE } from "../bridge/plexWalletNotice.ts";
   import WalletMarketTransactions from "./WalletMarketTransactions.svelte";
   import WalletJournal from "./WalletJournal.svelte";
   import WalletOverview from "./WalletOverview.svelte";
   import WalletGiveIsk from "./WalletGiveIsk.svelte";
   import WalletShares from "./WalletShares.svelte";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, onBuyPlex, onShowOmegaOffers, onShowMultipleTraining, onOpenStore }: {
+    store: ClientStore;
+    flow: AppFlow;
+    onBuyPlex?: () => void;
+    onShowOmegaOffers?: () => void;
+    onShowMultipleTraining?: () => void;
+    onOpenStore?: () => void;
+  } = $props();
 
   // svelte-ignore state_referenced_locally
   const wallet = store.wallet;
@@ -65,10 +74,52 @@
    * Loyalty Points and EverMarks stacked in the last third (TOTOP_PROP) - each a BaseWalletTab: the icon 56 in a 64
    * column on black at 0.25, the name (EveHeaderMediumBold) and the info mark over a divider, the amount at 17 (PLEX's
    * #FAB400); the ISK panel 16 below: its TabGroup - Overview, Transactions, Market Transactions, Shares,
-   * Give ISK). The currency strip reads the personal ISK balance.
+   * Give ISK).
    */
   const retail = getContext("retailChrome") === true;
   let walletTab = $state<"mine" | "settings">("mine");
+  let currency = $state<"isk" | "plex">("isk");
+  let plexBalance = $state<bigint | null>(null);
+  let plexUnavailable = $state(false);
+  const PLEX_DESCRIPTION = "UI/Wallet/WalletWindow/PLEXDescription";
+  const PLEX_UNAVAILABLE = "UI/PlexVault/BalanceUnavailable";
+  const PLEX_UNAVAILABLE_HINT = "UI/PlexVault/PlexTabUnavailable";
+  const BUY_PLEX = "UI/Wallet/WalletWindow/BuyPlex";
+  const BUY_PLEX_HINT = "UI/VirtualGoodsStore/Buttons/BuyPlex";
+  const PLEX_ACTIONS = $derived([
+    { label: "UI/PlexVault/AddOmegaTime", fallback: "Add Omega game time", run: onShowOmegaOffers },
+    { label: "UI/PlexVault/BuyMultipleTraining", fallback: "Buy extra skill queue", run: onShowMultipleTraining },
+    { label: "UI/PlexVault/OpenNES", fallback: "Shop in the NES", run: onOpenStore },
+    { label: "UI/PlexVault/BuyPlexForMoney", fallback: "Buy PLEX", run: onBuyPlex },
+  ]);
+  $effect(() => {
+    if (!retail || characterID === null) return;
+    const notices = flow.gatewayNotices;
+    let previous = notices.get();
+    let current = true;
+    let receivedBalance = false;
+    currency = "isk";
+    plexBalance = null;
+    plexUnavailable = false;
+    const unsubscribe = notices.subscribe(notice => {
+      if (notice === previous) return;
+      previous = notice;
+      if (notice?.typeName !== PLEX_WALLET_NOTICE) return;
+      const change = decodePlexWalletNotice(notice.payload);
+      if (!change) return;
+      receivedBalance = true;
+      plexBalance = BigInt(change.balance);
+      plexUnavailable = false;
+    });
+    void readPlexVaultBalance(flow.requestOptions()).then(cents => {
+      if (current && !receivedBalance) plexBalance = cents / 100n;
+    }).catch(() => {
+      if (!current || receivedBalance) return;
+      plexUnavailable = true;
+      currency = "isk";
+    });
+    return () => { current = false; unsubscribe(); };
+  });
   const NOTIFY_ISK = "UI/Wallet/WalletWindow/NotifyAccountChange";
   const NOTIFY_SHARES = "UI/Wallet/WalletWindow/NotifyShareChange";
   const NOTIFY_BILLS = "UI/Wallet/WalletWindow/NotifyBillChange";
@@ -87,8 +138,9 @@
   }
   const RETAIL_WORDS = ["UI/Wallet/WalletWindow/MyWallet", "UI/Common/Settings", "UI/Common/ISK", "UI/Common/PLEX",
     "UI/Journal/JournalWindow/Agents/LoyaltyPoints", "UI/Wallet/WalletWindow/EverMarks", "UI/Wallet/WalletWindow/ISKDescription",
-    SHOW_CENTS, SHOW_BALANCE_UPDATES, SHOW_LP_UPDATES, BALANCE_THRESHOLD, NOTIFY_ISK, NOTIFY_SHARES, NOTIFY_BILLS, NOTIFY_PLEX, CORP_WALLET];
-  $effect(() => { if (retail) flow.requestWords(RETAIL_WORDS); });
+    SHOW_CENTS, SHOW_BALANCE_UPDATES, SHOW_LP_UPDATES, BALANCE_THRESHOLD, NOTIFY_ISK, NOTIFY_SHARES, NOTIFY_BILLS, NOTIFY_PLEX, CORP_WALLET,
+    PLEX_DESCRIPTION, PLEX_UNAVAILABLE, PLEX_UNAVAILABLE_HINT, BUY_PLEX, BUY_PLEX_HINT];
+  $effect(() => { if (retail) flow.requestWords([...RETAIL_WORDS, ...PLEX_ACTIONS.map(action => action.label)]); });
 
   let busy = $state(false);
   let error = $state("");
@@ -190,14 +242,24 @@
       </div>
     {/if}
     <div class="wl-tabs" hidden={walletTab !== "mine"}>
-      <div class="wl-tab sel">
+      <button type="button" class="wl-tab currency-tab" class:sel={currency === "isk"} aria-pressed={currency === "isk"} onclick={() => (currency = "isk")}>
         <span class="ic"><img alt="" src="/client-res/ui/texture/windowicons/wallet.png" /></span>
         <span class="data"><span class="top"><b>{tabWord("UI/Common/ISK", "ISK")}</b><span class="info" title={tabWord("UI/Wallet/WalletWindow/ISKDescription", "")}>i</span></span>
           <span class="amount">{$wallet.loaded ? balance : ""}</span></span>
-      </div>
-      <div class="wl-tab">
-        <span class="ic"><img alt="" src="/client-res/ui/texture/plex/plex_128_gradient_yellow.png" /></span>
-        <span class="data"><span class="top"><b>{tabWord("UI/Common/PLEX", "PLEX")}</b><span class="info">i</span></span><span class="amount plex">-</span></span>
+      </button>
+      <div class="wl-tab plex-tab" class:sel={currency === "plex"}>
+        <button type="button" class="currency-tab plex-select" aria-pressed={currency === "plex"} disabled={plexBalance === null}
+          title={plexUnavailable ? tabWord(PLEX_UNAVAILABLE_HINT, "PLEX wallet currently unavailable. Please try again later.") : tabWord(PLEX_DESCRIPTION, "")}
+          onclick={() => (currency = "plex")}>
+          <span class="ic"><img alt="" src="/client-res/ui/texture/plex/plex_128_gradient_yellow.png" /></span>
+          <span class="data"><span class="top"><b>{tabWord("UI/Common/PLEX", "PLEX")}</b><span class="info">i</span></span>
+            <span class="amount plex" aria-live="polite">{plexUnavailable ? tabWord(PLEX_UNAVAILABLE, "Unavailable") : (plexBalance?.toLocaleString("en-US") ?? "…")}</span>
+          </span>
+        </button>
+        {#if onBuyPlex}
+          <button type="button" class="plex-plus" aria-label={tabWord(BUY_PLEX_HINT, "Buy PLEX")}
+            title={tabWord(BUY_PLEX_HINT, "Buy PLEX")} onclick={onBuyPlex}>{tabWord(BUY_PLEX, "+")}</button>
+        {/if}
       </div>
       <div class="wl-stack">
         <div class="wl-tab small"><span class="ic"><img alt="" src="/client-res/ui/texture/windowicons/lpstore_24px.png" /></span>
@@ -207,7 +269,19 @@
       </div>
     </div>
   {/if}
-  <div class="wl-mine" hidden={retail && walletTab !== "mine"}>
+  {#if retail && walletTab === "mine" && currency === "plex"}
+    <div class="wallet-plex">
+      <nav class="tabs" aria-label={tabWord("UI/Common/PLEX", "PLEX")}>
+        <button type="button" class="active" aria-pressed="true">{tabWord(TAB_WORDS.overview, "Overview")}</button>
+      </nav>
+      <div class="plex-actions">
+        {#each PLEX_ACTIONS as action (action.label)}
+          {#if action.run}<button type="button" onclick={action.run}>{tabWord(action.label, action.fallback)}</button>{/if}
+        {/each}
+      </div>
+    </div>
+  {/if}
+  <div class="wl-mine" hidden={retail && (walletTab !== "mine" || currency !== "isk")}>
   <header class="panel-head">
     <h2 class="panel-title">Wallet</h2>
     <span class="controls">
@@ -259,6 +333,13 @@
 </section>
 
 <style>
+  .currency-tab { padding: 0; color: inherit; text-align: left; }
+  .plex-tab { position: relative; min-width: 0; }
+  .plex-select { display: flex; flex: 1; min-width: 0; background: transparent; border: 0; }
+  .plex-plus { position: absolute; bottom: 7px; right: 6px; min-width: 20px; height: 20px; padding: 0 3px; }
+  .plex-select .amount { padding-right: 30px; font-size: clamp(12px, 2vw, 17px); overflow: hidden; text-overflow: ellipsis; }
+  .plex-actions { display: grid; gap: 6px; max-width: 320px; padding-top: 12px; }
+  .plex-actions button { min-height: 44px; text-align: left; }
   .wallet-settings { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
   .wallet-settings label { display: flex; align-items: center; gap: 8px; }
   .wallet-settings h3 { margin: 12px 0 0; }

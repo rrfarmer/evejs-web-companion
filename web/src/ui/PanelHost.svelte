@@ -111,6 +111,7 @@
     inventoryVaultRequested = false,
     storeCategoryRequest = null,
     onShowOmegaOffers,
+    onShowMultipleTraining,
     onToggleStore,
     onBuyPlex,
     onShowPlexOffers,
@@ -132,8 +133,9 @@
     onOpen?: (tab: TabID, sessionID?: string) => void;
     onClose?: () => void;
     inventoryVaultRequested?: boolean;
-    storeCategoryRequest?: { tag: string } | null;
+    storeCategoryRequest?: { tag: "gametime" | "plex" } | { typeID: number } | null;
     onShowOmegaOffers?: () => void;
+    onShowMultipleTraining?: () => void;
     onToggleStore?: () => void;
     onBuyPlex?: () => void;
     onShowPlexOffers?: () => void;
@@ -342,7 +344,8 @@
 {:else if tab === "botBuilder"}
   <BotBuilder {store} {flow} />
 {:else if tab === "wallet"}
-  <Wallet {store} {flow} />
+  <Wallet {store} {flow} {onShowOmegaOffers} {onShowMultipleTraining}
+    onBuyPlex={onOpen && (() => onOpen?.("plexCheckout"))} onOpenStore={onOpen && (() => onOpen?.("newEdenStore"))} />
 {:else if tab === "corpWallet"}
   <CorpWallet {store} {flow} />
 {:else if tab === "redeem"}

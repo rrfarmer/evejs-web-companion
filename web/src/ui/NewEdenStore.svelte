@@ -5,17 +5,20 @@
   import { plainText } from "../bridge/clientWords.ts";
   import { isListValue, readDictEntry, type JsonValue } from "../bridge/wire.ts";
 
-  let { flow, categoryRequest = null }: { flow: AppFlow; categoryRequest?: { tag: string } | null } = $props();
+  type StoreRequest = { tag: "gametime" | "plex" } | { typeID: number };
+  let { flow, categoryRequest = null }: { flow: AppFlow; categoryRequest?: StoreRequest | null } = $props();
   const storeID = 4;
   type Category = { id: number; name: string; tags: string[] };
-  type Offer = { id: number; name: string; description: string; categories: number[] };
+  type Offer = { id: number; name: string; description: string; categories: number[]; productTypes: number[] };
   let catalogue = $state<{ offers: Offer[]; categories: Category[] } | null>(null);
   let selectedCategory = $state<number | null>(null);
   let loading = $state(false);
   let error = $state("");
   let appliedRequest: typeof categoryRequest = null;
   let categoryUnavailable = $state(false);
-  const offers = $derived(catalogue?.offers.filter(offer => selectedCategory === null || offer.categories.includes(selectedCategory)) ?? []);
+  let selectedProduct = $state<number | null>(null);
+  const offers = $derived(catalogue?.offers.filter(offer => (selectedCategory === null || offer.categories.includes(selectedCategory)) &&
+    (selectedProduct === null || offer.productTypes.includes(selectedProduct))) ?? []);
 
   const entries = (value: unknown): readonly JsonValue[] => isListValue(value) ? value.items : [];
   const name = (value: unknown, key: string): string => {
@@ -30,9 +33,11 @@
     const requested = categoryRequest;
     if (requested === appliedRequest || !catalogue) return;
     appliedRequest = requested;
-    const category = requested ? catalogue.categories.find(row => row.tags.includes(requested.tag)) : null;
+    const tag = requested && "tag" in requested ? requested.tag : null;
+    const category = tag ? catalogue.categories.find(row => row.tags.includes(tag)) : null;
     selectedCategory = category?.id ?? null;
-    categoryUnavailable = !!requested && !category;
+    selectedProduct = requested && "typeID" in requested ? requested.typeID : null;
+    categoryUnavailable = !!tag && !category;
   });
 
   async function load() {
@@ -53,9 +58,14 @@
       });
       const listed = rawOffers.items.flatMap((entry) => {
         const offerID = id(entry), title = name(entry, "name");
-        if (offerID === null || !title || entries(readDictEntry(entry, "products")).length === 0) return [];
+        const products = entries(readDictEntry(entry, "products"));
+        if (offerID === null || !title || products.length === 0) return [];
         const groups = entries(readDictEntry(entry, "categories")).map(id);
-        return [{ id: offerID, name: title, description: name(entry, "description"), categories: groups.filter(group => group !== null) }];
+        const productTypes = products.flatMap(product => {
+          const typeID = readDictEntry(product, "typeId");
+          return typeof typeID === "number" && Number.isSafeInteger(typeID) ? [typeID] : [];
+        });
+        return [{ id: offerID, name: title, description: name(entry, "description"), categories: groups.filter(group => group !== null), productTypes }];
       });
       catalogue = { offers: listed, categories };
       if (selectedCategory !== null && !categories.some(category => category.id === selectedCategory)) selectedCategory = null;
@@ -72,20 +82,21 @@
 <div class="new-eden-store">
   <div class="store-controls">
     {#if catalogue?.categories.length}
-      <label>Category <select bind:value={selectedCategory} onchange={() => (categoryUnavailable = false)}>
+      <label>Category <select bind:value={selectedCategory} onchange={() => { categoryUnavailable = false; selectedProduct = null; }}>
         <option value={null}>All offers</option>
         {#each catalogue.categories as category (category.id)}
           <option value={category.id}>{category.name}</option>
         {/each}
       </select></label>
     {/if}
+    {#if selectedProduct !== null}<button type="button" onclick={() => (selectedProduct = null)}>Show all offers</button>{/if}
     <button type="button" disabled={loading} onclick={() => void load()}>Refresh catalogue</button>
   </div>
   {#if loading && catalogue === null}<p role="status">Loading store catalogue…</p>{/if}
-  {#if categoryUnavailable}<p role="status">{categoryRequest?.tag === "plex" ? "PLEX offers are unavailable in this catalogue." : "Game time is unavailable in this catalogue."}</p>{/if}
+  {#if categoryUnavailable}<p role="status">{categoryRequest && "tag" in categoryRequest && categoryRequest.tag === "plex" ? "PLEX offers are unavailable in this catalogue." : "Game time is unavailable in this catalogue."}</p>{/if}
   {#if error}<p role="alert">{error}</p>{/if}
   {#if catalogue !== null && offers.length === 0}
-    <p role="status">{selectedCategory === null ? "No offers are available from this server." : "No offers in this category."}</p>
+    <p role="status">{selectedProduct !== null ? "No Multiple Character Training offers are available." : selectedCategory === null ? "No offers are available from this server." : "No offers in this category."}</p>
   {/if}
   <ul class="offers" aria-label="Store offers">
     {#each offers as offer (offer.id)}

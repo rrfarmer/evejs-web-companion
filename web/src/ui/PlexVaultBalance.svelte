@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { publicGatewayRequest } from "../app/api.ts";
+  import { readPlexVaultBalance } from "../bridge/plexVault.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { plainText } from "../bridge/clientWords.ts";
@@ -33,15 +33,7 @@
     loading = true;
     error = "";
     try {
-      const answer = await publicGatewayRequest("eve_public.plex.vault.api.BalanceRequest", {}, flow.requestOptions());
-      const payload = answer.payload;
-      if (answer.statusCode !== 200 || !payload || typeof payload !== "object" || Array.isArray(payload)) {
-        throw new Error("The PLEX balance is unavailable.");
-      }
-      const currency = payload.balance;
-      if (!currency || typeof currency !== "object" || Array.isArray(currency)) throw new Error("The PLEX balance is unavailable.");
-      // Protobuf omits the scalar when the balance is zero.
-      balance = BigInt(String(currency.total_in_cents ?? "0"));
+      balance = await readPlexVaultBalance(flow.requestOptions());
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {

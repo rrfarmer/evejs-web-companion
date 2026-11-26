@@ -2159,10 +2159,14 @@
   function toggleBountyOffice() {
     bountyOffice = bountyOffice ? null : { target: null };
   }
-  let storeCategoryRequest = $state.raw<{ tag: string } | null>(null);
+  let storeCategoryRequest = $state.raw<{ tag: "gametime" | "plex" } | { typeID: number } | null>(null);
   function showOmegaOffers() {
     open("newEdenStore");
     storeCategoryRequest = { tag: "gametime" };
+  }
+  function showMultipleTraining() {
+    open("newEdenStore");
+    storeCategoryRequest = { typeID: 63188 };
   }
   function togglePlexCheckout() {
     if (wins.some(win => win.id === "plexCheckout" && !win.minimized)) wins = closeWindow(wins, "plexCheckout");
@@ -4516,7 +4520,7 @@
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
               {inventoryVaultRequested}
-              {storeCategoryRequest} onShowOmegaOffers={showOmegaOffers}
+              {storeCategoryRequest} onShowOmegaOffers={showOmegaOffers} onShowMultipleTraining={showMultipleTraining}
               onToggleStore={() => neocomOpen("newEdenStore")}
               onBuyPlex={togglePlexCheckout} onShowPlexOffers={showPlexOffers}
               onReprocess={reprocessingAvailable ? reprocessSelection : undefined}

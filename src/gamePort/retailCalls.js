@@ -676,6 +676,8 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
  * (importExportUI.py 549), and the gateway never had it.
  */
 const GAME_PORT_ONLY_CALLS = Object.freeze([
+  // Revisions of the gateway contract without the read-only NES catalogue.
+  "storeManager.get_categories", "storeManager.get_offers",
   "crimewatch.ApplyTagsForSecStatus",
   "paperDollServer.GetPaperDollPortraitDataFor",
   "paperDollServer.GetMyPaperDollData",
@@ -1154,6 +1156,7 @@ const CC_SVC = "eve/client/script/ui/services/ccSvc.py";
 const CC_STEPS = "eve/client/script/ui/login/charcreation/steps";
 const ACCOUNT_SVC = "eve/client/script/ui/services/accountsvc.py";
 const WALLET_SVC = "eve/client/script/ui/shared/neocom/wallet/walletSvc.py";
+const VGS_CLIENT = "vgs/client/vgsClient.py";
 const CORP_SVC = "eve/client/script/ui/services/corporation";
 const ALLIANCE_SVC = "eve/client/script/ui/services/alliances";
 /**
@@ -3180,6 +3183,8 @@ const RETAIL_CALLS = Object.freeze({
   "calendarMgr.DeleteEvent": same(`${CALENDAR_SVC}:316`, "DeleteEvent(eventID, ownerID) after CalendarDeleteEvent is accepted"),
   "calendarMgr.SendEventResponse": same(`${CALENDAR_SVC}:295`, "RespondToEvent sends the opened invitation's eventID, ownerID, and its chosen response (accepted, tentative, or declined)."),
   "account.GetCashBalance": same(`${WALLET_SVC}:41,156-170`, "GetCashBalance(0) for personal wealth; corporate GetCorpWealth sends (1, accountKey=None/explicit key) freshly, separately from its one-minute per-key cache"),
+  "storeManager.get_offers": same(`${VGS_CLIENT}:36`, "Reads offers using the in-game store ID"),
+  "storeManager.get_categories": same(`${VGS_CLIENT}:45`, "Reads categories using the in-game store ID"),
   "account.GiveCashFromCorpAccount": Object.freeze({
     status: "same", source: "eve/client/script/ui/shared/neocom/wallet/transferMoneyWnd.py:150",
     note: "Corporate-source transfer: character, float amount, captured source key; destination None and original edit reason by keyword. TQ Corp Transfers1804 has this three-argument/keyword shape and None reply.",
