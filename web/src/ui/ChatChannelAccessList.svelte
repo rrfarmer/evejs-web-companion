@@ -15,6 +15,7 @@
   type Match = Owner & { kind: ChatAccessOwnerKind };
   const ownerTypes = [[2, "character"], [3, "corporation"], [4, "alliance"]] as const;
   const paths = {
+    allowed: "UI/Chat/Allowed", blocked: "UI/Chat/Blocked", muted: "UI/Chat/Muted",
     addAllowed: "UI/Chat/AddToAllowedList", addBlocked: "UI/Chat/AddToBlockedList",
     remove: "UI/Chat/RemoveSelected", picker: "UI/Chat/SelectAllianceCorpChar", temporary: "UI/Chat/TemporaryBan",
     search: "UI/Common/Buttons/Search", ok: "UI/Common/Buttons/OK", cancel: "UI/Common/Buttons/Cancel",
@@ -87,6 +88,7 @@
     finally { if (current) { busy = false; mutating = false; } }
   }
   async function accessKind(owner: Owner): Promise<ChatAccessOwnerKind> {
+    if (list === "muted") return "character";
     const known = knownKinds.get(owner.id);
     if (known) return known;
     if (isCorporationOwner(owner.id)) return "corporation";
@@ -116,25 +118,28 @@
   }
 </script>
 
-<section class="channel-access-list {list}-list" aria-label={list === "allowed" ? "Allowed" : "Blocked"}>
+<section class="channel-access-list {list}-list" aria-label={label(list, list[0]!.toUpperCase() + list.slice(1))}>
   <div class="actions">
-    <button type="button" disabled={busy || picker} onclick={() => { picker = true; }}>
-      {list === "allowed" ? label("addAllowed", "Add to Allowed List") : label("addBlocked", "Add to Blocked List")}
-    </button>
+    {#if list !== "muted"}
+      <button type="button" disabled={busy || picker} onclick={() => { picker = true; }}>
+        {list === "allowed" ? label("addAllowed", "Add to Allowed List") : label("addBlocked", "Add to Blocked List")}
+      </button>
+    {/if}
     <button type="button" disabled={busy || picker || !selected.size} onclick={remove}>{label("remove", "Remove Selected")}</button>
   </div>
   {#if entries.length}
     <ul>
       {#each entries as owner (owner.id)}
-        <li data-allowed-owner={list === "allowed" ? owner.id : undefined} data-blocked-owner={list === "blocked" ? owner.id : undefined}>
+        <li data-allowed-owner={list === "allowed" ? owner.id : undefined} data-blocked-owner={list === "blocked" ? owner.id : undefined}
+          data-muted-owner={list === "muted" ? owner.id : undefined}>
           <label><input type="checkbox" checked={selected.has(owner.id)} disabled={busy || picker}
             onchange={(event) => { if (event.currentTarget.checked) selected.add(owner.id); else selected.delete(owner.id); }} />{owner.name}
-            {#if owner.temporary}<small>– {label("temporary", "Temporary ban")}</small>{/if}</label>
+            {#if list === "blocked" && owner.temporary}<small>– {label("temporary", "Temporary ban")}</small>{/if}</label>
         </li>
       {/each}
     </ul>
   {:else if !busy}
-    <p>No owners are on the {list} list.</p>
+    <p>{list === "muted" ? "No characters are muted." : `No owners are on the ${list} list.`}</p>
   {/if}
   {#if busy}<p role="status">Updating the {list} list…</p>{/if}
   {#if picker}

@@ -531,12 +531,12 @@ class XmppChatSession {
         const query = `<query xmlns='http://jabber.org/protocol/muc#${namespace}'>${payload}</query>`;
         return { id, xml: `<iq id='${id}' type='${type}' from='${escapeXml(jid())}' to='${escapeXml(target)}'>${query}</iq>` };
       },
-      roomBanRecords: (roomName, ownerID) => {
+      roomRestrictionRecords: (roomName, category, ownerID) => {
         const id = requestID();
         const room = escapeXml(`${roomName}@${this.conferenceDomain}`);
         const read = ownerID === undefined;
-        const query = read ? `<query xmlns='urn:xmpp:expiring_record#search' room='${room}' category='ban'/>` :
-          `<query xmlns='urn:xmpp:expiring_record' room='${room}' category='ban' jid='${escapeXml(`${ownerID}@${this.domain}`)}' action='delete'/>`;
+        const query = read ? `<query xmlns='urn:xmpp:expiring_record#search' room='${room}' category='${category}'/>` :
+          `<query xmlns='urn:xmpp:expiring_record' room='${room}' category='${category}' jid='${escapeXml(`${ownerID}@${this.domain}`)}' action='delete'/>`;
         return { id, xml: `<iq id='${id}' type='${read ? "get" : "set"}' from='${escapeXml(jid())}' to='${escapeXml(this.domain)}'>${query}</iq>` };
       },
       roomSubject: (roomName, subject) => {
@@ -1970,10 +1970,15 @@ class XmppChatSession {
         [[ownerID, Number(attr(item, "expires_at_ms")) || 0]] : [];
     });
     const read = async () => {
+      if (list === "muted") {
+        const records = await request(stanzas.roomRestrictionRecords(roomName, "mute"));
+        const now = Date.now();
+        return [...new Map(parse(records))].flatMap(([id, expiry]) => !expiry || expiry > now ? [{ id, temporary: expiry > 0 }] : []);
+      }
       const response = await request(stanzas.roomIq(roomName, "admin", "get", `<item affiliation='${affiliation}'/>`));
       const entries = new Map(parse(response, affiliation));
       if (list === "blocked") {
-        const records = await request(stanzas.roomBanRecords(roomName));
+        const records = await request(stanzas.roomRestrictionRecords(roomName, "ban"));
         const now = Date.now();
         for (const [ownerID, expiry] of parse(records)) {
           if (expiry > now) entries.set(ownerID, expiry);
@@ -1985,11 +1990,20 @@ class XmppChatSession {
     const before = await read();
     if (!change) return before;
     const current = before.find(entry => entry.id === change.ownerID);
+    if (list === "muted") {
+      if (change.listed || change.kind !== "character") {
+        throw new XmppChatError("Select a muted character to remove.", { code: "INVALID_CHAT_OWNER", statusCode: 400 });
+      }
+      if (!current) return before;
+      await request(stanzas.roomIq(roomName, "admin", "set", `<item nick='${change.ownerID}' role='participant'/>`));
+      await request(stanzas.roomRestrictionRecords(roomName, "mute", change.ownerID));
+      return read();
+    }
     if (change.listed ? current && !current.temporary : !current) return before;
     const owner = `${change.ownerID}@${this.domain}`;
     const item = `<item affiliation='${change.listed ? affiliation : "none"}' jid='${escapeXml(owner)}'><reason>${escapeXml(change.kind)}</reason></item>`;
     await request(stanzas.roomIq(roomName, "admin", "set", item));
-    if (!change.listed && current?.temporary) await request(stanzas.roomBanRecords(roomName, change.ownerID));
+    if (!change.listed && current?.temporary) await request(stanzas.roomRestrictionRecords(roomName, "ban", change.ownerID));
     return read();
   }
 
