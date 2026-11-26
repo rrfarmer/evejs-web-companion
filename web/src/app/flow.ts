@@ -13,6 +13,8 @@ import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequ
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
+import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, encodeShipSkinrListingTarget, shipSkinrListingLimit,
+  shipSkinrListingQuote, type ShipSkinrListingInput, type ShipSkinrListingTarget } from "../bridge/shipSkinrMarket.ts";
 import { setSessionToken } from "./sessionToken.ts";
 import { pageFetch } from "./pageFetch.ts";
 import {
@@ -4604,6 +4606,11 @@ export interface AppFlow {
   readonly shipSkinrApplied: ReadableSignal<ShipSkinrAppliedState | null>;
   loadShipSkinrApplied(shipID: number): Promise<void>;
   applyShipSkinrLicense(hex: string, shipID: number, remove: boolean): Promise<void>;
+  loadShipSkinrOwnedListings(): Promise<ReturnType<typeof decodeOwnedShipSkinrListings>>;
+  loadShipSkinrListingLimit(): Promise<number>;
+  quoteShipSkinrListing(hex: string, target: ShipSkinrListingTarget): Promise<ReturnType<typeof shipSkinrListingQuote>>;
+  createShipSkinrListing(input: ShipSkinrListingInput): Promise<string>;
+  waitForShipSkinrListing(transaction: string): Promise<"completed" | "failed" | "pending">;
   loadShipSkinrEarlyPricing(): Promise<readonly ShipSkinrEarlyPrice[]>;
   completeShipSkinrJob(id: string): Promise<void>;
   loadShipSkinrStartTerms(tier: number): Promise<ReturnType<typeof shipSkinrSequenceTerms>>;
@@ -29028,6 +29035,61 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await loadShipSkinrApplied(shipID);
   }
 
+  async function loadShipSkinrOwnedListings(): Promise<ReturnType<typeof decodeOwnedShipSkinrListings>> {
+    const current = callOptions.captureRequestGuard!();
+    const reply = await gatewayAsk(SHIP_SKINR_MARKET + "skin.listing.api.GetAllOwnedRequest");
+    current();
+    return decodeOwnedShipSkinrListings(reply);
+  }
+
+  async function loadShipSkinrListingLimit(): Promise<number> {
+    const current = callOptions.captureRequestGuard!();
+    const skills = await bridgeAsk("skillHandler", "GetSkills", []);
+    current();
+    return shipSkinrListingLimit(skills);
+  }
+
+  async function quoteShipSkinrListing(hex: string, target: ShipSkinrListingTarget): Promise<ReturnType<typeof shipSkinrListingQuote>> {
+    const current = callOptions.captureRequestGuard!();
+    const wire = encodeShipSkinrListingTarget(target);
+    const [broker, tax, buyer] = await Promise.all([
+      gatewayAsk(SHIP_SKINR_MARKET + "api.GetBrokerFeesRequest", { target: wire }),
+      gatewayAsk(SHIP_SKINR_MARKET + "api.GetTaxRateRequest", { target: wire }),
+      target.kind === "public" ? null : gatewayAsk(SHIP_SKINR_MARKET + "api.GetBuyerFeeRequest", { target: wire, skin: { hex } }),
+    ]);
+    current();
+    return shipSkinrListingQuote(broker, tax, buyer);
+  }
+
+  async function createShipSkinrListing(input: ShipSkinrListingInput): Promise<string> {
+    const current = callOptions.captureRequestGuard!();
+    const pilot = store.station.get().online?.characterID;
+    if (!pilot) throw new Error("Select a pilot to list a SKIN.");
+    const answer = await gatewayAsk(SHIP_SKINR_MARKET + "skin.listing.api.InitiateCreateListingRequest", {
+      skin: { character: { sequential: pilot }, skin: { hex: input.hex } },
+      ...(input.currency === "PLEX" ? { price_plex: { total_in_cents: String(input.amount * 100) } } : { price_isk: { units: input.amount } }),
+      quantity: input.quantity, duration: { seconds: input.seconds }, target: encodeShipSkinrListingTarget(input.target),
+    }, true);
+    current();
+    const id = shipSkinrRecord(shipSkinrRecord(answer ?? undefined)?.transaction)?.uuid;
+    if (typeof id !== "string" || !id) throw new Error("The listing receipt is unavailable. Check your listings before submitting again.");
+    return id;
+  }
+
+  async function waitForShipSkinrListing(transaction: string): Promise<"completed" | "failed" | "pending"> {
+    const current = callOptions.captureRequestGuard!();
+    for (let attempt = 0; attempt < 14; attempt++) {
+      if (attempt) await new Promise(resolve => setTimeout(resolve, 600));
+      current();
+      const reply = await gatewayAsk(SHIP_SKINR_MARKET + "transaction.api.GetRequest", { transaction: { uuid: transaction } });
+      current();
+      const status = shipSkinrRecord(shipSkinrRecord(reply ?? undefined)?.status)?.status;
+      if (status === 3 || status === "SUCCESSFUL") return "completed";
+      if (status === 2 || status === "FAILED") return "failed";
+    }
+    return "pending";
+  }
+
   async function loadShipSkinrStartTerms(tier: number): Promise<ReturnType<typeof shipSkinrSequenceTerms>> {
     const current = callOptions.captureRequestGuard!();
     const [pricing, durations, skills] = await Promise.all([
@@ -41472,6 +41534,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     shipSkinrApplied: readonlySignal(shipSkinrAppliedSignal),
     loadShipSkinrApplied,
     applyShipSkinrLicense,
+    loadShipSkinrOwnedListings,
+    loadShipSkinrListingLimit,
+    quoteShipSkinrListing,
+    createShipSkinrListing,
+    waitForShipSkinrListing,
     loadShipSkinrEarlyPricing,
     completeShipSkinrJob,
     loadShipSkinrStartTerms,

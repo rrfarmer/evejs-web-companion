@@ -1,0 +1,62 @@
+import { shipSkinrRecord as object } from "./shipSkinrCoatings.ts";
+import { skillLevelsOf } from "./skillSheet.ts";
+import type { JsonValue } from "./wire.ts";
+
+export const SHIP_SKINR_MARKET = "eve_public.cosmetic.market.";
+export type ShipSkinrCurrency = "ISK" | "PLEX";
+export type ShipSkinrListingTarget = { kind: "public" } | { kind: "character" | "corporation" | "alliance"; id: number };
+export interface ShipSkinrListingInput {
+  readonly hex: string;
+  readonly quantity: number;
+  readonly currency: ShipSkinrCurrency;
+  readonly amount: number;
+  readonly seconds: number;
+  readonly target: ShipSkinrListingTarget;
+}
+
+export function encodeShipSkinrListingTarget(target: ShipSkinrListingTarget): Record<string, JsonValue> {
+  return target.kind === "public" ? { public: true } : { [target.kind]: { sequential: target.id } };
+}
+
+function fixed(value: JsonValue | undefined): number {
+  const row = object(value);
+  return Number(row?.units ?? 0) + Number(row?.nanos ?? 0) / 1e9;
+}
+
+export function shipSkinrListingQuote(broker: JsonValue | null, tax: JsonValue | null, buyer: JsonValue | null) {
+  const rows = object(broker ?? undefined)?.broker_fees_per_duration;
+  const durations = (Array.isArray(rows) ? rows : []).flatMap(value => {
+    const row = object(value);
+    const seconds = Number(object(row?.duration)?.seconds);
+    const fee = fixed(object(row?.broker_fee)?.fee);
+    return Number.isSafeInteger(seconds) && seconds > 0 && Number.isFinite(fee) && fee >= 0 ? [{ seconds, fee }] : [];
+  });
+  const buyerFee = Number(object(object(object(buyer ?? undefined)?.buyer_fee)?.loyalty_points)?.amount ?? 0);
+  const taxPercent = fixed(object(tax ?? undefined)?.tax_rate) * 100;
+  if (!durations.length || !Number.isFinite(taxPercent) || !Number.isFinite(buyerFee)) throw new Error("Listing terms unavailable.");
+  return { durations, taxPercent, buyerFee };
+}
+
+export function shipSkinrListingLimit(skills: unknown): number {
+  const levels = skillLevelsOf(skills);
+  const level = (id: number) => Math.max(0, Math.min(5, levels.get(id)?.trainedSkillLevel ?? 0));
+  const advanced = level(81369);
+  return 1 + level(81368) + (advanced > 0 ? 4 + (advanced - 1) * 5 : 0);
+}
+
+export function decodeOwnedShipSkinrListings(payload: JsonValue | null) {
+  const rows = object(payload ?? undefined)?.listings;
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap(value => {
+    const row = object(value);
+    const id = object(row?.id)?.uuid;
+    const attributes = object(row?.attributes);
+    const hex = object(object(attributes?.skin)?.skin)?.hex;
+    if (typeof id !== "string" || typeof hex !== "string") return [];
+    const currency: ShipSkinrCurrency = attributes?.plex ? "PLEX" : "ISK";
+    return [{ id, hex, quantity: Number(attributes?.quantity), currency,
+      amount: currency === "PLEX" ? Number(object(attributes?.plex)?.total_in_cents) / 100 : fixed(attributes?.isk),
+      target: object(attributes?.target) ?? {}, expires: Number(object(attributes?.expires)?.seconds) * 1000,
+      created: Number(object(attributes?.created)?.seconds) * 1000 }];
+  });
+}

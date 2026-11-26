@@ -16463,6 +16463,510 @@
      "typeName": "eve_public.cosmetic.ship.State"
     }
    ]
+  },
+  "eve_public.cosmetic.market.api.GetBrokerFeesRequest": {
+   "fields": [
+    {
+     "name": "target",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.skin.listing.ListingTarget"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.skin.listing.ListingTarget": {
+   "fields": [
+    {
+     "name": "public",
+     "number": 1,
+     "type": 8,
+     "label": 1,
+     "oneof": "target"
+    },
+    {
+     "name": "corporation",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.Identifier",
+     "oneof": "target"
+    },
+    {
+     "name": "alliance",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.alliance.Identifier",
+     "oneof": "target"
+    },
+    {
+     "name": "character",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier",
+     "oneof": "target"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.api.GetBrokerFeesResponse": {
+   "fields": [
+    {
+     "name": "broker_fees",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.market.BrokerFee"
+    },
+    {
+     "name": "broker_fees_per_duration",
+     "number": 2,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.market.api.GetBrokerFeesResponse.FeePerDuration"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.BrokerFee": {
+   "fields": [
+    {
+     "name": "duration",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Duration"
+    },
+    {
+     "name": "fee",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.isk.Currency"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.api.GetBrokerFeesResponse.FeePerDuration": {
+   "fields": [
+    {
+     "name": "duration",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Duration"
+    },
+    {
+     "name": "broker_fee",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.BrokerFee"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.api.GetTaxRateRequest": {
+   "fields": [
+    {
+     "name": "target",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.skin.listing.ListingTarget"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.api.GetTaxRateResponse": {
+   "fields": [
+    {
+     "name": "tax_rate",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.TaxRate"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.TaxRate": {
+   "fields": [
+    {
+     "name": "units",
+     "number": 1,
+     "type": 18,
+     "label": 1
+    },
+    {
+     "name": "nanos",
+     "number": 2,
+     "type": 17,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.api.GetBuyerFeeRequest": {
+   "fields": [
+    {
+     "name": "target",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.skin.listing.ListingTarget"
+    },
+    {
+     "name": "skin",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.api.GetBuyerFeeResponse": {
+   "fields": [
+    {
+     "name": "buyer_fee",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.BuyerFee"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.BuyerFee": {
+   "fields": [
+    {
+     "name": "loyalty_points",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.loyaltypoints.Currency"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.skin.listing.api.GetAllOwnedRequest": {
+   "fields": []
+  },
+  "eve_public.cosmetic.market.skin.listing.api.GetAllOwnedResponse": {
+   "fields": [
+    {
+     "name": "listings",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.market.skin.listing.Entry"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.skin.listing.Entry": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.skin.listing.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.skin.listing.Attributes"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.skin.listing.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.skin.listing.Attributes": {
+   "fields": [
+    {
+     "name": "seller",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "created",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "expires",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "isk",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.isk.Currency",
+     "oneof": "price"
+    },
+    {
+     "name": "plex",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.plex.Currency",
+     "oneof": "price"
+    },
+    {
+     "name": "skin",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.license.Identifier"
+    },
+    {
+     "name": "quantity",
+     "number": 8,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "target",
+     "number": 9,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.skin.listing.ListingTarget"
+    },
+    {
+     "name": "branded",
+     "number": 10,
+     "type": 8,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.skin.listing.api.InitiateCreateListingRequest": {
+   "fields": [
+    {
+     "name": "price_isk",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.isk.Currency",
+     "oneof": "price_details"
+    },
+    {
+     "name": "price_plex",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.plex.Currency",
+     "oneof": "price_details"
+    },
+    {
+     "name": "skin",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.license.Identifier"
+    },
+    {
+     "name": "duration",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Duration"
+    },
+    {
+     "name": "quantity",
+     "number": 5,
+     "type": 13,
+     "label": 1
+    },
+    {
+     "name": "target",
+     "number": 6,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.skin.listing.ListingTarget"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.skin.listing.api.InitiateCreateListingResponse": {
+   "fields": [
+    {
+     "name": "transaction",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.transaction.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.transaction.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.transaction.api.GetRequest": {
+   "fields": [
+    {
+     "name": "transaction",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.transaction.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.transaction.api.GetResponse": {
+   "fields": [
+    {
+     "name": "status",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.transaction.Attributes"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.transaction.Attributes": {
+   "fields": [
+    {
+     "name": "last_updated",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "status",
+     "number": 2,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.transaction.Attributes.Status"
+    },
+    {
+     "name": "details",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.transaction.Attributes.Details"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.transaction.Attributes.Details": {
+   "fields": [
+    {
+     "name": "purchasing_component",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.component.listing.Entry",
+     "oneof": "context"
+    },
+    {
+     "name": "purchasing_skin",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.skin.listing.Entry",
+     "oneof": "context"
+    },
+    {
+     "name": "creating_skin_listing",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.license.Identifier",
+     "oneof": "context"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.component.listing.Entry": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.component.listing.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.component.listing.Attributes"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.component.listing.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.component.listing.Attributes": {
+   "fields": [
+    {
+     "name": "sale_end",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    },
+    {
+     "name": "isk",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.isk.Currency",
+     "oneof": "price"
+    },
+    {
+     "name": "plex",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.plex.Currency",
+     "oneof": "price"
+    },
+    {
+     "name": "component_item",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.inventory.genericitemtype.Identifier"
+    },
+    {
+     "name": "bundle_size",
+     "number": 6,
+     "type": 4,
+     "label": 1
+    },
+    {
+     "name": "discount_percent",
+     "number": 7,
+     "type": 13,
+     "label": 1
+    }
+   ]
   }
  },
  "enums": {
@@ -16622,6 +17126,14 @@
     "DEVELOPMENT_STAGE_3": 3,
     "DEVELOPMENT_STAGE_4": 4,
     "DEVELOPMENT_STAGE_5": 5
+   }
+  },
+  "eve_public.cosmetic.market.transaction.Attributes.Status": {
+   "values": {
+    "STATUS_CODE_UNSPECIFIED": 0,
+    "INITIATED": 1,
+    "FAILED": 2,
+    "SUCCESSFUL": 3
    }
   }
  }
