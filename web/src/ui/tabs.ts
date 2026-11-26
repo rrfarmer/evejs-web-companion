@@ -84,6 +84,7 @@ export type CoreTabID =
   | "auraGuidance"
   | "newEdenStore"
   | "projectDiscovery"
+  | "pvpFilamentEvents"
   | "omegaUpsell"
   | "plexCheckout"
   | "notepad"
@@ -236,6 +237,7 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "auraGuidance", label: "Aura Guidance", where: "both", launchable: false },
   { id: "newEdenStore", label: "New Eden Store", where: "both", launchable: false },
   { id: "projectDiscovery", label: "Project Discovery", where: "both", launchable: false },
+  { id: "pvpFilamentEvents", label: "The Proving Grounds", where: "both", launchable: false },
   { id: "omegaUpsell", label: "Upgrade to Omega", where: "both", launchable: false },
   { id: "plexCheckout", label: "Buy PLEX", where: "both", launchable: false },
   // Both — reachable docked or undocked.

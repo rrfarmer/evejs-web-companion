@@ -134,6 +134,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
     { id: "projectDiscovery", label: "Project Discovery", icon: icon("projectdiscovery") },
     { id: "theatersOfWar", label: "Theaters of War", icon: clientTexture("res:/UI/Texture/eveicon/product_icons/theaters_of_war_product_64px.png") },
     { id: "bountyOffice", label: "Bounty Office", icon: icon("bountyoffice") },
+    { id: "pvpFilamentEvents", label: "The Proving Grounds", icon: icon("provingGrounds") },
   ] },
   { label: "Finance", icon: icon("directoryMarket"), items: [
     { id: "market", label: "Regional Market", icon: icon("market") },

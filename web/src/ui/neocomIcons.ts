@@ -68,6 +68,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   auraGuidance: ["M3 4h18v13h-8l-5 4v-4H3z", "M7 9h10m-10 4h7"],
   newEdenStore: ["M4 8h16v13H4z", "M8 9V6a4 4 0 0 1 8 0v3"],
   projectDiscovery: ["M9 3h6m-5 0v7l-5 8a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-8V3", "M8 15h8"],
+  pvpFilamentEvents: ["M4 4h6l10 10-6 6L4 10zM13 7l3-3h4v4l-3 3", "m6 16 2 2-4 2z"],
   omegaUpsell: ["M4 19h5v-2a6 6 0 1 1 6 0v2h5"],
   plexCheckout: ["M12 3l8 5v8l-8 5-8-5V8z", "M8 12h8M12 8v8"],
 

@@ -44,6 +44,7 @@
   import AgentsMissions from "./AgentsMissions.svelte";
   import AgencyWindow from "./AgencyWindow.svelte";
   import ProjectDiscoveryWindow from "./ProjectDiscoveryWindow.svelte";
+  import PvpFilamentEvents from "./PvpFilamentEvents.svelte";
   import TheatersOfWar from "./TheatersOfWar.svelte";
   import JobBoardWindow from "./JobBoardWindow.svelte";
   import AchievementsWindow from "./AchievementsWindow.svelte";
@@ -306,6 +307,8 @@
   <AgencyWindow {store} {flow} {onShowConvoys} showTravel={() => onOpen?.("travel")} onOpenTab={(tab) => onOpen?.(tab as never)} />
 {:else if tab === "projectDiscovery"}
   <ProjectDiscoveryWindow {store} {flow} onRedeem={() => onOpen?.("redeem")} />
+{:else if tab === "pvpFilamentEvents"}
+  <PvpFilamentEvents {store} {flow} />
 {:else if tab === "theatersOfWar"}
   <TheatersOfWar {store} {flow} {onShowConvoys} />
 {:else if tab === "flight"}
