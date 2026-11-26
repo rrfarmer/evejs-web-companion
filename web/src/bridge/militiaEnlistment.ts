@@ -204,6 +204,7 @@ export function militiaWarzoneMarkers(hqs: JsonValue, launchers: JsonValue, pads
 }
 
 export interface InsurgencyCampaign extends MilitiaInsurgency {
+  readonly fobStructureID: number | null;
   readonly coveredSystemIDs: readonly number[];
   readonly fsmState: number | null;
   readonly stateExpiryMs: number | null;
@@ -217,14 +218,16 @@ export function insurgencyCampaigns(value: JsonValue): InsurgencyCampaign[] {
     const factionID = militiaFactionID(attrs.get("_pirateFactionID"));
     const warzoneID = Number(unwrapLong(attrs.get("_warzoneID"))) || null;
     const originSystemID = Number(unwrapLong(attrs.get("_originSolarsystemID"))) || null;
-    const fobSystemID = Number(unwrapLong(attrs.get("_structureID"))) > 0 ? originSystemID : null;
+    const structureID = Number(unwrapLong(attrs.get("_structureID")));
+    const fobStructureID = Number.isSafeInteger(structureID) && structureID > 0 ? structureID : null;
+    const fobSystemID = fobStructureID !== null ? originSystemID : null;
     const covered = attrs.get("_coveredSolarsystemIDs");
     const coveredSystemIDs = listItems(objectArguments(covered)?.[0] ?? covered)
       .map((system) => Number(unwrapLong(system))).filter((id) => Number.isSafeInteger(id) && id > 0);
     const expiry = unwrapLong(attrs.get("_stateExpiryTimestamp"));
     const state = unwrapLong(attrs.get("_fsmState"));
     return campaignID > 0 && factionID ? [{
-      campaignID, factionID, warzoneID, originSystemID, fobSystemID, coveredSystemIDs,
+      campaignID, factionID, warzoneID, originSystemID, fobSystemID, fobStructureID, coveredSystemIDs,
       fsmState: state === null ? null : Number(state),
       stateExpiryMs: expiry === null ? null : Number((expiry - 116_444_736_000_000_000n) / 10_000n),
     }] : [];

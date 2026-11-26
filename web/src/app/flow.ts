@@ -483,6 +483,7 @@ import { isRepairableItem, payRepairShop, quoteRepairs, repairItemsAtShop, repai
 import { insurancePrices, insuranceTerms, stationInsuranceContracts, type InsurancePackage, type StationInsuranceShip } from "../bridge/stationInsurance.ts";
 import { decodeStationLpOffers, type StationLpOffer, type StationLpStore } from "../bridge/stationLpStore.ts";
 import { CONCORD_LP_ISSUER, decodeConcordLpRates } from "../bridge/concordLp.ts";
+import { ACTIVE_LP_FOB_STATES, PIRATE_LP_STORES, RESOURCE_WAR_LP_ISSUERS, resourceWarLpStations, type WalletLpStoreLocation } from "../bridge/walletLpStores.ts";
 import { CLONE_JUMP_COOLDOWN_ATTRIBUTE, cloneBayAvailable, cloneJumpCooldownEnd, decodeJumpClones, jumpCloneLocationKind, type CloneJumpQuote, type CloneJumpWarning, type JumpClone, type JumpCloneState } from "../bridge/jumpClones.ts";
 import { createSpacePoller, targetsReadIsDue, type SpacePoller } from "./spacePoll.ts";
 import type { RequestPriority } from "./transport.ts";
@@ -3833,7 +3834,7 @@ export interface AppFlow {
    * The journal (the fourth Step-12 read) refreshes via loadJournal.
    */
   loadRewards(): Promise<void>;
-  walletLoyaltyLocations(issuers: readonly number[]): Promise<ReadonlyMap<number, { factionID: number | null; stationID: number | null }>>;
+  walletLoyaltyLocations(issuers: readonly number[]): Promise<ReadonlyMap<number, WalletLpStoreLocation>>;
   npcCorporationStations(corporationID: number): Promise<readonly { stationID: number; systemID: number; jumps: number | null }[]>;
   /**
    * R50 — the Wallet + Corp Wallet tabs: the personal ISK balance and the
@@ -26875,18 +26876,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const flight = store.flight.get().status;
     const systemID = flight?.solarSystemID ?? pilot?.solarSystemID;
     const docked = dockedNow();
-    const [places, distances] = await Promise.all([
+    const pirates = PIRATE_LP_STORES.filter(row => wanted.has(row.issuerID));
+    const [places, distances, resourceWar, campaigns] = await Promise.all([
       agentPlacesHeld ?? api.loadAgentPlaces(callOptions),
-      systemID ? autopilotDistancesFrom(systemID) : Promise.resolve(new Map<number, number>()),
+      systemID ? loadRouteGraph().then(graph => distancesFrom(graph, systemID)) : new Map<number, number>(),
+      systemID && issuers.some(issuer => RESOURCE_WAR_LP_ISSUERS.has(issuer))
+        ? bridgeAsk("RWManager", "get_closest_rw_stations", [systemID]).then(resourceWarLpStations).catch(() => null) : null,
+      pirates.length
+        ? bridgeAsk("insurgencySolarsystem", "GetAllVisibleCampaigns", []).then(insurgencyCampaigns).catch(() => null) : null,
     ]);
     if (!places) throw new Error("Loyalty point store locations could not be read.");
     agentPlacesHeld ??= places;
-    const closest = new Map<number, { stationID: number; jumps: number }>();
-    function consider(issuer: number | null, stationID: number, stationSystem: number) {
-      if (issuer === null || !wanted.has(issuer)) return;
-      const jumps = stationID === docked ? -1 : stationSystem === systemID ? 0 : distances.get(stationSystem);
-      if (jumps !== undefined && jumps <= (closest.get(issuer)?.jumps ?? Infinity)) {
-        closest.set(issuer, { stationID, jumps });
+    const closest = new Map<number, { stationID: number; jumps: number; fob: WalletLpStoreLocation["fob"] }>();
+    function consider(issuer: number | null, stationID: number, stationSystem: number, fob: WalletLpStoreLocation["fob"] = null) {
+      if (issuer === null || !wanted.has(issuer) || RESOURCE_WAR_LP_ISSUERS.has(issuer)) return;
+      const jumps = stationID === docked ? -1 : stationSystem === systemID ? 0 : distances.get(stationSystem) ?? Infinity;
+      if (jumps <= (closest.get(issuer)?.jumps ?? Infinity)) {
+        closest.set(issuer, { stationID, jumps, fob });
       }
     }
     for (const [station, [stationSystem, owner]] of Object.entries(places.stations)) {
@@ -26894,10 +26900,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     // The Fulcrum also hosts the Malakim Zealots and Commando Guri stores (loyaltypoints.lpUtil).
     const fulcrum = places.stations["60015187"];
-    if (fulcrum) for (const issuer of [1000436, 1000437]) consider(issuer, 60015187, fulcrum[0]);
+    if (fulcrum) for (const { issuerID } of pirates) consider(issuerID, 60015187, fulcrum[0]);
+    for (const pirate of pirates) {
+      const campaign = campaigns?.find(row => row.factionID === pirate.factionID && row.fobStructureID !== null &&
+        row.fobSystemID !== null && row.fsmState !== null && ACTIVE_LP_FOB_STATES.has(row.fsmState));
+      if (campaign?.fobStructureID != null && campaign.fobSystemID !== null) {
+        consider(pirate.issuerID, campaign.fobStructureID, campaign.fobSystemID, {
+          typeID: pirate.typeID, systemID: campaign.fobSystemID,
+        });
+      }
+    }
     return new Map([...wanted].map(issuer => [issuer, {
       factionID: places.factions[issuer] ?? null,
-      stationID: closest.get(issuer)?.stationID ?? null,
+      stationID: RESOURCE_WAR_LP_ISSUERS.has(issuer) ? resourceWar?.get(issuer) ?? null : closest.get(issuer)?.stationID ?? null,
+      fob: closest.get(issuer)?.fob ?? null,
+      unavailable: RESOURCE_WAR_LP_ISSUERS.has(issuer) ? resourceWar === null : pirates.some(row => row.issuerID === issuer) && campaigns === null,
     }]));
   }
 

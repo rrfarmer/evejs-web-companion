@@ -32,6 +32,8 @@
     none: ["UI/Common/None", "None"],
     exchange: ["UI/Journal/JournalWindow/Agents/ConvertConcordLoyaltyPoints", "Convert CONCORD loyalty points to…"],
     actions: ["UI/Common/Actions", "Actions"],
+    fob: ["UI/TheatersOfWar/InsurgencyPirateFob", "Pirate FOB"],
+    unavailable: ["UI/Generic/Unavailable", "Unavailable"],
   } as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? "") || labels[key][1];
   const name = (kind: NameKind, id: number) => resolvedName($names.resolved, kind, id, "");
@@ -104,7 +106,8 @@
       const refs: NameRef[] = [];
       for (const row of latest.values()) {
         if (row.factionID !== null) refs.push({ kind: "faction", id: row.factionID });
-        if (row.stationID !== null) refs.push({ kind: "station", id: row.stationID });
+        if (row.stationID !== null) refs.push({ kind: row.fob ? "structure" : "station", id: row.stationID });
+        if (row.fob) refs.push({ kind: "system", id: row.fob.systemID });
       }
       if (refs.length > 0) flow.requestNames(refs);
     }).catch(cause => {
@@ -134,9 +137,10 @@
       <thead><tr><th>{word("corporation")}</th><th>{word("points")}</th><th>{word("closest")}</th></tr></thead>
       <tbody>
         {#each shown as row (row.issuerCorpID)}
-          {@const nearest = locations?.get(row.issuerCorpID)?.stationID ?? null}
+          {@const place = locations?.get(row.issuerCorpID)}
+          {@const nearest = place?.stationID ?? null}
           {@const canExchange = npcStation != null && concord > 0 && (rates?.get(row.issuerCorpID) ?? 0) > 0}
-          <tr>
+          <tr data-lp-issuer={row.issuerCorpID}>
             <td>
               <div class="loyalty-row-actions" role="group" aria-label={name("corporation", row.issuerCorpID) || word("corporation")}
                 oncontextmenu={(event) => { if (canExchange) { event.preventDefault(); menu = row.issuerCorpID; } }}
@@ -157,10 +161,17 @@
             </td>
             <td>{Number(row.loyaltyPoints).toLocaleString("en-US")}</td>
             <td>
-              {#if nearest !== null}
+              {#if nearest !== null && place?.fob}
+                {@const fob = place.fob}
+                <button type="button" class="evelink" data-lp-fob={nearest}
+                  onclick={() => showInfo({ kind: "spaceObject", itemID: nearest, typeID: fob.typeID })}>
+                  {name("structure", nearest) || [name("system", fob.systemID), word("fob")].filter(Boolean).join(" · ")}
+                </button>
+              {:else if nearest !== null}
                 <button type="button" class="evelink" onclick={() => void openStation(nearest)}>
                   {name("station", nearest) || "Station"}
                 </button>
+              {:else if place?.unavailable}{word("unavailable")}
               {:else if locations !== null}{word("none")}{:else}—{/if}
             </td>
           </tr>
