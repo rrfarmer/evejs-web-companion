@@ -706,7 +706,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "structureDirectory.GetStructureDescription", "structureDirectory.SetStructureDescription",
   "structureDeployment.Unanchor", "structureDeployment.CancelUnanchor",
   "structureVulnerability.UpdateReinforceTimesFromClient",
-  "structureProfiles.GetProfiles", "structureProfiles.ChangeProfiles",
+  "structureProfiles.GetProfiles", "structureProfiles.ChangeProfiles", "structureProfiles.CreateProfile",
   "moonExtractions.GetExtractionsForCorp",
   "moonExtractions.GetMoonResourcesForStructure", "moonExtractions.GetExtractionAndEventIDFromStructureID",
   "moonExtractions.StartNewExtraction", "moonExtractions.FractureChunkWithStructure", "moonExtractions.CancelExtraction",
@@ -3470,6 +3470,12 @@ const RETAIL_CALLS = Object.freeze({
       ? {} : { status: "differs", note: "The editor sends the selected structure and a description up to 1,000 characters." },
     "Save the edited description through the structure's ownership and Station Manager checks."), [1]),
   "structureProfiles.GetProfiles": judged("eve/client/script/ui/structure/structureSettings/controllers/allProfilesController.py:31", sentWithNothing, "Read the corporation's structure profiles for the profile filter."),
+  "structureProfiles.CreateProfile": judged("eve/client/script/ui/structure/structureSettings/controllers/allProfilesController.py:52",
+    (args, kwargs) => args.length === 2 && Object.keys(kwargs).length === 0 &&
+      typeof args[0] === "string" && args[0].trim().length > 0 && args[0].length <= 30 &&
+      typeof args[1] === "string" && args[1].length <= 200
+      ? {} : { status: "differs", note: "The client sends the profile name and description, with limits of 30 and 200 characters." },
+    "Create a corporation structure profile and return its ID."),
   "structureProfiles.ChangeProfiles": judged("eve/client/script/ui/structure/structureSettings/controllers/allProfilesController.py:61",
     (args, kwargs) => args.length === 2 && Object.keys(kwargs).length === 0 &&
       args[0]?.type === "list" && itemIDsListed(args[0].items) &&

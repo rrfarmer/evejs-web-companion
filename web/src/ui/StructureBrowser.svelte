@@ -7,6 +7,7 @@
   import { hasMoonStationManagerRole } from "../bridge/moonMining.ts";
   import { isNpcCorporation } from "../bridge/ownerInfo.ts";
   import { isStation } from "../bridge/placeChanges.ts";
+  import { panelErrorWords } from "../bridge/refusals.ts";
   import { hasSecurityOffice } from "../bridge/securityOffice.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
   import {
@@ -74,6 +75,10 @@
   let actionError = $state("");
   let decommissionBusy = $state(false);
   let profileBusy = $state(false);
+  let createProfileOpen = $state(false);
+  let profileName = $state("");
+  let profileDescription = $state("");
+  let profileError = $state("");
   let directoryRevision = $state(0);
   const rowMenu = new ContextMenu();
   onDestroy(() => rowMenu.close());
@@ -89,6 +94,12 @@
     stations: ["UI/StructureBrowser/StationsAndOutposts", "Stations and Outposts"],
     navigation: ["UI/StructureBrowser/NavigationStructures", "FLEX Structures"],
     profile: ["UI/Structures/Browser/HeaderProfileName", "Profile"],
+    newProfile: ["UI/StructureProfiles/NewProfile", "New Profile"],
+    createProfile: ["UI/StructureProfiles/CreateProfile", "Create Profile"],
+    confirmProfile: ["UI/StructureProfiles/CreateProfileBtn", "Create"],
+    profileName: ["UI/StructureProfiles/ProfileName", "Profile Name"],
+    profileDescription: ["UI/StructureProfiles/ProfileDescription", "Description"],
+    cancel: ["UI/Commands/Cancel", "Cancel"],
     state: ["UI/Structures/Browser/HeaderState", "State"],
     fuel: ["UI/Structures/Browser/HeaderFuel", "Fuel Expires"],
     reinforcement: ["UI/Structures/Browser/HeaderReinforcementTime", "Reinforcement Hour"],
@@ -214,6 +225,28 @@
       label: name,
       run: () => void assignProfile(ids, id),
     })) });
+  }
+
+  function openCreateProfile(): void {
+    profileName = "";
+    profileDescription = "";
+    profileError = "";
+    createProfileOpen = true;
+  }
+
+  async function createProfile(): Promise<void> {
+    if (profileBusy || !canManage || !profileName.trim()) return;
+    profileBusy = true;
+    profileError = "";
+    try {
+      profile = await flow.createStructureProfile(profileName, profileDescription);
+      createProfileOpen = false;
+      directoryRevision++;
+    } catch (cause) {
+      profileError = panelErrorWords(cause);
+    } finally {
+      profileBusy = false;
+    }
   }
 
   async function assignProfile(ids: readonly number[], profileID: number): Promise<void> {
@@ -459,9 +492,12 @@
         <label>{word("profile")}
           <select value={displayedProfile ?? ""} onchange={(event) => profile = event.currentTarget.value ? Number(event.currentTarget.value) : null}>
             <option value="">All Profiles</option>
-            {#each [...profileChoices] as [id, name] (id)}<option value={id}>{name}</option>{/each}
+            {#each [...profileChoices].sort((left, right) => left[1].localeCompare(right[1], undefined, { sensitivity: "base" })) as [id, name] (id)}
+              <option value={id}>{name}</option>
+            {/each}
           </select>
         </label>
+        <button type="button" disabled={loading || profileBusy || createProfileOpen} onclick={openCreateProfile}>{word("newProfile")}</button>
         <label><input type="checkbox" bind:checked={onlyLowPower} /> {word("lowPower")}</label>
         <label>Search <input type="search" bind:value={ownedSearch} /></label>
         {@render typeFilters()}
@@ -472,6 +508,23 @@
           {/each}
         </details>
       </div>
+      {#if createProfileOpen}
+        <form class="profile-editor" aria-label={word("createProfile")}
+          onsubmit={(event) => { event.preventDefault(); void createProfile(); }}>
+          <h3>{word("createProfile")}</h3>
+          <label>{word("profileName")}
+            <input type="text" maxlength="30" required bind:value={profileName} disabled={profileBusy} />
+          </label>
+          <label>{word("profileDescription")}
+            <textarea rows="3" maxlength="200" bind:value={profileDescription} disabled={profileBusy}></textarea>
+          </label>
+          {#if profileError}<p role="alert" class="error">{profileError}</p>{/if}
+          <div class="profile-actions">
+            <button type="submit" disabled={profileBusy || !profileName.trim()}>{word("confirmProfile")}</button>
+            <button type="button" disabled={profileBusy} onclick={() => createProfileOpen = false}>{word("cancel")}</button>
+          </div>
+        </form>
+      {/if}
     {/if}
   {:else if activeTab === "all"}
     <div class="directory-filters">
@@ -574,6 +627,11 @@
 </section>
 
 <style>
+  .profile-editor { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--line, #444); }
+  .profile-editor h3, .profile-editor p { margin: 0; }
+  .profile-editor label { display: grid; gap: 4px; }
+  .profile-editor textarea { resize: vertical; }
+  .profile-actions { display: flex; gap: 6px; }
   .structure-browser { display: grid; gap: 8px; padding: 10px; align-content: start; }
   nav { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line, #444); padding-bottom: 4px; }
   nav [aria-pressed="true"] { box-shadow: inset 0 -2px currentColor; }

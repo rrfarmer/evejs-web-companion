@@ -4599,6 +4599,7 @@ export interface AppFlow {
   changeStructureDecommission(structureID: number, action: "start" | "cancel"): Promise<boolean>;
   setStructureReinforcementHour(structureIDs: readonly number[], hour: number): Promise<void>;
   assignStructureProfile(structureIDs: readonly number[], profileID: number): Promise<void>;
+  createStructureProfile(name: string, description: string): Promise<number>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
   loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
@@ -29044,6 +29045,25 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
+  async function createStructureProfile(name: string, description: string): Promise<number> {
+    const scope = captureMemberOperation();
+    const title = name.trim();
+    const bio = description.trim();
+    if (!title || title.length > 30 || bio.length > 200) {
+      throw new Error("Enter a profile name of up to 30 characters and a description of up to 200 characters.");
+    }
+    scope.current();
+    if (isNpcCorporation(scope.online.corporationID) || !hasMoonStationManagerRole(scope.online.corpRole ?? null)) {
+      throw new Error("Creating structure profiles requires a Station Manager.");
+    }
+    const reply = await scope.write("structureProfiles", "CreateProfile", [title, bio]);
+    scope.current();
+    if (typeof reply !== "number" || !Number.isSafeInteger(reply) || reply <= 0) {
+      throw new Error("The server did not return the new profile ID.");
+    }
+    return reply;
+  }
+
   async function assignStructureProfile(structureIDs: readonly number[], profileID: number): Promise<void> {
     const scope = captureMemberOperation();
     const ids = new Set(structureIDs);
@@ -40890,6 +40910,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     changeStructureDecommission,
     setStructureReinforcementHour,
     assignStructureProfile,
+    createStructureProfile,
     startMoonPull,
     controlMoonPull,
     loadCorporationMiningObservers,
