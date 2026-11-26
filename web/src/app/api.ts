@@ -3990,8 +3990,11 @@ export async function getGroupCategories(
 
 /** contractutils.GetMarketTypes against a text: the type named exactly that, and those whose name holds it (any case),
  * in the client's type order, each with its category's name message. */
-export async function getMarketTypeMatches(q: string, options: ApiOptions = {}): Promise<{ readonly exact: { readonly typeID: number; readonly name: string } | null; readonly matches: readonly { readonly typeID: number; readonly name: string; readonly categoryNameID: number }[] }> {
-  const data = await getJson(`/api/client-data/market-type-matches?q=${encodeURIComponent(q)}`, options);
+export async function getMarketTypeMatches(q: string, options: ApiOptions = {}, scope?: { readonly categoryID: number | null; readonly groupID: number | null }): Promise<{ readonly exact: { readonly typeID: number; readonly name: string } | null; readonly matches: readonly { readonly typeID: number; readonly name: string; readonly categoryNameID: number }[] }> {
+  const query = new URLSearchParams();
+  if (scope?.categoryID) query.set("categoryID", String(scope.categoryID));
+  if (scope?.groupID) query.set("groupID", String(scope.groupID));
+  const data = await getJson(`/api/client-data/market-type-matches?q=${encodeURIComponent(q)}${query.size ? `&${query}` : ""}`, options);
   const exact = data.exact && typeof data.exact === "object" && !Array.isArray(data.exact) ? data.exact as unknown as { typeID: number; name: string } : null;
   return { exact, matches: Array.isArray(data.matches) ? (data.matches as unknown as { typeID: number; name: string; categoryNameID: number }[]) : [] };
 }

@@ -16107,16 +16107,21 @@ app.get("/api/client-data/market-type-matches", requireAuth, async (req, res, ne
           const group = groups[String(types[String(typeID)])];
           const category = group ? categories[String(group.categoryID)] : null;
           if (!published[String(typeID)] || !group || !group.published || !category || !category.published) continue;
-          rows.push({ typeID, nameID: Number(nameIDs[String(typeID)]) || 0, categoryNameID: Number(category.categoryNameID) || 0 });
+          rows.push({ typeID, groupID: Number(types[String(typeID)]), categoryID: Number(group.categoryID),
+            nameID: Number(nameIDs[String(typeID)]) || 0, categoryNameID: Number(category.categoryNameID) || 0 });
         }
         const names = clientWords.messages(rows.map((row) => row.nameID));
-        marketTypeNames = rows.map((row) => ({ typeID: row.typeID, name: String(names[row.nameID] ?? ""), categoryNameID: row.categoryNameID }));
+        marketTypeNames = rows.map(({ nameID, ...row }) => ({ ...row, name: String(names[nameID] ?? "") }));
       }
     }
     const text = String((req.query && req.query.q) || "");
     const lower = text.toLowerCase();
-    const exact = marketTypeNames ? marketTypeNames.find((row) => row.name === text) ?? null : null;
-    const matches = marketTypeNames && text ? marketTypeNames.filter((row) => row.name.toLowerCase().includes(lower)) : [];
+    const categoryID = Number(req.query.categoryID);
+    const groupID = Number(req.query.groupID);
+    const matches = marketTypeNames && text ? marketTypeNames.filter(row =>
+      (!categoryID || row.categoryID === categoryID) && (!groupID || row.groupID === groupID)
+      && row.name.toLowerCase().includes(lower)) : [];
+    const exact = matches.find(row => row.name === text) ?? null;
     res.json({ ok: true, available: marketTypeNames !== null, exact, matches: matches.slice(0, 2000), total: matches.length });
   } catch (error) {
     next(error);

@@ -3502,7 +3502,7 @@ export interface AppFlow {
   /** ShowSearch's category combo (published categories by name) and PopulateGroupCombo's (a category's published groups by name). */
   corporationAssetCategories(): Promise<readonly { readonly id: number; readonly name: string }[]>;
   /** GetMarketTypes against the search's Item Type text: an exact name, and the names holding it with their categories. */
-  marketTypeMatches(text: string): Promise<{ readonly exact: { readonly typeID: number; readonly name: string } | null; readonly matches: readonly { readonly typeID: number; readonly name: string; readonly category: string }[] }>;
+  marketTypeMatches(text: string, scope?: { readonly categoryID: number | null; readonly groupID: number | null }): Promise<{ readonly exact: { readonly typeID: number; readonly name: string } | null; readonly matches: readonly { readonly typeID: number; readonly name: string; readonly category: string }[] }>;
   corporationAssetGroups(categoryID: number): Promise<readonly { readonly id: number; readonly name: string }[]>;
   /** CorpAccounts.Search: SearchAssets(which, category, group, type, qty) - each set filter or None - and its locations. */
   corporationAssetSearch(which: string, categoryID: number | null, groupID: number | null, typeID: number | null, qty: number | null): Promise<readonly CorpAssetLocation[]>;
@@ -3698,6 +3698,8 @@ export interface AppFlow {
   findContractsOfType(typeID: number): Promise<{ readonly entries: readonly ContractSearchEntry[]; readonly numFound: number }>;
   searchPublicContracts(filters: {
     readonly typeID?: number | null;
+    readonly itemTypeIDs?: readonly number[] | null;
+    readonly itemTypeName?: string | null;
     readonly minPrice?: number | null;
     readonly maxPrice?: number | null;
     readonly securityClasses?: readonly SecurityClass[] | null;
@@ -25654,7 +25656,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * auctions and item exchanges together (CONTYPE_AUCTIONANDITEMECHANGE, 10) and the window's FindRelated
    * (contractsearch.py 1074 to 1110): public, its location set to all regions (7: none sent), the type's filters reset,
    * the type's name with Exact Type ticked; then SearchContracts (1113 to 1367) with its twenty-six keywords: the one
-   * type ({typeID: None}, the exact match of GetTypesFromName), its name, the type 10, public (0), excludeMultiple as
+   * type ID in an EveJS search list, its name, the type 10, public (0), excludeMultiple as
    * the box is (unticked: False), every other filter None, sorted by price, lowest first (SORT_PRICE, 0), from the first.
    */
   async function findContractsOfType(typeID: number): Promise<{ readonly entries: readonly ContractSearchEntry[]; readonly numFound: number }> {
@@ -25663,13 +25665,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   async function searchPublicContracts({
     typeID = null, minPrice = null, maxPrice = null, securityClasses = null, locationID = null, endLocationID = null, courier = false,
-    itemCategoryID = null, itemGroupID = null, searchHint = null,
+    itemCategoryID = null, itemGroupID = null, searchHint = null, itemTypeIDs = null, itemTypeName = null,
   }: Parameters<AppFlow["searchPublicContracts"]>[0]): ReturnType<AppFlow["findContractsOfType"]> {
-    if (typeID !== null) await resolveNamesNow([{ kind: "type", id: typeID }]);
-    const typeName = typeID === null ? null : nameCache.get(nameKey("type", typeID)) ?? null;
+    if (typeID !== null && itemTypeName === null) await resolveNamesNow([{ kind: "type", id: typeID }]);
+    const typeName = itemTypeName ?? (typeID === null ? null : nameCache.get(nameKey("type", typeID)) ?? null);
     const answered = await bridgeAsk("contractProxy", "SearchContracts", [], {
-      itemTypes: typeID === null ? null : { type: "dict", entries: [[typeID, null]] },
-      itemTypeName: typeName,
+      itemTypes: courier ? null : typeID === null ? itemTypeIDs : [typeID],
+      itemTypeName: courier ? null : typeName,
       itemCategoryID: courier ? null : itemCategoryID,
       itemGroupID: courier ? null : itemGroupID,
       contractType: courier ? 3 : 10,
@@ -39544,8 +39546,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return answer.statusCode;
     },
     corporationAssetCategories,
-    async marketTypeMatches(text: string) {
-      const answer = await api.getMarketTypeMatches(text, callOptions);
+    async marketTypeMatches(text: string, scope) {
+      const answer = await api.getMarketTypeMatches(text, callOptions, scope);
       await wordsNow([...new Set(answer.matches.map(row => `#${row.categoryNameID}`))]);
       const templates = store.words.get().templates;
       return { exact: answer.exact, matches: answer.matches.map(row => ({ typeID: row.typeID, name: row.name, category: plainText(templates[`#${row.categoryNameID}`] ?? "") })) };

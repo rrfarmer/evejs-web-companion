@@ -47,6 +47,7 @@
   import type { ContractRow } from "../store/types.ts";
   import { resolvedName } from "../store/names.ts";
   import { SECURITY_CLASS } from "../bridge/systemSecurity.ts";
+  import { decodeDrag, decodeMarketItemDrag, DRAG_MIME, MARKET_ITEM_DRAG_MIME } from "./dragDrop.ts";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
@@ -231,6 +232,7 @@
     all: "UI/Contracts/ContractsSearch/comboAll",
     originals: "UI/Contracts/ContractsSearch/BlueprintCategoryOriginal",
     copies: "UI/Contracts/ContractsSearch/BlueprintCategoryCopy",
+    exactType: "UI/Contracts/ContractsSearch/labelExactTypeMatch",
   } as const;
   const PRINCIPAL_CATEGORIES = [9, 7, 66, 6];
   type CategoryChoice = { readonly id: number; readonly hint: 0 | 1 | 2 };
@@ -318,6 +320,7 @@
   });
   function setGroup(value: number) {
     groupID = value;
+    resetItemLookup();
     localStorage.setItem(searchPref + "group", String(value));
   }
   function setCategory(value: string) {
@@ -418,12 +421,66 @@
       : null;
   }
   let searchedType = $state<number | null>(null);
+  let itemText = $state(localStorage.getItem(searchPref + "itemType") ?? "");
+  let exactType = $state(localStorage.getItem(searchPref + "exactType") === "true");
+  type ItemChoice = Awaited<ReturnType<AppFlow["marketTypeMatches"]>>["matches"][number];
+  let itemChoices = $state.raw<readonly ItemChoice[] | null>(null);
+  let itemLookupBusy = $state(false);
+  let submitItemChoice = $state(false);
+  let itemLookupSequence = 0;
+  function resetItemLookup() {
+    ++itemLookupSequence;
+    itemLookupBusy = false;
+    itemChoices = null;
+    submitItemChoice = false;
+  }
+  function setExactType(value: boolean) {
+    exactType = value;
+    localStorage.setItem(searchPref + "exactType", String(value));
+  }
+  function chooseItem(typeID: number, name = "") {
+    const submit = submitItemChoice;
+    resetItemLookup();
+    itemText = name;
+    searchedType = typeID;
+    flow.requestNames([{ kind: "type", id: typeID }]);
+    setExactType(true);
+    setAdvanced(true);
+    if (submit) search(typeID);
+  }
+  async function pickItem() {
+    const text = itemText.trim();
+    if (!text) return;
+    resetItemLookup();
+    const sequence = itemLookupSequence;
+    itemLookupBusy = true;
+    try {
+      const found = await flow.marketTypeMatches(text, { categoryID: advanced ? categoryID : null, groupID: advanced && groupID > 0 ? groupID : null });
+      if (sequence === itemLookupSequence) itemChoices = found.matches;
+    } catch (cause) {
+      if (sequence === itemLookupSequence) error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      if (sequence === itemLookupSequence) itemLookupBusy = false;
+    }
+  }
+  function dropItem(event: DragEvent) {
+    const transfer = event.dataTransfer;
+    if (!transfer) return;
+    const payload = decodeDrag(transfer.getData(DRAG_MIME));
+    const market = decodeMarketItemDrag(transfer.getData(MARKET_ITEM_DRAG_MIME)).keys().next().value;
+    const typeID = payload?.kind === "inventoryItem" ? payload.typeID : market;
+    if (typeID) {
+      event.preventDefault();
+      chooseItem(typeID);
+    }
+  }
   let searching = $state(false);
   let searchFound = $state.raw<{ readonly entries: readonly ContractSearchEntry[]; readonly numFound: number } | null>(null);
   let searchSequence = 0;
   function setCourier(value: boolean) {
     if (courier !== value) searchFound = null;
     clearPlaceLookup();
+    resetItemLookup();
     startPicker = false;
     courier = value;
     localStorage.setItem(searchPref + "courier", String(value));
@@ -433,6 +490,7 @@
     localStorage.setItem(searchPref + "security." + key, String(checked));
   }
   function search(typeID: number | null, fromItemMenu = false): void {
+    resetItemLookup();
     const sequence = ++searchSequence;
     const scope = locationScope;
     const stationID = hereStation;
@@ -440,6 +498,8 @@
     const endLocationID = courier && advanced ? dropoff?.id ?? null : null;
     const usedCategory = advanced && !courier ? category : null;
     const itemGroupID = usedCategory && Number.isSafeInteger(groupID) && groupID > 0 ? groupID : null;
+    const useExact = advanced && exactType && !courier;
+    const typedItem = retail && !courier ? (itemText || (typeID === null ? "" : itemName(typeID))).trim() : "";
     if (courier && advanced) localStorage.setItem(searchPref + "dropoff", JSON.stringify(dropoff ? [dropoff] : []));
     const usePrice = retail && advanced && !courier && priceEnabled;
     const minPrice = usePrice ? asPrice(minimum) : null;
@@ -456,11 +516,40 @@
     searching = true;
     void run(async () => {
       try {
-        const result = fromItemMenu && typeID !== null
-          ? await flow.findContractsOfType(typeID)
-          : await flow.searchPublicContracts({ typeID: courier ? null : typeID, courier, minPrice, maxPrice, securityClasses,
-            locationID: await searchStartID(scope, stationID, systemID), endLocationID, itemCategoryID: usedCategory?.id ?? null,
-            itemGroupID, searchHint: usedCategory?.hint ?? null });
+        if (fromItemMenu && typeID !== null) {
+          const result = await flow.findContractsOfType(typeID);
+          if (sequence === searchSequence) searchFound = result;
+          return;
+        }
+        let selected = useExact && typeID !== null ? typeID : null;
+        let itemTypeName = selected === null ? typedItem || null : itemText.trim() || null;
+        let itemTypeIDs: readonly number[] | null = null;
+        if (typedItem && (selected === null || usedCategory !== null)) {
+          const { exact, matches } = await flow.marketTypeMatches(typedItem, { categoryID: usedCategory?.id ?? null, groupID: itemGroupID });
+          if (sequence !== searchSequence) return;
+          if (!matches.length) throw new Error(`No matching item types for “${typedItem}”.`);
+          if (useExact) {
+            const match = selected === null
+              ? exact ?? matches.find(option => option.name.toLowerCase() === typedItem.toLowerCase()) ?? (matches.length === 1 ? matches[0] : null)
+              : matches.find(option => option.typeID === selected);
+            if (!match) {
+              if (selected !== null) throw new Error(`No matching item types for “${typedItem}” in the selected category or group.`);
+              itemChoices = matches;
+              submitItemChoice = true;
+              return;
+            }
+            selected = match.typeID;
+            itemTypeName = match.name;
+            itemText = match.name;
+            searchedType = match.typeID;
+          } else {
+            itemTypeIDs = matches.map(match => match.typeID);
+          }
+        }
+        if (!courier) localStorage.setItem(searchPref + "itemType", itemTypeName ?? typedItem);
+        const result = await flow.searchPublicContracts({ typeID: selected, itemTypeIDs, itemTypeName, courier, minPrice, maxPrice, securityClasses,
+          locationID: await searchStartID(scope, stationID, systemID), endLocationID, itemCategoryID: usedCategory?.id ?? null,
+          itemGroupID, searchHint: usedCategory?.hint ?? null });
         if (sequence === searchSequence) searchFound = result;
       } catch (cause) {
         if (sequence === searchSequence) throw cause;
@@ -481,6 +570,8 @@
       untrack(() => {
         if (retail) {
           setCourier(false);
+          itemText = "";
+          setExactType(true);
           locationScope = 7;
           dropoff = null;
           dropoffText = "";
@@ -819,7 +910,27 @@
           <button type="button" class:active={courier} aria-pressed={courier} disabled={searching} onclick={() => setCourier(true)}>{titleWord("UI/Contracts/ContractsSearch/tabCourier") || "Courier"}</button>
         </div>
         {#if !courier}
-          <input type="text" readonly placeholder={titleWord("UI/Wallet/WalletWindow/ItemType") || "Item type"} value={searchedType === null ? "" : itemName(searchedType)} />
+          <div class="con-place-search">
+            <input type="search" aria-label={titleWord("UI/Wallet/WalletWindow/ItemType") || "Item Type"}
+              placeholder={titleWord("UI/Wallet/WalletWindow/ItemType") || "Item Type"}
+              value={itemText || (searchedType === null ? "" : itemName(searchedType))}
+              oninput={(event) => { itemText = event.currentTarget.value; searchedType = null; resetItemLookup(); }}
+              ondragover={(event) => {
+                if (event.dataTransfer?.types.some(type => type === DRAG_MIME || type === MARKET_ITEM_DRAG_MIME)) event.preventDefault();
+              }}
+              ondrop={dropItem} />
+            <button type="button" disabled={!itemText.trim() || itemLookupBusy || searching} onclick={() => void pickItem()}>Pick Item</button>
+          </div>
+          {#if itemChoices}
+            <div class="con-place-choices" aria-label="Select Item Type">
+              {#each itemChoices.slice(0, 50) as choice (choice.typeID)}
+                <button type="button" onclick={() => chooseItem(choice.typeID, choice.name)}>{choice.name}{choice.category ? ` (${choice.category})` : ""}</button>
+              {:else}
+                <p role="status">No matching item types.</p>
+              {/each}
+              {#if itemChoices.length > 50}<p role="status">Refine the item name to see more matches.</p>{/if}
+            </div>
+          {/if}
         {/if}
         <label class="con-location-scope">
           {titleWord(SEARCH_WORDS.locationFilter) || "Location"}
@@ -898,6 +1009,10 @@
             </label>
           {/if}
           {#if categoryError || groupError}<p role="status" class="error">Item categories or groups are unavailable.</p>{/if}
+          <label>
+            <input type="checkbox" checked={exactType} onchange={(event) => setExactType(event.currentTarget.checked)} />
+            {titleWord(SEARCH_WORDS.exactType) || "Exact Type Match"}
+          </label>
           <fieldset class="con-price-filter">
             <legend>{titleWord(SEARCH_WORDS.priceMillions) || "Price (million)"}</legend>
             <div class="con-price-bounds">
@@ -936,7 +1051,7 @@
         {/if}
         {#if placeError}<p role="status" class="error">{placeError}</p>{/if}
         <span class="con-search-fill"></span>
-        <button type="submit" class="con-search-btn" disabled={busy || searching || placeBusy || startPicker}>{titleWord("UI/Contracts/ContractsSearch/buttonSearch") || "Search"}</button>
+        <button type="submit" class="con-search-btn" disabled={busy || searching || placeBusy || startPicker || itemLookupBusy}>{titleWord("UI/Contracts/ContractsSearch/buttonSearch") || "Search"}</button>
       </form>
       <div class="con-search-right">
         <p class="con-found">
