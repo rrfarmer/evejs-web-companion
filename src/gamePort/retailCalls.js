@@ -676,6 +676,7 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
  * (importExportUI.py 549), and the gateway never had it.
  */
 const GAME_PORT_ONLY_CALLS = Object.freeze([
+  "invbroker.WithdrawPlexFromVault", "marketProxy.GetPlexOrders", "marketProxy.PlacePlexSellOrder",
   // Revisions of the gateway contract without the read-only NES catalogue.
   "storeManager.get_categories", "storeManager.get_offers",
   "crimewatch.ApplyTagsForSecStatus",
@@ -3051,6 +3052,7 @@ const RETAIL_CALLS = Object.freeze({
   "marketProxy.GetMarketOrderHistory": same(`${MARKET_QUOTE}:395`, "GetMarketProxy().GetMarketOrderHistory(), no arguments"),
   "marketProxy.GetCharEscrow": same(`${MARKET_QUOTE}:401`, "GetMarketProxy().GetCharEscrow(), no arguments"),
   "marketProxy.GetOrders": same(`${MARKET_QUOTE}:734`, "GetMarketProxy().GetOrders(typeID): a type's book, which the object cache keeps and OnOwnOrdersChanged names"),
+  "marketProxy.GetPlexOrders": same(`${MARKET_QUOTE}:730-732`, "GetMarketProxy().GetPlexOrders(): the dedicated PLEX book"),
   "marketProxy.GetOldPriceHistory": same(`${MARKET_QUOTE}:338`, "GetMarketProxy().GetOldPriceHistory(typeID): the first half of a type's price history, which the client joins to the other (GetHistoryRowList, 344)"),
   "marketProxy.GetNewPriceHistory": same(`${MARKET_QUOTE}:339`, "GetMarketProxy().GetNewPriceHistory(typeID): the second half of a type's price history, asked right behind the first"),
   "marketProxy.PlaceBuyOrder": needing(Object.freeze({
@@ -3119,6 +3121,19 @@ const RETAIL_CALLS = Object.freeze({
       return asGiven ? { args, kwargs } : { args: shaped, kwargs, status: "reshaped" };
     },
   }), "sale"),
+  "marketProxy.PlacePlexSellOrder": needing(Object.freeze({
+    status: "same",
+    source: `${MARKET_QUOTE}:278-279`,
+    note: "A single validated PLEX sale entry, with the broker's fee for a standing order.",
+    shape: (args, kwargs, context) => {
+      const [given, useCorp, duration, named] = args;
+      const sale = saleItem(given, id => brokersFeeOf(context, id), id => averagePriceOf(context, id));
+      if (!sale || args.length !== 4) return { args, kwargs, status: "differs" };
+      const fee = duration === 0 ? null : asFloat(named ?? sale.rate);
+      return { args: [sale.item, useCorp, duration, fee], kwargs, status: "reshaped" };
+    },
+  }), "sale"),
+  "invbroker.WithdrawPlexFromVault": same("eve/client/script/ui/shared/market/sellMulti.py:509", "Quantity, docked location, VaultToMarket invoice and personal hangar flag on the inventory manager"),
   "marketProxy.CancelCharOrder": needing(Object.freeze({
     status: "same",
     source: `${MARKET_QUOTE}:282`,

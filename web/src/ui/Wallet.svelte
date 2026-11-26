@@ -86,6 +86,11 @@
   const PLEX_UNAVAILABLE_HINT = "UI/PlexVault/PlexTabUnavailable";
   const BUY_PLEX = "UI/Wallet/WalletWindow/BuyPlex";
   const BUY_PLEX_HINT = "UI/VirtualGoodsStore/Buttons/BuyPlex";
+  const SELL_PLEX = "UI/PlexVault/SellPlexForIsk";
+  const SELL_PLEX_HINT = "UI/PlexVault/SellPlexForIskDisabledTooltipDescription";
+  const flight = $derived(store.flight);
+  const canSellPlex = $derived((plexBalance ?? 0n) > 0n &&
+    ($flight.status?.docked ?? Boolean($station.online?.stationID ?? $station.online?.structureID)));
   const PLEX_ACTIONS = $derived([
     { label: "UI/PlexVault/AddOmegaTime", fallback: "Add Omega game time", run: onShowOmegaOffers },
     { label: "UI/PlexVault/BuyMultipleTraining", fallback: "Buy extra skill queue", run: onShowMultipleTraining },
@@ -97,7 +102,7 @@
     const notices = flow.gatewayNotices;
     let previous = notices.get();
     let current = true;
-    let receivedBalance = false;
+    let revision = 0;
     currency = "isk";
     plexBalance = null;
     plexUnavailable = false;
@@ -107,18 +112,31 @@
       if (notice?.typeName !== PLEX_WALLET_NOTICE) return;
       const change = decodePlexWalletNotice(notice.payload);
       if (!change) return;
-      receivedBalance = true;
+      revision++;
       plexBalance = BigInt(change.balance);
       plexUnavailable = false;
     });
-    void readPlexVaultBalance(flow.requestOptions()).then(cents => {
-      if (current && !receivedBalance) plexBalance = cents / 100n;
-    }).catch(() => {
-      if (!current || receivedBalance) return;
-      plexUnavailable = true;
-      currency = "isk";
+    const changes = flow.plexVaultChanged;
+    let lastChange = changes.get();
+    function readBalance(initial: boolean) {
+      const request = ++revision;
+      void readPlexVaultBalance(flow.requestOptions()).then(cents => {
+        if (!current || request !== revision) return;
+        plexBalance = cents / 100n;
+        plexUnavailable = false;
+      }).catch(() => {
+        if (!current || request !== revision || !initial) return;
+        plexUnavailable = true;
+        currency = "isk";
+      });
+    }
+    const stopChanges = changes.subscribe(change => {
+      if (change === lastChange) return;
+      lastChange = change;
+      readBalance(false);
     });
-    return () => { current = false; unsubscribe(); };
+    readBalance(true);
+    return () => { current = false; unsubscribe(); stopChanges(); };
   });
   const NOTIFY_ISK = "UI/Wallet/WalletWindow/NotifyAccountChange";
   const NOTIFY_SHARES = "UI/Wallet/WalletWindow/NotifyShareChange";
@@ -139,7 +157,7 @@
   const RETAIL_WORDS = ["UI/Wallet/WalletWindow/MyWallet", "UI/Common/Settings", "UI/Common/ISK", "UI/Common/PLEX",
     "UI/Journal/JournalWindow/Agents/LoyaltyPoints", "UI/Wallet/WalletWindow/EverMarks", "UI/Wallet/WalletWindow/ISKDescription",
     SHOW_CENTS, SHOW_BALANCE_UPDATES, SHOW_LP_UPDATES, BALANCE_THRESHOLD, NOTIFY_ISK, NOTIFY_SHARES, NOTIFY_BILLS, NOTIFY_PLEX, CORP_WALLET,
-    PLEX_DESCRIPTION, PLEX_UNAVAILABLE, PLEX_UNAVAILABLE_HINT, BUY_PLEX, BUY_PLEX_HINT];
+    PLEX_DESCRIPTION, PLEX_UNAVAILABLE, PLEX_UNAVAILABLE_HINT, BUY_PLEX, BUY_PLEX_HINT, SELL_PLEX, SELL_PLEX_HINT];
   $effect(() => { if (retail) flow.requestWords([...RETAIL_WORDS, ...PLEX_ACTIONS.map(action => action.label)]); });
 
   let busy = $state(false);
@@ -274,7 +292,13 @@
       <nav class="tabs" aria-label={tabWord("UI/Common/PLEX", "PLEX")}>
         <button type="button" class="active" aria-pressed="true">{tabWord(TAB_WORDS.overview, "Overview")}</button>
       </nav>
+      {#if error}<p role="status">{error}</p>{/if}
       <div class="plex-actions">
+        <span title={plexBalance === 0n ? tabWord(SELL_PLEX_HINT, "PLEX Vault is empty") : null}>
+          <button type="button" disabled={!canSellPlex || busy} onclick={() => void run(() => flow.openVaultPlexSale())}>
+            {tabWord(SELL_PLEX, "Sell PLEX for ISK")}
+          </button>
+        </span>
         {#each PLEX_ACTIONS as action (action.label)}
           {#if action.run}<button type="button" onclick={action.run}>{tabWord(action.label, action.fallback)}</button>{/if}
         {/each}
@@ -340,6 +364,7 @@
   .plex-select .amount { padding-right: 30px; font-size: clamp(12px, 2vw, 17px); overflow: hidden; text-overflow: ellipsis; }
   .plex-actions { display: grid; gap: 6px; max-width: 320px; padding-top: 12px; }
   .plex-actions button { min-height: 44px; text-align: left; }
+  .plex-actions span > button { width: 100%; }
   .wallet-settings { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
   .wallet-settings label { display: flex; align-items: center; gap: 8px; }
   .wallet-settings h3 { margin: 12px 0 0; }

@@ -486,7 +486,9 @@
       valid: price.ok && checkQuantity(quantity).ok && quantity <= row.units,
     }];
   }));
-  const assetSaleReady = $derived(assetSaleDraft.length > 0 && assetSaleDraft.every(row => row.valid));
+  const assetSaleReady = $derived(assetSaleDraft.length > 0 && assetSaleDraft.every(row => row.valid) &&
+    (!$assetSaleAsked?.plexVault || (assetSaleDuration === 0
+      ? $assetSaleAsked.rows[0]?.bid != null : $assetSaleAsked.plexVault.feeRate !== null)));
   const assetSaleValue = $derived(assetSaleReady ? assetSaleDraft.reduce((total, row) => total + row.price * row.quantity, 0) : null);
   // The client's multibuy window (eve/client/script/ui/shared/market/buyMultiFromBase.py, with its base and rows): its
   // title with how many rows, where it buys (the station list's current one), the number of orders, each type a row

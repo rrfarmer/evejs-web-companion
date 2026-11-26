@@ -1,5 +1,7 @@
 import { publicGatewayRequest, type ApiOptions } from "../app/api.ts";
 
+export const PLEX_TYPE_ID = 44992;
+
 export async function readPlexVaultBalance(options: ApiOptions): Promise<bigint> {
   const answer = await publicGatewayRequest("eve_public.plex.vault.api.BalanceRequest", {}, options);
   const payload = answer.payload;

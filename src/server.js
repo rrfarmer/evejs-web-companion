@@ -4993,7 +4993,9 @@ app.get("/api/bridge/market", requireAuth, async (req, res, next) => {
     const [book, ownOrders, history, priceHistory, priceHistoryOld] =
       await Promise.allSettled([
         typeID > 0
-          ? heldTopLevelCall(held, req.webSessionID, "marketProxy", "GetOrders", [typeID], null)
+          ? typeID === 44992
+            ? heldTopLevelCall(held, req.webSessionID, "marketProxy", "GetPlexOrders", [], null)
+            : heldTopLevelCall(held, req.webSessionID, "marketProxy", "GetOrders", [typeID], null)
           : Promise.resolve({ result: null }),
         heldTopLevelCall(held, req.webSessionID, "marketProxy", "GetCharOrders", [], null),
         heldTopLevelCall(held, req.webSessionID, "marketProxy", "GetMarketOrderHistory", [], null),

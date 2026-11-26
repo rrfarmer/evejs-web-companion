@@ -186,6 +186,18 @@ export async function placeSellOrder(act: Ask, ask: Ask, sale: SaleOfAStack): Pr
   return placeSellOrders(act, ask, [sale], sale.durationDays, sale.brokersFeeRate);
 }
 
+/** The single-stack PLEX sale uses the market's PLEX-specific entry point. */
+export async function placePlexSellOrder(act: Ask, ask: Ask, sale: SaleOfAStack): Promise<MarketWriteChange> {
+  const { stationID, itemID, typeID, price, quantity, durationDays, brokersFeeRate } = sale;
+  const balance = () => quietly(async () => walletAmount(await ask("account", "GetCashBalance", [0])));
+  const balanceBefore = await balance();
+  const entry = { stationID, itemID, typeID, price: roundPrice(price), quantity,
+    ...(brokersFeeRate === null ? {} : { rawBrokerFeePercentage: brokersFeeRate }) };
+  const applied = await act("marketProxy", "PlacePlexSellOrder", [entry, false, durationDays, durationDays === 0 ? null : brokersFeeRate]) === true;
+  const balanceAfter = await balance();
+  return { applied, declinedSilently: !applied, charged: iskDelta(balanceBefore, balanceAfter), balanceAfter };
+}
+
 /** Sell Items sends all confirmed stacks in a single PlaceMultiSellOrder call. */
 export async function placeSellOrders(
   act: Ask, ask: Ask, sales: readonly Omit<SaleOfAStack, "durationDays" | "brokersFeeRate">[],

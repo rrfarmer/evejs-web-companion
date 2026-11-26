@@ -1160,7 +1160,9 @@ import {
   placeBuyOrder as placeBuyOrderCall,
   placeSellOrder as placeSellOrderCall,
   placeSellOrders as placeSellOrdersCall,
+  placePlexSellOrder,
 } from "../bridge/marketOrderWrites.ts";
+import { PLEX_TYPE_ID, readPlexVaultBalance } from "../bridge/plexVault.ts";
 import { doAgentAction, removeOfferFromJournal } from "../bridge/agentWrites.ts";
 import {
   ABYSSAL_SCAN_QUESTION,
@@ -1546,6 +1548,7 @@ export interface AssetSaleAsk {
   readonly rows: readonly (PersonalAssetSelection & { readonly units: number; readonly bid: string | null })[];
   readonly busy: boolean;
   readonly error: string | null;
+  readonly plexVault?: { readonly feeRate: number | null };
 }
 
 export interface AssetSaleOrder {
@@ -2794,6 +2797,8 @@ export interface AppFlow {
   placeMarketOrder(request: MarketOrderRequest): Promise<void>;
   readonly assetSaleAsked: ReadableSignal<AssetSaleAsk | null>;
   openAssetSale(items: readonly PersonalAssetSelection[]): Promise<void>;
+  openVaultPlexSale(): Promise<void>;
+  readonly plexVaultChanged: ReadableSignal<number>;
   repackageAssets(items: readonly PersonalAssetSelection[]): Promise<void>;
   repackableAssetTypes(typeIDs: readonly number[]): Promise<ReadonlySet<number>>;
   marketableInventoryTypes(typeIDs: readonly number[]): Promise<ReadonlySet<number>>;
@@ -7713,6 +7718,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     receivedAtMs: number,
     insideMultiEvent = false,
   ): void {
+    if (method === "OnPlexItemAddedToInventory" || method === "OnPlexWithdrawFailed") {
+      receivePlexWithdrawal?.(method === "OnPlexItemAddedToInventory", args);
+    }
     if (method === "OnMoonExtractionUpdate") moonExtractionChanged.update(revision => revision + 1);
     if (method === "OnCargoScanComplete" || method === "OnShipScanCompleted") {
       const shipScan = method === "OnShipScanCompleted" ? decodeShipScan(args) : null;
@@ -12346,6 +12354,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   const assetSaleAskedSignal = createSignal<AssetSaleAsk | null>(null);
+  const plexVaultChanged = createSignal(0);
   const assetRepairShopSignal = createSignal<AssetRepairShop | null>(null);
   const assetContainerContentsSignal = createSignal<AssetContainerContents | null>(null);
 
@@ -12514,6 +12523,65 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
   let assetSaleRevision = 0;
+  let receivePlexWithdrawal: ((success: boolean, args: readonly unknown[]) => void) | null = null;
+
+  function plexVaultBids(reads: api.RawMarketReads, stationID: number, quantity: number) {
+    return decodeOrderBook(reads.book.result).buys.filter(row => row.minimumVolume <= quantity && (row.stationID === stationID ||
+      row.range === RANGE_REGION || (reads.solarSystemID === row.solarSystemID && row.range >= RANGE_SOLAR_SYSTEM) ||
+      (row.jumps >= 1 && row.jumps <= row.range)));
+  }
+
+  async function withdrawPlexForSale(stationID: number, quantity: number): Promise<number> {
+    const results = new Map<string, { success: boolean; value: unknown }>();
+    let resolveResult: (() => void) | undefined;
+    let reference: string | null = null;
+    receivePlexWithdrawal = (success, [value, ref]) => {
+      if (typeof ref !== "string") return;
+      results.set(ref, { success, value });
+      if (ref === reference) resolveResult?.();
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const reply = await bridgeDo("invbroker", "WithdrawPlexFromVault", [quantity, stationID, "VaultToMarket", 4]);
+      if (typeof reply !== "string" || !reply) throw new Error("The vault returned no withdrawal reference.");
+      reference = reply;
+      if (!results.has(reply)) {
+        await new Promise<void>((resolve, reject) => {
+          resolveResult = resolve;
+          timer = setTimeout(() => reject(new Error("Timed out waiting for the PLEX withdrawal.")), 10_000);
+        });
+      }
+      const result = results.get(reply)!;
+      if (!result.success) {
+        const refusal = typeof result.value === "string" ? result.value : "PlexWithdrawalInternalError";
+        throw new Error(templateWords("UI/PlexVault/" + refusal, {}, "The PLEX vault refused the withdrawal."));
+      }
+      const itemID = Number(unwrapLong(result.value) ?? result.value);
+      if (!Number.isSafeInteger(itemID) || itemID <= 0) throw new Error("The vault did not identify the withdrawn stack.");
+      return itemID;
+    } finally {
+      clearTimeout(timer);
+      receivePlexWithdrawal = null;
+    }
+  }
+
+  async function openVaultPlexSale(): Promise<void> {
+    const stationID = dockedNow();
+    if (stationID === null || assetSaleAskedSignal.get() !== null) return;
+    const n = ++assetSaleRevision;
+    const current = callOptions.captureRequestGuard!();
+    const [cents, reads] = await Promise.all([readPlexVaultBalance(callOptions), readMarket(PLEX_TYPE_ID)]);
+    current();
+    if (dockedNow() !== stationID || n !== assetSaleRevision) return;
+    const balance = Number(cents / 100n);
+    if (!Number.isSafeInteger(balance) || balance <= 0) throw new Error("There is no PLEX available to sell.");
+    const buys = plexVaultBids(reads, stationID, balance);
+    requestNames([{ kind: locationKind(stationID), id: stationID }, { kind: "type", id: PLEX_TYPE_ID }]);
+    assetSaleAskedSignal.set({
+      n, stationID, rows: [{ itemID: 0, typeID: PLEX_TYPE_ID, stationID, units: balance, bid: bestPrices({ sells: [], buys }).bestBuy }],
+      busy: false, error: null, plexVault: { feeRate: reads.brokersFeeRate },
+    });
+  }
   async function directAssetRows(stationID: number, requested: readonly PersonalAssetSelection[]) {
     const read = await readAssetStationItems(bridgeAsk, stationID);
     const activeShip = store.flight.get().status?.shipID ?? store.inventory.get().activeShipID;
@@ -12680,6 +12748,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     if (assetSaleAskedSignal.get()?.busy || repackagingAssetGeneration === requestGeneration) return;
     const open = assetSaleAskedSignal.get();
+    if (open?.plexVault) return;
     if (open && open.stationID !== stationID) {
       sayDialog("CustomNotify", { type: "dict", entries: [["notify", "The Sell Items window already holds items at another location."]] },
         "The Sell Items window already holds items at another location.");
@@ -12737,6 +12806,42 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     assetSaleAskedSignal.set({ ...asked, busy: true, error: null });
     let sent = false;
     try {
+      if (asked.plexVault) {
+        const [line] = order.rows;
+        const row = asked.rows[0];
+        const feeRate = asked.plexVault.feeRate;
+        if (!row || order.rows.length !== 1 || !line || line.itemID !== row.itemID || !checkPrice(line.price).ok ||
+            !checkQuantity(line.quantity).ok || line.quantity > row.units ||
+            !DURATION_CHOICES.some(choice => choice.days === order.durationDays) ||
+            (order.durationDays > 0 && feeRate === null) || (order.durationDays === 0 && row.bid === null)) {
+          throw new Error("Choose a valid quantity, price and duration for the PLEX sale.");
+        }
+        if (dockedNow() !== asked.stationID) throw new Error("Dock at the location where you opened this PLEX sale.");
+        const quote = await readMarket(PLEX_TYPE_ID);
+        current();
+        if (dockedNow() !== asked.stationID) throw new Error("Dock at the location where you opened this PLEX sale.");
+        if (order.durationDays === 0) {
+          if (!plexVaultBids(quote, asked.stationID, line.quantity).some(bid => Number(bid.price) >= line.price)) {
+            throw new Error("No current bid matches the PLEX quantity and price.");
+          }
+        } else if (quote.brokersFeeRate !== feeRate) {
+          throw new Error("The market broker fee has changed. Reopen Sell Items to review it.");
+        }
+        sent = true;
+        const itemID = await withdrawPlexForSale(asked.stationID, line.quantity);
+        current();
+        plexVaultChanged.update(revision => revision + 1);
+        if (dockedNow() !== asked.stationID) throw new Error("Return to the station to sell the withdrawn PLEX.");
+        const outcome = await placePlexSellOrder(bridgeDo, bridgeAsk, {
+          stationID: asked.stationID, itemID, typeID: PLEX_TYPE_ID, price: line.price, quantity: line.quantity,
+          durationDays: order.durationDays, brokersFeeRate: feeRate,
+        });
+        current();
+        if (!outcome.applied) throw new Error("The market did not fill or list the PLEX.");
+        assetSaleAskedSignal.set(null);
+        await Promise.allSettled([loadPersonalAssets(), loadMarket(store.market.get().typeID)]);
+        return;
+      }
       const available = await assetSaleRows(asked.stationID, asked.rows);
       current();
       const rows = new Map(available.map(row => [row.itemID, row]));
@@ -12769,7 +12874,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       throwIfRequestRetired(cause);
       current();
       if (assetSaleAskedSignal.get()?.n === n) {
-        assetSaleAskedSignal.set({ ...asked, ...(sent ? { rows: [] } : {}), busy: false, error: cause instanceof Error ? cause.message : String(cause) });
+        const message = cause instanceof Error ? cause.message : String(cause);
+        const error = asked.plexVault && sent ? `${message} Check your item hangar and market orders before trying again.` : message;
+        assetSaleAskedSignal.set({ ...asked, ...(sent ? { rows: [] } : {}), busy: false, error });
       }
     }
   }
@@ -39193,6 +39300,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     openAssetContainerContents,
     closeAssetContainerContents,
     openAssetSale,
+    openVaultPlexSale,
+    plexVaultChanged: readonlySignal(plexVaultChanged),
     repackageAssets,
     repackableAssetTypes,
     marketableInventoryTypes,
