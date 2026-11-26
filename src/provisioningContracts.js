@@ -1,7 +1,8 @@
 "use strict";
 const crypto = require("node:crypto");
 const { fittingFingerprint } = require("./pilotTrainingFittings");
-const slot = flag => [[11, 34], [92, 99], [125, 132], [164, 171]].some(([lo, hi]) => flag >= lo && flag <= hi);
+const isRigSlotFlag = flag => flag >= 92 && flag <= 99;
+const slot = flag => isRigSlotFlag(flag) || [[11, 34], [125, 132], [164, 171]].some(([lo, hi]) => flag >= lo && flag <= hi);
 const positive = n => Number.isSafeInteger(n) && n > 0;
 function hash(value) { return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 function fail(code, message = code) { throw Object.assign(new Error(message), { code, statusCode: 409 }); }
@@ -124,4 +125,4 @@ function matchFittings(contracts, observation, data) {
     .map(c => ({ name: c.name, definition: c.definition }));
   return { state: alternatives.length === 1 ? "MATCH" : alternatives.length > 1 ? "AMBIGUOUS" : "MODIFIED", alternatives };
 }
-module.exports = { hash, fail, inventoryRows, buildContract, inspectContract, matchFittings, tuples };
+module.exports = { hash, fail, inventoryRows, buildContract, inspectContract, matchFittings, tuples, isFittingSlotFlag: slot, isRigSlotFlag };

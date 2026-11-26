@@ -8,6 +8,10 @@
 // Everything here runs in the page and in a plugin's own process alike: no DOM and
 // no Node API.
 
+// `flow.flying.readObservation({ signal })` reads the scene and drones together.
+// `flow.flying.bridgeAsk(service, method, args, kwargs, of, { signal })` reads one service method.
+// Both use the pilot's own flow. The signal is optional.
+
 // --- Asking the server, as a pilot's session (`flow.requestOptions()`) --------
 export {
   boundDogma,
@@ -26,7 +30,9 @@ export {
   readBotLog,
   readEmptiedContainers,
   sendChat,
+  type DronesResult,
   type FlightStepResult,
+  type SpaceSnapshotResult,
 } from "../app/api.ts";
 export {
   isSessionLost,

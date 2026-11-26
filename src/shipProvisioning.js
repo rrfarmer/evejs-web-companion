@@ -1,27 +1,51 @@
 "use strict";
 // Phase 5 planning/evidence only. Reservations and persistence belong to the
 // existing replenishment engine and its credential-free operation journal.
-const { hash, fail, inspectContract, matchFittings } = require("./provisioningContracts");
+const { hash, fail, inspectContract, matchFittings, isFittingSlotFlag: slot, isRigSlotFlag } = require("./provisioningContracts");
 const { randomUUID } = require("node:crypto");
 const positive = n => Number.isSafeInteger(n) && n > 0;
-const slot = flag => flag >= 11 && flag <= 34;
 const quantity = (rows, type, flag = null, packaged = false) => rows.filter(r => r.typeID === type &&
   (flag === null || r.flagID === flag) && (!packaged || !r.singleton)).reduce((n, r) => n + r.quantity, 0);
 const equal = (a, b) => hash(a) === hash(b);
+const carriedSupply = supply => supply.mode === "CARRIED_SPARES" && supply.eligibleFlags.includes(5);
+
+// Station provisioning has no subsystem installation or capital assembly plan.
+const unsupportedHulls = new Set([29, 30, 485, 547, 659, 883, 963, 1538, 4594, 5120]);
+const mixedCargoTargets = (read, rows) => (read.mixedCargo || []).map(t => ({
+  ...t, deficit: Math.max(0, t.target - quantity(rows, t.typeID, 5)),
+}));
 
 function shipPlan(read, data, operation = null) {
   const contract = read.contract, status = inspectContract(contract, read.observation, data);
   const unsupported = [], shortages = [];
-  if (Number(data.getType(contract.shipTypeID)?.groupID) !== 25 || data.getType(contract.shipTypeID)?.published === false)
-    unsupported.push("Only ordinary published T1 frigates are supported initially.");
+  const hullType = data.getType(contract.shipTypeID);
+  if (Number(hullType?.categoryID) !== 6 || !positive(Number(hullType.groupID)) || hullType.published === false || unsupportedHulls.has(Number(hullType.groupID)))
+    unsupported.push("The selected type is not a known usable ship hull.");
   if (!["hangar", "corp"].includes(read.source.pin.descriptor?.kind)) unsupported.push("Provision Ship requires a personal hangar or exact corporation division.");
-  for (const [flag, typeID] of contract.structural) if (!slot(flag) || Number(data.getType(typeID)?.categoryID) !== 7)
-    unsupported.push(`Unsupported fitting slot/type ${flag}/${typeID}: rigs and subsystems are deferred.`);
+  for (const [flag, typeID] of contract.structural) if (!slot(flag) || (flag >= 125 && flag <= 132) || Number(data.getType(typeID)?.categoryID) !== 7)
+    unsupported.push(`Unsupported native fitting slot/type ${flag}/${typeID}.`);
   for (const [flag, typeID] of contract.operational) if (!(flag === 87 && Number(data.getType(typeID)?.categoryID) === 18) && flag !== 5)
     unsupported.push(`Unsupported carried equipment bay ${flag}/${typeID}.`);
-  for (const supply of contract.supplies) if (supply.mode !== "CARRIED_SPARES" || !supply.eligibleFlags.includes(5))
+  for (const supply of contract.supplies) if (supply.required && !carriedSupply(supply))
     unsupported.push(`Supply ${supply.typeID} requires an unqualified loaded/specialized-bay policy.`);
   const alreadySatisfied = !operation && status.equipment === "VERIFIED";
+  const rigs = contract.structural.filter(([flag]) => isRigSlotFlag(flag));
+  if (!alreadySatisfied && rigs.length && data.getTypeDogmaAttribute) {
+    const attr = (id, key) => data.getTypeDogmaAttribute(id, key, null);
+    const size = attr(contract.shipTypeID, 1547), capacity = attr(contract.shipTypeID, 1132);
+    let calibration = 0;
+    for (const [, typeID] of rigs) {
+      const rigSize = attr(typeID, 1547);
+      if (size > 0 && rigSize > 0 && size !== rigSize) unsupported.push(`Rig ${typeID} does not fit this hull's rig size.`);
+      calibration += attr(typeID, 1153) ?? 0;
+    }
+    if (capacity != null && calibration > capacity) unsupported.push("The selected rigs exceed the hull's calibration.");
+  }
+  const mixed = mixedCargoTargets(read, alreadySatisfied ? read.observation.rows : read.target.rows);
+  for (const t of mixed) {
+    if (alreadySatisfied && t.deficit) unsupported.push(`Replenish ${t.deficit} missing cargo spares of type ${t.typeID} on the existing ship.`);
+    else if (quantity(read.source.rows, t.typeID, null, true) < t.deficit) shortages.push(`Insufficient cargo spares of type ${t.typeID}.`);
+  }
   const hull = read.source.rows.find(r => r.typeID === contract.shipTypeID && !r.singleton);
   const requirements = contract.equipment.map(([flag, typeID, required]) => ({ key: `${flag}:${typeID}`, flag, typeID,
     name: data.getTypeName(typeID), quantity: required, kind: contract.structural.some(([f, t]) => f === flag && t === typeID) ? "FITTED" : "LOADED" }));
@@ -42,9 +66,10 @@ function shipPlan(read, data, operation = null) {
     hullSourceItemID: operation?.manifest.packagedItemID || hull?.itemID || null, requirements,
     supplies: contract.supplies, optionalSavedCargo: contract.unrelated, destructiveActions: [], unsupported, shortages,
     steps: alreadySatisfied ? [] : ["Acquire one local packaged hull", "Assemble and prove singleton identity", "Board exact hull",
+      ...(contract.structural.some(([flag]) => isRigSlotFlag(flag)) ? ["Install the selected rigs permanently (removal destroys them)"] : []),
       "Fit exact module slots", "Load required carried equipment", "Replenish cargo deficits", "Fresh authoritative Review"],
     canApply: read.observation.complete && read.context.recoveryReady !== false &&
-      (alreadySatisfied || (!unsupported.length && !shortages.length && read.source.access.take === true)) };
+      !unsupported.length && (alreadySatisfied || (!shortages.length && read.source.access.take === true)) };
 }
 
 function proveShipAction(action, after, verifyMovement) {
@@ -92,6 +117,34 @@ function proveShipAction(action, after, verifyMovement) {
   return null;
 }
 
+function validCompletedEquipment(row, observation, data) {
+  const hullTypeID = row.contract.shipTypeID;
+  if (observation?.shipTypeID !== hullTypeID || !observation.complete || !Array.isArray(observation.rows) ||
+      row.result.actualEquipmentFingerprint !== row.contract.equipmentFingerprint) return false;
+  const equipment = new Set(row.contract.equipment.map(([flag, type]) => `${flag}:${type}`));
+  const coldTypes = new Map([[hullTypeID, { categoryID: 6 }]]);
+  for (const item of observation.rows) {
+    if (!positive(item.typeID) || !positive(item.quantity) || !Number.isSafeInteger(item.flagID) ||
+        item.locationID !== row.manifest.targetHullID || item.ownerID !== row.characterID ||
+        !(positive(item.itemID) || item.loaded === true)) return false;
+    if (data.getType(item.typeID)) continue;
+    // Only the charge/equipment distinction affects the saved slot fingerprint.
+    // Cargo and bay rows need no guessed type category. An unrecognised slot
+    // item must never disappear from the fingerprint as a presumed charge.
+    if (slot(item.flagID)) {
+      const fitted = equipment.has(`${item.flagID}:${item.typeID}`);
+      const charge = item.loaded === true || row.contract.supplies.some(s => s.typeID === item.typeID && s.mode === "TOTAL_ABOARD");
+      if ((fitted && item.loaded) || (!fitted && !charge)) return false;
+      const categoryID = fitted ? 7 : 8;
+      const previous = coldTypes.get(item.typeID)?.categoryID;
+      if (previous != null && previous !== categoryID) return false;
+      coldTypes.set(item.typeID, { categoryID });
+    } else if (!coldTypes.has(item.typeID)) coldTypes.set(item.typeID, {});
+  }
+  const result = inspectContract(row.contract, observation, { getType: id => data.getType(id) ?? coldTypes.get(id) });
+  return result.equipment === "VERIFIED" && result.supplies === row.result.supplies && equal(result.targets, row.result.targets);
+}
+
 function validShipRecord(row, verifyMovement, data) {
   if (!Array.isArray(row.actions) || !Array.isArray(row.contract?.equipment) || !Array.isArray(row.contract?.supplies)) return false;
   const snapshots = snapshot => snapshot && Array.isArray(snapshot.hangar) && Array.isArray(snapshot.source?.rows) &&
@@ -126,7 +179,7 @@ function validShipRecord(row, verifyMovement, data) {
     (!["READY", "COMPLETE", "REFUSED"].includes(row.state) || row.actions.every(a => a.state === "VERIFIED")) &&
     (row.state !== "COMPLETE" || (row.result?.equipment === "VERIFIED" && row.manifest.boardedShipID === row.manifest.targetHullID &&
       row.expected.context.shipID === row.manifest.targetHullID &&
-      inspectContract(row.contract, exact ? row.expected.observation : row.expected.target, data).equipment === "VERIFIED"));
+      validCompletedEquipment(row, exact ? row.expected.observation : row.expected.target, data)));
 }
 
 module.exports = { shipPlan, proveShipAction, validShipRecord, quantity, equal };
@@ -171,6 +224,24 @@ function createShipOperations({ journal, reviews, reserve, release, assertWritab
     if (operationID) { owned(row, await adapter.context()); row.key = operationID; if (!equal(row.input, input)) fail("REVIEW_REQUIRED"); }
     const read = await adapter.readShip(input, row?.manifest.targetHullID, row?.sourcePin);
     const plan = shipPlan(read, data, row);
+    if (plan.canApply && plan.mode !== "ALREADY_SATISFIED" && data.getTypeDogmaAttribute) {
+      const required = new Map();
+      for (const [, id] of read.contract.structural.filter(([f]) => isRigSlotFlag(f))) {
+        for (const [skill, level] of [[182,277],[183,278],[184,279],[1285,1286],[1289,1287],[1290,1288]]) {
+          const type = data.getTypeDogmaAttribute(id, skill, null);
+          if (type > 0) required.set(type, Math.max(required.get(type) || 0, data.getTypeDogmaAttribute(id, level, 1)));
+        }
+      }
+      if (required.size) {
+        const sheet = await adapter.readSkills();
+        for (const [type, level] of required) {
+          if (!(sheet?.skills?.some(s => s.typeID === type && s.level >= level))) {
+            plan.unsupported.push(`Rig requires verified skill ${type} at level ${level}.`);
+            plan.canApply = false;
+          }
+        }
+      }
+    }
     if (row) { scope(row, read); if (row.state !== "READY" || !equal(snapshot(read), row.expected)) {
       plan.canApply = false; plan.unsupported.push("Reconcile pending custody and changed world state before requesting continuation."); } }
     if (unresolved(read.context.characterID).some(r => r.key !== operationID)) { plan.canApply = false; plan.unsupported.push("This pilot has unresolved custody."); }
@@ -216,9 +287,13 @@ function createShipOperations({ journal, reviews, reserve, release, assertWritab
     if (prior) {
       owned(prior, context); if (prior.reviewHash !== reviewHash) fail("REVIEW_REQUIRED"); prior.key = reviewID;
       if (prior.state === "COMPLETE") {
+        const saved = prior.result.alreadySatisfied ? prior.expected.observation : prior.expected.target;
+        if ([saved.shipTypeID, ...saved.rows.map(r => r.typeID)].some(id => !data.getType(id)))
+          fail("COMPLETED_METADATA_UNAVAILABLE", "Saved equipment types are unavailable for a fresh comparison.");
         const fresh = await adapter.readShip(prior.input, prior.manifest.targetHullID, prior.sourcePin); scope(prior, fresh);
         if (fresh.context.shipID !== prior.manifest.targetHullID) fail("COMPLETED_SHIP_CHANGED");
         const status = inspectContract(prior.contract, fresh.target, data);
+        if (status.equipment === "UNKNOWN") fail("COMPLETED_EQUIPMENT_UNVERIFIED");
         if (status.equipment !== "VERIFIED") fail("COMPLETED_EQUIPMENT_CHANGED");
         return { ...result(prior), result: { ...prior.result, ...status } };
       }
@@ -280,7 +355,9 @@ function createShipOperations({ journal, reviews, reserve, release, assertWritab
           const wanted = new Set(row.contract.equipment.map(([f, t]) => `${f}:${t}`));
           if (read.target.rows.some(r => ((slot(r.flagID) && Number(data.getType(r.typeID)?.categoryID) !== 8) || [87, 158].includes(r.flagID)) &&
               !wanted.has(`${r.flagID}:${r.typeID}`))) fail("DESTRUCTIVE_FIT_UNSUPPORTED");
-          const needed = row.manifest.requirements.find(r => quantity(read.target.rows, r.typeID, r.flag) !== r.quantity);
+          const missing = requirement => quantity(read.target.rows, requirement.typeID, requirement.flag) !== requirement.quantity;
+          // A fitting rig can supply resources needed by a later module. Leave the stored manifest order intact.
+          const needed = row.manifest.requirements.find(r => isRigSlotFlag(r.flag) && missing(r)) ?? row.manifest.requirements.find(missing);
           if (needed) {
             requirementKey = needed.key;
             const present = quantity(read.target.rows, needed.typeID, needed.flag);
@@ -293,9 +370,12 @@ function createShipOperations({ journal, reviews, reserve, release, assertWritab
               destination: needed.flag === 87 ? { kind: "shipBay", bay: "drone" } : { kind: "cargo" } };
           } else {
             const status = inspectContract(row.contract, read.target, data);
-            move = await adapter.plan(status.targets.map(t => ({ ...t, eligibleFlags: [5] })), read);
+            // Saved ammunition in a module slot is optional equipment metadata, not a cargo loading order.
+            const mixed = mixedCargoTargets(read, read.target.rows);
+            move = await adapter.plan([...mixed, ...status.targets.filter(carriedSupply).map(t => ({ ...t, eligibleFlags: [5] }))], read);
             if (move) { kind = "SUPPLY"; move.flag = 5; }
             else {
+              if (mixed.some(t => t.deficit)) fail("CARGO_SPARES_NOT_VERIFIED");
               if (status.equipment !== "VERIFIED") fail("FINAL_EQUIPMENT_NOT_VERIFIED");
               row.state = "COMPLETE"; row.result = { ...status, matches: matchFittings(read.contracts, read.target, data) };
               row.manifest.hull.state = "VERIFIED";

@@ -1,6 +1,31 @@
 "use strict";
 
+const { deserialize, serialize } = require("node:v8");
+const { getDecodedNumberKind, setDecodedNumberKind } = require("../gameProtocol/marshal");
 const { createClientRowDescriptorLayout } = require("./clientRowDescriptorLayout");
+
+// V8 copies only the viewed bytes of a Buffer. Carry the decoder's numeric
+// annotations with the containers they describe, including any shared slots.
+function packWireHeader(wire) {
+  const seen = new Set(), numberKinds = [];
+  function visit(container) {
+    if (!container || typeof container !== "object" || Buffer.isBuffer(container) || seen.has(container)) return;
+    seen.add(container);
+    for (const [slot, value] of Object.entries(container)) {
+      const kind = getDecodedNumberKind(container, slot);
+      if (kind) numberKinds.push([container, slot, kind]);
+      visit(value);
+    }
+  }
+  visit(wire);
+  return serialize([wire, numberKinds]);
+}
+
+function unpackWireHeader(bytes) {
+  const [wire, numberKinds] = deserialize(bytes);
+  for (const [container, slot, kind] of numberKinds) setDecodedNumberKind(container, slot, Object.freeze(kind));
+  return wire;
+}
 
 /** Named source-port descriptor protocol on the installed Python heap.
  * Original virtual getters execute untouched; this class is explicitly NOT
@@ -10,12 +35,12 @@ async function createClientRowDescriptor({ provider }) {
   const layouts = await createClientRowDescriptorLayout({ provider });
   const runtime = await provider.ready(), values = runtime.values;
   const module = values.global("_create_row_descriptor_protocol").call();
-  // Native rows can retain a header after its original wire row is released.
-  // Keep its JS handle and wire metadata together for this owner's lifetime:
-  // runtime wrapper interning is weak, so a WeakMap loses still-live headers.
-  // Retaining the handle also prevents native address reuse; no schema interning.
-  const Descriptor = module.getAttr("Descriptor"), provenance = new Map();
+  // A Python row can outlive its header's JS wrapper. The native descriptor owns
+  // its wire snapshot, and the weak cache holds the projection for a live wrapper.
+  const Descriptor = module.getAttr("Descriptor"), provenance = new WeakMap();
   const builtins = values.global("__builtin__"), list = builtins.getAttr("list"), tuple = builtins.getAttr("tuple");
+  const owner = builtins.getAttr("object").call();
+  const getAttr = builtins.getAttr("getattr"), ownerAttr = values.bytes(Buffer.from("_wire_owner"));
   const getters = new Map([
     ["eve.common.script.sys.eveCfg.StackSize", module.getAttr("StackSize")],
     ["eve.common.script.sys.eveCfg.Singleton", module.getAttr("Singleton")],
@@ -46,15 +71,22 @@ async function createClientRowDescriptor({ provider }) {
     }
     // Publish provenance only after all original getter resolution and state
     // conversion succeed. The caller can then assign its real header slot.
-    provenance.set(descriptor, prepared);
+    descriptor.setAttr("_wire_provenance", packWireHeader(wire));
+    descriptor.setAttr("_wire_owner", owner);
+    // While this wrapper lives, projections keep the decoded header itself.
+    provenance.set(descriptor, Object.freeze({ wire }));
     return descriptor;
   }
   return Object.freeze({
     module, Descriptor, layouts, identity: runtime.identity,
     create: schema => Descriptor.call(schema), materialize,
     provenance(descriptor) {
-      if (!provenance.has(descriptor)) throw new TypeError("This descriptor has no wire provenance in this owner.");
-      return provenance.get(descriptor);
+      const cached = provenance.get(descriptor);
+      if (cached) return cached;
+      if (getAttr.call(descriptor, ownerAttr, null) !== owner) throw new TypeError("This descriptor has no wire provenance in this owner.");
+      const prepared = Object.freeze({ wire: unpackWireHeader(descriptor.getAttr("_wire_provenance").scalar) });
+      provenance.set(descriptor, prepared);
+      return prepared;
     },
   });
 }

@@ -502,7 +502,7 @@ import { argumentsOf, createBotPresses, decodeQuestion, dialogOfKey, keptQuestio
 import { classifyDistributionAgentConversation, selectDistributionAgent } from "../nav/distributionAgentSelection.ts";
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
 import { decodeKillRights } from "../bridge/killRights.ts";
-import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapBool, unwrapLong, unwrapReal, type JsonValue } from "../bridge/wire.ts";
+import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapBool, unwrapLong, unwrapReal, type CallKwargs, type JsonValue } from "../bridge/wire.ts";
 import { canManageMoonPull, decodeCorporationMoonPulls, decodeMoonResources, decodeMoonSchedule, hasMoonStationManagerRole, moonRefineryYieldMultiplier,
   MOON_FRACTURE_MS, moonMiningID, moonPullDuration,
   type CorporationMoonSchedule, type MoonOrePricing, type MoonRefinery, type MoonResource, type MoonSchedule } from "../bridge/moonMining.ts";
@@ -2127,8 +2127,15 @@ export interface PilotFlying {
   sessionGeneration(): number;
   isSessionClosing(): boolean;
 
-  /** A bridge read and a bridge write, as this pilot. */
-  readonly bridgeAsk: Ask;
+  /** One snapshot of this pilot's surroundings and drones. */
+  readObservation(opts?: { signal?: AbortSignal }): Promise<api.SpaceSnapshotResult & api.DronesResult>;
+  /**
+   * A bridge read as this pilot. Optional cancellation covers the wait for a request lane, the response, and a
+   * container's password prompt. A cancelled read rejects with BRIDGE_NETWORK_ERROR.
+   */
+  readonly bridgeAsk: (service: string, method: string, args: readonly JsonValue[], kwargs?: CallKwargs,
+    of?: JsonValue, opts?: { signal?: AbortSignal }) => Promise<JsonValue>;
+  /** A bridge write as this pilot. */
   readonly bridgeDo: Ask;
   readonly fleetBroadcasts: ReturnType<typeof createFleetBroadcasts>;
 
@@ -6180,9 +6187,6 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // one has said: then the browser's own is all there is. (It is the server's clock, whichever pilot's answer
   // said it: it is not forgotten when another pilot is chosen. Through the web gateway it is the BFF's own.)
   let serverClockAheadMs: number | null = null;
-  const rawBridgeAsk = api.bridgeAsk(callOptions, (serverNowMs) => {
-    serverClockAheadMs = serverNowMs - Date.now();
-  });
   const serverNow = (): number => Date.now() + (serverClockAheadMs ?? 0);
   const cameraTaskReporter = createCameraTaskReporter(events => api.recordCameraTaskEvents(events, callOptions));
   // A write the page makes for its pilot, the same way, with its meaning it said (api.bridgeDo).
@@ -6190,24 +6194,44 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     serverClockAheadMs = serverNowMs - Date.now();
   });
   let inventoryPasswordEpoch = 0, inventoryPasswordSwitching = false;
-  function inventoryPasswordScope() {
-    const current = callOptions.captureRequestGuard!(), sink = callOptions.captureNotificationSink!();
+  function inventoryPasswordScope(options: api.ApiOptions = callOptions) {
+    const current = options.captureRequestGuard!(), sink = options.captureNotificationSink!();
     const epoch = inventoryPasswordEpoch, characterID = store.station.get().online?.characterID ?? null;
     const passwordCurrent = () => {
       current();
+      if (options.signal?.aborted) {
+        const reason: unknown = options.signal.reason;
+        // What every other read given up on rejects with.
+        throw new BridgeCallError("BRIDGE_NETWORK_ERROR", `This inventory request was given up on: ${reason instanceof Error ? reason.message : String(reason)}`, 0);
+      }
       if (sessionClosing || inventoryPasswordSwitching || epoch !== inventoryPasswordEpoch || characterID !== (store.station.get().online?.characterID ?? null))
         throw new BridgeCallError("SESSION_REQUEST_RETIRED", "This inventory request belongs to a retired pilot session.", 0);
     };
-    const scoped: api.ApiOptions = { ...callOptions, captureRequestGuard: () => passwordCurrent, captureNotificationSink: () => sink };
+    const scoped = { ...options, captureRequestGuard: () => passwordCurrent, captureNotificationSink: () => sink };
     const passwords = inventoryPasswords({
       ask: api.bridgeAsk(scoped, now => { serverClockAheadMs = now - Date.now(); }),
       act: api.bridgeDo(scoped, now => { serverClockAheadMs = now - Date.now(); }),
-      current: passwordCurrent, prompt: type => askInventoryPassword(type, passwordCurrent),
+      current: passwordCurrent, prompt: type => askInventoryPassword(type, passwordCurrent, options.signal),
     });
     return { current: passwordCurrent, options: scoped, ...passwords };
   }
-  const bridgeAsk: Ask = (service, method, args, kwargs, of) => service === "invbroker" && of != null
-    ? inventoryPasswordScope().ask(service, method, args, kwargs, of) : rawBridgeAsk(service, method, args, kwargs, of);
+  function bridgeReader(options: api.ApiOptions): Ask {
+    const raw = api.bridgeAsk(options, now => { serverClockAheadMs = now - Date.now(); });
+    return (service, method, args, kwargs, of) => service === "invbroker" && of != null
+      ? inventoryPasswordScope(options).ask(service, method, args, kwargs, of) : raw(service, method, args, kwargs, of);
+  }
+  const bridgeAsk = bridgeReader(callOptions);
+  function flyingReadOptions(signal?: AbortSignal): api.ApiOptions {
+    const current = callOptions.captureRequestGuard!();
+    const generation = sessionCloseGeneration, characterID = onlineCharacterID();
+    function assertCurrent() {
+      current();
+      // Logout may still be pending, or the server may already have reported the pilot offline.
+      if (sessionClosing || generation !== sessionCloseGeneration || characterID !== onlineCharacterID())
+        throw new BridgeCallError("SESSION_REQUEST_RETIRED", "This read belongs to a retired pilot session.", 0);
+    }
+    return { ...callOptions, signal, captureRequestGuard: () => assertCurrent };
+  }
   const bridgeDo: Ask = (service, method, args, kwargs, of) => service === "invbroker" && of != null
     ? inventoryPasswordScope().act(service, method, args, kwargs, of) : rawBridgeDo(service, method, args, kwargs, of);
 
@@ -6256,9 +6280,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   });
   // The same write under a caller's own fence. The shared lane may hold a call back: the fence is run at the
   // dispatch itself, before a hosted fetch can be taken by a newer generation of its caller.
-  const fencedDo = (assertCurrent: () => void) => api.bridgeDo({ ...callOptions, fetch: (input, init) => {
-    assertCurrent(); return (callOptions.fetch ?? pageFetch())(input, init);
-  } }, (serverNowMs) => {
+  const fencedDo = (assertCurrent: () => void) => api.bridgeDo({ ...callOptions, beforeDispatch: assertCurrent }, (serverNowMs) => {
     serverClockAheadMs = serverNowMs - Date.now();
   });
   /** The pilot's own character, as the page has it. Null with none chosen. */
@@ -14373,14 +14395,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     for (const finish of inventoryPasswordWaiters) finish(null);
   }
 
-  async function askInventoryPassword(type: InventoryPasswordType, current: () => void): Promise<string | null> {
+  async function askInventoryPassword(type: InventoryPasswordType, current: () => void, signal?: AbortSignal): Promise<string | null> {
     current();
     await wordsNow(["UI/Inventory/ItemActions/AccessPasswordRequiredCaption", "UI/Inventory/ItemActions/PleaseEnterAccessPassword",
       "UI/Inventory/ItemActions/ConfigurationPasswordRequiredCaption", "UI/Inventory/ItemActions/PleaseEnterConfigurationPassword",
       "UI/Common/Buttons/OK", "UI/Common/Buttons/Cancel", "UI/Common/PleaseTypeSomething"]);
     current();
     return new Promise(resolve => {
-      const finish = (text: string | null) => { inventoryPasswordWaiters.delete(finish); resolve(text); };
+      const finish = (text: string | null) => {
+        inventoryPasswordWaiters.delete(finish);
+        signal?.removeEventListener("abort", giveUp);
+        resolve(text);
+      };
+      // The caller gave the read up. The window goes back to the waiter this one took it from, or closes.
+      const before = inventoryPasswordAnswer;
+      const giveUp = () => {
+        if (inventoryPasswordAnswer === finish) {
+          inventoryPasswordAnswer = before !== null && inventoryPasswordWaiters.has(before) ? before : null;
+          if (inventoryPasswordAnswer === null) inventoryPasswordAskedSignal.set(null);
+        }
+        finish(null);
+      };
+      signal?.addEventListener("abort", giveUp, { once: true });
       inventoryPasswordWaiters.add(finish);
       // Window.Open3186/ShowDialog: reuse setNewName's field/caption; the most recent modal waiter receives Confirm.
       // Older overlapping waiters remain pending until this pilot retires, rather than inventing a queue or fanout.
@@ -17491,12 +17527,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const finish = reads?.begin();
     // Fence dispatch in the shared lane, but keep the pilot's notification sink:
     // retiring one window must not discard notices accompanying an in-flight RPC.
-    const infoAsk = (signal?: AbortSignal): Ask => api.bridgeAsk({ ...callOptions, fetch: (input, init) => {
+    const infoAsk = (signal?: AbortSignal): Ask => api.bridgeAsk({ ...callOptions, beforeDispatch: deadline => {
       reads?.assertCurrent();
       // Keep this call's existing transport deadline. Only a native scalar
       // cache owner receives tasklet retirement, not every operation of a view.
-      return (callOptions.fetch ?? pageFetch())(input, signal
-        ? { ...init, signal: AbortSignal.any([signal, ...(init?.signal ? [init.signal] : [])]) } : init);
+      return signal ? AbortSignal.any([signal, deadline]) : deadline;
     } }, serverNowMs => { serverClockAheadMs = serverNowMs - Date.now(); });
     const ask = reads ? infoAsk() : bridgeAsk;
     try {
@@ -17550,9 +17585,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
             // one owner before converting the next key. Never filter failures
             // or batch later owners ahead of a bad key or missing record.
             reads?.assertCurrent();
-            const records = await api.readEveOwners([id], reads ? { ...callOptions, signal: reads.signal, fetch: (input, init) => {
-              reads.assertCurrent(); return (callOptions.fetch ?? pageFetch())(input, init);
-            } } : callOptions);
+            const records = await api.readEveOwners([id], reads ? { ...callOptions, signal: reads.signal, beforeDispatch: () => reads.assertCurrent() } : callOptions);
             reads?.assertCurrent();
             const row = records[String(id)];
             if (row === null) throw Object.assign(new Error(`('RecordNotFound', ${id})`), { name: "KeyError", code: "INFO_CORPORATION_ENLISTMENT_OWNER_MISSING", args: ["RecordNotFound", id] });
@@ -21458,10 +21491,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     try {
       await previous; scope.current();
       let sent = false;
-      const send = callOptions.fetch ?? pageFetch();
       const mutationOptions: api.ApiOptions = { ...scope.options,
         captureRequestGuard: () => () => { pilotCurrent(); if (!sent) scope.current(); },
-        fetch: (input, init) => { scope.current(); sent = true; return send(input, init); },
+        beforeDispatch: () => { scope.current(); sent = true; },
       };
       await api.bridgeDo(mutationOptions)("corpRegistry", "UpdateApplicationOffer", [application.applicationID, application.characterID, application.corporationID, application.applicationText, status, "", null], null, scope.online.corporationID);
       // An intended acceptance changes corpid before its None reply. The
@@ -21777,11 +21809,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         if (!await askDialog(dialog, values, "Resign as CEO? The corporation may be closed if there is no successor.", "yesno", { defaultAnswer: "no" })) return;
         scope.current();
         const mutate = async (successor: number | null): Promise<JsonValue> => {
-          const pilotCurrent = callOptions.captureRequestGuard!(), send = callOptions.fetch ?? pageFetch();
+          const pilotCurrent = callOptions.captureRequestGuard!();
           let sent = false;
           const mutationOptions: api.ApiOptions = { ...scope.options,
             captureRequestGuard: () => () => { pilotCurrent(); if (!sent) scope.current(); },
-            fetch: (input, init) => { scope.current(); sent = true; return send(input, init); },
+            beforeDispatch: () => { scope.current(); sent = true; },
           };
           scope.current();
           const result = await api.resignCorporationCEO(successor, scope.online.corporationID, mutationOptions);
@@ -22010,11 +22042,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           if (!await confirmCorporationWarKick(scope) || !await confirmCorporationMemberKick(scope, [self])) return;
           // Keep the originating corporation until actual dispatch. The intended successful reply
           // may change it; notification delivery and the response still belong to this same pilot.
-          const pilotCurrent = callOptions.captureRequestGuard!(), send = callOptions.fetch ?? pageFetch();
+          const pilotCurrent = callOptions.captureRequestGuard!();
           let sent = false;
           const quitOptions: api.ApiOptions = { ...scope.options,
             captureRequestGuard: () => () => { pilotCurrent(); if (!sent) scope.current(); },
-            fetch: (input, init) => { scope.current(); sent = true; return send(input, init); },
+            beforeDispatch: () => { scope.current(); sent = true; },
           };
           scope.current();
           await api.quitCorporation(self, scope.online.corporationID, quitOptions);
@@ -38625,7 +38657,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       readFit,
       sessionGeneration: () => sessionCloseGeneration,
       isSessionClosing: () => sessionClosing,
-      bridgeAsk,
+      readObservation: opts => api.getScriptObservation(flyingReadOptions(opts?.signal)),
+      bridgeAsk: (service, method, args, kwargs, of, opts) =>
+        bridgeReader(flyingReadOptions(opts?.signal))(service, method, args, kwargs, of),
       bridgeDo,
       fleetBroadcasts,
       readFlightNow,

@@ -1,7 +1,7 @@
 // THE PLUGIN API — the only part of core a plugin may import.
 //
 // A plugin adds to the client; it never edits core. It can add a global window,
-// a bot builder block and a backend, and core reads what each plugin registers.
+// a standalone page, a bot builder block and a backend.
 // This module has the types a plugin needs to add them, so a plugin that builds
 // against it keeps building when core's internals move.
 //
@@ -15,6 +15,9 @@
 // it was built for, and the host refuses one built for another.
 
 import type { GlobalWindowView } from "../ui/pluginWindowViews.ts";
+export type { PluginPageProps, PluginPagePilot } from "../app/pluginPageSession.ts";
+import type { PluginPageProps } from "../app/pluginPageSession.ts";
+import type { Component } from "svelte";
 import type { SquadControlView, SquadMemberSettingView } from "../ui/pluginHangarViews.ts";
 import type { PluginMacro } from "../bots/pluginMacros.ts";
 
@@ -40,6 +43,9 @@ export interface PluginWindow {
   readonly glyph: readonly string[];
 }
 
+/** An empty declaration for a separate browser page at /<plugin id>/. */
+export type PluginPage = Record<string, never>;
+
 /** Everything about a plugin that is not a Svelte component: core reads it in the browser and the BFF alike. */
 export interface PluginManifest {
   readonly id: PluginID;
@@ -61,6 +67,7 @@ export interface PluginManifest {
    */
   readonly glyph?: readonly string[];
   readonly windows?: readonly PluginWindow[];
+  readonly page?: PluginPage;
   /** Blocks for the bot builder; each id is "<plugin id>:<block>". */
   readonly macros?: readonly PluginMacro[];
   /**
@@ -80,6 +87,7 @@ export interface PluginManifest {
 export interface PluginViews {
   readonly id: PluginID;
   readonly windows: Readonly<Record<`plugin:${string}`, GlobalWindowView>>;
+  readonly page?: () => Promise<{ readonly default: Component<PluginPageProps> }>;
   /** A control on each squad in the Pilot Hangar, beside its launch button. */
   readonly squadControl?: SquadControlView;
   /** A setting under a pilot in each squad it is in, in the Pilot Hangar's squad menu. */

@@ -54,6 +54,8 @@ function makeRoot() {
   for (const file of ["backend.ts", "deciderProcess.ts"]) {
     fs.copyFileSync(path.join(REPO, "web", "src", "plugin-api", file), path.join(root, "web", "src", "plugin-api", file));
   }
+  fs.mkdirSync(path.join(root, "web", "src", "app"), { recursive: true });
+  fs.copyFileSync(path.join(REPO, "web", "src", "app", "transport.ts"), path.join(root, "web", "src", "app", "transport.ts"));
   fs.writeFileSync(path.join(root, "plugins", "echo", "backend.ts"), BACKEND);
   fs.writeFileSync(path.join(root, "data", "companion.sqlite"), "core data");
   // The plugin side's own package scope, as the image has none for it.

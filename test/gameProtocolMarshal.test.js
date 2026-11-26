@@ -130,10 +130,10 @@ test("an upstream file the script no longer understands is refused, not copied b
     () => vendoredBody(marshal, '"use strict";\n'),
     /expected exactly one .*marshalStringTable.* found 0/,
   );
-  const rewritable = 'require(path.join(__dirname, "../../../common/marshalStringTable"));\n';
+  const rewritable = 'require(path.join(__dirname, "../../../common/marshalStringTable"));\nmodule.exports = {\n  getDecodedNumberKind,\n};\n';
   assert.equal(
     vendoredBody(marshal, rewritable),
-    'require(path.join(__dirname, "marshalStringTable"));\n',
+    'require(path.join(__dirname, "marshalStringTable"));\nmodule.exports = {\n  getDecodedNumberKind,\n  setDecodedNumberKind,\n};\n',
   );
   assert.throws(
     () => vendoredBody(marshal, `${rewritable}require("../logger");\n`),

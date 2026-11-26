@@ -30,10 +30,11 @@ function deferred<T = void>(): {
 }
 
 /** A lane with a hand-cranked clock and timer, so nothing here waits in real time. */
-function testLane(over: { maxInFlight?: number; queueDeadlineMs?: number } = {}) {
+function testLane(over: { maxInFlight?: number; queueDeadlineMs?: number; hosted?: boolean } = {}) {
   let clock = 1_000;
   const timers: { at: number; fire: () => void }[] = [];
   const lane = createTransportLane({
+    hosted: over.hosted,
     maxInFlight: over.maxInFlight ?? 2,
     queueDeadlineMs: over.queueDeadlineMs ?? 20_000,
     now: () => clock,
@@ -62,6 +63,35 @@ function testLane(over: { maxInFlight?: number; queueDeadlineMs?: number } = {})
 }
 
 // --- the cap -----------------------------------------------------------------
+
+test("a pilot with a backlog yields to another pilot of equal priority", async () => {
+  const { lane } = testLane({ hosted: true, maxInFlight: 1 });
+  const held = deferred();
+  const first = lane.run("read", "/held", () => held.promise);
+  const order: string[] = [];
+  const ask = (pilot: string) => lane.run("read", "/fleet", async () => { order.push(pilot); }, { pilot });
+  const backlog = Array.from({ length: 30 }, () => ask("busy"));
+  const last = ask("quiet");
+  held.settle();
+  await Promise.all([first, ...backlog, last]);
+  assert.deepEqual(order.slice(0, 3), ["busy", "quiet", "busy"]);
+});
+
+test("a hosted queue timeout identifies active routes without exposing query parameters", async () => {
+  const { lane, advance } = testLane({ hosted: true, maxInFlight: 1 });
+  const held = deferred();
+  const first = lane.run("poll", "/snapshot?token=private", () => held.promise);
+  const next = lane.run("user", "/command", async () => assert.fail("expired command dispatched"));
+  advance(20_000);
+  await assert.rejects(next, (error: Error) => {
+    assert.match(error.message, /hosted request slot.*Active routes: \/snapshot\./);
+    assert.doesNotMatch(error.message, /private|browser|connection/);
+    return true;
+  });
+  held.settle();
+  await first;
+  assert.equal(lane.queued(), 0);
+});
 
 test("no more requests are outstanding than the cap allows", async () => {
   // ⚠ The property the whole module exists for. Beyond the browser's ~6 per

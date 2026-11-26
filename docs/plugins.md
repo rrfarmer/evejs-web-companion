@@ -84,6 +84,36 @@ Core defines what each of these looks like, reads what each plugin registered,
 and decides where and when to show or call it. These are the plugin API's only
 extension points: a plugin that needs another one proposes it as a core change.
 
+### A standalone page
+
+Declare `page: {}` in the manifest and `page: () => import("./Page.svelte")`
+in the plugin's views. The ordinary WC build serves `/<plugin id>/` and hands
+subpaths to the page component.
+
+A plain click on the pin or menu link opens a new tab with `noopener`. The page
+receives the source WC tab's roster over a same-origin channel. Its reactive
+`PluginPageProps` include `sessions` (account name, character ID and WC token)
+and `activeSession`. Use the current props when making a request, for example
+`pluginGetJson(id, path, { token: pilot.token })`. Login, logout and changing
+the active cockpit update these props without remounting the plugin.
+
+The page removes the launch ID from the URL and retains only that ID in its
+session storage. Bearers stay in memory. Refresh asks the source for its current
+roster. Closing the source clears the borrowed roster. Where the browser
+provides Web Locks, release of the source's document lock also detects a lost
+tab. On LAN HTTP without Web Locks, 90 seconds without a presence message
+clears the roster while the page's timers are running. Closing either tab
+leaves hosted runs under the control of their original owner.
+
+A fresh direct URL, a middle-click, a modified click (including Ctrl, Cmd and
+Shift) or “Open link in new tab” follows the ordinary link without attaching
+the source roster. The plugin can show an empty state or use its existing
+explicit account sign-in. WC API calls from a plugin page omit the shared cookie.
+
+A page-only plugin has a direct link in the Plugins menu and, when pinned,
+in the usual strip. A plugin with both a page and windows lists them together.
+The browser's enable/disable and pin settings apply in both cases.
+
 ### A global window
 
 A window about every pilot rather than the one on screen. It floats on the global
@@ -372,6 +402,16 @@ runs: {
   plain request and fills no store. Call `readFit` again after a refit.
 - **`warmFitFacts(fit)`** reads, and waits for, everything the `resolve...` calls read about a
   fit, for a loop that read the fit itself instead of calling `readFit`.
+- **`flow.flying.readObservation()`** reads the scene and drones together.
+  **`flow.flying.bridgeAsk(service, method, args)`** reads one service method as the same
+  pilot. To cancel a read, pass `{ signal }` as the first argument to `readObservation`
+  or the sixth argument to `bridgeAsk`, after the optional keywords and bound object.
+  Both reads check the pilot session before dispatch and discard replies from a retired
+  session. The default 65-second timeout starts when the flow's transport lane admits
+  the request. In `inprocess` mode this includes any later wait for a Bot Host slot.
+  Both reads keep it beside a caller-supplied signal. A cancelled read rejects with
+  `BRIDGE_NETWORK_ERROR`, as a timed-out one does: look at your own signal to tell them
+  apart. One signal may be passed to any number of reads.
 - **`hostDrivenCharacterIDs()`** says who the host flies with a bot, or null if it says nothing,
   for a loop telling the account's bots from a person flying beside them.
 - **`sleepUntilPush(ms)`** sleeps until the next look, or until a push wants acting on. A push

@@ -11,3 +11,10 @@ export function isMiningCommandCenterPath(pathname: string): boolean {
 
 /** The three.js play mode (ui/PlayApp.svelte, branch FarmerThreeJSFun). Not /play: Vite serves web/play.html there. */
 export function isFlyPath(pathname: string): boolean { return /^\/fly\/?$/.test(pathname); }
+
+/** Page ownership follows the same predicates as main.ts; the other roots serve BFF resources. */
+export function reservedPluginPage(id: string): boolean {
+  const path = "/" + id;
+  return ["api", "assets", "client-res", "dist", "icon-cache"].includes(id) ||
+    isGoblinFactoryPath(path) || isPilotTrainingPath(path) || isShipProvisioningPath(path) || isMiningCommandCenterPath(path) || isFlyPath(path);
+}

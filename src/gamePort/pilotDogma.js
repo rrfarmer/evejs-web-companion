@@ -1728,7 +1728,7 @@ function createPilotDogma({
       if (!nativeTypeNames) throw new GodmaTypeNamesNotReadyError();
       return nativeTypeNames.name(typeID);
     },
-    finishPrimeBody: primeChannel.finishBody,
+    cancelPrime: primeChannel.cancel,
     releasePrimeReceivers: primeChannel.release,
     primeState: primeChannel.state,
     processItemChange,

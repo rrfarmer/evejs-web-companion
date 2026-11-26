@@ -5,7 +5,7 @@ const { createReplenishment } = require("./replenishment");
 const { buildContract } = require("./provisioningContracts");
 const { fittingFingerprint } = require("./pilotTrainingFittings");
 const data = { getType: id => ({ 1: { categoryID: 6, groupID: 25 }, 2: { categoryID: 7 }, 3: { categoryID: 8 },
-  4: { categoryID: 18 }, 99: { categoryID: 6, groupID: 25 } })[id], getTypeName: id => `Type ${id}` };
+  4: { categoryID: 18 }, 5: { categoryID: 7 }, 99: { categoryID: 6, groupID: 25 } })[id], getTypeName: id => `Type ${id}` };
 const clone = x => structuredClone(x);
 function fixture(t, corp = false) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wc-ship-"));
@@ -64,7 +64,9 @@ function fixture(t, corp = false) {
   let engine = createReplenishment({ filePath, operations, data }), operationID;
   return { world, adapter, input, filePath, operations, engine: () => engine,
     async review(id = null) { const review = await engine.reviewShip(adapter, input, id); operationID = id || review.reviewID; return review; },
-    apply: review => engine.applyShip(adapter, review), restart() { operations.clear(); engine = createReplenishment({ filePath, operations, data }); } };
+    apply: review => engine.applyShip(adapter, review), restart(catalog = data) {
+      operations.clear(); engine = createReplenishment({ filePath, operations, data: catalog });
+    } };
 }
 test("personal packaged stack consumes one, uniquely boards, fits, loads, verifies and repeats without dispatch", async t => {
   const f = fixture(t), review = await f.review(); assert.equal(review.plan.hullQuantity, 1);
@@ -76,6 +78,39 @@ test("personal packaged stack consumes one, uniquely boards, fits, loads, verifi
   const again = await f.review(); assert.equal(again.plan.mode, "ALREADY_SATISFIED"); assert.equal(again.plan.hullQuantity, 0);
   assert.equal((await f.apply(again)).result.alreadySatisfied, true); assert.equal(f.world.dispatched.length, count);
   f.restart(); assert.equal(f.engine().unresolved(11).length, 0);
+});
+test("completed runtime hull and module receipts survive a cold catalog while their saved fitting is still checked", async t => {
+  const f = fixture(t), assembled = await f.review();
+  assert.equal((await f.apply(assembled)).state, "COMPLETE");
+  const exact = await f.review();
+  assert.equal((await f.apply(exact)).result.alreadySatisfied, true);
+  const cold = { ...data, getType: id => [1, 2, 3, 4].includes(id) ? null : data.getType(id) };
+  const saved = fs.readFileSync(f.filePath, "utf8"), count = f.world.dispatched.length;
+  f.restart(cold);
+  assert.equal(fs.readFileSync(f.filePath, "utf8"), saved);
+  assert.equal(f.engine().unresolved(11).length, 0);
+  for (const { reviewID } of [assembled, exact]) assert.equal(f.engine().journal.get(reviewID).state, "COMPLETE");
+  await assert.rejects(f.apply(assembled), { code: "COMPLETED_METADATA_UNAVAILABLE" });
+  assert.equal(f.world.dispatched.length, count);
+
+  f.restart();
+  const fitted = f.world.targetRows[f.world.context.shipID];
+  fitted.splice(fitted.findIndex(i => i.flagID === 19), 1);
+  await assert.rejects(f.apply(assembled), { code: "COMPLETED_EQUIPMENT_CHANGED" });
+
+  const changedSlot = JSON.parse(saved);
+  changedSlot.records[exact.reviewID].expected.observation.rows.find(r => r.flagID === 19).typeID = 98765;
+  fs.writeFileSync(f.filePath, JSON.stringify(changedSlot));
+  assert.throws(() => f.restart(cold), { code: "CUSTODY_JOURNAL_INVALID" });
+  const wrongResult = JSON.parse(saved);
+  wrongResult.records[assembled.reviewID].result.actualEquipmentFingerprint = "0".repeat(64);
+  fs.writeFileSync(f.filePath, JSON.stringify(wrongResult));
+  assert.throws(() => f.restart(cold), { code: "CUSTODY_JOURNAL_INVALID" });
+
+  const damaged = JSON.parse(saved);
+  damaged.records[assembled.reviewID].expected.target.rows = [];
+  fs.writeFileSync(f.filePath, JSON.stringify(damaged));
+  assert.throws(() => f.restart(cold), { code: "CUSTODY_JOURNAL_INVALID" });
 });
 for (const fault of ["WITHDRAW_HULL", "ASSEMBLE_HULL", "FIT_ITEM"]) test(`${fault}: persisted fence, restart, reread and explicit continuation do not duplicate`, async t => {
   const f = fixture(t, fault === "WITHDRAW_HULL"); f.world.fault = fault;
@@ -119,10 +154,13 @@ test("partial supplies finish with equipment VERIFIED / LOW", async t => {
   assert.equal(result.result.equipment, "VERIFIED"); assert.equal(result.result.supplies, "LOW");
   assert.equal(result.result.targets[0].current, 3); assert.equal(result.result.targets[0].deficit, 2);
 });
-test("rig requirements refuse new-hull Apply visibly", async t => {
+test("missing rig stock blocks Review before any new-hull mutation", async t => {
   const f = fixture(t); const c = f.world.contract;
-  c.structural.push([92, 2, 1]); c.equipment.push([92, 2, 1]);
-  const review = await f.review(); assert.equal(review.canApply, false); assert.match(review.plan.unsupported.join(" "), /rigs/);
+  c.structural.push([92, 5, 1]); c.equipment.push([92, 5, 1]);
+  const review = await f.review();
+  assert.equal(review.canApply, false);
+  assert.deepEqual(review.plan.unsupported, []);
+  assert.match(review.plan.shortages.join(" "), /Required equipment Type 5/);
   await assert.rejects(f.apply(review), { code: "REVIEW_REQUIRED" }); assert.equal(f.world.dispatched.length, 0);
 });
 test("late result from a changed generation remains fenced until readonly reconciliation", async t => {

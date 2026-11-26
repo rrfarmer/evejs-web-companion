@@ -291,6 +291,7 @@ class GamePortSession {
     client = RETAIL_CLIENT,
     languageID = "EN",
     handshakeFunctions = KNOWN_HANDSHAKE_FUNCTIONS,
+    onLoginProgram = null,
     journeyID = crypto.randomUUID(),
     now = () => Date.now(),
     timers = { setTimeout, clearTimeout },
@@ -303,6 +304,7 @@ class GamePortSession {
     this.transport = transport;
     this.client = client;
     this.languageID = languageID;
+    this.onLoginProgram = onLoginProgram;
     this.handshakeFunctions = handshakeFunctions;
     this.journeyID = journeyID;
     this.now = now;
@@ -566,7 +568,8 @@ class GamePortSession {
     const marshaled = Array.isArray(signedFunction) ? signedFunction[0] : signedFunction;
     const source = Buffer.isBuffer(marshaled) ? marshaled : Buffer.from(String(text(marshaled) ?? ""), "latin1");
     const digest = crypto.createHash("sha256").update(source).digest("hex");
-    const known = this.handshakeFunctions.get(digest);
+    const nativeDigest = this.onLoginProgram?.(source, digest);
+    const known = this.handshakeFunctions.get(digest) ?? this.handshakeFunctions.get(nativeDigest);
     if (known === undefined) {
       this.unknownHandshakeFunction = digest;
       this.handshakeAnswer = "";

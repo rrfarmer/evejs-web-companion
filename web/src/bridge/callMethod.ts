@@ -12,6 +12,9 @@ import { pageCarries, pageFetch } from "../app/pageFetch.ts";
 import {
   TransportQueueError,
   bridgeLane,
+  defaultPriority,
+  hostedRequestWaitsByDesign,
+  hostedRoute,
   type RequestPriority,
 } from "../app/transport.ts";
 import type {
@@ -53,8 +56,10 @@ export interface CallMethodOptions {
    * whoever last wrote the shared cookie.
    */
   readonly token?: string | null;
-  /** R92 — lane priority; defaults to "read". See app/transport.ts. */
+  /** R92 — lane priority; defaults to "read", and to "user" for a hosted confirmed write (transport.ts defaultPriority). */
   readonly priority?: RequestPriority;
+  /** Apply the caller's fence at dispatch, after lane admission. */
+  readonly beforeDispatch?: (signal: AbortSignal) => AbortSignal | void;
   readonly captureRequestGuard?: () => () => void;
   /** The call is a pilot's (wire.ts, BridgeCallRequestBody.pilot): with no pilot held it is refused as NO_LIVE_SESSION. */
   readonly pilot?: boolean;
@@ -166,7 +171,9 @@ export async function callMethod<TResult = JsonValue>(
     ...(options.of !== undefined ? { of: options.of } : {}),
   };
 
+  let lane = bridgeLane;
   let response: Response;
+  let sentSignal: AbortSignal | null = null;
   try {
     // R92 — the SECOND fetch site in the client shares the one request lane, or
     // the cap would only bound half of what the tab does. See app/transport.ts.
@@ -185,23 +192,27 @@ export async function callMethod<TResult = JsonValue>(
       credentials,
       body: JSON.stringify(body),
     };
-    response = await bridgeLane.run(options.priority ?? "read", "/api/bridge/call", () => {
+    const local = hostedRoute(options.fetch, url, request);
+    lane = local?.lane ?? bridgeLane;
+    const priority = options.priority ?? defaultPriority(local !== undefined, options.confirm === true);
+    response = await lane.run(priority, "/api/bridge/call", () => {
       assertCurrent?.();
-      return doFetch(url, {
-        ...request,
-        // The same 65 s browser-side deadline as api.ts requestJson (see the
-        // note there): a half-dead socket must abort into BRIDGE_NETWORK_ERROR
-        // rather than freeze the awaiting loop forever. A caller's own signal
-        // still wins.
-        signal: options.signal ?? AbortSignal.timeout(65_000),
-      });
-      // A call that goes on the tab's open socket holds none of the browser's connections, and so no lane.
-    }, { carried: !fittingBatch && options.fetch === undefined && pageCarries(url, request) });
+      const deadline = AbortSignal.timeout(65_000);
+      const signal = options.signal ? AbortSignal.any([deadline, options.signal]) : deadline;
+      sentSignal = options.beforeDispatch?.(signal) ?? signal;
+      const ready = { ...request, signal: sentSignal };
+      return local ? local.send(url, ready, priority) : doFetch(url, ready);
+    }, {
+      pilot: local?.pilot,
+      signal: options.signal,
+      carried: local ? hostedRequestWaitsByDesign(url, request)
+        : !fittingBatch && options.fetch === undefined && !options.beforeDispatch && pageCarries(url, request),
+    });
   } catch (cause) {
     assertCurrent?.();
     if (cause instanceof BridgeCallError && cause.code === "SESSION_REQUEST_RETIRED") throw cause;
     const diagnosis =
-      cause instanceof TransportQueueError ? cause.diagnosis.verdict : bridgeLane.diagnose().verdict;
+      cause instanceof TransportQueueError ? cause.diagnosis.verdict : lane.diagnose().verdict;
     throw new BridgeCallError(
       "BRIDGE_NETWORK_ERROR",
       cause instanceof TransportQueueError
@@ -219,6 +230,19 @@ export async function callMethod<TResult = JsonValue>(
     data = await response.json();
   } catch {
     assertCurrent?.();
+    // Given up on while the answer was being read: that says nothing of what the BFF answered.
+    const givenUp = sentSignal as AbortSignal | null;
+    if (givenUp?.aborted) {
+      const diagnosis = lane.diagnose().verdict;
+      throw new BridgeCallError(
+        "BRIDGE_NETWORK_ERROR",
+        `The answer to bridge call ${service}.${method} was not read: ${
+          givenUp.reason instanceof Error ? givenUp.reason.message : String(givenUp.reason)
+        } — ${diagnosis}`,
+        0,
+        diagnosis,
+      );
+    }
     throw new BridgeCallError(
       "BRIDGE_BAD_RESPONSE",
       `Bridge call ${service}.${method} returned a non-JSON response (HTTP ${response.status}).`,

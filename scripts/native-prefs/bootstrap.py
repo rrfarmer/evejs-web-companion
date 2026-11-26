@@ -1570,7 +1570,7 @@ def _create_row_descriptor_protocol():
             pass
 
         class CompanionRowDescriptor(object):
-            __slots__ = ('_columns', '_storage', '_virtual', '_setting', '_unsafe')
+            __slots__ = ('_columns', '_storage', '_virtual', '_setting', '_unsafe', '_wire_owner', '_wire_provenance')
             __module__ = module.__name__
             _domain_error = DescriptorDomainError
 
@@ -1580,6 +1580,7 @@ def _create_row_descriptor_protocol():
                 layout = _client_prefs_io.row_descriptor_layout(*args)
                 self._columns, self._storage = layout[0], layout[1:]
                 self._virtual, self._setting, self._unsafe = None, False, False
+                self._wire_owner, self._wire_provenance = None, None
 
             def _rebuild(self):
                 layout = _client_prefs_io.row_descriptor_layout(tuple((c[0], c[1]) for c in self._columns))

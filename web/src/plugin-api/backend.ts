@@ -18,6 +18,7 @@
 // reach. Node calls its model a seat belt for trusted code, not a sandbox
 // against hostile code, and so does this file.
 
+import { hostedFetch, localApiUrl, type RequestPriority } from "../app/transport.ts";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { PluginManifest } from "./index.ts";
@@ -173,6 +174,7 @@ interface RunSpec {
   readonly held: HeldPilot;
   readonly routeSettings: JsonValue;
   readonly baseUrl: string;
+  readonly inProcessBff?: boolean;
 }
 
 type RunFetchAnswer =
@@ -186,11 +188,18 @@ type RunFetchAnswer =
 interface FetchInFlight {
   readonly resolve: (response: Response) => void;
   readonly reject: (error: unknown) => void;
+  /** Stop listening to the caller's signal, which may outlive this request. */
+  readonly forget: () => void;
   body: ReadableStreamDefaultController<Uint8Array> | null;
 }
 
 const fetchesInFlight = new Map<number, FetchInFlight>();
 let nextFetchID = 1;
+
+function endFetch(id: number): void {
+  fetchesInFlight.get(id)?.forget();
+  fetchesInFlight.delete(id);
+}
 
 function answerFetch(answer: RunFetchAnswer): void {
   const call = fetchesInFlight.get(answer.id);
@@ -200,7 +209,7 @@ function answerFetch(answer: RunFetchAnswer): void {
       const empty = answer.status === 204 || answer.status === 205 || answer.status === 304;
       const body = new ReadableStream<Uint8Array>({
         start(controller) { call.body = controller; },
-        cancel() { send({ type: "runFetchAbort", id: answer.id }); fetchesInFlight.delete(answer.id); },
+        cancel() { send({ type: "runFetchAbort", id: answer.id }); endFetch(answer.id); },
       });
       call.resolve(new Response(empty ? null : body, { status: answer.status, headers: answer.headers }));
       return;
@@ -210,19 +219,20 @@ function answerFetch(answer: RunFetchAnswer): void {
       return;
     case "end":
       try { call.body?.close(); } catch { /* given up on */ }
-      fetchesInFlight.delete(answer.id);
+      endFetch(answer.id);
       return;
     case "error":
       if (call.body !== null) { try { call.body.error(new Error(answer.message)); } catch { /* given up on */ } }
       else call.reject(new TypeError("fetch failed", { cause: answer.message }));
-      fetchesInFlight.delete(answer.id);
+      endFetch(answer.id);
       return;
   }
 }
 
 /** `fetch`'s own shape, so a flow cannot tell: each request goes to core over the channel, as this run. */
-function runFetch(botID: string): typeof fetch {
-  return (async (input: string | URL | Request, init: RequestInit = {}) => {
+function runFetch(spec: RunSpec): typeof fetch {
+  const botID = spec.botID;
+  const sendRequest = async (input: string | URL | Request, init: RequestInit = {}, priority?: RequestPriority) => {
     // A Request carries what `init` otherwise would, and `init` wins, as in fetch.
     const given = input instanceof Request ? input : null;
     const url = given?.url ?? String(input);
@@ -235,17 +245,23 @@ function runFetch(botID: string): typeof fetch {
     return new Promise<Response>((resolve, reject) => {
       const signal = init.signal ?? given?.signal;
       if (signal?.aborted) { reject(signal.reason); return; }
-      signal?.addEventListener("abort", () => {
+      const onAbort = () => {
         const call = fetchesInFlight.get(id);
         send({ type: "runFetchAbort", id });
-        if (call?.body) { try { call.body.error(signal.reason); } catch { /* given up on */ } }
-        else reject(signal.reason);
-        fetchesInFlight.delete(id);
-      }, { once: true });
-      fetchesInFlight.set(id, { resolve, reject, body: null });
-      send({ type: "runFetch", id, botID, url, method, headers, body, redirect });
+        if (call?.body) { try { call.body.error(signal?.reason); } catch { /* given up on */ } }
+        else reject(signal?.reason);
+        endFetch(id);
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      fetchesInFlight.set(id, { resolve, reject, forget: () => signal?.removeEventListener("abort", onAbort), body: null });
+      send({ type: "runFetch", id, botID, url, method, headers, body, redirect, priority });
     });
-  }) as typeof fetch;
+  };
+  if (!spec.inProcessBff) return sendRequest;
+  const base = new URL(spec.baseUrl);
+  // IPC sends a Request as its URL and text body, just as sendRequest does above.
+  return hostedFetch(sendRequest, String(spec.characterID), (input, init) =>
+    localApiUrl(input instanceof Request ? input.url : input, init, base) !== null);
 }
 
 interface CompiledRoute {
@@ -379,7 +395,7 @@ export function startBackend(definition: BackendDefinition): void {
                 held: spec.held,
                 routeSettings: spec.routeSettings ?? {},
                 baseUrl: spec.baseUrl,
-                fetch: runFetch(spec.botID),
+                fetch: runFetch(spec),
                 report: (report) => send({ type: "runReport", botID: spec.botID, report }),
               }));
               runsFlying.set(spec.botID, flying);

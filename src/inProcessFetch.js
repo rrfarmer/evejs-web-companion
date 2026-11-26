@@ -1,5 +1,7 @@
 "use strict";
 
+const { localApiUrl } = require("../web/src/app/transport.ts");
+
 // A fetch for whoever asks the BFF from inside the BFF's own process.
 //
 // The hosted bots (src/botHost.js) run the page's own flows in this process,
@@ -76,7 +78,7 @@ function responseOf(status, headers, body) {
  * everything that is not the BFF's own API goes (the world's, unless given).
  */
 function createInProcessFetch(app, options = {}) {
-  const origin = new URL(options.baseUrl).origin;
+  const base = new URL(options.baseUrl);
   const elsewhere = typeof options.fetch === "function" ? options.fetch : (input, init) => globalThis.fetch(input, init);
 
   function answered(request, signal) {
@@ -151,20 +153,11 @@ function createInProcessFetch(app, options = {}) {
     });
   }
 
-  return function inProcessFetch(input, init = {}) {
-    let url = null;
-    if (typeof input === "string" || input instanceof URL) {
-      try {
-        url = new URL(input, options.baseUrl);
-      } catch {
-        url = null;
-      }
-    }
+  function inProcessFetch(input, init = {}) {
     const body = init.body;
+    const url = localApiUrl(input, init, base);
+    if (url === null) return elsewhere(input, init);
     const text = typeof body === "string";
-    if (url === null || url.origin !== origin || !url.pathname.startsWith("/api/") || (body !== undefined && body !== null && !text)) {
-      return elsewhere(input, init);
-    }
     const signal = init.signal || null;
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     const headers = {};
@@ -173,7 +166,11 @@ function createInProcessFetch(app, options = {}) {
     if (text && headers["content-type"] === undefined) headers["content-type"] = "text/plain;charset=UTF-8";
     const request = { method: init.method, path: `${url.pathname}${url.search}`, headers, rawBody: text ? body : undefined, remoteAddress: "127.0.0.1" };
     return url.pathname === EVENTS_PATH ? streamed(request, signal) : answered(request, signal);
-  };
+  }
+
+  // Share the routing check with callers deciding whether to reserve an HTTP lane.
+  inProcessFetch.isInProcessRequest = (input, init) => localApiUrl(input, init, base) !== null;
+  return inProcessFetch;
 }
 
 module.exports = { createInProcessFetch, hostedBotReach };

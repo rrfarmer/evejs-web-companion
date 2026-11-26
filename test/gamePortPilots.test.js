@@ -13,6 +13,9 @@ const { brokersFeeRate, brokersFeeRateInStructure } = require("../src/gamePort/b
 const { GAME_PORT_HANDLE_PREFIX, PILOT_FUNCTIONS } = require("../src/pilotTransport");
 const { list } = require("../src/gamePort/retailCalls");
 const { createPilotSpace } = require("../src/gamePort/pilotSpace");
+const { anyAddress, buildPacket, nodeAddress, parsePacket, TYPE } = require("../src/gamePort/packets");
+const { readNotification } = require("../src/gamePort/session");
+const { marshalDecode, marshalEncode } = require("../src/gameProtocol/marshal");
 const undockRecording = require("./fixtures/destinyUndock.json");
 const { answers: recordedAnswers, notifications: recordedNotifications } = require("./helpers/destinyRecording");
 const probeFlight = require("./fixtures/probeFlight.json");
@@ -354,7 +357,10 @@ function fakeSession({ answers = {}, userid = ACCOUNT, loginError = null, comesO
     },
     /** The server pushes a notification. */
     notify(method, args = [], service = null) {
-      for (const listener of listeners.notification) listener({ service, method, idtype: service ? null : "charid", args, kwargs: null });
+      session.emitNotification({ service, method, idtype: service ? null : "charid", args, kwargs: null });
+    },
+    emitNotification(notification) {
+      for (const listener of listeners.notification) listener(notification);
     },
     change(changes) {
       for (const listener of listeners.sessionChange) listener(changes, session.attributes);
@@ -3049,6 +3055,50 @@ const TYPE_EFFECTS = {
 const MODULE_PAIRS = new Set(["ship.MachoBindObject", "ship.Undock", "dogmaIM.Activate", "dogmaIM.Deactivate"]);
 const moduleOptions = (more = {}) => ({ typeEffects: (typeID) => TYPE_EFFECTS[typeID] ?? [], typeAttribute: () => null, allowed: MODULE_PAIRS, ...more });
 
+test("two held GamePort pilots resolve their fitted module against the current login catalog", async t => {
+  const { createEffectiveCatalog } = require("../src/effectiveCatalog");
+  const { createStaticData } = require("../src/staticData");
+  const { pilotTypeLookups } = require("../src/gamePort/pilots");
+  const { GamePortSession } = require("../src/gamePort/session");
+  const { loginProgram, marshal } = require("./helpers/catalogLogin");
+  const catalog = createEffectiveCatalog();
+  const data = createStaticData(catalog);
+  const moduleID = 2100000921, effectID = 2100000998;
+  const wrapped = name => loginProgram({
+    additions: {
+      itemTypes: [{ typeID: moduleID, groupID: 46, categoryID: 7, name: "Fixture module", published: true }],
+      typeDogma: { [moduleID]: { typeID: moduleID, attributes: {}, effects: [effectID], defaultEffectID: effectID } },
+    },
+    effects: { [effectID]: { effectID, name, effectCategoryID: 1 } },
+  });
+  const allInfo = fittedAllInfo({ locationID: SYSTEM });
+  const [, moduleRow] = allInfo.args.entries[0][1].entries;
+  moduleRow[1].args.entries.find(([key]) => key.toString() === "invItem")[1].fields.typeID = moduleID;
+  const fields = [FIELDS, { userid: ACCOUNT + 1, userName: "other" }];
+  const built = build({ ...IN_SPACE, userid: name => name === "other" ? ACCOUNT + 1 : ACCOUNT,
+    answers: { ...IN_SPACE.answers, "bound:GetAllInfo": allInfo, "charUnboundMgr.GetCharacterSelectionData":
+      selectionData([characterRow(), characterRow({ characterID: PILOT + 1 })]) },
+  }, { ...handTicked().options, ...pilotTypeLookups(() => data), allowed: MODULE_PAIRS });
+  t.after(() => built.pilots.shutdown());
+
+  const handles = [];
+  for (const [i, program] of [wrapped("fixtureCycle"), marshal("ordinary_login()")].entries()) {
+    new GamePortSession({ transport: {}, onLoginProgram: catalog.observeLogin })._runHandshakeFunction(program);
+    const selected = await built.pilots.selectCharacter([PILOT + i, null, true], null, fields[i]);
+    handles.push(selected.bridgeSessionID);
+  }
+  assert.equal(built.pilots.size, 2);
+  async function checkEffect(name) {
+    for (const [i, handle] of handles.entries()) {
+      await built.pilots.callMethod("dogmaIM", "Deactivate", [FITTED_MODULE, ""], null, fields[i], handle);
+      assert.deepEqual(built.made[i].boundCalls.findLast(call => call.method === "Deactivate").args, [FITTED_MODULE, name]);
+    }
+  }
+  await checkEffect("fixtureCycle");
+  new GamePortSession({ transport: {}, onLoginProgram: catalog.observeLogin })._runHandshakeFunction(wrapped("updatedCycle"));
+  await checkEffect("updatedCycle");
+});
+
 test("undock is made as the client makes it: on the ship object bound for the station, with the online modules by slot", async () => {
   const { pilots, session, handle } = await selected({ answers: { "bound:GetAllInfo": fittedAllInfo() } }, moduleOptions());
   // The BFF's route asks the service by name, with an empty list.
@@ -4537,6 +4587,56 @@ test("different modules fitted at once can refresh independently, and a read of 
   const reading = pilots.shipInfo(FIELDS, handle);
   answer(null);
   assert.deepEqual((await reading).online.sort((a, b) => a - b), [SHIP + 1, SHIP + 8, SHIP + 9]);
+});
+
+// A collector without --expose-gc on the command line: the test runner starts each file in a process of its own and
+// does not pass that flag on, so a test that waits for global.gc never runs under `npm test`.
+const collectGarbage = () => {
+  require("node:v8").setFlagsFromString("--expose-gc");
+  return require("node:vm").runInNewContext("gc");
+};
+
+test("completed inventory notices are collectible while another item is waiting for its RPC", { timeout: 5000 }, async (t) => {
+  const gc = collectGarbage();
+  const waiting = Promise.withResolvers();
+  const requested = Promise.withResolvers();
+  const moduleID = SHIP + 9;
+  const { pilots, session, handle } = await selected({ answers: {
+    "bound:GetAllInfo": ownShipAllInfo(),
+    "bound:ItemGetInfo": ([itemID]) => {
+      assert.equal(Number(itemID), moduleID);
+      requested.resolve();
+      return waiting.promise;
+    },
+  } }, onlineByType);
+  t.after(() => pilots.shutdown());
+  await pilots.shipInfo(FIELDS, handle);
+  session.notify("OnItemsChanged", fittedNow(moduleID));
+  await requested.promise;
+  let readDone = false;
+  const reading = pilots.shipInfo(FIELDS, handle).then(result => {
+    readDone = true;
+    return result;
+  });
+
+  const references = Array.from({ length: 4 }, () => {
+    // Decoded afresh each time, so each notice is objects of its own for the references to watch.
+    const notice = recordedNotifications(primingRecording).find(each => each.method === "OnItemsChanged");
+    session.notify(notice.method, notice.args, notice.service);
+    return [new WeakRef(notice.args[0].items[0]), new WeakRef(notice.args[1])];
+  }).flat();
+  try {
+    for (let turn = 0; turn < 4; turn++) {
+      await settled();
+      gc();
+    }
+    assert.equal(readDone, false, "shipInfo still waits for the in-flight module refresh");
+    assert.ok(references.every(ref => ref.deref() === undefined), "completed rows or change dicts are still retained");
+  } finally {
+    waiting.resolve(itemRow(moduleID, true));
+    await reading;
+  }
+  assert.ok((await reading).online.includes(moduleID));
 });
 
 test("the undock hands over the modules that are online once the one just fitted has been answered for", async () => {
@@ -6803,6 +6903,89 @@ test("where godma cannot be primed an attribute's value is asked of the server, 
   );
   assert.equal((await pilots.callMethod("dogmaIM", "QueryAttributeValue", [FITTED_MODULE, 73], null, FIELDS, handle)).result, 8500);
   assert.deepEqual(session.boundCalls.at(-1).args, [FITTED_MODULE, 73]);
+});
+
+function decodedAttributeNotice(value) {
+  const time = DOGMA_T + BigInt(value) * 10000000n;
+  const args = [PILOT, BigInt(SHIP), 9, time, value, 151, time];
+  const inner = marshalEncode([1, Buffer.from("OnModuleAttributeChange"), args, null]);
+  const frame = marshalEncode(buildPacket(TYPE.NOTIFICATION, {
+    source: nodeAddress(1), destination: anyAddress(), body: [[0, inner]],
+  }));
+  return readNotification(parsePacket(marshalDecode(frame, { preserveNumberKinds: true })));
+}
+
+test("Godma Prime releases decoded notices on failure and close, and delivers a later successful Prime", { timeout: 5000 }, async () => {
+  const attempts = Array.from({ length: 4 }, () => ({ entered: Promise.withResolvers(), reply: Promise.withResolvers() }));
+  let calls = 0;
+  const { pilots, session, handle } = await selected({ answers: {
+    "bound:GetAllInfo": () => {
+      const attempt = attempts[calls++];
+      attempt.entered.resolve();
+      return attempt.reply.promise;
+    },
+  } });
+  const nextTurn = () => new Promise(setImmediate);
+  async function start(attempt) {
+    const read = pilots.shipInfo(FIELDS, handle);
+    await attempt.entered.promise;
+    return { read };
+  }
+  function notices(first, count = 64) {
+    return Array.from({ length: count }, (_, offset) => {
+      const notification = decodedAttributeNotice(first + offset);
+      session.emitNotification(notification);
+      return new WeakRef(notification.packet);
+    });
+  }
+  // `node --test` runs without --expose-gc; take V8's gc so the check always runs.
+  const collect = typeof global.gc === "function"
+    ? global.gc
+    : (require("node:v8").setFlagsFromString("--expose-gc"), require("node:vm").runInNewContext("gc"));
+  async function packetsReleased(refs) {
+    for (let turn = 0; turn < 3; turn++) {
+      await nextTurn();
+      collect();
+    }
+    assert.equal(refs.filter(ref => ref.deref()).length, 0, "the receive queue retained decoded packets");
+  }
+  async function finished(read) {
+    const pending = Symbol();
+    // Long enough for any honest settling; a barrier that never settles still loses the race.
+    const answer = await Promise.race([read, new Promise(resolve => setTimeout(resolve, 200)).then(() => pending)]);
+    assert.notEqual(answer, pending, "the Godma work barrier stayed pending");
+    return answer;
+  }
+
+  for (const [index, attempt] of attempts.slice(0, 2).entries()) {
+    const { read } = await start(attempt);
+    const queued = notices(300 + index * 64);
+    attempt.reply.reject(refusedBy("NotNow"));
+    assert.equal((await finished(read)).row, null);
+    await packetsReleased([...queued, ...notices(500 + index * 64)]);
+  }
+
+  const successful = attempts[2];
+  const { read } = await start(successful);
+  const queued = notices(200, 2);
+  successful.reply.resolve(shipAllInfo());
+  assert.ok((await finished(read)).row);
+  assert.equal(await pilots.shipAttribute(9, FIELDS, handle), 201);
+  await packetsReleased(queued);
+  notices(202, 1);
+  assert.equal(await pilots.shipAttribute(9, FIELDS, handle), 202);
+
+  const station = STATION + 1;
+  session.attributes.stationid = station;
+  session.change({ stationid: [STATION, station] });
+  const closing = attempts[3];
+  const { read: closingRead } = await start(closing);
+  const retiring = notices(800);
+  await pilots.releaseBridgeSession(handle, FIELDS);
+  // Release the queued packets while the stand-in still holds the GetAllInfo reply.
+  await packetsReleased(retiring);
+  closing.reply.resolve(shipAllInfo(50, station));
+  assert.equal((await finished(closingRead)).row, null);
 });
 
 // ── the formations, asked for once ───────────────────────────────────────────

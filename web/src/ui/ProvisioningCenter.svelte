@@ -83,6 +83,9 @@
           <p>{detail.applyReview.plan.steps.join(" → ") || "ALREADY SATISFIED / NO HULL ACQUISITION"}</p>
           <p>Support, shortages and permission checks: PENDING SELECTED REVIEW. Destructive fitting changes are unavailable.</p>
         {/if}
+        {#if detail.requirements.some(r => r.flagID >= 92 && r.flagID <= 99)}
+          <p>Installing rigs is permanent. Removing an installed rig destroys it.</p>
+        {/if}
         <p>Supplies policy: NEW HULL ONLY. New hull provisioning loads declared deficits; an exact existing ship is a no-op, even when supplies remain LOW. Use the held-pilot Replenish action for a separate top-up.</p>
         <p>Equipment, stock, location and Take permission remain UNKNOWN until Apply acquires maintenance control. {detail.applyReview.reasons.join(" · ")}</p>
         <button disabled={busy || !detail.applyReview.canApply} onclick={()=>void run(apply)}>Confirm Apply with temporary control</button>
