@@ -7774,6 +7774,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       for (const listener of plexTransferListeners) listener(method, args);
     }
     if (method === "OnMoonExtractionUpdate") moonExtractionChanged.update(revision => revision + 1);
+    if (method === "OnStructureServiceChanged") {
+      const structureID = moonMiningID(args[0]);
+      if (structureID !== null && store.station.get().online?.structureID === structureID) {
+        void refreshStructureServices(structureID).catch(() => {});
+      }
+      return;
+    }
     if (method === "OnCargoScanComplete" || method === "OnShipScanCompleted") {
       const shipScan = method === "OnShipScanCompleted" ? decodeShipScan(args) : null;
       const scan = method === "OnCargoScanComplete" ? decodeCargoScan(args) : shipScan;
@@ -9090,27 +9097,32 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     store.apply({ type: "live/cleared" });
   }
 
+  let structureServicesRead = 0;
+  async function refreshStructureServices(structureID: number): Promise<void> {
+    const read = ++structureServicesRead;
+    const stillDocked = () => read === structureServicesRead && store.station.get().online?.structureID === structureID;
+    try {
+      const serviceIDs = await api.readAccessibleStructureServices(structureID, callOptions);
+      if (!stillDocked()) return;
+      store.apply({ type: "station/structure-services", serviceIDs });
+      store.apply({ type: "station/read-error", message: null });
+    } catch (error) {
+      if (!stillDocked()) return;
+      if (isSessionLost(error)) {
+        stopLiveStream();
+        store.apply({ type: "character/offline" });
+        throw error;
+      }
+      store.apply({ type: "station/structure-services", serviceIDs: null });
+      store.apply({ type: "station/read-error", message: `Structure services are unreadable: ${errorWords(error)}` });
+    }
+  }
+
   async function refreshStationPanel(): Promise<void> {
     const assertCurrent = callOptions.captureRequestGuard?.();
     const structureID = store.station.get().online?.structureID;
     if (structureID) {
-      try {
-        const serviceIDs = await api.readAccessibleStructureServices(structureID, callOptions);
-        if (store.station.get().online?.structureID === structureID) {
-          store.apply({ type: "station/structure-services", serviceIDs });
-          store.apply({ type: "station/read-error", message: null });
-        }
-      } catch (error) {
-        if (isSessionLost(error)) {
-          stopLiveStream();
-          store.apply({ type: "character/offline" });
-          throw error;
-        }
-        if (store.station.get().online?.structureID === structureID) {
-          store.apply({ type: "station/structure-services", serviceIDs: null });
-          store.apply({ type: "station/read-error", message: `Structure services are unreadable: ${errorWords(error)}` });
-        }
-      }
+      await refreshStructureServices(structureID);
       // dockedUI/guests.py (98 to 101): the lobby's guests panel asks for the structure's guests as it comes
       // up. A read of its own: one that fails says so where the services' has said nothing, and leaves the
       // services and the guests as they were. Through a connection that does not carry it there are none to

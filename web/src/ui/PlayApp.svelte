@@ -597,7 +597,8 @@
     if (dockedStructureID === null) return;
     session?.flow.requestWords(["UI/Commands/EnterHangar", "UI/Commands/EnterStructure", "UI/Station/ViewHangarHint", "UI/Station/ViewOutsideHint",
       "UI/Commands/TakeStructureControl", "UI/Inflight/HUDOptions/ReleaseControl", "UI/Station/TakeControlHint",
-      "UI/Station/MayNotTakeControlHint", "UI/Station/UndockingInProgressHint"]);
+      "UI/Station/MayNotTakeControlHint", "UI/Station/UndockingInProgressHint", "UI/Station/Lobby/Disabled",
+      "UI/Station/LPStore", "UI/Medical/Medical", "UI/Station/Repairshop", "UI/Station/CharacterRecustomization"]);
   });
   function changeDockedView(mode: "hangar" | "exterior"): void {
     if (dockedStructureID === null || controllingStructure || undockPending || structureControlPending || corvettePending ||
@@ -1033,24 +1034,34 @@
   // LobbyWnd.LoadServiceButtons uses stationServiceConst in reverse display order.
   const lobbyServices = $derived([
     { label: "Security Office", icon: "concord", available: securityOfficeAvailable, select: () => open("securityOffice") },
-    { label: "Loyalty Point Store", icon: "lpstore", available: lpStoreAvailable, select: () => open("lpStore") },
-    { label: "Insurance", icon: "insurance", available: insuranceAvailable, select: () => open("insurance") },
+    { label: "Loyalty Point Store", icon: "lpstore", available: lpStoreAvailable, upwell: structureServiceIDs?.includes(11) === true,
+      upwellLabel: dockedViewWord("UI/Station/LPStore", "LP Store"), blockWhenUnavailable: true, select: () => open("lpStore") },
+    { label: "Insurance", icon: "insurance", available: insuranceAvailable, upwell: insuranceAvailable,
+      blockWhenUnavailable: true, select: () => open("insurance") },
     { label: "Militia Office", icon: "factionalwarfare", available: militiaOfficeAvailable,
       select: () => openTheatersOfWar(relevantMilitiaPage($station?.online?.warFactionID ?? null)) },
-    { label: "Industry", icon: "industry", available: stationServiceIDs?.some(id => id === 14 || id === 15) ||
-        structureHasCapability(structureServiceIDs, "industry"), select: () => open("industry") },
-    { label: "Fitting", icon: "fitting", available: stationServiceIDs?.includes(17) ||
-        structureHasCapability(structureServiceIDs, "fitting"), select: () => open("fitting") },
-    { label: "Market", icon: "market", available: stationServiceIDs?.includes(7) ||
-        structureHasCapability(structureServiceIDs, "market"), select: () => open("market") },
-    { label: "Reprocessing Plant", icon: "Reprocess", available: reprocessingAvailable, select: () => open("reprocessing") },
-    { label: "Repair Shop", icon: "repairshop", available: repairShopAvailable,
+    { label: "Industry", icon: "industry", available: stationServiceIDs?.some(id => id === 14 || id === 15),
+      upwell: structureHasCapability(structureServiceIDs, "industry"), select: () => open("industry") },
+    { label: "Fitting", icon: "fitting", available: stationServiceIDs?.includes(17), upwell: true, select: () => open("fitting") },
+    { label: "Market", icon: "market", available: stationServiceIDs?.includes(7),
+      upwell: structureHasCapability(structureServiceIDs, "market"), select: () => open("market") },
+    { label: "Reprocessing Plant", icon: "Reprocess", available: reprocessingAvailable, upwell: reprocessingAvailable,
+      blockWhenUnavailable: true, select: () => open("reprocessing") },
+    { label: "Repair Shop", icon: "repairshop", available: repairShopAvailable, upwell: repairShopAvailable, blockWhenUnavailable: true,
+      upwellLabel: dockedViewWord("UI/Station/Repairshop", "Repairshop"),
       select: () => void session?.flow.openAssetRepair().catch(() => {}) },
-    { label: "Clone Bay", icon: "cloneBay", available: medicalAvailable,
+    { label: "Clone Bay", icon: "cloneBay", available: medicalAvailable, upwell: structureServiceIDs?.includes(6) === true,
+      upwellLabel: dockedViewWord("UI/Medical/Medical", "Clone Bay"),
       select: () => { requestSheetPanel("jumpClones"); open("characterSheet"); } },
-    { label: "Character Recustomization", icon: "charcustomization", available: docked,
+    { label: "Character Recustomization", icon: "charcustomization", available: docked, upwell: true,
+      upwellLabel: dockedViewWord("UI/Station/CharacterRecustomization", "Re-customization"),
       select: () => open("characterRecustomization") },
-  ].filter(service => service.available));
+  ].flatMap(service => {
+    if (dockedStructureID === null) return service.available ? [{ ...service, unavailable: false, disabled: false }] : [];
+    if (service.upwell === undefined) return [];
+    return [{ ...service, label: service.upwellLabel ?? service.label, unavailable: !service.upwell,
+      disabled: !service.upwell && service.blockWhenUnavailable === true }];
+  }));
   $effect(() => {
     if ((!docked || !reprocessingAvailable) && wins.some(win => win.id === "reprocessing")) {
       wins = closeWindow(wins, "reprocessing");
@@ -4657,7 +4668,9 @@
           {#if error}<div class="error lobby-error">{error}</div>{/if}
           <div class="lobby-services">
             {#each lobbyServices as svc (svc.label)}
-              <button type="button" class="lobby-svc" title={svc.label} aria-label={svc.label} data-ui-pointer={stationPointerName(svc.icon)} onclick={svc.select}>
+              <button type="button" class="lobby-svc" data-service-state={svc.unavailable ? "unavailable" : "available"}
+                title={svc.unavailable ? `${svc.label}\n${dockedViewWord("UI/Station/Lobby/Disabled", "Disabled")}` : svc.label}
+                aria-label={svc.label} disabled={svc.disabled} data-ui-pointer={stationPointerName(svc.icon)} onclick={svc.select}>
                 <img alt="" src={clientTexture(`res:/UI/Texture/WindowIcons/${svc.icon}.png`)} />
               </button>
             {/each}
@@ -5746,6 +5759,7 @@
   .lobby-svc { display: grid; place-items: center; box-sizing: border-box; flex: 0 0 32px; width: 32px; height: 32px; min-height: 0;
     padding: 0; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); cursor: pointer; }
   .lobby-svc:hover { background: rgba(255, 255, 255, 0.10); border-color: rgba(255, 255, 255, 0.2); }
+  .lobby-svc:disabled { opacity: 0.42; cursor: default; }
   .lobby-svc img { width: 100%; height: 100%; }
   .char-card { padding: 0; text-align: left; color: inherit; font: inherit; }
   .char-card.created { border-color: var(--accent); }
