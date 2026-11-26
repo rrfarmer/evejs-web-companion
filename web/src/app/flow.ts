@@ -4607,6 +4607,7 @@ export interface AppFlow {
   loadShipSkinrApplied(shipID: number): Promise<void>;
   applyShipSkinrLicense(hex: string, shipID: number, remove: boolean): Promise<void>;
   loadShipSkinrOwnedListings(): Promise<ReturnType<typeof decodeOwnedShipSkinrListings>>;
+  cancelShipSkinrListing(id: string): Promise<void>;
   loadShipSkinrListingLimit(): Promise<number>;
   quoteShipSkinrListing(hex: string, target: ShipSkinrListingTarget): Promise<ReturnType<typeof shipSkinrListingQuote>>;
   createShipSkinrListing(input: ShipSkinrListingInput): Promise<string>;
@@ -29042,6 +29043,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return decodeOwnedShipSkinrListings(reply);
   }
 
+  async function cancelShipSkinrListing(id: string): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    await gatewayAsk(SHIP_SKINR_MARKET + "skin.listing.api.CancelListingRequest", { listing: { uuid: id } }, true);
+    current();
+  }
+
   async function loadShipSkinrListingLimit(): Promise<number> {
     const current = callOptions.captureRequestGuard!();
     const skills = await bridgeAsk("skillHandler", "GetSkills", []);
@@ -41535,6 +41542,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadShipSkinrApplied,
     applyShipSkinrLicense,
     loadShipSkinrOwnedListings,
+    cancelShipSkinrListing,
     loadShipSkinrListingLimit,
     quoteShipSkinrListing,
     createShipSkinrListing,

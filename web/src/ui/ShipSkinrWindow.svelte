@@ -3,9 +3,10 @@
   import { plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import ShipSkinrCollection from "./ShipSkinrCollection.svelte";
+  import ShipSkinrMyListings from "./ShipSkinrMyListings.svelte";
   import ShipSkinrStudio from "./ShipSkinrStudio.svelte";
 
-  type Page = "studio" | "collection";
+  type Page = "studio" | "collection" | "store";
   type Guard = () => Promise<boolean>;
   let { store, flow, registerBeforeClose }: { store: ClientStore; flow: AppFlow;
     registerBeforeClose?: (guard: Guard) => () => void } = $props();
@@ -17,6 +18,7 @@
   const tabs = [
     { page: "studio", path: prefix + "Studio/Title", fallback: "Studio" },
     { page: "collection", path: prefix + "Collection/Title", fallback: "Collection" },
+    { page: "store", path: prefix + "Store/Title", fallback: "Paragon Hub" },
   ] as const;
   $effect(() => { flow.requestWords(tabs.map(tab => tab.path)); });
   $effect(() => registerBeforeClose?.(() => guard?.() ?? Promise.resolve(true)));
@@ -46,8 +48,10 @@
 </nav>
 {#if page === "studio"}
   <ShipSkinrStudio {store} {flow} registerBeforeClose={registerGuard} />
-{:else}
+{:else if page === "collection"}
   <ShipSkinrCollection {store} {flow} />
+{:else}
+  <ShipSkinrMyListings {store} {flow} />
 {/if}
 
 <style>

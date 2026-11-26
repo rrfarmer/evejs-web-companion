@@ -16967,6 +16967,20 @@
      "label": 1
     }
    ]
+  },
+  "eve_public.cosmetic.market.skin.listing.api.CancelListingRequest": {
+   "fields": [
+    {
+     "name": "listing",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.market.skin.listing.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.skin.listing.api.CancelListingResponse": {
+   "fields": []
   }
  },
  "enums": {

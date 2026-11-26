@@ -16068,6 +16068,7 @@ const PUBLIC_GATEWAY_WRITES = new Set([
   "eve_public.cosmetic.ship.skin.thirdparty.license.api.ApplyRequest",
   "eve_public.cosmetic.ship.skin.thirdparty.license.api.UnapplyRequest",
   "eve_public.cosmetic.market.skin.listing.api.InitiateCreateListingRequest",
+  "eve_public.cosmetic.market.skin.listing.api.CancelListingRequest",
   "eve_public.sovereignty.mercenaryden.activity.api.StartRequest",
   "eve_public.achievement.reward.api.ClaimRequest",
   "eve_public.cosmetic.character.title.api.EquipRequest",
