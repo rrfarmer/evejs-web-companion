@@ -5,6 +5,7 @@ export interface UiPointerTarget {
   readonly label: string;
   readonly icon: string;
   readonly parent?: string;
+  readonly linkLabel?: string;
 }
 
 export const UI_POINTER_COMMAND = "CmdGetUiPointer";
@@ -36,7 +37,10 @@ export const STATION_POINTERS: readonly UiPointerTarget[] = [
   ["concord", "Security Office"], ["lpstore", "Loyalty Point Store"], ["insurance", "Insurance"],
   ["factionalwarfare", "Militia Office"], ["Reprocess", "Reprocessing Plant"], ["repairshop", "Repair Shop"],
   ["cloneBay", "Clone Bay"], ["charcustomization", "Character Recustomization"],
-].map(([icon, label]) => ({ name: stationPointerName(icon!)!, label: label!, icon: clientTexture(`res:/UI/Texture/WindowIcons/${icon}.png`) }));
+].map(([icon, label]) => ({
+  name: stationPointerName(icon!)!, label: label!, icon: clientTexture(`res:/UI/Texture/WindowIcons/${icon}.png`),
+  linkLabel: icon === "repairshop" ? "Repairshop" : label,
+}));
 
 // The Wallet entries and their parent chain from 3698585 uniqueNameConst and uniqueNameChains.
 export const WALLET_POINTERS: readonly UiPointerTarget[] = [

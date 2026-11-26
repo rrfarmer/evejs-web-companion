@@ -62,7 +62,8 @@
     isAllianceOwner,
     hasChatManagerRole,
   } from "../bridge/mail.ts";
-  import { MAIL_QUOTE_LABELS, isMailItemLink, mailBodyLines, mailMarkupOfDraft, mailMarkupOfTyped, mailQuoteMarkup, updateMailDraftLinks, type MailDraftLink } from "../bridge/mailMarkup.ts";
+  import { MAIL_QUOTE_LABELS, isMailDraftLink, mailBodyLines, mailMarkupOfDraft, mailMarkupOfTyped, mailQuoteMarkup, updateMailDraftLinks, type MailDraftLink } from "../bridge/mailMarkup.ts";
+  import { parseHelpPointerUrl } from "../bridge/helpPointerLink.ts";
   import { ASSET_ITEM_DRAG_MIME, decodeAssetItemDrag } from "./dragDrop.ts";
   import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
   import { LINK_WORDS, linkFollowerOf, startLinkDrag } from "./linkFollowers.ts";
@@ -156,7 +157,7 @@
       const payload: unknown = JSON.parse(data.getData(LINK_DRAG_TYPE));
       const links: { url: string; text: string }[] = [];
       for (const link of Array.isArray(payload) ? payload : [payload]) {
-        if (!link || typeof link.url !== "string" || !isMailItemLink(link.url) || typeof link.text !== "string") return [];
+        if (!link || typeof link.url !== "string" || !isMailDraftLink(link.url) || typeof link.text !== "string") return [];
         links.push({ url: link.url, text: link.text });
       }
       return links;
@@ -179,8 +180,11 @@
     let inserted = "";
     for (const { url, text } of mailItemLinks(data)) {
       const label = text.replace(/\r\n|\r|\n/g, " ");
-      if (!label.trim() || !isMailItemLink(url)) continue;
-      const space = inserted.length || (at > 0 && !before.endsWith("\n")) ? " " : "";
+      if (!label.trim() || !isMailDraftLink(url)) continue;
+      const previous = addedLinks.at(-1);
+      const space = previous && parseHelpPointerUrl(previous.url) && parseHelpPointerUrl(url)
+        ? "» "
+        : inserted.length || (at > 0 && !before.endsWith("\n")) ? " " : "";
       const start = at + inserted.length + space.length;
       const end = start + label.length;
       const next = inserted + space + label + " ";

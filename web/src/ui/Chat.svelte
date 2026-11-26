@@ -20,6 +20,7 @@
   import { resolvedName, type NameRef } from "../store/names.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { mailBodyLines } from "../bridge/mailMarkup.ts";
+  import { helpPointerLinksFromDrop, parseHelpPointerUrl } from "../bridge/helpPointerLink.ts";
   import { labelEscaped } from "../bridge/labelMarkup.ts";
   import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
   import { OVERVIEW_PROFILE_DRAG_TYPE } from "../bridge/overviewProfileLink.ts";
@@ -182,17 +183,18 @@
   }
 
   // eveEditPlainText adds links in scroll order, preserving the text on either side of the caret.
-  async function insertItemLinks(links: readonly ItemLink[]): Promise<void> {
+  async function insertItemLinks(links: readonly ItemLink[], separator?: string): Promise<void> {
     const original = draft;
     const channel = store.get().chat.activeChannel;
     const at = sendBox?.selectionStart ?? original.length;
     let inserted = "";
     for (const { url, text } of links) {
+      const prefix = inserted ? separator ?? "" : at > 0 ? " " : "";
       const markup = await flow.droppedLinkMarkup({ kind: "link", url, text: labelEscaped(text) }, {
-        length: original.length + inserted.length + (at > 0 && !inserted ? 2 : 1), selected: 0, max: MAX_MESSAGE_LENGTH,
+        length: original.length + inserted.length + prefix.length + (separator ? 0 : 1), selected: 0, max: MAX_MESSAGE_LENGTH,
       });
       if (markup === null) break;
-      inserted += (at > 0 && !inserted ? " " : "") + markup + " ";
+      inserted += prefix + markup + (separator ? "" : " ");
     }
     if (!inserted || draft !== original || store.get().chat.activeChannel !== channel) return;
     draft = original.slice(0, at) + inserted + original.slice(at);
@@ -251,13 +253,14 @@
         return;
       }
       if (Array.isArray(link)) {
-        const links = itemLinksFromDrop(link);
-        if (links.length > 0) void insertItemLinks(links).catch(() => {});
+        const pointers = helpPointerLinksFromDrop(link);
+        const links = pointers.length ? pointers : itemLinksFromDrop(link);
+        if (links.length > 0) void insertItemLinks(links, pointers.length ? " » " : undefined).catch(() => {});
         return;
       }
       if (!link || typeof link !== "object" || !("url" in link) || !("text" in link) ||
           typeof link.url !== "string" || typeof link.text !== "string") return;
-      dropped = { kind: "link", url: link.url, text: link.text };
+      dropped = { kind: "link", url: link.url, text: parseHelpPointerUrl(link.url) ? labelEscaped(link.text) : link.text };
     }
     const at = sendBox?.selectionStart ?? draft.length;
     const selected = Math.abs((sendBox?.selectionEnd ?? at) - at);

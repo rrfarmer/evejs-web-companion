@@ -18,6 +18,7 @@ import type { AppFlow } from "../app/flow.ts";
 import { LINK_DRAG_TYPE, parseSkillPlanUrl } from "../bridge/skillPlanLink.ts";
 import { parseInventoryFilterLink } from "../bridge/inventoryFilters.ts";
 import { parseOverviewPresetUrl } from "../bridge/overviewProfileLink.ts";
+import { parseHelpPointerUrl } from "../bridge/helpPointerLink.ts";
 import { linkScheme, parseShowInfoUrl } from "../bridge/showInfoLink.ts";
 import { showInfo, subjectOfShowInfoLink } from "./showInfo.ts";
 import { parseAccessGroupUrl, showAccessGroupInfo } from "./accessGroupInfo.ts";
@@ -67,11 +68,12 @@ export const LINK_WORDS: Readonly<Record<string, string>> = {
   "UI/Fitting/ShowFitting": "Look at the fitting",
   "UI/Inventory/Filters/SharedItemFilter": "Shared Item Filter",
   "UI/Overview/ProfileLinkHint": "Overview Profile",
+  "UI/Help/HelpPointersTooltip": "Show User Interface Pointer",
 };
 
 export interface LinkFollower {
   /** Its registry's kind, for its colour (styles.css .evelink.skillPlan, .showInfo, .web, .fitting). */
-  readonly kind: "skillPlan" | "showInfo" | "web" | "fitting" | "sharedSetting";
+  readonly kind: "skillPlan" | "showInfo" | "web" | "fitting" | "sharedSetting" | "helpPointer";
   readonly hint: string;
   readonly follow: () => void;
 }
@@ -90,6 +92,13 @@ export function linkFollowerOf(
   openInventoryFilterLink: ((url: string) => void) | null = null,
 ): LinkFollower | null {
   const scheme = linkScheme(url);
+  if (scheme === "helppointer") {
+    const name = parseHelpPointerUrl(url);
+    return name === null ? null : {
+      kind: "helpPointer", hint: word("UI/Help/HelpPointersTooltip"),
+      follow: () => window.dispatchEvent(new CustomEvent("eve-ui-pointer", { detail: { flow, name } })),
+    };
+  }
   if (scheme === "accessgroup") {
     const groupID = parseAccessGroupUrl(url);
     if (groupID === null) return null;

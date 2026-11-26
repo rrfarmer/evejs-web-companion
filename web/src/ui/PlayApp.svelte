@@ -104,6 +104,7 @@
   import ServerQuestion from "./ServerQuestion.svelte";
   import ClientDialogs from "./ClientDialogs.svelte";
   import PointerOverlay from "./PointerOverlay.svelte";
+  import SharedPointerGuide from "./SharedPointerGuide.svelte";
   import ChatInvitations from "./ChatInvitations.svelte";
   import { stationOffersRepair } from "../bridge/repairShop.ts";
   import { structureHasCapability } from "../nav/dockableLocation.ts";
@@ -4625,7 +4626,8 @@
     {/key}
   {/if}
 
-  {#if pointerOverlaySession === session.id}<PointerOverlay />{/if}
+  {#if pointerOverlaySession === session.id}<PointerOverlay store={session.store} />{/if}
+  {#key session.id}<SharedPointerGuide store={session.store} flow={session.flow} />{/key}
   <NoticeBridge store={session.store} flow={session.flow} />
   <ErrorBoundary name="Fleet invitation">
     <div class="fleet-invitations fly-invitations"><FleetInvitation {session} inFront={true} /></div>

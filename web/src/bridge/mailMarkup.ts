@@ -15,6 +15,8 @@
 // a size or colour it leaves to its own type, and any other tag it passes over, as the client's stacks of tags would
 // to no visible end.
 
+import { parseHelpPointerUrl } from "./helpPointerLink.ts";
+
 /** One run of a line: its text, and how it is marked. */
 export interface MailRun {
   readonly text: string;
@@ -68,6 +70,10 @@ export function isMailItemLink(url: string): boolean {
     url.slice("showinfo:".length).split("//").every(id => Number.isSafeInteger(Number(id)));
 }
 
+export function isMailDraftLink(url: string): boolean {
+  return isMailItemLink(url) || parseHelpPointerUrl(url) !== null;
+}
+
 /** Retain complete links on either side of one textarea edit. Editing inside a label makes it plain text. */
 export function updateMailDraftLinks(before: string, after: string, links: readonly MailDraftLink[]): MailDraftLink[] {
   let start = 0;
@@ -93,7 +99,7 @@ export function mailMarkupOfDraft(body: string, links: readonly MailDraftLink[])
   let at = 0;
   for (const { start, end, url } of links) {
     if (!Number.isInteger(start) || !Number.isInteger(end) || start < at || end <= start ||
-        end > body.length || !isMailItemLink(url)) continue;
+        end > body.length || !isMailDraftLink(url)) continue;
     result += encodeTyped(body.slice(at, start));
     result += `<a href="${url}">${encodeTyped(body.slice(start, end))}</a>`;
     at = end;

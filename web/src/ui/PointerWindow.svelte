@@ -2,10 +2,11 @@
   import { onMount, tick } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
-  import { NEOCOM_DEFAULT } from "../play/neocom.ts";
   import { onShortcutsChanged, shortcutOf } from "../play/shortcutKeys.ts";
-  import { dragUiPointer, neocomPointerName, STATION_POINTERS, UI_POINTER_COMMAND, UI_POINTER_DRAG_TYPE, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "../play/uiPointer.ts";
+  import { dragUiPointer, STATION_POINTERS, UI_POINTER_COMMAND, UI_POINTER_DRAG_TYPE, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "../play/uiPointer.ts";
+  import { dragUiPointerLinks, droppedUiPointerLinks, NEOCOM_POINTERS, resolveUiPointer, STATION_POINTER_LINK_LABEL, UI_POINTER_BY_NAME as targetByName, UI_POINTER_TARGETS as targets } from "../play/uiPointerCatalog.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { portal } from "./portal.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -32,9 +33,6 @@
     const template = $words.templates[paths[key]];
     return template ? plainText(formatTemplate(template, values, { nameOf: () => null })) : fallback;
   }
-  const neocom = NEOCOM_DEFAULT.map(item => ({ name: neocomPointerName(item.id), label: item.label, icon: item.icon }));
-  const targets = [...neocom, ...WALLET_POINTERS, ...STATION_POINTERS];
-  const targetByName = new Map(targets.map(target => [target.name, target]));
   const pointerIcon = clientTexture("res:/UI/Texture/Classes/HelpPointer/highlightElement.png");
   type FavoriteGroup = { readonly id: number; readonly name: string; readonly entries: readonly string[] };
   const menu = new ContextMenu();
@@ -71,7 +69,7 @@
     .filter(group => group.visibleEntries.length || group.name.toLocaleLowerCase().includes(needle)));
   const showFavorites = $derived(!needle || rootEntries.length > 0 || folders.length > 0);
   const groups = $derived([
-    { id: "neocom", label: label("neocom", "Neocom"), entries: neocom },
+    { id: "neocom", label: label("neocom", "Neocom"), entries: NEOCOM_POINTERS },
     { id: "interface", label: label("interface", "User Interface Elements"), entries: WALLET_POINTERS },
     { id: "station", label: label("station", "Station Services"), entries: STATION_POINTERS },
   ].map(group => ({ ...group, entries: group.entries.filter(matches).sort((a, b) => a.label.localeCompare(b.label)) }))
@@ -96,7 +94,7 @@
         favoriteGroups = [...restored.values()];
       }
     } catch { /* preferences are optional */ }
-    flow.requestWords(Object.values(paths));
+    flow.requestWords([...Object.values(paths), STATION_POINTER_LINK_LABEL]);
     filter.focus();
     const unsubscribe = onShortcutsChanged(() => { overlayShortcut = shortcutOf(UI_POINTER_COMMAND); });
     return () => {
@@ -110,18 +108,11 @@
     try { localStorage.setItem(preferenceKey, JSON.stringify({ showFrames, favorites, favoriteGroups })); } catch { /* preferences are optional */ }
   }
 
-  function pointerElement(target: UiPointerTarget): HTMLElement | null {
-    const element = visiblePointerTarget(target.name);
-    if (element || !target.parent) return element;
-    const parent = targetByName.get(target.parent);
-    return parent ? pointerElement(parent) : null;
-  }
-
   function updateFrames() {
     if (!panel?.getClientRects().length) { frames = []; return; }
     const shown = showFrames ? targets : targets.filter(target => target.name === pointed);
     frames = shown.flatMap(target => {
-      const node = target.name === pointed ? pointerElement(target) : visiblePointerTarget(target.name);
+      const node = target.name === pointed ? resolveUiPointer(target) : visiblePointerTarget(target.name);
       return node ? [{ target, rect: node.getBoundingClientRect() }] : [];
     });
   }
@@ -136,7 +127,7 @@
   function point(target: UiPointerTarget) {
     selected = target.name;
     if (expiry !== null) { clearTimeout(expiry); expiry = null; }
-    if (!pointerElement(target)) {
+    if (!resolveUiPointer(target)) {
       pointed = null;
       notice = label("missing", `${target.label} is not on screen.`, { elementName: target.label });
       return;
@@ -229,14 +220,35 @@
   }
 
   function allowPointerDrop(event: DragEvent) {
-    if (event.dataTransfer?.types.includes(UI_POINTER_DRAG_TYPE)) event.preventDefault();
+    if (event.dataTransfer?.types.some(type => type === UI_POINTER_DRAG_TYPE || type === LINK_DRAG_TYPE)) event.preventDefault();
   }
 
   function dropPointer(event: DragEvent, groupID: number, before?: string) {
-    const name = event.dataTransfer?.getData(UI_POINTER_DRAG_TYPE);
-    if (!name || !targetByName.has(name)) return;
+    const data = event.dataTransfer;
+    if (!data) return;
+    const name = data.getData(UI_POINTER_DRAG_TYPE);
+    const names = name && targetByName.has(name) ? [name] : droppedUiPointerLinks(data);
+    if (!names.length) return;
     event.preventDefault();
-    addPointer(groupID, name, before);
+    if (names.length === 1) {
+      addPointer(groupID, names[0]!, before);
+      return;
+    }
+    changeEntries(groupID, entries => {
+      const next = [...entries];
+      const index = before ? next.indexOf(before) : -1;
+      next.splice(index < 0 ? next.length : index, 0, ...new Set(names.filter(item => !entries.includes(item))));
+      return next;
+    });
+  }
+
+  function dragLinks(event: DragEvent, names: readonly string[]) {
+    dragUiPointerLinks(event, names, $words.templates[STATION_POINTER_LINK_LABEL]);
+  }
+
+  function dragRow(event: DragEvent, name: string) {
+    dragUiPointer(event, name);
+    dragLinks(event, [name]);
   }
 </script>
 
@@ -245,7 +257,7 @@
     data-pointer-selected={selected === target.name} aria-label={label("point", `Point to ${target.label}`, { elementName: target.label })}
     onclick={() => point(target)} oncontextmenu={(event) => favoriteMenu(event, target, groupID)}
     onkeydown={(event) => { if (isMenuKey(event)) favoriteMenu(event, target, groupID); }}
-    ondragstart={(event) => dragUiPointer(event, target.name)}
+    ondragstart={(event) => dragRow(event, target.name)}
     ondragover={groupID === undefined ? undefined : allowPointerDrop}
     ondrop={groupID === undefined ? undefined : (event) => dropPointer(event, groupID, target.name)}>
     <img src={target.icon} alt="" /><span>{target.label}</span><img src={pointerIcon} alt="" class="point-icon" />
@@ -264,7 +276,7 @@
     <div class="groups">
       {#if showFavorites}
         <details data-favorite-group="0" bind:this={favoriteRoot} open={Boolean(needle) || favorites.length > 0 || favoriteGroups.length > 0}>
-          <summary oncontextmenu={(event) => folderMenu(event)}
+          <summary draggable={favorites.length > 0} ondragstart={(event) => dragLinks(event, favorites)} oncontextmenu={(event) => folderMenu(event)}
             onkeydown={(event) => { if (isMenuKey(event)) folderMenu(event); }}
             ondragover={allowPointerDrop} ondrop={(event) => dropPointer(event, 0)}>{label("favorites", "Favorites")}</summary>
           {#each rootEntries as target (target.name)}
@@ -272,7 +284,7 @@
           {/each}
           {#each folders as group (group.id)}
             <details class="favorite-folder" data-favorite-group={group.id} open={Boolean(needle)}>
-              <summary oncontextmenu={(event) => folderMenu(event, group)}
+              <summary draggable={group.entries.length > 0} ondragstart={(event) => dragLinks(event, group.entries)} oncontextmenu={(event) => folderMenu(event, group)}
                 onkeydown={(event) => { if (isMenuKey(event)) folderMenu(event, group); }}
                 ondragover={allowPointerDrop} ondrop={(event) => dropPointer(event, group.id)}>{group.name}</summary>
               {#each group.visibleEntries as target (target.name)}

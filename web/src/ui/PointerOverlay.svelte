@@ -1,9 +1,17 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { dragUiPointer, visiblePointerTarget } from "../play/uiPointer.ts";
+  import { dragUiPointerLinks, STATION_POINTER_LINK_LABEL } from "../play/uiPointerCatalog.ts";
+  import type { ClientStore } from "../store/clientStore.ts";
   import { portal } from "./portal.ts";
 
+  let { store }: { store: ClientStore } = $props();
   let fills = $state.raw<{ name: string; rect: DOMRect }[]>([]);
+
+  function drag(event: DragEvent, name: string) {
+    dragUiPointer(event, name);
+    dragUiPointerLinks(event, [name], store.words.get().templates[STATION_POINTER_LINK_LABEL]);
+  }
 
   function updateFills() {
     const names = new Set(Array.from(document.querySelectorAll<HTMLElement>("[data-ui-pointer]"), element => element.dataset.uiPointer!));
@@ -25,7 +33,7 @@
     <div class="pointer-fill" data-pointer-fill={name} draggable="true" role="presentation"
       style:left={`${rect.left}px`} style:top={`${rect.top}px`}
       style:width={`${rect.width}px`} style:height={`${rect.height}px`}
-      ondragstart={(event) => dragUiPointer(event, name)}></div>
+      ondragstart={(event) => drag(event, name)}></div>
   {/each}
 </div>
 
