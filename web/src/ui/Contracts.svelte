@@ -226,7 +226,21 @@
     dropoffFilter: "UI/Contracts/ContractsSearch/DropOffLocation",
     enterLocation: "UI/Contracts/ContractsSearch/labelEnterLocationName",
     selectLocation: "UI/Contracts/ContractsSearch/SelectLocation",
+    category: "UI/Contracts/ContractsSearch/ContractCategory",
+    group: "UI/Contracts/ContractsSearch/contractroup",
+    all: "UI/Contracts/ContractsSearch/comboAll",
+    originals: "UI/Contracts/ContractsSearch/BlueprintCategoryOriginal",
+    copies: "UI/Contracts/ContractsSearch/BlueprintCategoryCopy",
   } as const;
+  const PRINCIPAL_CATEGORIES = [9, 7, 66, 6];
+  type CategoryChoice = { readonly id: number; readonly hint: 0 | 1 | 2 };
+  function parseCategory(value: string): CategoryChoice | null {
+    const match = /^([1-9]\d*):([012])$/.exec(value);
+    if (!match) return null;
+    const id = Number(match[1]);
+    if (!Number.isSafeInteger(id) || (id !== 9 && match[2] !== "0")) return null;
+    return { id, hint: match[2] === "1" ? 1 : match[2] === "2" ? 2 : 0 };
+  }
   const LOCATION_SCOPES = [
     { id: 0, label: "UI/Generic/CurrentStation", fallback: "Current Station" },
     { id: 1, label: "UI/Generic/CurrentSystem", fallback: "Current System" },
@@ -262,6 +276,55 @@
   let priceEnabled = $state(localStorage.getItem(searchPref + "priceEnabled") !== "false");
   let minimum = $state<number | undefined>(savedPrice("minPrice"));
   let maximum = $state<number | undefined>(savedPrice("maxPrice"));
+  let categoryChoice = $state(localStorage.getItem(searchPref + "category") ?? "");
+  let groupID = $state(Number(localStorage.getItem(searchPref + "group") ?? 0));
+  const category = $derived(parseCategory(categoryChoice));
+  const categoryID = $derived(category?.id ?? null);
+  let categories = $state.raw<Awaited<ReturnType<AppFlow["corporationAssetCategories"]>> | null>(null);
+  let groups = $state.raw<Awaited<ReturnType<AppFlow["corporationAssetGroups"]>>>([]);
+  let categoryError = $state(false);
+  let groupError = $state(false);
+  const principalCategories = $derived(PRINCIPAL_CATEGORIES.flatMap(id => categories?.find(row => row.id === id) ?? []));
+  const moreCategories = $derived((categories ?? []).filter(row => row.id > 0 && !PRINCIPAL_CATEGORIES.includes(row.id)));
+  $effect(() => {
+    if (!retail || !advanced || courier || categories !== null) return;
+    let current = true;
+    categoryError = false;
+    void flow.corporationAssetCategories().then(rows => {
+      if (current) {
+        categories = rows;
+        categoryError = rows.length === 0;
+      }
+    }).catch(() => {
+      if (current) categoryError = true;
+    });
+    return () => { current = false; };
+  });
+  $effect(() => {
+    groups = [];
+    groupError = false;
+    if (!retail || !advanced || courier || categoryID === null) return;
+    let current = true;
+    void flow.corporationAssetGroups(categoryID).then(rows => {
+      if (current) groups = [...rows].sort((a, b) => {
+        const left = a.name.toLowerCase();
+        const right = b.name.toLowerCase();
+        return left < right ? -1 : left > right ? 1 : a.id - b.id;
+      });
+    }).catch(() => {
+      if (current) groupError = true;
+    });
+    return () => { current = false; };
+  });
+  function setGroup(value: number) {
+    groupID = value;
+    localStorage.setItem(searchPref + "group", String(value));
+  }
+  function setCategory(value: string) {
+    categoryChoice = value;
+    localStorage.setItem(searchPref + "category", value);
+    setGroup(0);
+  }
   type PlaceMatch = Awaited<ReturnType<AppFlow["goalLocationMatches"]>>[number];
   type SearchPlace = Pick<PlaceMatch, "id" | "name">;
   function storedPlaces(key: string): SearchPlace[] {
@@ -375,6 +438,8 @@
     const stationID = hereStation;
     const systemID = hereSystem;
     const endLocationID = courier && advanced ? dropoff?.id ?? null : null;
+    const usedCategory = advanced && !courier ? category : null;
+    const itemGroupID = usedCategory && Number.isSafeInteger(groupID) && groupID > 0 ? groupID : null;
     if (courier && advanced) localStorage.setItem(searchPref + "dropoff", JSON.stringify(dropoff ? [dropoff] : []));
     const usePrice = retail && advanced && !courier && priceEnabled;
     const minPrice = usePrice ? asPrice(minimum) : null;
@@ -394,7 +459,8 @@
         const result = fromItemMenu && typeID !== null
           ? await flow.findContractsOfType(typeID)
           : await flow.searchPublicContracts({ typeID: courier ? null : typeID, courier, minPrice, maxPrice, securityClasses,
-            locationID: await searchStartID(scope, stationID, systemID), endLocationID });
+            locationID: await searchStartID(scope, stationID, systemID), endLocationID, itemCategoryID: usedCategory?.id ?? null,
+            itemGroupID, searchHint: usedCategory?.hint ?? null });
         if (sequence === searchSequence) searchFound = result;
       } catch (cause) {
         if (sequence === searchSequence) throw cause;
@@ -419,6 +485,7 @@
           dropoff = null;
           dropoffText = "";
           minimum = maximum = undefined;
+          setCategory("");
           for (const filter of SECURITY_FILTERS) setSecurity(filter.key, true);
           setAdvanced(true);
         }
@@ -802,6 +869,35 @@
             </button>
           </div>
           {:else}
+          <label class="con-location-scope">
+            {titleWord(SEARCH_WORDS.category) || "Item Category"}
+            <select value={categoryChoice} onchange={(event) => setCategory(event.currentTarget.value)}>
+              <option value="">{titleWord(SEARCH_WORDS.all) || "All"}</option>
+              {#each principalCategories as option (option.id)}
+                <option value={`${option.id}:0`}>{option.name}</option>
+                {#if option.id === 9}
+                  <option value="9:1">{titleWord(SEARCH_WORDS.originals, { categoryName: option.name }) || `${option.name} Original`}</option>
+                  <option value="9:2">{titleWord(SEARCH_WORDS.copies, { categoryName: option.name }) || `${option.name} Copy`}</option>
+                {/if}
+              {/each}
+              {#if moreCategories.length}<option disabled value="separator"></option>{/if}
+              {#each moreCategories as option (option.id)}
+                <option value={`${option.id}:0`}>{option.name}</option>
+              {/each}
+            </select>
+          </label>
+          {#if categoryID !== null}
+            <label class="con-location-scope">
+              {titleWord(SEARCH_WORDS.group) || "Item Group"}
+              <select value={groupID} onchange={(event) => setGroup(Number(event.currentTarget.value))}>
+                <option value={0}>{titleWord(SEARCH_WORDS.all) || "All"}</option>
+                {#each groups as group (group.id)}
+                  <option value={group.id}>{group.name}</option>
+                {/each}
+              </select>
+            </label>
+          {/if}
+          {#if categoryError || groupError}<p role="status" class="error">Item categories or groups are unavailable.</p>{/if}
           <fieldset class="con-price-filter">
             <legend>{titleWord(SEARCH_WORDS.priceMillions) || "Price (million)"}</legend>
             <div class="con-price-bounds">
