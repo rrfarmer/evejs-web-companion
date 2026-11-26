@@ -12,6 +12,7 @@ const defaults = {
   walletShowLpUpdates: true,
   donateCorpLPIssuerPersonal: 0,
   donateCorpLPIssuer: 0,
+  corpMarketTransDivision: 1000,
   iskNotifyThreshold: 0,
 };
 type WalletSettings = typeof defaults;

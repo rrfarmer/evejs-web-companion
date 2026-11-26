@@ -87,13 +87,16 @@ const NAMED_ON_NOTICE = Object.freeze({
   OnVictoryPointStateUpdated: () => [["fwVictoryPointMgr", "GetAllVictoryPointStates", []]],
   // marketsvc.py 113, MarketQuote.OnOwnOrdersChanged(orders, reason, isCorp). The plex orders are named once
   // for each order, as the loop there has it.
-  OnOwnOrdersChanged: ([orders = null]) => [
+  OnOwnOrdersChanged: ([orders = null, , isCorp]) => [
     ["marketProxy", "GetCharOrders", []],
     ...(orders === null ? [] : items(orders).flatMap((order) => [["marketProxy", "GetOrders", [fieldOf(order, "typeID")]], ["marketProxy", "GetPlexOrders", []]])),
     ["marketProxy", "GetSystemAsks", []],
     ["marketProxy", "GetStationAsks", []],
     ["marketProxy", "GetMarketOrderHistory", []],
     ["marketProxy", "GetPlexBest", []],
+    ...(isCorp === true || whole(isCorp) === 1n
+      ? [null, 1000, 1001, 1002, 1003, 1004, 1005, 1006].map(key => ["marketProxy", "CorpGetTransactions", [null, key]])
+      : []),
   ],
   // fittingSvc.py 1269, OnCommunityFittingsUpdated, which names it where it holds the community's fittings.
   OnCommunityFittingsUpdated: () => [["corpFittingMgr", "GetCommunityFittings", []]],

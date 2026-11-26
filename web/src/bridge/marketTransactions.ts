@@ -39,6 +39,18 @@ export async function readMarketTransactions(ask: Ask, sessionCharacterID: numbe
   return decodeMarketTransactions(answered, sessionCharacterID);
 }
 
+/** walletUtil.AmAccountantOrTrader, independent of the division read gate. */
+export function canViewCorporateMarketTransactions(role: string | null | undefined): boolean {
+  try { return (BigInt(role ?? "0") & (256n | 18014398509481984n)) !== 0n; }
+  catch { return false; }
+}
+
+export async function readCorporateMarketTransactions(ask: Ask, corporationID: number, accountKey: number | null): Promise<readonly MarketTransaction[]> {
+  const answer = await ask("marketProxy", "CorpGetTransactions", [null, accountKey]);
+  if (!isListValue(answer)) throw new Error("The corporation market transactions did not contain a list.");
+  return decodeMarketTransactions(answer, 0, corporationID);
+}
+
 /** One of the pilot's trades, as the client's market service keeps it. */
 export interface MarketTransaction {
   readonly transactionID: bigint;
@@ -53,6 +65,7 @@ export interface MarketTransaction {
   readonly isForCorp: boolean;
   /** The pilot's side: the buyer of one bought, the seller of one sold. */
   readonly characterID: number;
+  readonly accountKey?: number;
   /** The other party. */
   readonly clientID: number;
   /** The price times the quantity, less for one bought. */
@@ -72,7 +85,7 @@ function bigOf(value: JsonValue | undefined): bigint | null {
 }
 
 /** CharGetTransactions' list, each as _GetPersonalTransactionKeyVal keeps it for the session's pilot. */
-export function decodeMarketTransactions(result: JsonValue | null | undefined, sessionCharacterID: number): readonly MarketTransaction[] {
+export function decodeMarketTransactions(result: JsonValue | null | undefined, sessionCharacterID: number, corporationID?: number): readonly MarketTransaction[] {
   if (result === null || result === undefined || !isListValue(result)) return [];
   const rows: MarketTransaction[] = [];
   for (const entry of result.items) {
@@ -81,7 +94,12 @@ export function decodeMarketTransactions(result: JsonValue | null | undefined, s
     const buyerID = numberOf(readKeyVal(entry, "buyerID"));
     const sellerID = numberOf(readKeyVal(entry, "sellerID"));
     const accountID = numberOf(readKeyVal(entry, "accountID"));
-    const isBuyTransaction = buyerID === sessionCharacterID;
+    const buyerAccount = numberOf(readKeyVal(entry, "buyerAccountID"));
+    const sellerAccount = numberOf(readKeyVal(entry, "sellerAccountID"));
+    const isBuyTransaction = corporationID === undefined ? buyerID === sessionCharacterID
+      // Older emulator journal rows used the same account on both sides and stored the corporation as the wallet owner.
+      : buyerAccount === sellerAccount && (buyerID === corporationID) !== (sellerID === corporationID)
+        ? buyerID === corporationID : accountID === buyerAccount;
     const quantity = numberOf(readKeyVal(entry, "quantity"));
     const price = numberOf(readKeyVal(entry, "price"));
     const total = price * quantity;
@@ -94,8 +112,9 @@ export function decodeMarketTransactions(result: JsonValue | null | undefined, s
       price,
       stationID: numberOf(readKeyVal(entry, "stationID")),
       isBuyTransaction,
-      isForCorp: accountID !== numberOf(readKeyVal(entry, isBuyTransaction ? "buyerAccountID" : "sellerAccountID")),
+      isForCorp: corporationID === undefined && accountID !== (isBuyTransaction ? buyerAccount : sellerAccount),
       characterID: isBuyTransaction ? buyerID : sellerID,
+      ...(corporationID === undefined ? {} : { accountKey: numberOf(readKeyVal(entry, "keyID")) || accountID }),
       clientID: isBuyTransaction ? sellerID : buyerID,
       totalPrice: isBuyTransaction ? -total : total,
     });
@@ -121,7 +140,7 @@ export function transactionVisible(transaction: MarketTransaction, filters: Tran
 }
 
 /** The columns a header sorts by (GetScrollHeaders and GetScrollEntryData's sort values). */
-export type TransactionColumn = "date" | "quantity" | "type" | "price" | "total" | "client" | "where";
+export type TransactionColumn = "date" | "quantity" | "type" | "price" | "total" | "client" | "where" | "member" | "division";
 
 /**
  * The rows sorted by a column, as BaseTransactionsList._Cmp compares them: the date by the transaction's number, the
@@ -132,7 +151,7 @@ export function sortedTransactions(
   rows: readonly MarketTransaction[],
   column: TransactionColumn,
   reverse: boolean,
-  wordOf: (row: MarketTransaction, column: "type" | "client" | "where") => string,
+  wordOf: (row: MarketTransaction, column: "type" | "client" | "where" | "member" | "division") => string,
 ): readonly MarketTransaction[] {
   const value = (row: MarketTransaction): bigint | number | string => {
     switch (column) {

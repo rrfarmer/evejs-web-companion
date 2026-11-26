@@ -300,7 +300,7 @@ import {
   normalizeDivisionNames,
 } from "../bridge/wallet.ts";
 import { createWalletReads, divisionNamesOf } from "../bridge/walletReads.ts";
-import { canReceiveCorporationWealth, corporationWalletKey, createCorporationWealth, hasAccessToCorporationWallet, type CorporationWealthChange } from "../bridge/corporationWealth.ts";
+import { canReceiveCorporationWealth, corporationWalletKey, corporationWalletTakeKeys, createCorporationWealth, hasAccessToCorporationWallet, type CorporationWealthChange } from "../bridge/corporationWealth.ts";
 import { ownerDoubleClickSetting } from "./ownerDoubleClickSetting.ts";
 import { memberQuerySetting } from "./memberQuerySetting.ts";
 import { memberQueryArguments, type MemberQueryCriterion, type MemberQueryContext, type CorporationAdministration } from "../bridge/corporationMemberQuery.ts";
@@ -1209,7 +1209,7 @@ import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert, type FleetAdvert } 
 import { readAvailableFleetAds, readFleetFinder as readFleetFinderCalls } from "../bridge/fleetFinderReads.ts";
 import { readMyLaunches } from "../bridge/launchReads.ts";
 import { commandLaunchRemaining, quoteCommandLaunch, type CommandLaunchFacts, type PlanetLaunchesRead } from "../bridge/planetLaunches.ts";
-import { readMarketTransactions, type MarketTransactionsRead } from "../bridge/marketTransactions.ts";
+import { canViewCorporateMarketTransactions, readCorporateMarketTransactions, readMarketTransactions, type MarketTransactionsRead } from "../bridge/marketTransactions.ts";
 import { decodeEntryKinds, decodeJournalEntries, journalLines, corporateJournalLines, canViewCorporateJournal, type WalletJournalRead, type CorpWalletJournalRead } from "../bridge/walletJournal.ts";
 import type { WalletOverviewRead } from "../bridge/walletOverview.ts";
 import { canViewCorporateShares, readCorpShares, readMyShares, type ShareHolding } from "../bridge/walletShares.ts";
@@ -4001,6 +4001,9 @@ export interface AppFlow {
    */
   readonly marketTransactions: ReadableSignal<MarketTransactionsRead>;
   loadMarketTransactions(): Promise<void>;
+  corporationMarketTransactions(accountKey: number | null): Promise<MarketTransactionsRead["transactions"]>;
+  corporationMarketDivisionNames(): Promise<Readonly<Record<string, string | null>>>;
+  readonly corporationMarketChanged: ReadableSignal<number>;
   /**
    * The wallet's Transactions tab (bridge/walletJournal.ts): the journal for a period as the client's account service
    * keeps it, with the kinds' names and journal messages. Read as the tab is shown (the period held) and as a period is
@@ -8261,6 +8264,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // And the multibuy window's orders that ran out (buyMultiFromBase.OnOwnOrdersChanged).
     if (method === "OnOwnOrdersChanged") {
       marketTransactionsFor = null;
+      if (args[2] === true || wholeDigits(args[2]) === "1") corporationMarketChanged.update(revision => revision + 1);
       void multiBuyOrdersChanged(args[0], args[1]).catch(() => {});
     }
     // sharesPanel.OnShareChange (89 to 91): the pilot's shares read again where the pilot is the shareholder or the
@@ -19487,8 +19491,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // service keeps them (marketSvc.GetPersonalMarketTransactions, 20 to 26): read for the pilot and kept, let go when the
   // pilot's own orders change (OnOwnOrdersChanged, 33 to 35) and read again when the tab is next chosen.
   const marketTransactionsSignal = createSignal<MarketTransactionsRead>({ loaded: false, transactions: [], error: null });
+  const corporationMarketChanged = createSignal(0);
   let marketTransactionsFor: number | null = null;
 
+  async function corporationMarketTransactions(accountKey: number | null): Promise<MarketTransactionsRead["transactions"]> {
+    const { online, ask, current } = captureMemberOperation();
+    const role = online.corpRole;
+    const available = canViewCorporateMarketTransactions(role) &&
+      (canViewCorporateJournal(role) || (accountKey !== null && canReceiveCorporationWealth(role, accountKey)));
+    if (!available || (accountKey !== null && (!Number.isInteger(accountKey) || accountKey < 1000 || accountKey > 1006))) {
+      throw new Error("Your corporation roles do not allow reading this division's market transactions.");
+    }
+    const transactions = await readCorporateMarketTransactions(ask, online.corporationID, accountKey);
+    current();
+    if (store.station.get().online?.corpRole !== role) return [];
+    return transactions;
+  }
+  async function corporationMarketDivisionNames(): Promise<Readonly<Record<string, string | null>>> {
+    const { ask, current } = captureMemberOperation();
+    const result = await ask("corpRegistry", "GetCorporation", []);
+    current();
+    return divisionNamesOf(result);
+  }
   async function loadMarketTransactions(): Promise<void> {
     const characterID = store.station.get().online?.characterID ?? null;
     if (characterID === null || marketTransactionsFor === characterID) return;
@@ -20363,8 +20387,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // walletConst.corpWalletRoles, appConst340-346: take1..take7, not Director
   // or Accountant as an implicit substitute for these division access bits.
   function accessibleCorporationWallets(): number[] {
-    const roles = BigInt(store.station.get().online?.corpRole ?? "0");
-    return Array.from({ length: 7 }, (_, index) => index).filter(index => (roles & 1n << BigInt(27 + index)) !== 0n).map(index => index + 1000);
+    return corporationWalletTakeKeys(store.station.get().online?.corpRole);
   }
   async function selectCorporationWalletDivision(scope: MemberOperation): Promise<void> {
     const accounts = accessibleCorporationWallets();
@@ -40483,6 +40506,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadPlanetLaunches,
     marketTransactions: readonlySignal(marketTransactionsSignal),
     loadMarketTransactions,
+    corporationMarketTransactions,
+    corporationMarketDivisionNames,
+    corporationMarketChanged: readonlySignal(corporationMarketChanged),
     walletJournal: readonlySignal(walletJournalSignal),
     loadWalletJournal,
     corpWalletJournal: readonlySignal(corpWalletJournalSignal),

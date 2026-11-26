@@ -12,20 +12,25 @@
   import { onMount } from "svelte";
   import { formatTemplate, plainText, templateNameRefs } from "../bridge/clientWords.ts";
   import {
-    TRANSACTIONS_PER_PAGE, sortedTransactions, transactionTypes, transactionVisible, type MarketTransaction, type TransactionColumn,
+    TRANSACTIONS_PER_PAGE, sortedTransactions, transactionTypes, transactionVisible, type MarketTransaction, type MarketTransactionsRead, type TransactionColumn,
   } from "../bridge/marketTransactions.ts";
+  import { corporationWalletTakeKeys } from "../bridge/corporationWealth.ts";
+  import { canViewCorporateJournal } from "../bridge/walletJournal.ts";
   import { resolvedName, type NameKind, type NameRef } from "../store/names.ts";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import { showInfo } from "./showInfo.ts";
   import { formatWalletCents } from "./isk.ts";
-  import { walletShowsCents } from "./walletSettings.ts";
+  import { setWalletSetting, walletSetting, walletShowsCents } from "./walletSettings.ts";
   import type { JsonValue } from "../bridge/wire.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, corporate = false, initialDivision }: {
+    store: ClientStore; flow: AppFlow; corporate?: boolean; initialDivision?: number;
+  } = $props();
   // svelte-ignore state_referenced_locally
   const read = flow.marketTransactions;
+  const corporateChanged = $derived(flow.corporationMarketChanged);
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -33,6 +38,17 @@
   // svelte-ignore state_referenced_locally
   const station = store.station;
   const showCents = $derived(walletShowsCents($station.online?.characterID));
+  const role = $derived($station.online?.corpRole);
+  const allDivisions = $derived(canViewCorporateJournal(role));
+  const divisionKeys = $derived(allDivisions ? [0, 1000, 1001, 1002, 1003, 1004, 1005, 1006] : corporationWalletTakeKeys(role));
+  let selectedDivision = $state<number>();
+  const preferredDivision = $derived(selectedDivision ?? initialDivision ?? walletSetting($station.online?.characterID, "corpMarketTransDivision"));
+  const division = $derived(divisionKeys.includes(preferredDivision) ? preferredDivision : divisionKeys[0]);
+  let member = $state(0);
+  let divisionNames = $state.raw<Readonly<Record<string, string | null>>>({});
+  const emptyRead: MarketTransactionsRead = { loaded: false, transactions: [], error: null };
+  let corporateRead = $state.raw<MarketTransactionsRead>(emptyRead);
+  const market = $derived(corporate ? corporateRead : $read);
 
   const W = "UI/Wallet/WalletWindow";
   const WORDS = {
@@ -43,6 +59,11 @@
     total: `${W}/ColHeaderCredit`,
     client: `${W}/ColHeaderClient`,
     where: `${W}/ColHeaderWhere`,
+    member: `${W}/ColHeaderWho`,
+    division: `${W}/ColHeaderWalletDivision`,
+    divisionFilter: `${W}/Division`,
+    memberFilter: `${W}/Member`,
+    any: "UI/Common/Any",
     fmtDate: `${W}/FmtWalletDate`,
     characterName: `${W}/CharacterName`,
     stationName: `${W}/StationName`,
@@ -80,8 +101,12 @@
     const refs: NameRef[] = [];
     const characterTemplate = $words.templates[WORDS.characterName];
     const stationTemplate = $words.templates[WORDS.stationName];
-    for (const row of $read.transactions) {
+    for (const row of market.transactions) {
       refs.push({ kind: "type", id: row.typeID });
+      if (corporate) {
+        if (row.characterID > 0) refs.push({ kind: "owner", id: row.characterID });
+        if (row.clientID > 0) refs.push({ kind: "owner", id: row.clientID });
+      }
       if (typeof characterTemplate === "string") refs.push(...templateNameRefs(characterTemplate, { charID: row.clientID }));
       if (typeof stationTemplate === "string") refs.push(...templateNameRefs(stationTemplate, { station: row.stationID }));
     }
@@ -93,8 +118,42 @@
   const typeName = (typeID: number): string => resolvedName($names.resolved, "type", typeID, "");
   const dateText = (row: MarketTransaction): string =>
     row.transactionDate === null ? "" : filled(WORDS.fmtDate, { dt: String(row.transactionDate) }, "");
-  const clientText = (row: MarketTransaction): string => filled(WORDS.characterName, { charID: row.clientID }, "");
+  const clientText = (row: MarketTransaction): string => (corporate ? nameOf("owner", row.clientID) : "") || filled(WORDS.characterName, { charID: row.clientID }, "");
+  const memberText = (id: number): string => nameOf("owner", id) || filled(WORDS.characterName, { charID: id }, "");
+  function divisionText(key: number | undefined): string {
+    if (key === undefined || key < 1000 || key > 1006) return "";
+    const index = key - 999;
+    return divisionNames[String(index)] ?? (index === 1 ? word("UI/Corporations/Common/CorporateDivisionMasterWallet", "Master Wallet") : `Wallet Division ${index}`);
+  }
   const whereText = (row: MarketTransaction): string => filled(WORDS.stationName, { station: row.stationID }, "");
+
+  $effect(() => {
+    if (!corporate) return;
+    void $station.online?.corporationID;
+    let active = true;
+    flow.requestWords(["UI/Corporations/Common/CorporateDivisionMasterWallet"]);
+    void flow.corporationMarketDivisionNames().then(names => { if (active) divisionNames = names; }).catch(() => undefined);
+    return () => { active = false; };
+  });
+  $effect(() => {
+    if (!corporate || division === undefined) return;
+    void role;
+    void $corporateChanged;
+    let active = true;
+    corporateRead = emptyRead;
+    member = 0;
+    void flow.corporationMarketTransactions(division || null).then(transactions => {
+      if (active) corporateRead = { loaded: true, transactions, error: null };
+    }).catch(() => {
+      if (active) corporateRead = { loaded: true, transactions: [], error: "The corporation's market transactions could not be read just now." };
+    });
+    return () => { active = false; };
+  });
+  function changeDivision(key: number) {
+    selectedDivision = key;
+    const pilot = $station.online?.characterID;
+    if (pilot !== undefined) setWalletSetting(pilot, "corpMarketTransDivision", key);
+  }
 
   // The filters (IsTransactionVisible).
   let side = $state<"both" | "buy" | "sell">("both");
@@ -102,7 +161,9 @@
   let minQuantityText = $state("");
   let minValueText = $state("");
   const wholeOf = (text: string): number | null => (/^\d+$/.test(text.trim()) ? Number(text.trim()) : null);
-  const types = $derived(transactionTypes($read.transactions, typeName));
+  const types = $derived(transactionTypes(market.transactions, typeName));
+  const members = $derived([...new Set(market.transactions.map(row => row.characterID).filter(id => id > 0))]
+    .sort((a, b) => memberText(a).localeCompare(memberText(b))));
 
   // The sort (BaseTransactionsList.Sort): the newest first until a header is chosen.
   let sortBy = $state<TransactionColumn>("date");
@@ -118,14 +179,22 @@
 
   const shown = $derived.by(() => {
     const filters = { buy: side === "both" ? null : side === "buy", typeID: typeChoice || null, minQuantity: wholeOf(minQuantityText), minValue: wholeOf(minValueText) };
-    const visible = $read.transactions.filter((row) => transactionVisible(row, filters));
-    return sortedTransactions(visible, sortBy, reverse, (row, column) => (column === "type" ? typeName(row.typeID) : column === "client" ? clientText(row) : whereText(row)));
+    const visible = market.transactions.filter(row => (!corporate || member === 0 || row.characterID === member) && transactionVisible(row, filters));
+    return sortedTransactions(visible, sortBy, reverse, (row, column) => {
+      switch (column) {
+        case "type": return typeName(row.typeID);
+        case "client": return clientText(row);
+        case "member": return memberText(row.characterID);
+        case "division": return divisionText(row.accountKey);
+        case "where": return whereText(row);
+      }
+    });
   });
 
   // The pages (UpdateTransactionsByPage: back to the first at each change of the filters).
   let page = $state(0);
   $effect(() => {
-    void side; void typeChoice; void minQuantityText; void minValueText;
+    void side; void typeChoice; void minQuantityText; void minValueText; void division; void member;
     page = 0;
   });
   const pageCount = $derived(Math.ceil(shown.length / TRANSACTIONS_PER_PAGE));
@@ -142,14 +211,25 @@
     { column: "client", label: WORDS.client, own: "Client" },
     { column: "where", label: WORDS.where, own: "Where" },
   ];
+  const companyHeaders = [
+    { column: "member", label: WORDS.member, own: "Who" },
+    { column: "division", label: WORDS.division, own: "Wallet Division" },
+  ] as const;
 
   onMount(() => {
-    void flow.loadMarketTransactions().catch(() => undefined);
+    if (!corporate) void flow.loadMarketTransactions().catch(() => undefined);
   });
 </script>
 
 <div class="market-transactions">
   <p class="controls">
+    {#if corporate}
+      <select value={division} aria-label={word(WORDS.divisionFilter, "Division")} onchange={event => changeDivision(Number(event.currentTarget.value))}>
+        {#each divisionKeys as key (key)}
+          <option value={key}>{key === 0 ? word(WORDS.any, "Any") : divisionText(key)}</option>
+        {/each}
+      </select>
+    {/if}
     <select bind:value={side} aria-label={word(WORDS.buyAndSell, "Buy and Sell")}>
       <option value="both">{word(WORDS.buyAndSell, "Buy and Sell")}</option>
       <option value="buy">{word(WORDS.buy, "Buy")}</option>
@@ -163,11 +243,19 @@
         <option value={choice.typeID}>{choice.name}</option>
       {/each}
     </select>
+    {#if corporate}
+      <select bind:value={member} aria-label={word(WORDS.memberFilter, "Member")}>
+        <option value={0}>{word(WORDS.any, "Any")}</option>
+        {#each members as id (id)}
+          <option value={id}>{memberText(id)}</option>
+        {/each}
+      </select>
+    {/if}
   </p>
 
-  {#if $read.error}
-    <p class="error">Your market transactions could not be read just now.</p>
-  {:else if !$read.loaded}
+  {#if market.error}
+    <p class="error">{corporate ? market.error : "Your market transactions could not be read just now."}</p>
+  {:else if !market.loaded}
     <p class="empty">Reading…</p>
   {:else if onPage.length === 0}
     <p class="empty">{word(WORDS.none, "No transactions found")}</p>
@@ -176,7 +264,7 @@
       <table class="guests reflow">
         <thead>
           <tr>
-            {#each HEADERS as header (header.column)}
+            {#each (corporate ? [...HEADERS, ...companyHeaders] : HEADERS) as header (header.column)}
               <th class={header.num ? "num" : ""} aria-sort={sortBy === header.column ? (reverse ? "descending" : "ascending") : "none"}>
                 <button type="button" class="trade-sort" onclick={() => sortOn(header.column)}>
                   {word(header.label, header.own)}{sortBy === header.column ? (reverse ? " ▼" : " ▲") : ""}
@@ -196,6 +284,10 @@
               <td class="num {row.isBuyTransaction ? 'bought' : 'sold'}" data-label={word(WORDS.total, "Total")}>{isk(row.totalPrice)}</td>
               <td data-label={word(WORDS.client, "Client")}>{clientText(row)}</td>
               <td data-label={word(WORDS.where, "Where")}>{whereText(row)}</td>
+              {#if corporate}
+                <td data-label={word(WORDS.member, "Who")}>{memberText(row.characterID)}</td>
+                <td data-label={word(WORDS.division, "Wallet Division")}>{divisionText(row.accountKey)}</td>
+              {/if}
               <td data-label="">
                 <button type="button" class="minor" aria-label="The trade's menu" aria-expanded={menuFor === row.transactionID}
                   onclick={() => (menuFor = menuFor === row.transactionID ? null : row.transactionID)}>⋯</button>

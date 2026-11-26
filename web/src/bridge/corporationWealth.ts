@@ -48,6 +48,11 @@ export function canReceiveCorporationWealth(corpRole: string | null | undefined,
   } catch { return false; }
 }
 
+export function corporationWalletTakeKeys(corpRole: string | null | undefined): number[] {
+  return Array.from({ length: accountNames.length }, (_, index) => 1000 + index)
+    .filter(key => canReceiveCorporationWealth(corpRole, key));
+}
+
 function balanceNumber(value: JsonValue): number {
   const digits = toAmountString(value), balance = digits === null ? Number.NaN : Number(digits);
   if (!Number.isFinite(balance)) throw new Error("The corporation wallet returned no balance.");

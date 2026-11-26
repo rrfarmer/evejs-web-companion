@@ -22,8 +22,10 @@
   import { plainText } from "../bridge/clientWords.ts";
   import WalletShares from "./WalletShares.svelte";
   import WalletJournal from "./WalletJournal.svelte";
+  import WalletMarketTransactions from "./WalletMarketTransactions.svelte";
   import { canViewCorporateJournal } from "../bridge/walletJournal.ts";
-  import { canReceiveCorporationWealth } from "../bridge/corporationWealth.ts";
+  import { canViewCorporateMarketTransactions } from "../bridge/marketTransactions.ts";
+  import { canReceiveCorporationWealth, corporationWalletTakeKeys } from "../bridge/corporationWealth.ts";
 
   let { store, flow, embedded = false }: { store: ClientStore; flow: AppFlow; embedded?: boolean } = $props();
 
@@ -36,7 +38,15 @@
   const showCents = $derived(walletShowsCents($station.online?.characterID));
   const sharesAllowed = $derived(canViewCorporateShares($station.online?.corpRole));
   const journalAllowed = $derived(canViewCorporateJournal($station.online?.corpRole));
-  let tab = $state<"divisions" | "shares" | "transactions">("divisions");
+  const marketAllowed = $derived(canViewCorporateMarketTransactions($station.online?.corpRole) &&
+    (journalAllowed || corporationWalletTakeKeys($station.online?.corpRole).length > 0));
+  let tab = $state<"divisions" | "shares" | "transactions" | "market">("divisions");
+  let marketDivision = $state<number>();
+  let marketRevision = $state(0);
+  let divisionMenu = $state<number | null>(null);
+  const selectedTab = $derived(tab === "market" && marketAllowed ? tab
+    : !journalAllowed && marketAllowed ? "market"
+    : tab === "market" ? "divisions" : tab);
   const activeKey = $derived($station.online?.corpAccountKey ?? null);
   const divisionReadable = $derived(activeKey !== null && canReceiveCorporationWealth($station.online?.corpRole, activeKey));
   let divisionBalance = $state<number | null>(null);
@@ -47,6 +57,8 @@
     divisions: "UI/Wallet/WalletWindow/TabWalletDivisions",
     owned: "UI/Wallet/WalletWindow/TabOwnedByCorp",
     transactions: "UI/Wallet/WalletWindow/TabTransactions",
+    market: "UI/Wallet/WalletWindow/MarketTransactions",
+    marketMenu: "UI/Wallet/WalletWindow/MenuViewMarketTransactions",
   };
   $effect(() => { flow.requestWords(Object.values(labels)); });
   function word(label: string, fallback: string): string {
@@ -75,6 +87,10 @@
 
   // The button asks the server again; the window opening takes what is kept (bridge/walletReads.ts).
   function refresh(): void {
+    if (selectedTab === "market") {
+      marketRevision++;
+      return;
+    }
     if (embedded && !journalAllowed) {
       divisionRefresh++;
       return;
@@ -108,6 +124,11 @@
   function divisionLabel(division: CorpWalletDivision): string {
     return division.name ?? `Division ${division.division}`;
   }
+  function openMarket(division?: number) {
+    marketDivision = division;
+    divisionMenu = null;
+    tab = "market";
+  }
 </script>
 
 <section class="panel corp-wallet-panel">
@@ -131,32 +152,40 @@
     <p class="error">The corp wallet read failed: {$wallet.corpError}</p>
   {/if}
 
-  {#if journalAllowed || sharesAllowed}
+  {#if journalAllowed || sharesAllowed || marketAllowed}
   <nav class="tabs" aria-label="Corporation wallet">
     {#if journalAllowed}
-      <button type="button" class:active={tab === "transactions"} aria-pressed={tab === "transactions"}
+      <button type="button" class:active={selectedTab === "transactions"} aria-pressed={selectedTab === "transactions"}
         onclick={() => (tab = "transactions")}>{word(labels.transactions, "Transactions")}</button>
     {/if}
+    {#if marketAllowed}
+      <button type="button" class:active={selectedTab === "market"} aria-pressed={selectedTab === "market"}
+        onclick={() => openMarket()}>{word(labels.market, "Market Transactions")}</button>
+    {/if}
     {#if sharesAllowed}
-      <button type="button" class:active={tab === "shares"} aria-pressed={tab === "shares"}
+      <button type="button" class:active={selectedTab === "shares"} aria-pressed={selectedTab === "shares"}
         onclick={() => (tab = "shares")}>{word(labels.shares, "Shares")}</button>
     {/if}
     {#if journalAllowed}
-      <button type="button" class:active={tab === "divisions"} aria-pressed={tab === "divisions"}
+      <button type="button" class:active={selectedTab === "divisions"} aria-pressed={selectedTab === "divisions"}
         onclick={() => (tab = "divisions")}>{word(labels.divisions, "Divisions")}</button>
     {/if}
   </nav>
   {/if}
 
-  {#if !journalAllowed && embedded && divisionReadable}
+  {#if selectedTab === "market" && marketAllowed}
+    {#key marketRevision}
+      <WalletMarketTransactions {store} {flow} corporate initialDivision={marketDivision} />
+    {/key}
+  {:else if !journalAllowed && embedded && divisionReadable}
     {#if divisionError}<p role="alert">{divisionError}</p>
     {:else if divisionBalance === null}<p role="status">Reading the active division…</p>
     {:else}<p class="corp-division-balance">{showCents ? formatWalletCents(String(divisionBalance)) : formatWholeIsk(String(divisionBalance), "truncate")}</p>{/if}
   {:else if !journalAllowed}
     <p class="empty">Your corporation roles do not allow viewing wallet records.</p>
-  {:else if tab === "transactions"}
+  {:else if selectedTab === "transactions"}
     <WalletJournal {store} {flow} corporate />
-  {:else if tab === "shares" && sharesAllowed}
+  {:else if selectedTab === "shares" && sharesAllowed}
     <h3>{word(labels.owned, "Owned by corporation")}</h3>
     <WalletShares {store} {flow} corporate />
   {:else if !$wallet.loaded || ($wallet.corpDivisions === null && $wallet.corpError === null)}
@@ -171,14 +200,24 @@
         <tr>
           <th scope="col">Division</th>
           <th scope="col" class="num">Balance</th>
+          {#if marketAllowed}<th scope="col"></th>{/if}
         </tr>
       </thead>
       <tbody>
         {#each $wallet.corpDivisions as division (division.key)}
-          <tr>
+          <tr oncontextmenu={event => { if (marketAllowed) { event.preventDefault(); divisionMenu = division.key; } }}>
             <th scope="row">{divisionLabel(division)}</th>
             <!-- corpDivisionsPanel.py 48: FmtWalletCurrency(division.balance), whole ISK with cents off. -->
             <td class="num">{showCents ? formatWalletCents(division.balance) : formatWholeIsk(division.balance, "truncate")}</td>
+            {#if marketAllowed}
+              <td>
+                <button type="button" class="minor" aria-label={divisionLabel(division) + " actions"} aria-expanded={divisionMenu === division.key}
+                  onclick={() => (divisionMenu = divisionMenu === division.key ? null : division.key)}>⋯</button>
+                {#if divisionMenu === division.key}
+                  <button type="button" class="minor" onclick={() => openMarket(division.key)}>{word(labels.marketMenu, "View Market Transactions")}</button>
+                {/if}
+              </td>
+            {/if}
           </tr>
         {/each}
       </tbody>
