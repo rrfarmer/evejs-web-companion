@@ -10,6 +10,13 @@ export interface HyperNetOffer {
   readonly expires: number;
 }
 
+export interface HyperNetConstraints {
+  readonly min_ticket_price?: number;
+  readonly max_ticket_price?: number;
+  readonly min_ticket_count?: number;
+  readonly max_ticket_count?: number;
+}
+
 export function decodeHyperNetOffers(payload: unknown): readonly HyperNetOffer[] {
   if (!isListValue(payload)) throw new Error("HyperNet offers are unavailable.");
   return payload.items.map(row => {
