@@ -39,7 +39,8 @@
   import WalletIncursionLog from "./WalletIncursionLog.svelte";
   import WalletDonateLp from "./WalletDonateLp.svelte";
   import WalletDonateEvermarks from "./WalletDonateEvermarks.svelte";
-  import CorpWallet from "./CorpWallet.svelte";
+  import CorpWalletCurrencies from "./CorpWalletCurrencies.svelte";
+  import { canUseCorporationWalletCurrency } from "../bridge/corporationWalletCurrencies.ts";
   import { hasAccessToCorporationWallet } from "../bridge/corporationWealth.ts";
   import { isNpcCorporation } from "../bridge/ownerInfo.ts";
   import { AGENCY_SCREEN_GROUPS } from "./agencyContentGroups.ts";
@@ -96,7 +97,9 @@
   let walletTab = $state<"mine" | "corporation" | "settings">("mine");
   const corporationID = $derived($station.online?.corporationID ?? null);
   const corporationAllowed = $derived(corporationID !== null && !isNpcCorporation(corporationID) &&
-    hasAccessToCorporationWallet($station.online?.corpRole));
+    (hasAccessToCorporationWallet($station.online?.corpRole) ||
+      canUseCorporationWalletCurrency($station.online?.corpRole, "loyalty") ||
+      canUseCorporationWalletCurrency($station.online?.corpRole, "evermarks")));
   $effect(() => {
     if (!corporationAllowed && walletTab === "corporation") walletTab = "mine";
   });
@@ -282,9 +285,9 @@
       <button type="button" class:active={walletTab === "settings"} aria-pressed={walletTab === "settings"}
         onclick={() => (walletTab = "settings")}>{tabWord("UI/Common/Settings", "Settings")}</button>
     </nav>
-    {#if walletTab === "corporation" && corporationAllowed}
+    {#if walletTab === "corporation" && corporationAllowed && characterID !== null}
       {#key `${characterID}:${corporationID}`}
-        <CorpWallet {store} {flow} embedded />
+        <CorpWalletCurrencies {store} {flow} {characterID} />
       {/key}
     {:else if walletTab === "settings"}
       <div class="wallet-settings">

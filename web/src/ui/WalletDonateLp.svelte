@@ -9,12 +9,13 @@
   import CorpLogo from "./CorpLogo.svelte";
   import { setWalletSetting, walletSetting } from "./walletSettings.ts";
 
-  let { store, flow, characterID, balances, refresh }: {
+  let { store, flow, characterID, balances, refresh, corporate = false }: {
     store: ClientStore;
     flow: AppFlow;
     characterID: number;
     balances: readonly WalletLPBalance[] | null;
     refresh: () => void;
+    corporate?: boolean;
   } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
@@ -46,6 +47,7 @@
   });
   const text = (path: string, fallback: string) => plainText($words.templates[path] ?? "") || fallback;
   const word = (key: keyof typeof labels) => text(labels[key][0], labels[key][1]);
+  const issuerSetting = $derived(corporate ? "donateCorpLPIssuer" : "donateCorpLPIssuerPersonal");
   const name = (id: number) => resolvedName($names.resolved, "corporation", id, "");
   const issuers = $derived((balances ?? []).filter(row => Number(row.loyaltyPoints) > 0)
     .map(row => ({ id: row.issuerCorpID, balance: Number(row.loyaltyPoints), name: name(row.issuerCorpID) }))
@@ -73,12 +75,12 @@
 
   $effect(() => {
     if (balances === null || issuers.some(row => row.id === issuer)) return;
-    const kept = walletSetting(characterID, "donateCorpLPIssuerPersonal");
+    const kept = walletSetting(characterID, issuerSetting);
     issuer = issuers.find(row => row.id === kept)?.id ?? issuers[0]?.id ?? 0;
     entered = 0;
   });
   function selectIssuer(id: number) {
-    setWalletSetting(characterID, "donateCorpLPIssuerPersonal", id);
+    setWalletSetting(characterID, issuerSetting, id);
     entered = Math.min(amount, issuers.find(row => row.id === id)?.balance ?? 0);
     success = false;
     transferError = "";
@@ -96,7 +98,7 @@
     if (query.length < 3 || chosen !== null) return;
     let current = true;
     const timer = setTimeout(() => {
-      void flow.searchLpDonationRecipients(query, mode, () => current).then(rows => {
+      void flow.searchLpDonationRecipients(query, mode, () => current, corporate).then(rows => {
         if (current) found = rows;
       }).catch(cause => {
         if (current) searchError = panelErrorWords(cause);
@@ -123,7 +125,8 @@
       amount: formatted, issuerCorpName: source.name, corpName: receiver.name,
     }, { nameOf: () => "" })) : fallback;
     try {
-      if (await flow.donatePersonalLp(receiver.id, source.id, value, question)) {
+      const donate = corporate ? flow.donateCorporationLp : flow.donatePersonalLp;
+      if (await donate(receiver.id, source.id, value, question)) {
         success = true;
         resetRecipient();
         entered = 0;

@@ -1254,7 +1254,7 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_LP_EXCHANGE", message: "Choose an LP issuer and a positive whole amount." });
     return;
   }
-  if (body.service === "LPSvc" && body.method === "TransferLPFromMyWalletToOtherCorp" &&
+  if (body.service === "LPSvc" && ["TransferLPFromMyWalletToOtherCorp", "TransferLPFromMyCorpWalletToOtherCorp"].includes(body.method) &&
       (body.of != null || body.kwargs != null || !Array.isArray(body.args) || body.args.length !== 3 ||
         body.args.some(value => !Number.isSafeInteger(value) || value <= 0))) {
     res.status(400).json({ ok: false, error: "INVALID_LP_DONATION", message: "Choose a corporation, LP issuer, and positive whole amount." });

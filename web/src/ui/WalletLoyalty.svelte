@@ -10,12 +10,13 @@
   import { showInfo } from "./showInfo.ts";
   import ConcordLpExchange from "./ConcordLpExchange.svelte";
 
-  let { store, flow, balances, error, refresh }: {
+  let { store, flow, balances, error, refresh, corporate = false }: {
     store: ClientStore;
     flow: AppFlow;
     balances: readonly WalletLPBalance[] | null;
     error: string;
     refresh: () => void;
+    corporate?: boolean;
   } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
@@ -58,7 +59,7 @@
   const exchangeTarget = $derived(Number(funded.find(row => row.issuerCorpID === exchange)?.loyaltyPoints ?? "0"));
 
   $effect(() => {
-    if (npcStation == null || concord <= 0) return;
+    if (corporate || npcStation == null || concord <= 0) return;
     let current = true;
     rateError = "";
     void flow.concordLpExchangeRates().then(table => { if (current) rates = table; })
@@ -139,7 +140,7 @@
         {#each shown as row (row.issuerCorpID)}
           {@const place = locations?.get(row.issuerCorpID)}
           {@const nearest = place?.stationID ?? null}
-          {@const canExchange = npcStation != null && concord > 0 && (rates?.get(row.issuerCorpID) ?? 0) > 0}
+          {@const canExchange = !corporate && npcStation != null && concord > 0 && (rates?.get(row.issuerCorpID) ?? 0) > 0}
           <tr data-lp-issuer={row.issuerCorpID}>
             <td>
               <div class="loyalty-row-actions" role="group" aria-label={name("corporation", row.issuerCorpID) || word("corporation")}

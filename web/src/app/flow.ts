@@ -1192,6 +1192,7 @@ import { fitFitting, fittedRigsByFlag, fittingForApplying, isModularShip, isRigF
 import { fittingEftString } from "../bridge/fittingExport.ts";
 import { parseFittingFile, reserveImportedFittingName, resolveFittingFileProfile, type FittingFileEntry, type FittingFileType } from "../bridge/fittingFileImport.ts";
 import { decodeAllianceInfo, decodeRankedAlliances, toStr as allianceText, type AllianceInfo, type AllianceInfoExtra } from "../bridge/allianceInfo.ts";
+import { canUseCorporationWalletCurrency, CORPORATION_EVERMARK_MIN_DAYS, EVERMARK_ISSUER } from "../bridge/corporationWalletCurrencies.ts";
 import { aggressionSettingsOf, type AggressionSettings, assertCorpAggressionStatusMethod, corporationPublicInfoOf, enlistmentFactionsOf, isNpcCorporation, type CorporationPublicInfo, type CorporationShowInfo } from "../bridge/ownerInfo.ts";
 import { toNumOrNull as corporationShareNumber } from "../bridge/allianceInfo.ts";
 import { BULK_FIT_SHIPS_CONFIG, fitShips, isShipAssembled, listPlace, maxAvailableAndMissing, maxShipsToFit, personalContainers, qtyInPlaceByTypeIDs } from "../bridge/multiFit.ts";
@@ -3847,6 +3848,7 @@ export interface AppFlow {
   readonly personalWalletChanged: ReadableSignal<{ readonly characterID: number; readonly balance: number; readonly difference: number } | null>;
   readonly walletBlink: ReadableSignal<WalletBlink | null>;
   readonly walletLpChanged: ReadableSignal<WalletLpChange | null>;
+  readonly corporationWalletLpChanged: ReadableSignal<number>;
   /** walletSvc.GetCorpWealth: fresh, None for active division; native UserError becomes0. */
   corporationWealth(accountKey?: number | null): Promise<number>;
   /** walletSvc.GetCorpWealthCached1Min, keyed separately from fresh window reads. */
@@ -3897,8 +3899,10 @@ export interface AppFlow {
    * GiveCash(toID, amount). Answers whether the transfer was answered as made; false for No. Fails as the call fails.
    */
   giveIskFromWallet(toID: number, amount: number, cons: string): Promise<boolean>;
-  searchLpDonationRecipients(text: string, matchBy: number, current: () => boolean): Promise<readonly { readonly id: number; readonly name: string }[]>;
+  searchLpDonationRecipients(text: string, matchBy: number, current: () => boolean, corporate?: boolean): Promise<readonly { readonly id: number; readonly name: string }[]>;
   donatePersonalLp(toID: number, issuerID: number, amount: number, cons: string): Promise<boolean>;
+  donateCorporationLp(toID: number, issuerID: number, amount: number, cons: string): Promise<boolean>;
+  corporationEvermarkDonationEligibility(): Promise<{ readonly minimumDays: number; readonly recipients: readonly number[]; readonly executor: boolean }>;
   personalEvermarkDonationEligibility(): Promise<{ minimumDays: number; recipients: readonly number[] }>;
   /**
    * The seasonal tab's Claim (seasonalLoginCampaignService.py claim_reward, 80 to 88): the day's rewards, into the
@@ -7185,6 +7189,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const personalWalletSignal = createSignal<{ characterID: number; balance: number; difference: number } | null>(null);
   const walletBlinkSignal = createSignal<WalletBlink | null>(null);
   const walletLpSignal = createSignal<WalletLpChange | null>(null);
+  const corporationWalletLpSignal = createSignal(0);
   const corporationWealthSignal = createSignal<CorporationWealthChange | null>(null);
   const incursionSignal = createSignal<IncursionData | null>(null);
   const corporationWealthReads = createCorporationWealth({
@@ -8291,6 +8296,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           before: walletNumber(args[2]), after: walletNumber(args[3]) });
       }
     }
+    if (method === "OnCorpLPChange") corporationWalletLpSignal.update(revision => revision + 1);
     const sessionNames = sessionChangeNames(method, args);
     if (sessionNames?.some(name => name === "stationid" || name === "structureid" || name === "solarsystemid")) {
       const online = store.station.get().online;
@@ -27192,13 +27198,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return giveIskFromWalletCall(bridgeDo, toID, amount);
   }
 
-  async function searchLpDonationRecipients(text: string, matchBy: number, current: () => boolean) {
+  async function searchLpDonationRecipients(text: string, matchBy: number, current: () => boolean, corporate = false) {
     const corporation = 3;
     const pilot = callOptions.captureRequestGuard!();
+    const ownCorporationID = corporate ? store.station.get().online?.corporationID : null;
     const matches = (await searchOwners(text, [corporation], matchBy)).get(corporation) ?? [];
     pilot();
     if (!current()) return [];
-    const recipients = await Promise.all(matches.filter(row => row.id < 1_000_000 || row.id > 1_999_999)
+    const recipients = await Promise.all(matches.filter(row => row.id !== ownCorporationID && !isNpcCorporation(row.id))
       .map(async row => ({
         row,
         members: unwrapLong((await corporationRecords.get(bridgeAsk, row.id, pilot)).fields.memberCount),
@@ -27212,6 +27219,54 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     current();
     await bridgeDo("LPSvc", "TransferLPFromMyWalletToOtherCorp", [toID, issuerID, amount]);
     return true;
+  }
+
+  async function donateCorporationLp(toID: number, issuerID: number, amount: number, cons: string): Promise<boolean> {
+    const scope = captureMemberOperation();
+    const currency = issuerID === EVERMARK_ISSUER ? "evermarks" : "loyalty";
+    const assertAccess = () => {
+      scope.current();
+      if (!canUseCorporationWalletCurrency(store.station.get().online?.corpRole, currency)) {
+        throw new Error("Your corporation roles do not allow this transfer.");
+      }
+    };
+    assertAccess();
+    if (!(await askDialog("AskAreYouSure", { type: "dict", entries: [["cons", cons]] }, cons))) return false;
+    assertAccess();
+    await scope.write("LPSvc", "TransferLPFromMyCorpWalletToOtherCorp", [toID, issuerID, amount]);
+    return true;
+  }
+
+  async function corporationEvermarkDonationEligibility() {
+    const { online, current, ask } = captureMemberOperation();
+    const { allianceID, corporationID } = online;
+    const minimumDays = CORPORATION_EVERMARK_MIN_DAYS;
+    const restricted = { minimumDays, recipients: [], executor: false };
+    if (allianceID == null || !canUseCorporationWalletCurrency(online.corpRole, "evermarks")) return restricted;
+    async function daysInAlliance(id: number): Promise<number> {
+      const days = unwrapLong(await ask("allianceRegistry", "GetDaysInAlliance", [allianceID!, id]));
+      if (days === null || days < 0n || days > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("Alliance membership could not be read.");
+      return Number(days);
+    }
+    if (await daysInAlliance(corporationID) < minimumDays) return restricted;
+    const alliance = decodeAllianceInfo(await ask("allianceRegistry", "GetAlliancePublicInfo", [allianceID]));
+    const executorID = alliance?.executorCorpID ?? null;
+    if (executorID === null) throw new Error("The alliance executor could not be read.");
+    const executor = executorID === corporationID;
+    let ids: readonly number[];
+    if (executor) {
+      const answer = await ask("allianceRegistry", "GetAllianceMembersOlderThan", [allianceID, minimumDays]);
+      if (!isListValue(answer) && !Array.isArray(answer)) throw new Error("The alliance members could not be read.");
+      ids = (isListValue(answer) ? answer.items : answer).map(value => Number(unwrapLong(value)))
+        .filter(id => Number.isSafeInteger(id) && id > 0 && id !== corporationID && !isNpcCorporation(id));
+    } else {
+      ids = await daysInAlliance(executorID) >= minimumDays ? [executorID] : [];
+    }
+    const records = await Promise.all(ids.map(id => corporationRecords.get(ask, id, current)));
+    current();
+    const recipients = ids.filter((_id, index) => (unwrapLong(records[index]?.fields.memberCount) ?? 0n) > 0n);
+    requestNames(recipients.map(id => ({ kind: "corporation", id })));
+    return { minimumDays, recipients, executor };
   }
 
   async function personalEvermarkDonationEligibility() {
@@ -40226,6 +40281,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     personalWalletChanged: readonlySignal(personalWalletSignal),
     walletBlink: readonlySignal(walletBlinkSignal),
     walletLpChanged: readonlySignal(walletLpSignal),
+    corporationWalletLpChanged: readonlySignal(corporationWalletLpSignal),
     corporationWealth: accountKey => corporationWealthReads.fresh(accountKey),
     cachedCorporationWealth: accountKey => corporationWealthReads.cached(accountKey),
     corporationWealthChanged: readonlySignal(corporationWealthSignal),
@@ -40252,6 +40308,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     giveIskFromWallet,
     searchLpDonationRecipients,
     donatePersonalLp,
+    donateCorporationLp,
+    corporationEvermarkDonationEligibility,
     personalEvermarkDonationEligibility,
     loadRedeemTokens,
     redeemHomeStation,

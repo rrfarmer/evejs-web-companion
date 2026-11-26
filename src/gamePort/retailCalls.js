@@ -759,6 +759,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "rewardMgr.GetRewardLPLogs", "LPSvc.TransferLPFromMyWalletToOtherCorp",
   "LPSvc.GetLPExchangeRates", "LPSvc.ExchangeConcordLP",
   "LPSvc.GetMyEvermarkDonationEligibility",
+  "LPSvc.GetAllMyCorporationWalletLPBalances", "LPSvc.TransferLPFromMyCorpWalletToOtherCorp",
   "RWManager.get_closest_rw_stations",
   // And its factional warfare systems (FactionalWarfareSiteTracker, fwWarzoneSvc.GetAllOccupationStates,
   // fwVictoryPointSvc.GetVictoryPointState of another system).
@@ -2997,6 +2998,8 @@ const RETAIL_CALLS = Object.freeze({
   "LPSvc.GetLPExchangeRates": same("eve/client/script/ui/station/loyaltyPointStore/lpStoreSvc.py:90", "Emulator read for the NPC corporation exchange rates used by the native client's built data"),
   "LPSvc.ExchangeConcordLP": same("eve/client/script/ui/station/loyaltyPointStore/lpStoreSvc.py:103", "Exchanges CONCORD LP for a whole quantity of the selected NPC corporation's LP"),
   "LPSvc.GetMyEvermarkDonationEligibility": same("eve/client/script/ui/shared/neocom/wallet/panels/personal/personalDonateEMPanel.py:49", "Emulator read for the active character's minimum membership and eligible recipient corporations"),
+  "LPSvc.GetAllMyCorporationWalletLPBalances": same("eve/client/script/ui/shared/neocom/wallet/loyaltyPointsWalletSvc.py:35", "Reads corporation wallet balances as issuer and amount rows"),
+  "LPSvc.TransferLPFromMyCorpWalletToOtherCorp": same("eve/client/script/ui/shared/neocom/wallet/loyaltyPointsWalletSvc.py:95", "Transfers corporation LP or EverMarks to a recipient corporation"),
   "RWManager.get_closest_rw_stations": same("eve/client/script/ui/station/loyaltyPointStore/lpStoreSvc.py:531", "Reads the nearest Resource Wars LP stations by issuer for the active solar system"),
   "custom_agency_provider.get_content_data": same("agency/client/custom_content.py:13", "sm.RemoteSvc('custom_agency_provider').get_content_data(), no arguments: the Agency's custom content, a list of agency.common.contentdata.CustomContentData, filtered by its content_type on the client (the pirate strongholds' is 15). Recorded on Tranquility (\"Agency - Opening Resource Harvesting Planets Colony Resources\", 2026-09-10) answering [], as a cached method call."),
   "map.GetSystemsInIncursions": same("eve/client/script/ui/shared/agencyNew/contentPieces/incursionContentPiece.py:84", "sm.RemoteSvc('map').GetSystemsInIncursions(), no arguments: the rows of the systems in incursions, each its locationID and sceneType."),

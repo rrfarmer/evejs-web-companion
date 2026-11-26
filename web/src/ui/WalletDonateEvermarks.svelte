@@ -6,12 +6,13 @@
   import { resolvedName } from "../store/names.ts";
   import CorpLogo from "./CorpLogo.svelte";
 
-  let { store, flow, issuerID, balance, refresh }: {
+  let { store, flow, issuerID, balance, refresh, corporate = false }: {
     store: ClientStore;
     flow: AppFlow;
     issuerID: number;
     balance: number | null;
     refresh: () => void;
+    corporate?: boolean;
   } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
@@ -27,7 +28,10 @@
     success: [wallet + "TransferSuccessful", "Transfer Successful"],
     restrictedTitle: [wallet + "AccessRestricted", "Access Restricted"],
     restricted: [wallet + "PersonalEMTabRestricted", "EverMarks donations require membership in a player corporation."],
+    corporateRestricted: [wallet + "CorpEMTabRestricted", "Your corporation must be an alliance member for the required number of days."],
     notice: [wallet + "TransferPersonalEMNotice", "You can donate EverMarks to eligible corporations listed here."],
+    executorNotice: [wallet + "TransferEMToNonExecCorpNotice", "You can donate EverMarks to eligible alliance member corporations."],
+    memberNotice: [wallet + "TransferEMToExecCorpNotice", "You can donate EverMarks to your alliance executor corporation."],
     confirmation: [wallet + "CorpEMTransactionConfirmation", ""],
   } as const;
   function word(key: keyof typeof labels, values: Record<string, string | number> = {}, fallback?: string) {
@@ -36,7 +40,7 @@
     return (template ? plainText(formatTemplate(template, values, { nameOf: () => "" })) : "") || fallback || own;
   }
   function corpName(id: number) { return resolvedName($names.resolved, "corporation", id, ""); }
-  type Eligibility = Awaited<ReturnType<AppFlow["personalEvermarkDonationEligibility"]>>;
+  type Eligibility = Awaited<ReturnType<AppFlow["personalEvermarkDonationEligibility"]>> & { readonly executor?: boolean };
   let eligibility = $state.raw<Eligibility | null>(null);
   let revision = $state(0);
   let error = $state("");
@@ -48,14 +52,17 @@
   const amount = $derived(input ?? 0);
   const canTransfer = $derived(chosen !== 0 && Number.isSafeInteger(amount) && amount > 0 && balance !== null && amount <= balance);
   const recipient = $derived(corpName(chosen));
+  const station = $derived(store.station);
 
   $effect(() => {
     void revision;
+    if (corporate) void $station.online?.allianceID;
     let current = true;
     error = "";
     eligibility = null;
     flow.requestWords(Object.values(labels).map(([path]) => path));
-    void flow.personalEvermarkDonationEligibility().then(value => {
+    const readEligibility = corporate ? flow.corporationEvermarkDonationEligibility : flow.personalEvermarkDonationEligibility;
+    void readEligibility().then(value => {
       if (!current) return;
       eligibility = value;
       chosen = value.recipients.length === 1 ? value.recipients[0]! : 0;
@@ -77,7 +84,8 @@
     succeeded = false;
     transferError = "";
     try {
-      if (!await flow.donatePersonalLp(to, issuerID, value, question)) return;
+      const donate = corporate ? flow.donateCorporationLp : flow.donatePersonalLp;
+      if (!await donate(to, issuerID, value, question)) return;
       succeeded = true;
       clearRecipient();
       input = 0;
@@ -101,7 +109,7 @@
   {:else if eligibility.recipients.length === 0}
     <div class="restricted">
       <h3>{word("restrictedTitle")}</h3>
-      <p>{word("restricted", { numDays: eligibility.minimumDays })}</p>
+      <p>{word(corporate ? "corporateRestricted" : "restricted", { numDays: eligibility.minimumDays })}</p>
     </div>
   {:else}
     <div class="donation">
@@ -139,7 +147,8 @@
         </div>
         {#if transferError}<p role="alert">{transferError}</p>{/if}
       </fieldset>
-      <aside>{word("notice", { numDaysCorp: eligibility.minimumDays, numDaysAlliance: eligibility.minimumDays })}</aside>
+      <aside>{word(corporate ? (eligibility.executor ? "executorNotice" : "memberNotice") : "notice",
+        { numDays: eligibility.minimumDays, numDaysCorp: eligibility.minimumDays, numDaysAlliance: eligibility.minimumDays })}</aside>
     </div>
   {/if}
 </section>
