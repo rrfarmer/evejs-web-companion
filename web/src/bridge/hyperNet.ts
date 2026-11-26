@@ -1,5 +1,5 @@
 import { filetimeToUnixMs } from "./activity.ts";
-import { isListValue, readKeyVal, unwrapLong } from "./wire.ts";
+import { isListValue, readDictEntry, readKeyVal, unwrapLong } from "./wire.ts";
 
 export const hyperNetPriceBounds = [1_000_000, 10_000_000, 100_000_000] as const;
 export const hyperNetCountBounds = [8, 16, 48, 512] as const;
@@ -18,6 +18,10 @@ export interface HyperNetHistoryOffer extends HyperNetOffer {
   readonly ownerID: number;
   readonly joined: boolean;
   readonly private: boolean;
+  readonly copy: boolean;
+  readonly groupID: number | null;
+  readonly categoryID: number | null;
+  readonly metaGroupID: number | null;
   readonly locationID: number;
   readonly systemID: number;
   readonly winnerID: number | null;
@@ -121,7 +125,10 @@ export function decodeHyperNetHistoryPage(payload: unknown, pilot: number): { ro
     const sold = readKeyVal(row, "sold_tickets");
     const joined = isListValue(sold) && sold.items.some(ticket => Number(unwrapLong(readKeyVal(ticket, "owner_id"))) === pilot);
     const restricted = unwrapLong(readKeyVal(row, "restriction_id")) === 1n;
-    return { ...offer, runningID, ownerID, locationID, systemID, status, winnerID: winner > 0 ? winner : null, ended, joined, private: restricted };
+    const copyFlag = readDictEntry(readKeyVal(row, "meta_data"), "is_copy");
+    return { ...offer, runningID, ownerID, locationID, systemID, status, winnerID: winner > 0 ? winner : null,
+      ended, joined, private: restricted, copy: copyFlag === true || unwrapLong(copyFlag) === 1n,
+      groupID: null, categoryID: null, metaGroupID: null };
   });
   return { rows, size };
 }

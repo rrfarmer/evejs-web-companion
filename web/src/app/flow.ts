@@ -29270,9 +29270,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         throw new Error("HyperNet history pagination did not advance.");
       }
       for (const row of rows) history.set(row.id, row);
-      if (rows.length < size) return [...history.values()];
+      if (rows.length < size) break;
       cursor = Math.min(...rows.map(row => row.runningID));
     }
+    const typeIDs = [...new Set([...history.values()].map(row => row.typeID))];
+    const metadata = new Map<number, api.TypeMetaFacts | null>();
+    for (let offset = 0; offset < typeIDs.length; offset += 500) {
+      const data = await api.getTypeMeta(typeIDs.slice(offset, offset + 500), callOptions);
+      current();
+      for (const [id, facts] of data.types) metadata.set(id, facts);
+    }
+    return [...history.values()].map(row => {
+      const type = metadata.get(row.typeID);
+      return { ...row, groupID: type?.groupID ?? null, categoryID: type?.categoryID ?? null, metaGroupID: type?.metaGroupID ?? null };
+    });
   }
 
   async function loadHyperNetParticipation(): Promise<HyperNetParticipation> {

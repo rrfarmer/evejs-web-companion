@@ -2,11 +2,12 @@
   import { onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import { hyperNetCountBounds, hyperNetPriceBounds, type HyperNetHistoryOffer, type HyperNetParticipation } from "../bridge/hyperNet.ts";
+  import { hyperNetCountBounds, hyperNetPriceBounds, isHyperNetItem, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetParticipation } from "../bridge/hyperNet.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import OwnerPicture from "./OwnerPicture.svelte";
+  import HyperNetFilterSearch from "./HyperNetFilterSearch.svelte";
   import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
   import { showInfo } from "./showInfo.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -51,6 +52,18 @@
     minimum: ["UI/Common/Minimum", "Minimum"],
     maximum: ["UI/Common/Maximum", "Maximum"],
     any: ["UI/Common/Any", "Any"],
+    item: ["UI/HyperNet/FilterItemLabel", "Item"],
+    location: ["UI/HyperNet/FilterLocationLabel", "Solar system"],
+    metaGroup: ["UI/HyperNet/FilterMetaGroupLabel", "Meta group"],
+    blueprint: ["UI/HyperNet/FilterBlueprintLabel", "Blueprint type"],
+    type_id: ["UI/Common/Type", "Type"],
+    group_id: ["UI/Common/Group", "Group"],
+    category_id: ["UI/Common/Category", "Category"],
+    clear: ["UI/Common/Clear", "Clear"],
+    all: ["UI/Common/All", "All"],
+    blueprintAll: ["UI/Generic/All", "All"],
+    blueprintOriginal: ["UI/Generic/Original", "Original"],
+    blueprintCopy: ["UI/Generic/Copy", "Copy"],
   } as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   const stat = (key: keyof typeof labels, amount: number) =>
@@ -67,9 +80,14 @@
   const facetGroups = [
     ["show_joined", "show_created"], ["show_active", "show_finished"], ["show_public", "show_private"],
   ] as const;
+  type Option = { readonly id: number; readonly name: string };
   const defaultFilters = {
     show_joined: true, show_created: true, show_active: true, show_finished: true, show_public: true, show_private: true,
     minPrice: 0, maxPrice: 0, minCount: 8, maxCount: 512,
+    item: undefined as HyperNetItem | undefined,
+    system: undefined as Option | undefined,
+    metaGroup: 0,
+    blueprintType: 0 as 0 | 1 | 2,
   };
   type Filters = typeof defaultFilters;
   const ranges = [
@@ -77,6 +95,12 @@
     { label: "count", min: "minCount", max: "maxCount", price: false, bounds: hyperNetCountBounds },
   ] as const;
   let filters = $state.raw<Filters>(defaultFilters);
+  let metaGroups = $state.raw<readonly Option[]>([]);
+  let metaError = $state("");
+  const isBlueprint = (item: HyperNetItem | undefined) => (item?.key === "category_id" ? item.id : item?.categoryID) === 9;
+  const findItems = (text: string) => flow.searchHyperNetItems(text);
+  const findSystems = async (text: string): Promise<readonly Option[]> =>
+    (await flow.searchDestinations(text, "system")).map(({ id, name }) => ({ id, name }));
   const filtersChanged = $derived(Object.keys(defaultFilters).some(key =>
     filters[key as keyof Filters] !== defaultFilters[key as keyof Filters]));
   const filterStorage = (owner: number) => `evejs.hypernet.history-filters.${owner}`;
@@ -96,6 +120,15 @@
           restored[max] = high;
         }
       }
+      restored.item = isHyperNetItem(saved.item) ? saved.item : undefined;
+      const system = saved.system;
+      if (system && Number.isSafeInteger(system.id) && system.id > 0 && typeof system.name === "string" && system.name) {
+        restored.system = system;
+      }
+      if (typeof saved.metaGroup === "number" && Number.isSafeInteger(saved.metaGroup) && saved.metaGroup > 0) {
+        restored.metaGroup = saved.metaGroup;
+      }
+      if (saved.blueprintType === 1 || saved.blueprintType === 2) restored.blueprintType = saved.blueprintType;
     } catch { /* use default filters */ }
     return restored;
   }
@@ -106,9 +139,18 @@
     }
   }
   function matchesFilters(record: HyperNetHistoryOffer, owner: number | undefined, criteria: Filters): boolean {
-    return (record.ownerID === owner ? criteria.show_created : criteria.show_joined) &&
-      (record.status < 7 ? criteria.show_active : criteria.show_finished) &&
-      (record.private ? criteria.show_private : criteria.show_public) &&
+    if (!(record.ownerID === owner ? criteria.show_created : criteria.show_joined) ||
+        !(record.status < 7 ? criteria.show_active : criteria.show_finished) ||
+        !(record.private ? criteria.show_private : criteria.show_public)) return false;
+    const item = criteria.item;
+    if (item) {
+      const id = item.key === "type_id" ? record.typeID : item.key === "group_id" ? record.groupID : record.categoryID;
+      if (id !== item.id) return false;
+      // The native History controller returns the subtype match before checking location, meta group, or ranges.
+      if (isBlueprint(item) && criteria.blueprintType) return record.copy === (criteria.blueprintType === 2);
+    }
+    return (!criteria.system || record.systemID === criteria.system.id) &&
+      (!criteria.metaGroup || record.metaGroupID === criteria.metaGroup) &&
       (!criteria.minPrice || record.price >= BigInt(criteria.minPrice)) &&
       (!criteria.maxPrice || record.price <= BigInt(criteria.maxPrice)) &&
       (criteria.minCount === defaultFilters.minCount || record.tickets >= criteria.minCount) &&
@@ -165,7 +207,16 @@
     return order || (group < 2 ? compare(nameOf(a), nameOf(b)) : endTime(b) - endTime(a)) || b.runningID - a.runningID;
   }));
 
-  onMount(() => flow.requestWords(Object.values(labels).map(([path]) => path)));
+  onMount(() => {
+    flow.requestWords(Object.values(labels).map(([path]) => path));
+    let current = true;
+    void flow.loadHyperNetMetaGroups().then(groups => {
+      if (current) metaGroups = groups;
+    }, cause => {
+      if (current) metaError = panelErrorWords(cause);
+    });
+    return () => { current = false; };
+  });
 
   $effect(() => {
     const owner = pilot;
@@ -245,6 +296,33 @@
   </div>
   <details class="history-filters">
     <summary>{word("filters")}</summary>
+    <HyperNetFilterSearch label={word("item")} clear={word("clear")} selected={filters.item}
+      load={findItems} choiceKey={item => `${item.key}:${item.id}`} detail={item => word(item.key)}
+      choose={item => setFilters({ ...filters, item })} />
+    {#if isBlueprint(filters.item)}
+      <label class="criteria">{word("blueprint")}
+        <select data-history-blueprint value={filters.blueprintType} onchange={event => {
+          const subtype = Number(event.currentTarget.value);
+          setFilters({ ...filters, blueprintType: subtype === 1 || subtype === 2 ? subtype : 0 });
+        }}>
+          <option value={0}>{word("blueprintAll")}</option>
+          <option value={1}>{word("blueprintOriginal")}</option>
+          <option value={2}>{word("blueprintCopy")}</option>
+        </select>
+      </label>
+    {/if}
+    <HyperNetFilterSearch label={word("location")} clear={word("clear")} selected={filters.system}
+      load={findSystems} choiceKey={system => system.id} choose={system => setFilters({ ...filters, system })} />
+    <label class="criteria">{word("metaGroup")}
+      <select data-history-meta-group value={filters.metaGroup} disabled={!metaGroups.length}
+        onchange={event => setFilters({ ...filters, metaGroup: Number(event.currentTarget.value) })}>
+        <option value={0}>{word("all")}</option>
+        {#each metaGroups as group (group.id)}
+          <option value={group.id}>{group.name}</option>
+        {/each}
+      </select>
+    </label>
+    {#if metaError}<p role="alert">{metaError}</p>{/if}
     {#each facetGroups as pair (pair[0])}
       <div class="filter-pair">
         {#each pair as key (key)}
@@ -331,6 +409,7 @@
   .history-filters summary { cursor: pointer; }
   .filter-pair, .history-filters fieldset { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 6px 0; }
   .filter-pair label { min-width: 120px; }
+  .criteria { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
   h2, ul, dl, dd, p { margin: 0; }
   ul { list-style: none; padding: 0; display: grid; gap: 6px; }
   li { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr)); align-items: center; gap: 8px; padding: 8px; background: #ffffff08; }
