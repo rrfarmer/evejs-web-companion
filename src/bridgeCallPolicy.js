@@ -121,6 +121,7 @@ const FEATURE_WRITE_METHODS = freezeMethodMap({
   moonExtractions: ["StartNewExtraction", "FractureChunkWithStructure", "CancelExtraction"],
   wormholeMgr: ["WormholeJump"],
   academy_ship: ["borrow_academy_ship"],
+  ProjectDiscovery: ["get_new_task", "post_classification", "reset_tutorial", "skip_tutorial", "increase_tutorial_level", "give_tutorial_rewards", "fix_task_id"],
   // Only the camera event route builds the full tracker dictionaries from the held pilot's state.
   monolithTaskTrackerMgr: ["UpdateClientAchievmentsAndCounters"],
   // facWarSvc and fwEnlistmentSvc send the pilot's own enlistment changes.
@@ -978,6 +979,7 @@ const PAGE_WRITE_PAIR_KEYS = Object.freeze([
   "structureProfiles.ChangeProfiles",
   "moonExtractions.StartNewExtraction", "moonExtractions.FractureChunkWithStructure", "moonExtractions.CancelExtraction",
   "academy_ship.borrow_academy_ship",
+  "ProjectDiscovery.get_new_task", "ProjectDiscovery.post_classification",
   "wormholeMgr.WormholeJump",
   "hackingMgr.ClickedOnTile", "hackingMgr.UsedUtilityElement", "hackingMgr.UsedUtilityElementOnVirus", "hackingMgr.QuitHackingAttempt",
   ...ORGANIZATION_ENLISTMENT_METHODS.map(method => `facWarMgr.${method}`),

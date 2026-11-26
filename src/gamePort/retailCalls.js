@@ -680,6 +680,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // Revisions of the gateway contract without the read-only NES catalogue.
   "storeManager.get_categories", "storeManager.get_offers",
   "ProjectDiscovery.get_player_state",
+  "ProjectDiscovery.get_new_task", "ProjectDiscovery.get_data_from_url", "ProjectDiscovery.post_classification",
   "crimewatch.ApplyTagsForSecStatus",
   "paperDollServer.GetPaperDollPortraitDataFor",
   "paperDollServer.GetMyPaperDollData",
@@ -3221,6 +3222,9 @@ const RETAIL_CALLS = Object.freeze({
   "storeManager.get_offers": same(`${VGS_CLIENT}:36`, "Reads offers using the in-game store ID"),
   "storeManager.get_categories": same(`${VGS_CLIENT}:45`, "Reads categories using the in-game store ID"),
   "ProjectDiscovery.get_player_state": judged("projectdiscovery/client/ui/projectdiscoverywindow.py", sentWithNothing, "Reads the active pilot's project progress."),
+  "ProjectDiscovery.get_new_task": same("projectdiscovery/client/projects/covid/gameplaymodes/tutorial/tutorialproject.py:63", "Requests the active sample, with tutorial keywords for a named lesson."),
+  "ProjectDiscovery.get_data_from_url": same("projectdiscovery/client/projects/covid/gameplaymodes/covidproject.py", "Reads the active local sample's points by its issued resource URL."),
+  "ProjectDiscovery.post_classification": same("projectdiscovery/client/projects/covid/gameplaymodes/covidproject.py:260", "Submits the polygons and task duration."),
   "account.GiveCashFromCorpAccount": Object.freeze({
     status: "same", source: "eve/client/script/ui/shared/neocom/wallet/transferMoneyWnd.py:150",
     note: "Corporate-source transfer with the recipient, float amount, captured source key, destination division and edit reason.",
