@@ -15732,6 +15732,8 @@ app.get("/api/client-data/dogma-types", requireAuth, async (req, res, next) => {
 const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.ai.assistant.chat.api.QueryRequest",
   "eve_public.plex.vault.api.BalanceRequest",
+  "eve_public.plex.vault.transaction.api.GetAllLoggedForUserRequest",
+  "eve_public.plex.vault.transaction.api.GetLogRequest",
   // achievement_system/client/repository/message_bus/request_messenger.py.
   "eve_public.achievement.api.GetRequest",
   "eve_public.achievement.category.api.GetRequest",

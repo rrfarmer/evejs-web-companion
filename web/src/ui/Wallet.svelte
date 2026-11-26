@@ -30,6 +30,7 @@
   import WalletOverview from "./WalletOverview.svelte";
   import WalletGiveIsk from "./WalletGiveIsk.svelte";
   import WalletShares from "./WalletShares.svelte";
+  import WalletPlexHistory from "./WalletPlexHistory.svelte";
 
   let { store, flow, onBuyPlex, onShowOmegaOffers, onShowMultipleTraining, onOpenStore }: {
     store: ClientStore;
@@ -79,6 +80,7 @@
   const retail = getContext("retailChrome") === true;
   let walletTab = $state<"mine" | "settings">("mine");
   let currency = $state<"isk" | "plex">("isk");
+  let plexTab = $state<"overview" | "transactions">("overview");
   let plexBalance = $state<bigint | null>(null);
   let plexUnavailable = $state(false);
   const PLEX_DESCRIPTION = "UI/Wallet/WalletWindow/PLEXDescription";
@@ -104,6 +106,7 @@
     let current = true;
     let revision = 0;
     currency = "isk";
+    plexTab = "overview";
     plexBalance = null;
     plexUnavailable = false;
     const unsubscribe = notices.subscribe(notice => {
@@ -290,19 +293,26 @@
   {#if retail && walletTab === "mine" && currency === "plex"}
     <div class="wallet-plex">
       <nav class="tabs" aria-label={tabWord("UI/Common/PLEX", "PLEX")}>
-        <button type="button" class="active" aria-pressed="true">{tabWord(TAB_WORDS.overview, "Overview")}</button>
+        <button type="button" class:active={plexTab === "overview"} aria-pressed={plexTab === "overview"}
+          onclick={() => (plexTab = "overview")}>{tabWord(TAB_WORDS.overview, "Overview")}</button>
+        <button type="button" class:active={plexTab === "transactions"} aria-pressed={plexTab === "transactions"}
+          onclick={() => (plexTab = "transactions")}>{tabWord(TAB_WORDS.transactions, "Transactions")}</button>
       </nav>
-      {#if error}<p role="status">{error}</p>{/if}
-      <div class="plex-actions">
-        <span title={plexBalance === 0n ? tabWord(SELL_PLEX_HINT, "PLEX Vault is empty") : null}>
-          <button type="button" disabled={!canSellPlex || busy} onclick={() => void run(() => flow.openVaultPlexSale())}>
-            {tabWord(SELL_PLEX, "Sell PLEX for ISK")}
-          </button>
-        </span>
-        {#each PLEX_ACTIONS as action (action.label)}
-          {#if action.run}<button type="button" onclick={action.run}>{tabWord(action.label, action.fallback)}</button>{/if}
-        {/each}
-      </div>
+      {#if plexTab === "transactions"}
+        <WalletPlexHistory {store} {flow} />
+      {:else}
+        {#if error}<p role="status">{error}</p>{/if}
+        <div class="plex-actions">
+          <span title={plexBalance === 0n ? tabWord(SELL_PLEX_HINT, "PLEX Vault is empty") : null}>
+            <button type="button" disabled={!canSellPlex || busy} onclick={() => void run(() => flow.openVaultPlexSale())}>
+              {tabWord(SELL_PLEX, "Sell PLEX for ISK")}
+            </button>
+          </span>
+          {#each PLEX_ACTIONS as action (action.label)}
+            {#if action.run}<button type="button" onclick={action.run}>{tabWord(action.label, action.fallback)}</button>{/if}
+          {/each}
+        </div>
+      {/if}
     </div>
   {/if}
   <div class="wl-mine" hidden={retail && (walletTab !== "mine" || currency !== "isk")}>

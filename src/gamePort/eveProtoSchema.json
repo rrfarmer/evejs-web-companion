@@ -13940,6 +13940,217 @@
      "label": 1
     }
    ]
+  },
+  "eve_public.plex.vault.transaction.api.GetAllLoggedForUserRequest": {
+   "fields": []
+  },
+  "eve_public.plex.vault.transaction.api.GetAllLoggedForUserResponse": {
+   "fields": [
+    {
+     "name": "transactions",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.plex.vault.transaction.Identifier"
+    }
+   ]
+  },
+  "eve_public.plex.vault.transaction.api.GetLogRequest": {
+   "fields": [
+    {
+     "name": "identifier",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.plex.vault.transaction.Identifier"
+    }
+   ]
+  },
+  "eve_public.plex.vault.transaction.api.GetLogResponse": {
+   "fields": [
+    {
+     "name": "transaction",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.plex.vault.transaction.Attributes"
+    },
+    {
+     "name": "unavailable",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "invoice"
+    },
+    {
+     "name": "invoice_entry",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.plex.vault.transaction.api.GetLogResponse.Invoice",
+     "oneof": "invoice"
+    }
+   ]
+  },
+  "eve_public.plex.vault.transaction.api.GetLogResponse.Invoice": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.plex.vault.transaction.invoice.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.plex.vault.transaction.invoice.Attributes"
+    }
+   ]
+  },
+  "eve_public.plex.vault.transaction.api.GetStatisticsRequest": {
+   "fields": []
+  },
+  "eve_public.plex.vault.transaction.api.GetStatisticsResponse": {
+   "fields": [
+    {
+     "name": "entries",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.plex.vault.transaction.api.GetStatisticsResponse.Entry"
+    },
+    {
+     "name": "earliest_transaction",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Timestamp"
+    }
+   ]
+  },
+  "eve_public.plex.vault.transaction.api.GetStatisticsResponse.Entry": {
+   "fields": [
+    {
+     "name": "category",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.cerberus.FormattedMessage",
+     "oneof": "classification"
+    },
+    {
+     "name": "no_classification",
+     "number": 2,
+     "type": 8,
+     "label": 1,
+     "oneof": "classification"
+    },
+    {
+     "name": "incomes",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.plex.Currency"
+    },
+    {
+     "name": "expenses",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.plex.Currency"
+    },
+    {
+     "name": "transactions_count",
+     "number": 5,
+     "type": 13,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.plex.vault.transaction.invoice.Attributes": {
+   "fields": [
+    {
+     "name": "category",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.cerberus.FormattedMessage"
+    },
+    {
+     "name": "summary_message",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.localization.cerberus.FormattedMessage",
+     "oneof": "summary"
+    },
+    {
+     "name": "no_summary",
+     "number": 3,
+     "type": 8,
+     "label": 1,
+     "oneof": "summary"
+    },
+    {
+     "name": "source_character",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier",
+     "oneof": "source"
+    },
+    {
+     "name": "source_corporation",
+     "number": 5,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.Identifier",
+     "oneof": "source"
+    },
+    {
+     "name": "no_source",
+     "number": 6,
+     "type": 8,
+     "label": 1,
+     "oneof": "source"
+    },
+    {
+     "name": "destination_character",
+     "number": 7,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier",
+     "oneof": "destination"
+    },
+    {
+     "name": "destination_corporation",
+     "number": 8,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.corporation.Identifier",
+     "oneof": "destination"
+    },
+    {
+     "name": "no_destination",
+     "number": 9,
+     "type": 8,
+     "label": 1,
+     "oneof": "destination"
+    }
+   ]
+  },
+  "eve_public.plex.vault.transaction.invoice.Identifier": {
+   "fields": [
+    {
+     "name": "uuid",
+     "number": 1,
+     "type": 12,
+     "label": 1
+    }
+   ]
   }
  },
  "enums": {
