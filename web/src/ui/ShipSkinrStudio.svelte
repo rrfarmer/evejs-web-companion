@@ -2,7 +2,8 @@
   import { onDestroy } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import type { ShipSkinrDesign, ShipSkinrEntry, ShipSkinrStudio } from "../bridge/shipSkinr.ts";
+  import { SHIP_SKINR_LINE_NAME_MAX, SHIP_SKINR_NAME_MAX, validShipSkinrName,
+    type ShipSkinrDesign, type ShipSkinrEntry, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
@@ -36,6 +37,7 @@
   let error = $state("");
   let attempt = $state(0);
   let selected = $state<string | null>(null);
+  let selectionAfterReload: string | null = null;
   let creating = $state(false);
   let editor = $state.raw<{ entry: ShipSkinrEntry; design: ShipSkinrDesign } | null>(null);
   let name = $state("");
@@ -52,8 +54,7 @@
     { current: studio.designs.length, limit: studio.capacity },
     { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, "") },
   )) : "");
-  const validName = $derived(name.trim() !== "" && [...name].length <= 20 && [...lineName].length <= 50 &&
-    !/[\p{Cc}\p{Cs}]/u.test(name + lineName));
+  const validName = $derived(validShipSkinrName(name, lineName));
   const selectedEntry = $derived([...(studio?.designs ?? []), ...(studio?.jobs ?? [])].find(row => row.id === selected));
   const selectedDesign = $derived(selectedEntry ? designs.get(selectedEntry.skin) : null);
   const shipName = (design: ShipSkinrDesign) => resolvedName($names.resolved, "type", design.shipTypeID, String(design.shipTypeID));
@@ -97,7 +98,8 @@
     saving = true;
     saveError = "";
     try {
-      const updated = await flow.saveShipSkinrDesign(target.entry, target.design, edited.name, edited.lineName, asNew);
+      const updated = await flow.saveShipSkinrDraft(target.design.layout, target.entry.editorConfigurations,
+        edited.name, edited.lineName, asNew ? undefined : target.entry.id);
       if (destroyed || editor !== target || !studio) return;
       designs = new Map(designs).set(updated.skin, edited);
       studio = { ...studio, designs: asNew ? [...studio.designs, updated] : studio.designs.map(row => row.id === updated.id ? updated : row) };
@@ -109,6 +111,11 @@
     } finally {
       if (!destroyed && (editor === target || !editor)) saving = false;
     }
+  }
+
+  function newDesignSaved(entry: ShipSkinrEntry) {
+    selectionAfterReload = entry.id;
+    attempt++;
   }
 
   async function remove(entry: ShipSkinrEntry) {
@@ -136,7 +143,8 @@
     void attempt;
     studio = null;
     designs = new Map();
-    selected = null;
+    selected = selectionAfterReload;
+    selectionAfterReload = null;
     creating = false;
     editor = null;
     beforeCopy = null;
@@ -162,7 +170,7 @@
 <section class="ship-skinr" aria-labelledby="ship-skinr-studio">
   <h2 id="ship-skinr-studio">{word(creating ? "create" : "studio")}</h2>
   {#if creating}
-    <ShipSkinrNewDesign {store} {flow} onBack={() => creating = false} />
+    <ShipSkinrNewDesign {store} {flow} {atSaveLimit} {saveLimit} onBack={() => creating = false} onSaved={newDesignSaved} />
   {:else if error}
     <p role="alert">{error}</p>
     <button type="button" onclick={() => attempt++}>Retry</button>
@@ -196,8 +204,8 @@
         <h3 id="skinr-editor-heading">{word(beforeCopy ? "saveAsNew" : "edit")}</h3>
         <label>{word("name")} <input bind:value={name} required disabled={saving} /></label>
         <label>{word("line")} <input bind:value={lineName} disabled={saving} /></label>
-        {#if [...name].length > 20 || [...lineName].length > 50}
-          <p role="alert">Use up to 20 characters for the name and 50 for the line name.</p>
+        {#if [...name].length > SHIP_SKINR_NAME_MAX || [...lineName].length > SHIP_SKINR_LINE_NAME_MAX}
+          <p role="alert">Use up to {SHIP_SKINR_NAME_MAX} characters for the name and {SHIP_SKINR_LINE_NAME_MAX} for the line name.</p>
         {/if}
         {#if saveError}<p role="alert">{saveError}</p>{/if}
         <footer>

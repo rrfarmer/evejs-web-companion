@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { ShipInfoScene } from "../play/shipInfoScene.ts";
 
-  let { typeID, factionID, active, expanded }: {
+  let { typeID, factionID, active, expanded, coatings }: {
     typeID: number; factionID: number | null | undefined; active: boolean; expanded: boolean;
+    coatings?: readonly (string | null)[];
   } = $props();
   const keyboardHelp = $props.id();
   let host = $state<HTMLElement | null>(null);
@@ -28,7 +29,7 @@
     if (!view || faction === undefined) return;
     let current = true;
     load = "waiting";
-    void view.show(id, faction).then(shown => {
+    void view.show(id, faction, coatings).then(shown => {
       if (current) load = shown ? "shown" : "unavailable";
     }).catch(() => { if (current) load = "unavailable"; });
     return () => { current = false; };

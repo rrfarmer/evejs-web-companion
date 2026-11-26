@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { loadDds } from "../three/ddsTexture.ts";
 import { effectObject, startEffect, type SofChildNode } from "../three/hullChildren.ts";
-import { setControllerVariable, setDirtLevel, setThrust, typeModel } from "../three/hullModel.ts";
+import { loadSofMaterials, paintedTypeModel, setControllerVariable, setDirtLevel, setThrust, typeModel, type SofArea } from "../three/hullModel.ts";
 import { useHullTextureRenderer } from "../three/hullAlbedo";
 import { SHIP_INFO_FAR_CLIP, shipInfoZoomRange } from "./shipInfoCamera.ts";
 
@@ -111,10 +111,18 @@ export class ShipInfoScene {
     }
   }
 
-  async show(typeID: number, factionID: number | null): Promise<boolean> {
+  async show(typeID: number, factionID: number | null, coatings: readonly (string | null)[] = []): Promise<boolean> {
     const request = ++this.serial;
-    const [model] = await Promise.all([typeModel(typeID).catch(() => null), this.ready.catch(() => {})]);
-    if (this.closed || request !== this.serial) return false;
+    const modelRead = coatings.some(Boolean) ? loadSofMaterials().then(materials => {
+      const overrides = coatings.map(name => name ? materials[name] ?? null : null);
+      if (coatings.some((name, index) => name && !overrides[index])) return null;
+      return paintedTypeModel(typeID, overrides, skinrCoatingArea);
+    }) : typeModel(typeID);
+    const [model] = await Promise.all([modelRead.catch(() => null), this.ready.catch(() => {})]);
+    if (this.closed || request !== this.serial) {
+      if (model && coatings.some(Boolean)) disposePreviewMaterials(model);
+      return false;
+    }
     this.removeModel();
     if (!model) return false;
     const data = model.userData as {
@@ -204,9 +212,7 @@ export class ShipInfoScene {
   private removeModel(): void {
     this.lightRig?.removeFromParent();
     this.model?.removeFromParent();
-    this.model?.traverse(object => {
-      if (object instanceof THREE.Mesh && object.userData.ownMaterial && !Array.isArray(object.material)) object.material.dispose();
-    });
+    if (this.model) disposePreviewMaterials(this.model);
     this.model = null;
   }
 
@@ -220,4 +226,17 @@ export class ShipInfoScene {
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
+}
+
+function skinrCoatingArea(area: SofArea): boolean {
+  const shader = area.shader?.toLowerCase().replace(/^skinned_/, "quad/skinned_") ?? "";
+  return area.kind === "opaque" && (["Primary", "SimplePrimary", "Reactor", "Ornament"].includes(area.areaType) ||
+    (area.name.includes("area_hull") && ["quad/quaddetailv5.fx", "quad/quadv5.fx", "quad/skinned_quadheatv5.fx",
+      "quad/skinned_quaddetailv5.fx"].includes(shader)));
+}
+
+function disposePreviewMaterials(model: THREE.Object3D): void {
+  model.traverse(object => {
+    if (object instanceof THREE.Mesh && object.userData.ownMaterial && !Array.isArray(object.material)) object.material.dispose();
+  });
 }

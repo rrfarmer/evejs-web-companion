@@ -26,6 +26,16 @@ import { SOFT_DEPTH } from "./softDepth.ts";
 import { distortionMaterial, DISTORTION_LAYER } from "./distortion.ts";
 
 export interface SofMaterial { name: string; diffuse: number[] | null; dust: number[] | null; fresnel: number[] | null; gloss: number | null }
+let sofMaterialsRead: Promise<Record<string, SofMaterial>> | null = null;
+export function loadSofMaterials(): Promise<Record<string, SofMaterial>> {
+  return sofMaterialsRead ??= fetch("/client-assets/sofMaterials.json").then(response => {
+    if (!response.ok) throw new Error("SOF materials unavailable");
+    return response.json();
+  }).catch(error => {
+    sofMaterialsRead = null;
+    throw error;
+  });
+}
 export interface SofArea { kind: string; name: string; index: number; areaType: string; shader: string | null; textures: Record<string, string | null>; params: Record<string, number[] | null>; materials: (SofMaterial | null)[]; glowColor?: number[] | null; heatGlowColor?: number[] | null }
 /** A hull's default pattern layer (sof.mjs): its mask texture, projection and the materials it pulls toward. */
 export interface SofPatternLayer { texture: string | null; projectionU: number; projectionV: number; source: number; targets: number[]; position: number[]; scaling: number[]; rotation: number[]; mirrored: boolean }
@@ -853,9 +863,10 @@ export async function typeModel(typeID: number, skinMaterialSetID: number | null
  * (spaceObject.modify_dna with isStructure: [None, primary, detailing, secondary]). Not cached: each paintwork is its
  * own build (its materials are its own).
  */
-export async function paintedTypeModel(typeID: number, materials: readonly (SofMaterial | null)[]): Promise<THREE.Object3D | null> {
+export async function paintedTypeModel(typeID: number, materials: readonly (SofMaterial | null)[],
+  appliesTo?: (area: SofArea) => boolean): Promise<THREE.Object3D | null> {
   const info = (await (await fetch(`/client-assets/type/${typeID}`)).json()) as TypeModelInfo;
-  return loadModel(info, typeID, materials);
+  return loadModel(info, typeID, materials, appliesTo);
 }
 
 /** A fresh instance of a SOF graphic's model that is no type's (a station hangar), or null when it has none. */
@@ -880,7 +891,8 @@ async function loadType(typeID: number): Promise<THREE.Object3D | null> {
   return loadModel(info, typeID);
 }
 
-async function loadModel(info: TypeModelInfo, typeID: number | null, materialOverrides: readonly (SofMaterial | null)[] | null = null): Promise<THREE.Object3D | null> {
+async function loadModel(info: TypeModelInfo, typeID: number | null, materialOverrides: readonly (SofMaterial | null)[] | null = null,
+  appliesTo?: (area: SofArea) => boolean): Promise<THREE.Object3D | null> {
   if (!info.model) return null;
   const gltf = await loader.loadAsync(info.model);
   const dir = info.model.slice(0, info.model.lastIndexOf("/") + 1);
@@ -903,7 +915,13 @@ async function loadModel(info: TypeModelInfo, typeID: number | null, materialOve
   // The Space Object Factory's build of this hull for the type's faction, where there is one: each mesh area takes the
   // SOF area of its index (EveSOFDataHullArea.index), with that area's own textures and the faction's materials.
   const sof = info.sof ? ((await (await fetch(info.sof)).json()) as SofHull) : null;
-  if (sof && materialOverrides) for (const area of sof.areas) area.materials = [0, 1, 2, 3].map((i) => materialOverrides[i] ?? area.materials[i] ?? null);
+  if (sof && materialOverrides) {
+    for (const area of sof.areas) {
+      if (!appliesTo || appliesTo(area)) {
+        area.materials = [0, 1, 2, 3].map(i => materialOverrides[i] ?? area.materials[i] ?? null);
+      }
+    }
+  }
   const ROLE = HULL_TEXTURE_ROLES;
   const areaMaps = new Map<SofArea, Record<string, THREE.Texture | undefined>>();
   for (const area of sof?.areas ?? []) {

@@ -19,13 +19,11 @@
 
 import * as THREE from "three";
 import { loadDds } from "../three/ddsTexture";
-import { dnaModel, paintedTypeModel, setControllerVariable, type SofMaterial } from "../three/hullModel";
+import { dnaModel, loadSofMaterials, paintedTypeModel, setControllerVariable } from "../three/hullModel";
 import { useHullTextureRenderer } from "../three/hullAlbedo";
 
 const FOV = 1.0, NEAR = 1, FAR = 400000;
 const ZOOM_RANGE = [1.6, 10.0] as const, TRANSITION_ZOOM_DEFAULT = 0.3;
-let materialsHeld: Promise<Record<string, SofMaterial> | null> | null = null;
-const sofMaterials = () => (materialsHeld ??= fetch("/client-assets/sofMaterials.json").then((r) => (r.ok ? r.json() : null)).catch(() => null));
 
 export class PaintPreviewScene {
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -108,7 +106,7 @@ export class PaintPreviewScene {
     const key = `${typeID}:${paints.primary}:${paints.secondary}:${paints.detailing}:${stateObjectDna}`;
     if (key === this.wanted) return;
     this.wanted = key;
-    const mats = await sofMaterials();
+    const mats = await loadSofMaterials().catch(() => null);
     const m = (name: string | null) => (name ? mats?.[name] ?? null : null);
     // modify_dna(isStructure=True): [None, mat1 (primary), mat3 (detailing), mat2 (secondary)]
     const [model, state] = await Promise.all([

@@ -1,6 +1,13 @@
 import type { JsonValue } from "./wire.ts";
 
 export const SHIP_SKINR_GATEWAY = "eve_public.cosmetic.ship.skin.thirdparty.";
+export const SHIP_SKINR_NAME_MAX = 20;
+export const SHIP_SKINR_LINE_NAME_MAX = 50;
+
+export function validShipSkinrName(name: string, lineName: string): boolean {
+  return name.trim() !== "" && [...name].length <= SHIP_SKINR_NAME_MAX && [...lineName].length <= SHIP_SKINR_LINE_NAME_MAX &&
+    !/[\p{Cc}\p{Cs}]/u.test(name + lineName);
+}
 
 export interface ShipSkinrEntry {
   readonly id: string;
