@@ -132,7 +132,7 @@
     void $station.online?.corporationID;
     let active = true;
     flow.requestWords(["UI/Corporations/Common/CorporateDivisionMasterWallet"]);
-    void flow.corporationMarketDivisionNames().then(names => { if (active) divisionNames = names; }).catch(() => undefined);
+    void flow.corporationWalletDivisionNames().then(names => { if (active) divisionNames = names; }).catch(() => undefined);
     return () => { active = false; };
   });
   $effect(() => {

@@ -3153,6 +3153,8 @@ export interface AppFlow {
   readonly corporationWalletChoice: ReadableSignal<CorporationWalletChoice | null>;
   selectCorporationWallet(n: number, index: number): void;
   answerCorporationWallet(n: number, confirmed: boolean): void;
+  changeCorporationWalletDivision(accountKey?: number): Promise<void>;
+  initializeCorporationWalletDivision(): Promise<void>;
   prepareCorporationMedal(title: string, description: string, graphics: readonly MedalCreationGraphic[], current?: () => void): Promise<"ready" | "missing" | "refused">;
   /** Native medals.CreateMedal: true on normal service return (including No confirmation), false on a shown refusal. */
   createCorporationMedal(title: string, description: string, graphics: readonly MedalCreationGraphic[], current?: () => void): Promise<boolean>;
@@ -4002,7 +4004,7 @@ export interface AppFlow {
   readonly marketTransactions: ReadableSignal<MarketTransactionsRead>;
   loadMarketTransactions(): Promise<void>;
   corporationMarketTransactions(accountKey: number | null): Promise<MarketTransactionsRead["transactions"]>;
-  corporationMarketDivisionNames(): Promise<Readonly<Record<string, string | null>>>;
+  corporationWalletDivisionNames(): Promise<Readonly<Record<string, string | null>>>;
   readonly corporationMarketChanged: ReadableSignal<number>;
   /**
    * The wallet's Transactions tab (bridge/walletJournal.ts): the journal for a period as the client's account service
@@ -19507,7 +19509,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (store.station.get().online?.corpRole !== role) return [];
     return transactions;
   }
-  async function corporationMarketDivisionNames(): Promise<Readonly<Record<string, string | null>>> {
+  async function corporationWalletDivisionNames(): Promise<Readonly<Record<string, string | null>>> {
     const { ask, current } = captureMemberOperation();
     const result = await ask("corpRegistry", "GetCorporation", []);
     current();
@@ -20384,13 +20386,27 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (!confirmed) { corporationWalletAnswer(null); return; }
     if (choice.selectedIndex !== null) corporationWalletAnswer(choice.rows[choice.selectedIndex]!.accountKey);
   }
-  // walletConst.corpWalletRoles, appConst340-346: take1..take7, not Director
-  // or Accountant as an implicit substitute for these division access bits.
-  function accessibleCorporationWallets(): number[] {
-    return corporationWalletTakeKeys(store.station.get().online?.corpRole);
+  async function setCorporationWalletDivision(scope: MemberOperation, accountKey: number): Promise<void> {
+    scope.current();
+    const online = store.station.get().online;
+    if (!canReceiveCorporationWealth(online?.corpRole, accountKey)) throw new Error("Your corporation roles do not allow using this wallet division.");
+    if (online?.corpAccountKey === accountKey) return;
+    await scope.write("corpRegistry", "SetAccountKey", [accountKey], null, scope.online.corporationID);
+    scope.current();
+  }
+  async function changeCorporationWalletDivision(accountKey?: number): Promise<void> {
+    const scope = captureMemberOperation();
+    if (accountKey !== undefined) return setCorporationWalletDivision(scope, accountKey);
+    return selectCorporationWalletDivision(scope);
+  }
+  async function initializeCorporationWalletDivision(): Promise<void> {
+    const online = store.station.get().online;
+    if (!online || online.corpAccountKey != null) return;
+    const first = corporationWalletTakeKeys(online.corpRole)[0];
+    if (first !== undefined) await setCorporationWalletDivision(captureMemberOperation(), first);
   }
   async function selectCorporationWalletDivision(scope: MemberOperation): Promise<void> {
-    const accounts = accessibleCorporationWallets();
+    const accounts = corporationWalletTakeKeys(store.station.get().online?.corpRole);
     // Native list comprehension reads division names only when it has choices.
     const corporation = accounts.length ? await scope.ask("corpRegistry", "GetCorporation", []) : null; scope.current();
     const ordinals = ["Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh"];
@@ -20410,7 +20426,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       corporationWalletChoiceSignal.set({ n: ++dialogsSaidCount, rows, selectedIndex: null, selectionError });
     });
     scope.current();
-    if (accountKey !== null) { await scope.write("corpRegistry", "SetAccountKey", [accountKey], null, scope.online.corporationID); scope.current(); }
+    if (accountKey !== null) await setCorporationWalletDivision(scope, accountKey);
   }
   async function prepareCorporationMedal(title: string, description: string, graphics: readonly MedalCreationGraphic[], current?: () => void): Promise<"ready" | "missing" | "refused"> {
     const scope = captureMemberOperation(current), prefix = "UI/Corporations/CreateDecorationWindow/";
@@ -20424,7 +20440,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const activeLabel = templateWords(prefix + "ActiveWalletDivision", {}, "Active Wallet Division");
       const key = store.station.get().online?.corpAccountKey ?? null;
       if (key !== null && (key < 1000 || key > 1006)) throw new Error("The active corporation wallet division is unknown.");
-      if (key === null || !accessibleCorporationWallets().includes(key)) {
+      if (key === null || !canReceiveCorporationWealth(store.station.get().online?.corpRole, key)) {
         if (await askDialog("SelectWalletDivision", null, "Select an active corporation wallet division?")) { scope.current(); await selectCorporationWalletDivision(scope); }
         else missing.push(activeLabel);
       }
@@ -39795,6 +39811,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationWalletChoice: readonlySignal(corporationWalletChoiceSignal),
     selectCorporationWallet,
     answerCorporationWallet,
+    changeCorporationWalletDivision,
+    initializeCorporationWalletDivision,
     prepareCorporationMedal,
     createCorporationMedal,
     corporationMedalAwardees,
@@ -40507,7 +40525,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     marketTransactions: readonlySignal(marketTransactionsSignal),
     loadMarketTransactions,
     corporationMarketTransactions,
-    corporationMarketDivisionNames,
+    corporationWalletDivisionNames,
     corporationMarketChanged: readonlySignal(corporationMarketChanged),
     walletJournal: readonlySignal(walletJournalSignal),
     loadWalletJournal,
