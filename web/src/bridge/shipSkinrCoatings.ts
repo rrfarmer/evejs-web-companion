@@ -41,23 +41,34 @@ export function shipSkinrCoatingMaterials(
   return materials;
 }
 
-export function shipSkinrCoatingLayout(
-  shipTypeID: number, fitted: ReadonlyMap<number, ShipSkinrCoating>,
-): Record<string, JsonValue> {
+const object = (value: JsonValue | undefined) => value && typeof value === "object" && !Array.isArray(value)
+  ? value as Readonly<Record<string, JsonValue>> : undefined;
+
+export function shipSkinrSlotID(row: JsonValue): number {
+  return Number(object(object(row)?.id)?.sequential);
+}
+
+export function shipSkinrCoatingID(row: JsonValue | undefined): number | null {
+  const coating = object(object(object(row)?.configuration)?.coating);
+  return Number(object(coating?.coating)?.sequential) || null;
+}
+
+export function shipSkinrLayoutSlots(layout: Record<string, JsonValue> | undefined): Map<number, JsonValue> {
+  const rows = Array.isArray(layout?.slots) ? layout.slots : [];
+  return new Map(rows.map(row => [shipSkinrSlotID(row), row]));
+}
+
+export function shipSkinrCoatingSlot(slot: number, componentID: number): JsonValue {
   // MaterialComponentInstance serializes zero vectors. The visible colors
   // come from the SOF material referenced by the component identifier.
   const zero = { x: 0, y: 0, z: 0, w: 0 };
   return {
-    ship_type: { sequential: shipTypeID },
-    pattern_blend_mode: 1,
-    slots: [...fitted].map(([slot, component]) => ({
-      id: { sequential: slot },
-      configuration: {
-        coating: {
-          coating: { sequential: component.id },
-          configuration: { diffuse_color: zero, dust_diffuse_color: zero, fresnel_color: zero, gloss: zero },
-        },
+    id: { sequential: slot },
+    configuration: {
+      coating: {
+        coating: { sequential: componentID },
+        configuration: { diffuse_color: zero, dust_diffuse_color: zero, fresnel_color: zero, gloss: zero },
       },
-    })),
+    },
   };
 }

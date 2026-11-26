@@ -305,7 +305,7 @@
 {:else if tab === "paintTool"}
   <PaintToolWindow {store} {flow} {onClose} />
 {:else if tab === "shipSkinr"}
-  <ShipSkinrStudio {store} {flow} />
+  <ShipSkinrStudio {store} {flow} {registerBeforeClose} />
 {:else if tab === "achievements"}
   <AchievementsWindow {store} {flow} />
 {:else if tab === "locationSearch"}

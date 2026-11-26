@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import { getShipTreeCatalogue } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
-  import { SHIP_SKINR_LINE_NAME_MAX, SHIP_SKINR_NAME_MAX, validShipSkinrName, type ShipSkinrEntry } from "../bridge/shipSkinr.ts";
-  import { coatingFits, shipSkinrCoatingLayout, shipSkinrCoatingMaterials,
+  import { SHIP_SKINR_LINE_NAME_MAX, SHIP_SKINR_NAME_MAX, validShipSkinrName,
+    type ShipSkinrDesign, type ShipSkinrEntry } from "../bridge/shipSkinr.ts";
+  import { coatingFits, shipSkinrCoatingID, shipSkinrCoatingSlot, shipSkinrCoatingMaterials, shipSkinrLayoutSlots, shipSkinrSlotID,
     type ShipSkinrCoating, type ShipSkinrCoatingCatalogue } from "../bridge/shipSkinrCoatings.ts";
   import { SKINR_HULL_RULES } from "../bridge/shipSkinrHullRules.ts";
   import { shipTreeFaction, type ShipTreeCatalogue, type ShipTreeHull } from "../bridge/shipTree.ts";
@@ -14,10 +15,14 @@
   import ShipInfoPreview from "./ShipInfoPreview.svelte";
   import { typeIconUrl } from "./typeIcons.ts";
 
-  let { store, flow, atSaveLimit, saveLimit, onBack, onSaved }: {
+  let { store, flow, atSaveLimit, saveLimit, saved, onBack, onSaved, registerBeforeClose }: {
     store: ClientStore; flow: AppFlow; atSaveLimit: boolean; saveLimit: string;
+    saved: { entry: ShipSkinrEntry; design: ShipSkinrDesign } | null;
     onBack: () => void; onSaved: (entry: ShipSkinrEntry) => void;
+    registerBeforeClose?: (guard: () => Promise<boolean>) => () => void;
   } = $props();
+  const original = untrack(() => saved);
+  const initialSlots = shipSkinrLayoutSlots(original?.design.layout);
   const { flight, station, names, words } = $derived(store);
   const prefix = "UI/Personalization/ShipSkins/SKINR/Studio/";
   const labels = {
@@ -25,6 +30,8 @@
     blank: [prefix + "NoComponentsSelected", "No Design Element selected"],
     save: [prefix + "Save", "Save"],
     saveDesign: [prefix + "SaveDesign", "Save Design"],
+    saveAs: [prefix + "SaveAs", "Save As"],
+    saveAsNew: [prefix + "SaveAsNew", "Save as new design"],
     name: [prefix + "SKINName", "SKIN Name"],
     line: [prefix + "SKINLineNameOptional", "SKIN Line Name (optional)"],
     cancel: ["UI/Common/Buttons/Cancel", "Cancel"],
@@ -39,31 +46,45 @@
   const classOrder = new Map(SKINR_HULL_RULES.classOrder.map((id, index) => [id, index]));
   let catalogue = $state.raw<ShipTreeCatalogue | null>(null);
   let coatings = $state.raw<ShipSkinrCoatingCatalogue | null>(null);
-  let fitted = $state.raw<ReadonlyMap<number, ShipSkinrCoating>>(new Map());
+  let layoutSlots = $state.raw(initialSlots);
   let selectedSlot = $state<number | null>(null);
   let coatingSearch = $state("");
-  let naming = $state(false);
+  let naming = $state<"save" | "copy" | null>(null);
   let name = $state("");
   let line = $state("");
   let saving = $state(false);
   let saveError = $state("");
   let destroyed = false;
+  let leaveDecision: Promise<boolean> | null = null;
   let failure = $state("");
   let attempt = $state(0);
   let faction = $state<number | null>(null);
   let query = $state("");
-  let chosen = $state<number | null>(null);
+  let chosen = $state<number | null>(original?.design.shipTypeID ?? null);
   let pickerOverride = $state<boolean | null>(null);
   const requestedPilot = $derived($station.online?.characterID ?? null);
   const hulls = $derived(catalogue?.ships.filter(row => !row.academy) ?? []);
   const active = $derived(hulls.find(row => row.typeID === $flight.status?.shipTypeID && !excluded.has(row.typeID)));
   const defaultHull = $derived(active?.typeID ?? SKINR_HULL_RULES.fallbackByRace[$station.online?.raceID ?? 0] ?? null);
-  const selected = $derived(hulls.find(row => row.typeID === (chosen ?? defaultHull)));
+  const selectedTypeID = $derived(chosen ?? defaultHull);
+  const selected = $derived(hulls.find(row => row.typeID === selectedTypeID));
   const configurationFor = (typeID: number) => coatings?.configurations.find(config => config.allHulls || config.hulls.includes(typeID));
-  const configuration = $derived(selected ? configurationFor(selected.typeID) : null);
+  const configuration = $derived(selectedTypeID ? configurationFor(selectedTypeID) : null);
   const coatingSlots = $derived(coatings?.slots.filter(slot => configuration?.slots.includes(slot.id)) ?? []);
   const slot = $derived(coatingSlots.find(row => row.id === selectedSlot));
+  const coatingIndex = $derived(new Map(coatings?.components.map(coating => [coating.id, coating])));
+  const fitted = $derived.by(() => {
+    const result = new Map<number, ShipSkinrCoating>();
+    for (const [id, row] of layoutSlots) {
+      const coating = coatingIndex.get(shipSkinrCoatingID(row) ?? 0);
+      if (coating) result.set(id, coating);
+    }
+    return result;
+  });
   const materialNames = $derived(shipSkinrCoatingMaterials(coatings?.areas[selected?.factionID ?? 0] ?? coatings?.areas[500003] ?? [], fitted));
+  const dirty = $derived(original ? selectedTypeID !== original.design.shipTypeID || layoutSlots.size !== initialSlots.size ||
+    [...layoutSlots].some(([id, row]) => row !== initialSlots.get(id)) : layoutSlots.size > 0);
+  const canSave = $derived(layoutSlots.size > 0 && (!!original || !atSaveLimit));
   const validName = $derived(validShipSkinrName(name, line));
   const pickerOpen = $derived(pickerOverride ?? !active);
   const search = $derived(query.trim().toLocaleLowerCase());
@@ -95,40 +116,63 @@
     .sort((a, b) => (classOrder.get(a) ?? Infinity) - (classOrder.get(b) ?? Infinity) || className(a).localeCompare(className(b))));
 
   onDestroy(() => { destroyed = true; });
+  $effect(() => registerBeforeClose?.(canLeave));
+
+  function canLeave(): Promise<boolean> {
+    if (saving) return Promise.resolve(false);
+    if (!dirty) return Promise.resolve(true);
+    leaveDecision ??= flow.askClientDialogWith("SKINRUnsavedDesign", {}, "Discard the unsaved design?")
+      .finally(() => { leaveDecision = null; });
+    return leaveDecision;
+  }
+
+  async function back() {
+    if (await canLeave() && !destroyed) onBack();
+  }
 
   function chooseHull(typeID: number) {
-    if (typeID === selected?.typeID || saving || naming) return;
+    if (typeID === selectedTypeID || saving || naming) return;
     const next = configurationFor(typeID);
-    fitted = new Map([...fitted].filter(([slotID]) => next?.slots.includes(slotID)));
+    layoutSlots = new Map([...layoutSlots].filter(([slotID]) => next?.slots.includes(slotID)));
     if (selectedSlot && !next?.slots.includes(selectedSlot)) selectedSlot = null;
     chosen = typeID;
   }
 
   function fit(coating: ShipSkinrCoating | null) {
     if (!slot || naming) return;
-    const next = new Map(fitted);
-    if (coating) next.set(slot.id, coating);
+    const next = new Map(layoutSlots);
+    const initial = initialSlots.get(slot.id);
+    if (coating && shipSkinrCoatingID(next.get(slot.id)) === coating.id) return;
+    if (coating) next.set(slot.id, initial && shipSkinrCoatingID(initial) === coating.id ? initial : shipSkinrCoatingSlot(slot.id, coating.id));
     else next.delete(slot.id);
-    fitted = next;
+    layoutSlots = next;
   }
 
-  function cancelName() {
-    name = "";
-    line = "";
-    naming = false;
+  function openName(mode: "save" | "copy") {
+    name = original?.design.name ?? "";
+    line = original?.design.lineName ?? "";
+    saveError = "";
+    naming = mode;
   }
 
   async function save(event: SubmitEvent) {
     event.preventDefault();
-    if (!selected || !configuration || !fitted.size || atSaveLimit || saving || !validName) return;
+    const id = naming === "save" ? original?.entry.id : undefined;
+    if (!selectedTypeID || !configuration || !canSave || (!id && atSaveLimit) || saving || !validName || !naming) return;
     saving = true;
     saveError = "";
     try {
-      const layout = shipSkinrCoatingLayout(selected.typeID, fitted);
-      const editor = configuration.slots.filter(id => id === 5 || id === 7).map(id => ({
+      const layout = {
+        ...original?.design.layout,
+        ship_type: { sequential: selectedTypeID },
+        pattern_blend_mode: original?.design.layout.pattern_blend_mode ?? 1,
+        slots: [...layoutSlots.values()],
+      };
+      const editor = original?.entry.editorConfigurations.filter(row => configuration.slots.includes(shipSkinrSlotID(row))) ??
+        configuration.slots.filter(id => id === 5 || id === 7).map(id => ({
         id: { sequential: id }, config: { offset_u_ratio: 0, offset_v_ratio: 0, yaw: 0, pitch: 0, roll: 0, scaling: 0 },
       }));
-      const entry = await flow.saveShipSkinrDraft(layout, editor, name, line);
+      const entry = await flow.saveShipSkinrDraft(layout, editor, name, line, id);
       if (!destroyed) onSaved(entry);
     } catch (cause) {
       if (!destroyed) saveError = panelErrorWords(cause);
@@ -167,7 +211,7 @@
 {#snippet hullButton(hull: ShipTreeHull)}
   {@const icon = typeIconUrl(hull.typeID)}
   <button type="button" class="hull" data-hull={hull.typeID} aria-pressed={selected?.typeID === hull.typeID}
-    disabled={excluded.has(hull.typeID) || naming} onclick={() => chooseHull(hull.typeID)}>
+    disabled={excluded.has(hull.typeID) || !!naming} onclick={() => chooseHull(hull.typeID)}>
     {#if icon}<img src={icon} alt="" width="24" height="24" loading="lazy" />{/if}
     {hullName(hull)}
   </button>
@@ -187,17 +231,21 @@
 
 <div class="skinr-designer">
   <div class="designer-toolbar">
-    <button type="button" disabled={saving} onclick={onBack}>{word("back")}</button>
+    <button type="button" disabled={saving} onclick={() => void back()}>{word("back")}</button>
     {#if catalogue}
       <button type="button" aria-expanded={pickerOpen} onclick={() => pickerOverride = !pickerOpen}>{word("hull")}</button>
-      <button type="button" disabled={!fitted.size || atSaveLimit || naming} aria-describedby={!fitted.size || atSaveLimit ? "skinr-blank" : undefined}
-        onclick={() => { naming = true; saveError = ""; }}>{word("save")}</button>
-      {#if atSaveLimit || !fitted.size}<span id="skinr-blank">{atSaveLimit ? saveLimit : word("blank")}</span>{/if}
+      <button type="button" disabled={!canSave || !!naming} aria-describedby={!canSave ? "skinr-blank" : undefined}
+        onclick={() => openName("save")}>{word("save")}</button>
+      {#if original}
+        <button type="button" disabled={!canSave || atSaveLimit || !!naming} aria-describedby={atSaveLimit ? "skinr-blank" : undefined}
+          onclick={() => openName("copy")}>{word("saveAs")}</button>
+      {/if}
+      {#if atSaveLimit || !layoutSlots.size}<span id="skinr-blank">{!layoutSlots.size ? word("blank") : saveLimit}</span>{/if}
     {/if}
   </div>
   {#if naming}
     <form class="skinr-name" aria-labelledby="skinr-name-title" onsubmit={save}>
-      <h3 id="skinr-name-title">{word("saveDesign")}</h3>
+      <h3 id="skinr-name-title">{word(naming === "copy" ? "saveAsNew" : "saveDesign")}</h3>
       <label>{word("name")} <input bind:value={name} required disabled={saving} /></label>
       <label>{word("line")} <input bind:value={line} disabled={saving} /></label>
       {#if [...name].length > SHIP_SKINR_NAME_MAX || [...line].length > SHIP_SKINR_LINE_NAME_MAX}
@@ -205,8 +253,8 @@
       {/if}
       {#if saveError}<p role="alert">{saveError}</p>{/if}
       <div class="designer-toolbar">
-        <button type="submit" disabled={saving || !validName || atSaveLimit}>{word("save")}</button>
-        <button type="button" disabled={saving} onclick={cancelName}>{word("cancel")}</button>
+        <button type="submit" disabled={saving || !validName || (!original || naming === "copy") && atSaveLimit}>{word("save")}</button>
+        <button type="button" disabled={saving} onclick={() => naming = null}>{word("cancel")}</button>
       </div>
     </form>
   {/if}
@@ -242,19 +290,21 @@
           </div>
         </section>
       {/if}
-      {#if selected}
-        <section class="hull-preview" data-preview-hull={selected.typeID} aria-label={hullName(selected)}>
-          <h3>{hullName(selected)}</h3>
+      {#if selectedTypeID}
+        {@const selectedName = selected ? hullName(selected) : resolvedName($names.resolved, "type", selectedTypeID, String(selectedTypeID))}
+        <section class="hull-preview" data-preview-hull={selectedTypeID} aria-label={selectedName}>
+          <h3>{selectedName}</h3>
           <div class="preview-scene">
-            <ShipInfoPreview typeID={selected.typeID} factionID={selected.factionID} coatings={materialNames} active expanded={false} />
+            <ShipInfoPreview typeID={selectedTypeID} factionID={selected?.factionID ?? null} coatings={materialNames} active expanded={false} />
           </div>
           <div class="coating-slots" aria-label="Coating slots">
             {#each coatingSlots as row (row.id)}
+              {@const componentID = shipSkinrCoatingID(layoutSlots.get(row.id))}
               {@const coating = fitted.get(row.id)}
-              <button type="button" data-slot={row.id} aria-pressed={selectedSlot === row.id} disabled={naming}
+              <button type="button" data-slot={row.id} aria-pressed={selectedSlot === row.id} disabled={!!naming}
                 onclick={() => { selectedSlot = selectedSlot === row.id ? null : row.id; coatingSearch = ""; }}>
                 {message(row.nameID)}
-                {#if coating}<small>{message(coating.nameID)}</small>{/if}
+                {#if componentID}<small>{coating ? message(coating.nameID) : `Coating #${componentID}`}</small>{/if}
               </button>
             {/each}
           </div>
@@ -262,7 +312,7 @@
             <section class="coating-picker" aria-label={message(slot.nameID)}>
               <header>
                 <h3>{message(slot.nameID)}</h3>
-                {#if fitted.has(slot.id)}<button type="button" onclick={() => fit(null)}>{word("remove")}</button>{/if}
+                {#if layoutSlots.has(slot.id)}<button type="button" onclick={() => fit(null)}>{word("remove")}</button>{/if}
               </header>
               <input type="search" aria-label={word("search")} placeholder={word("search")} bind:value={coatingSearch} />
               <div class="coating-results">

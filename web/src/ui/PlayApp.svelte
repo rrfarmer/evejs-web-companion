@@ -384,12 +384,12 @@
   let username = $state("");
   let password = $state("");
   let wins = $state<WinState[]>([]);
-  let structureBrowserCloseGuard: (() => Promise<boolean>) | undefined;
+  const closeGuards = new Map<TabID, () => Promise<boolean>>();
 
-  function registerStructureBrowserClose(guard: () => Promise<boolean>): () => void {
-    structureBrowserCloseGuard = guard;
+  function registerPlayWindowClose(id: TabID, guard: () => Promise<boolean>): () => void {
+    closeGuards.set(id, guard);
     return () => {
-      if (structureBrowserCloseGuard === guard) structureBrowserCloseGuard = undefined;
+      if (closeGuards.get(id) === guard) closeGuards.delete(id);
     };
   }
 
@@ -398,13 +398,14 @@
       if (playSound) void playUiEvent("ui_object_close_play");
       wins = closeWindow(wins, id);
     };
-    const guard = id === "structureBrowser" ? structureBrowserCloseGuard : undefined;
+    const guard = closeGuards.get(id);
     if (!guard) { close(); return; }
     const owner = session;
     void guard().then(allowed => {
-      if (allowed && session === owner && structureBrowserCloseGuard === guard) close();
+      if (allowed && session === owner && closeGuards.get(id) === guard) close();
     }).catch(cause => notify({
-      kind: "danger", title: "Close Structure Browser", detail: cause instanceof Error ? cause.message : String(cause),
+      kind: "danger", title: id === "structureBrowser" ? "Close Structure Browser" : "Close Ship SKINR",
+      detail: cause instanceof Error ? cause.message : String(cause),
     }));
   }
   let reprocessingInput = $state<readonly number[] | null>(null);
@@ -2496,11 +2497,11 @@
     }
     // (the space view's own windows too: one that can be closed (IsKillable) closed, one that cannot minimized)
     if (cmd === "CmdCloseAllWindows") {
-      const guarded = structureBrowserCloseGuard && wins.some(win => win.id === "structureBrowser");
-      const othersOpen = wins.some(win => !guarded || win.id !== "structureBrowser");
+      const guarded = wins.filter(win => closeGuards.has(win.id));
+      const othersOpen = guarded.length !== wins.length;
       if (othersOpen) void playUiEvent("ui_object_close_play");
-      wins = guarded ? wins.filter(win => win.id === "structureBrowser") : [];
-      if (guarded) closePlayWindow("structureBrowser", !othersOpen);
+      wins = guarded;
+      for (const win of guarded) closePlayWindow(win.id, !othersOpen);
       for (const w of spaceWindows()) {
         const close = w.querySelector<HTMLElement>(".pw-close");
         if (close) close.click();
@@ -4763,7 +4764,8 @@
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} chatUnread={win.id === "chat" ? chatUnread : undefined}
               onOpen={(t) => open(t)} onClose={() => closePlayWindow(win.id)}
-              registerBeforeClose={win.id === "structureBrowser" ? registerStructureBrowserClose : undefined}
+              registerBeforeClose={win.id === "structureBrowser" || win.id === "shipSkinr" ?
+                guard => registerPlayWindowClose(win.id, guard) : undefined}
               {upwellLpIssuer}
               {inventoryVaultRequested}
               {storeCategoryRequest} onShowOmegaOffers={showOmegaOffers} onShowMultipleTraining={showMultipleTraining}

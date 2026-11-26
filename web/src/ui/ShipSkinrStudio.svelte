@@ -2,15 +2,16 @@
   import { onDestroy } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import { SHIP_SKINR_LINE_NAME_MAX, SHIP_SKINR_NAME_MAX, validShipSkinrName,
-    type ShipSkinrDesign, type ShipSkinrEntry, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
+  import type { ShipSkinrDesign, ShipSkinrEntry, ShipSkinrStudio } from "../bridge/shipSkinr.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { typeIconUrl } from "./typeIcons.ts";
-  import ShipSkinrNewDesign from "./ShipSkinrNewDesign.svelte";
+  import ShipSkinrDesigner from "./ShipSkinrDesigner.svelte";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, registerBeforeClose }: {
+    store: ClientStore; flow: AppFlow; registerBeforeClose?: (guard: () => Promise<boolean>) => () => void;
+  } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
   const station = $derived(store.station);
@@ -23,12 +24,6 @@
     create: [prefix + "CreateNewDesign", "Create New Design"],
     edit: [prefix + "EditDesign", "Edit Design"],
     delete: [prefix + "DeleteDesign", "Delete Design"],
-    name: [prefix + "SKINName", "SKIN Name"],
-    line: [prefix + "SKINLineNameOptional", "SKIN Line Name (Optional)"],
-    save: ["UI/Common/Buttons/Save", "Save"],
-    saveAs: [prefix + "SaveAs", "Save As"],
-    saveAsNew: [prefix + "SaveAsNew", "Save as New"],
-    cancel: ["UI/Common/Buttons/Cancel", "Cancel"],
   } as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   const limitPath = prefix + "DesignErrors/SaveLimitReached";
@@ -38,13 +33,7 @@
   let attempt = $state(0);
   let selected = $state<string | null>(null);
   let selectionAfterReload: string | null = null;
-  let creating = $state(false);
-  let editor = $state.raw<{ entry: ShipSkinrEntry; design: ShipSkinrDesign } | null>(null);
-  let name = $state("");
-  let lineName = $state("");
-  let beforeCopy = $state.raw<{ name: string; lineName: string } | null>(null);
-  let saving = $state(false);
-  let saveError = $state("");
+  let designer = $state.raw<{ entry: ShipSkinrEntry; design: ShipSkinrDesign } | "new" | null>(null);
   let deleting = $state.raw<ShipSkinrEntry | null>(null);
   let deleteError = $state("");
   let destroyed = false;
@@ -54,7 +43,6 @@
     { current: studio.designs.length, limit: studio.capacity },
     { nameOf: (kind, id) => resolvedName($names.resolved, kind, id, "") },
   )) : "");
-  const validName = $derived(validShipSkinrName(name, lineName));
   const selectedEntry = $derived([...(studio?.designs ?? []), ...(studio?.jobs ?? [])].find(row => row.id === selected));
   const selectedDesign = $derived(selectedEntry ? designs.get(selectedEntry.skin) : null);
   const shipName = (design: ShipSkinrDesign) => resolvedName($names.resolved, "type", design.shipTypeID, String(design.shipTypeID));
@@ -65,62 +53,14 @@
 
   onDestroy(() => { destroyed = true; });
 
-  function edit(entry: ShipSkinrEntry, design: ShipSkinrDesign) {
-    editor = { entry, design };
-    name = design.name;
-    lineName = design.lineName;
-    saveError = "";
-  }
-
-  function startCopy() {
-    if (atSaveLimit || saving) return;
-    beforeCopy = { name, lineName };
-    saveError = "";
-  }
-
-  function cancelEdit() {
-    if (beforeCopy) {
-      ({ name, lineName } = beforeCopy);
-      beforeCopy = null;
-      saveError = "";
-    } else {
-      editor = null;
-    }
-  }
-
-  async function save(event: SubmitEvent) {
-    event.preventDefault();
-    if (!editor || !studio || saving || !validName) return;
-    const target = editor;
-    const asNew = beforeCopy !== null;
-    if (asNew && atSaveLimit) return;
-    const edited = { ...target.design, name, lineName };
-    saving = true;
-    saveError = "";
-    try {
-      const updated = await flow.saveShipSkinrDraft(target.design.layout, target.entry.editorConfigurations,
-        edited.name, edited.lineName, asNew ? undefined : target.entry.id);
-      if (destroyed || editor !== target || !studio) return;
-      designs = new Map(designs).set(updated.skin, edited);
-      studio = { ...studio, designs: asNew ? [...studio.designs, updated] : studio.designs.map(row => row.id === updated.id ? updated : row) };
-      selected = updated.id;
-      beforeCopy = null;
-      editor = null;
-    } catch (cause) {
-      if (!destroyed && editor === target) saveError = panelErrorWords(cause);
-    } finally {
-      if (!destroyed && (editor === target || !editor)) saving = false;
-    }
-  }
-
-  function newDesignSaved(entry: ShipSkinrEntry) {
+  function designSaved(entry: ShipSkinrEntry) {
     selectionAfterReload = entry.id;
     attempt++;
   }
 
   async function remove(entry: ShipSkinrEntry) {
     const loaded = studio;
-    if (!loaded?.designs.includes(entry) || editor || deleting) return;
+    if (!loaded?.designs.includes(entry) || designer || deleting) return;
     const current = () => !destroyed && studio === loaded && deleting === entry;
     deleting = entry;
     deleteError = "";
@@ -145,10 +85,7 @@
     designs = new Map();
     selected = selectionAfterReload;
     selectionAfterReload = null;
-    creating = false;
-    editor = null;
-    beforeCopy = null;
-    saving = false;
+    designer = null;
     deleting = null;
     deleteError = "";
     error = "";
@@ -168,9 +105,10 @@
 </script>
 
 <section class="ship-skinr" aria-labelledby="ship-skinr-studio">
-  <h2 id="ship-skinr-studio">{word(creating ? "create" : "studio")}</h2>
-  {#if creating}
-    <ShipSkinrNewDesign {store} {flow} {atSaveLimit} {saveLimit} onBack={() => creating = false} onSaved={newDesignSaved} />
+  <h2 id="ship-skinr-studio">{word(designer === "new" ? "create" : designer ? "edit" : "studio")}</h2>
+  {#if designer}
+    <ShipSkinrDesigner {store} {flow} {atSaveLimit} {saveLimit} {registerBeforeClose}
+      saved={designer === "new" ? null : designer} onBack={() => designer = null} onSaved={designSaved} />
   {:else if error}
     <p role="alert">{error}</p>
     <button type="button" onclick={() => attempt++}>Retry</button>
@@ -182,7 +120,7 @@
         <header><h3>{word("sequencing")}</h3><span>{studio.jobs.length}</span></header>
         {#if !studio.jobs.length}<p>No active sequencing jobs.</p>{/if}
         {#each studio.jobs as row (row.id)}
-          <button class="skinr-entry" type="button" data-entry="job" aria-pressed={selected === row.id} disabled={!!editor || !!deleting}
+          <button class="skinr-entry" type="button" data-entry="job" aria-pressed={selected === row.id} disabled={!!deleting}
             onclick={() => selected = selected === row.id ? null : row.id}>
             <strong>{title(row)}</strong>
             <span>{row.quantity} SKINs</span>
@@ -194,30 +132,12 @@
         <header><h3>{word("saved")}</h3><span>{studio.designs.length}/{studio.capacity}</span></header>
         {#if !studio.designs.length}<p>No saved designs.</p>{/if}
         {#each studio.designs as row (row.id)}
-          <button class="skinr-entry" type="button" data-entry="draft" aria-pressed={selected === row.id} disabled={!!editor || !!deleting}
+          <button class="skinr-entry" type="button" data-entry="draft" aria-pressed={selected === row.id} disabled={!!deleting}
             onclick={() => selected = selected === row.id ? null : row.id}><strong>{title(row)}</strong></button>
         {/each}
       </section>
     </div>
-    {#if editor}
-      <form class="skinr-editor" aria-labelledby="skinr-editor-heading" onsubmit={save}>
-        <h3 id="skinr-editor-heading">{word(beforeCopy ? "saveAsNew" : "edit")}</h3>
-        <label>{word("name")} <input bind:value={name} required disabled={saving} /></label>
-        <label>{word("line")} <input bind:value={lineName} disabled={saving} /></label>
-        {#if [...name].length > SHIP_SKINR_NAME_MAX || [...lineName].length > SHIP_SKINR_LINE_NAME_MAX}
-          <p role="alert">Use up to {SHIP_SKINR_NAME_MAX} characters for the name and {SHIP_SKINR_LINE_NAME_MAX} for the line name.</p>
-        {/if}
-        {#if saveError}<p role="alert">{saveError}</p>{/if}
-        <footer>
-          <button type="submit" disabled={saving || !validName || (!!beforeCopy && atSaveLimit)}>{word("save")}</button>
-          {#if !beforeCopy}
-            <button type="button" disabled={saving || atSaveLimit} onclick={startCopy}>{word("saveAs")}</button>
-          {/if}
-          <button type="button" disabled={saving} onclick={cancelEdit}>{word("cancel")}</button>
-        </footer>
-        {#if atSaveLimit}<p>{saveLimit}</p>{/if}
-      </form>
-    {:else if selectedEntry && selectedDesign}
+    {#if selectedEntry && selectedDesign}
       {@const icon = typeIconUrl(selectedDesign.shipTypeID)}
       {@const entry = selectedEntry}
       {@const design = selectedDesign}
@@ -229,16 +149,16 @@
           <p>{selectedDesign.tier ? `${shipName(selectedDesign)} · Tier ${selectedDesign.tier}` : shipName(selectedDesign)}</p>
         </div>
         <div class="skinr-actions">
-          <button type="button" disabled={!!deleting} onclick={() => creating = true}>{word("create")}</button>
+          <button type="button" disabled={!!deleting} onclick={() => designer = "new"}>{word("create")}</button>
           {#if studio.designs.includes(selectedEntry)}
-            <button type="button" disabled={!!deleting} onclick={() => edit(entry, design)}>{word("edit")}</button>
+            <button type="button" disabled={!!deleting} onclick={() => designer = { entry, design }}>{word("edit")}</button>
             <button type="button" class="danger" disabled={!!deleting} onclick={() => void remove(entry)}>{word("delete")}</button>
           {/if}
         </div>
       </section>
     {:else if !selectedEntry}
       <div class="skinr-actions">
-        <button type="button" onclick={() => creating = true}>{word("create")}</button>
+        <button type="button" onclick={() => designer = "new"}>{word("create")}</button>
       </div>
     {/if}
     {#if deleteError}<p role="alert">{deleteError}</p>{/if}
@@ -256,7 +176,4 @@
   .skinr-entry[aria-pressed="true"] { border-color: #94b8c2; }
   .skinr-details { display: flex; align-items: center; gap: 12px; padding: 14px; background: #ffffff08; }
   .skinr-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-inline-start: auto; }
-  .skinr-editor { display: grid; gap: 12px; padding: 14px; background: #ffffff08; }
-  .skinr-editor label { display: grid; gap: 4px; max-width: 400px; }
-  .skinr-editor footer { display: flex; gap: 8px; }
 </style>
