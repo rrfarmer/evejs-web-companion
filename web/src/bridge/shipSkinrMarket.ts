@@ -96,3 +96,32 @@ export function decodeShipSkinrBuyerTerms(payload: JsonValue | null, tier: numbe
       !Number.isSafeInteger(evermarks) || evermarks < 0) throw new Error("Buyer terms unavailable.");
   return { version, issuer, evermarks };
 }
+
+export interface ShipSkinrComponentOffer {
+  readonly id: string;
+  readonly typeID: number;
+  readonly currency: ShipSkinrCurrency;
+  readonly amount: number;
+  readonly bundle: number;
+  readonly expires: number;
+  readonly discount: number;
+}
+
+export function decodeShipSkinrComponentOffers(payload: JsonValue | null): ShipSkinrComponentOffer[] {
+  const rows = object(payload ?? undefined)?.listings;
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap(value => {
+    const row = object(value);
+    const id = object(row?.id)?.uuid;
+    const attributes = object(row?.attributes);
+    const typeID = Number(object(attributes?.component_item)?.sequential);
+    const bundle = Number(attributes?.bundle_size);
+    const expires = Number(object(attributes?.sale_end)?.seconds) * 1000;
+    const currency: ShipSkinrCurrency = attributes?.plex ? "PLEX" : "ISK";
+    const amount = currency === "PLEX" ? Number(object(attributes?.plex)?.total_in_cents ?? 0) / 100 : fixed(attributes?.isk);
+    if (typeof id !== "string" || !id || !Number.isSafeInteger(typeID) || typeID < 1 ||
+        !Number.isSafeInteger(bundle) || bundle < 1 || !Number.isFinite(expires) || expires <= 0 ||
+        !(attributes?.plex || attributes?.isk) || !Number.isFinite(amount) || amount < 0) return [];
+    return [{ id, typeID, bundle, expires, currency, amount, discount: Number(attributes?.discount_percent ?? 0) }];
+  });
+}

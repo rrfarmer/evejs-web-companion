@@ -13,8 +13,9 @@ import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequ
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
-import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms, encodeShipSkinrBrowse,
-  encodeShipSkinrListingTarget, shipSkinrListingLimit, shipSkinrListingQuote, type ShipSkinrBrowseQuery, type ShipSkinrCurrency, type ShipSkinrListingInput,
+import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
+  decodeShipSkinrComponentOffers, encodeShipSkinrBrowse, encodeShipSkinrListingTarget, shipSkinrListingLimit, shipSkinrListingQuote,
+  type ShipSkinrBrowseQuery, type ShipSkinrComponentOffer, type ShipSkinrCurrency, type ShipSkinrListingInput,
   type ShipSkinrListingTarget } from "../bridge/shipSkinrMarket.ts";
 import { setSessionToken } from "./sessionToken.ts";
 import { pageFetch } from "./pageFetch.ts";
@@ -4610,8 +4611,10 @@ export interface AppFlow {
   loadShipSkinrOwnedListings(): Promise<ReturnType<typeof decodeOwnedShipSkinrListings>>;
   browseShipSkinrListings(query: ShipSkinrBrowseQuery): Promise<ReturnType<typeof decodeShipSkinrBrowse>>;
   loadShipSkinrPurchaseTerms(tier: number, branded: boolean): Promise<ReturnType<typeof decodeShipSkinrBuyerTerms>>;
-  loadShipSkinrPurchaseFunds(currency: ShipSkinrCurrency, issuer: number): Promise<{ balance: number; evermarks: number }>;
+  loadShipSkinrPurchaseFunds(currency: ShipSkinrCurrency, issuer?: number): Promise<{ balance: number; evermarks: number }>;
   buyShipSkinrListing(listing: string, quantity: number, version: string): Promise<string>;
+  loadShipSkinrComponentOffers(): Promise<readonly ShipSkinrComponentOffer[]>;
+  buyShipSkinrComponentOffer(listing: string, quantity: number, activate: boolean): Promise<string>;
   cancelShipSkinrListing(id: string): Promise<void>;
   loadShipSkinrListingLimit(): Promise<number>;
   quoteShipSkinrListing(hex: string, target: ShipSkinrListingTarget): Promise<ReturnType<typeof shipSkinrListingQuote>>;
@@ -29064,7 +29067,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return decodeShipSkinrBuyerTerms(reply, tier, branded);
   }
 
-  async function loadShipSkinrPurchaseFunds(currency: ShipSkinrCurrency, issuer: number) {
+  async function loadShipSkinrPurchaseFunds(currency: ShipSkinrCurrency, issuer?: number) {
     const current = callOptions.captureRequestGuard!();
     const [available, loyalty] = await Promise.all([
       currency === "PLEX" ? readPlexVaultBalance(callOptions).then(cents => Number(cents) / 100)
@@ -29073,7 +29076,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           if (cash === null) throw new Error("The ISK balance is unavailable.");
           return Number(cash);
         }),
-      bridgeAsk("LPSvc", "GetAllMyCharacterWalletLPBalances", []),
+      issuer === undefined ? null : bridgeAsk("LPSvc", "GetAllMyCharacterWalletLPBalances", []),
     ]);
     current();
     const evermarks = Number(decodeLpBalances(loyalty).find(row => row.issuerCorpID === issuer)?.loyaltyPoints ?? 0);
@@ -29087,9 +29090,30 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       listing: { uuid: listing }, quantity, buyer_fees_version: version,
     }, true);
     current();
+    return shipSkinrPurchaseReceipt(answer);
+  }
+
+  function shipSkinrPurchaseReceipt(answer: JsonValue | null): string {
     const receipt = shipSkinrRecord(shipSkinrRecord(answer ?? undefined)?.transaction)?.uuid;
     if (typeof receipt !== "string" || !receipt) throw new Error("The purchase receipt is unavailable. Check your Collection and balance before trying again.");
     return receipt;
+  }
+
+  async function loadShipSkinrComponentOffers(): Promise<readonly ShipSkinrComponentOffer[]> {
+    const current = callOptions.captureRequestGuard!();
+    const answer = await gatewayAsk(SHIP_SKINR_MARKET + "component.listing.api.GetAllRequest");
+    current();
+    return decodeShipSkinrComponentOffers(answer);
+  }
+
+  async function buyShipSkinrComponentOffer(listing: string, quantity: number, activate: boolean): Promise<string> {
+    const current = callOptions.captureRequestGuard!();
+    if (!store.station.get().online?.characterID) throw new Error("Select a pilot to buy a design element.");
+    const answer = await gatewayAsk(SHIP_SKINR_MARKET + "component.listing.api.InitiatePurchaseListingRequest", {
+      listing: { uuid: listing }, quantity, immediately_activate: activate,
+    }, true);
+    current();
+    return shipSkinrPurchaseReceipt(answer);
   }
 
   async function cancelShipSkinrListing(id: string): Promise<void> {
@@ -41595,6 +41619,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadShipSkinrPurchaseTerms,
     loadShipSkinrPurchaseFunds,
     buyShipSkinrListing,
+    loadShipSkinrComponentOffers,
+    buyShipSkinrComponentOffer,
     cancelShipSkinrListing,
     loadShipSkinrListingLimit,
     quoteShipSkinrListing,

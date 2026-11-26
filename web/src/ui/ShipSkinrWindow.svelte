@@ -3,6 +3,7 @@
   import { plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import ShipSkinrCollection from "./ShipSkinrCollection.svelte";
+  import ShipSkinrElementStore from "./ShipSkinrElementStore.svelte";
   import ShipSkinrStore from "./ShipSkinrStore.svelte";
   import ShipSkinrStudio from "./ShipSkinrStudio.svelte";
 
@@ -11,6 +12,7 @@
   let { store, flow, registerBeforeClose }: { store: ClientStore; flow: AppFlow;
     registerBeforeClose?: (guard: Guard) => () => void } = $props();
   let page = $state<Page>("studio");
+  let storePage = $state<"skins" | "elements">("skins");
   let guard: Guard | undefined;
   let changingPage = false;
   const words = $derived(store.words);
@@ -20,7 +22,11 @@
     { page: "collection", path: prefix + "Collection/Title", fallback: "Collection" },
     { page: "store", path: prefix + "Store/Title", fallback: "Paragon Hub" },
   ] as const;
-  $effect(() => { flow.requestWords(tabs.map(tab => tab.path)); });
+  const storeTabs = [
+    { page: "skins", path: prefix + "Studio/SKINs", fallback: "SKINs" },
+    { page: "elements", path: prefix + "Studio/DesignElements", fallback: "Design Elements" },
+  ] as const;
+  $effect(() => { flow.requestWords([...tabs, ...storeTabs].map(tab => tab.path)); });
   $effect(() => registerBeforeClose?.(() => guard?.() ?? Promise.resolve(true)));
 
   function registerGuard(next: Guard) {
@@ -51,7 +57,18 @@
 {:else if page === "collection"}
   <ShipSkinrCollection {store} {flow} />
 {:else}
-  <ShipSkinrStore {store} {flow} />
+  <nav aria-label="Paragon Hub catalogues" class="skinr-pages">
+    {#each storeTabs as tab (tab.page)}
+      <button type="button" aria-pressed={storePage === tab.page} onclick={() => { storePage = tab.page; }}>
+        {plainText($words.templates[tab.path] ?? tab.fallback)}
+      </button>
+    {/each}
+  </nav>
+  {#if storePage === "skins"}
+    <ShipSkinrStore {store} {flow} />
+  {:else}
+    <ShipSkinrElementStore {store} {flow} />
+  {/if}
 {/if}
 
 <style>

@@ -17225,6 +17225,60 @@
      "typeName": "eve_public.cosmetic.market.transaction.Identifier"
     }
    ]
+  },
+  "eve_public.cosmetic.market.component.listing.api.GetAllRequest": {
+   "fields": []
+  },
+  "eve_public.cosmetic.market.component.listing.api.GetAllResponse": {
+   "fields": [
+    {
+     "typeName": "eve_public.cosmetic.market.component.listing.Entry",
+     "label": 3,
+     "type": 11,
+     "number": 1,
+     "name": "listings"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.component.listing.api.InitiatePurchaseListingRequest": {
+   "fields": [
+    {
+     "typeName": "eve_public.cosmetic.market.component.listing.Identifier",
+     "label": 1,
+     "type": 11,
+     "number": 1,
+     "name": "listing"
+    },
+    {
+     "label": 1,
+     "type": 13,
+     "number": 2,
+     "name": "quantity"
+    },
+    {
+     "label": 1,
+     "type": 8,
+     "number": 3,
+     "name": "immediately_activate"
+    }
+   ]
+  },
+  "eve_public.cosmetic.market.component.listing.api.InitiatePurchaseListingResponse": {
+   "fields": [
+    {
+     "typeName": "eve_public.cosmetic.market.transaction.Identifier",
+     "label": 1,
+     "type": 11,
+     "number": 1,
+     "name": "transaction"
+    },
+    {
+     "label": 1,
+     "type": 8,
+     "number": 2,
+     "name": "immediately_activate"
+    }
+   ]
   }
  },
  "enums": {
