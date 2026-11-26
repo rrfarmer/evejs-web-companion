@@ -15,6 +15,7 @@
   import TypeIcon from "./TypeIcon.svelte";
   import CorpLogo from "./CorpLogo.svelte";
   import InfoFreelanceProjects from "./InfoFreelanceProjects.svelte";
+  import InfoNpcCorporationStations from "./InfoNpcCorporationStations.svelte";
   import InfoShipRequirements from "./InfoShipRequirements.svelte";
   import InfoJumpBridgeMechanics from "./InfoJumpBridgeMechanics.svelte";
   import InfoAttributeHint from "./InfoAttributeHint.svelte";
@@ -24,7 +25,7 @@
   import type { MapRouteStep, TypeUsedWithGroup } from "../app/flow.ts";
   import type { ContactStandings, NpcNpcStanding } from "../bridge/standingsReads.ts";
   import { applyStandingBonus, standingBonusSkill } from "../bridge/effectiveStanding.ts";
-  import { showInfo, subjectTypeID, type InfoSubject } from "./showInfo.ts";
+  import { infoTabRequests, serveInfoTabRequest, showInfo, subjectTypeID, TAB_STATIONS, type InfoSubject } from "./showInfo.ts";
   import { createSignal, type ReadableSignal } from "../store/signals.ts";
   import { LINK_WORDS, linkFollowerOf, startLinkDrag } from "./linkFollowers.ts";
   import { formatIsk } from "./isk.ts";
@@ -76,6 +77,17 @@
   const subject = windowSubject;
   // svelte-ignore state_referenced_locally
   const corporationResult = windowCorporationResult ?? createSignal<CorporationInfoRead | null | undefined>(undefined);
+  let stationTabOwner = $state<number | null>(null);
+  const npcCorporation = $derived($subject?.kind === "corporation" && isNpcCorporation($subject.corporationID)
+    ? $subject.corporationID : null);
+  const stationsSelected = $derived(npcCorporation !== null && stationTabOwner === npcCorporation);
+  $effect(() => {
+    const request = $infoTabRequests;
+    if (request?.corporationID === npcCorporation && request.tab === TAB_STATIONS && Date.now() - request.atMs <= 5000) {
+      stationTabOwner = npcCorporation;
+      serveInfoTabRequest(request);
+    }
+  });
 
   // svelte-ignore state_referenced_locally
   const space = store.space;
@@ -1702,7 +1714,17 @@
       {/if}
     {:else if $subject.kind === "corporation" || $subject.kind === "alliance"}
       {@const rows = $subject.kind === "corporation" ? corporationRows : allianceRows}
-      {#if rows.length > 0}
+      {#if npcCorporation !== null}
+        <nav class="tabs npc-corp-info-tabs">
+          <button type="button" class:active={!stationsSelected} aria-pressed={!stationsSelected}
+            onclick={() => (stationTabOwner = null)}>{word("UI/InfoWindow/TabNames/Attributes")}</button>
+          <button type="button" class:active={stationsSelected} aria-pressed={stationsSelected}
+            onclick={() => (stationTabOwner = npcCorporation)}>{word("UI/Common/LocationTypes/Stations")}</button>
+        </nav>
+      {/if}
+      {#if npcCorporation !== null && stationsSelected}
+        {#key npcCorporation}<InfoNpcCorporationStations {store} {flow} corporationID={npcCorporation} />{/key}
+      {:else if rows.length > 0}
         {#if ownerDescription.trim() !== ""}
           <h3>{word("UI/InfoWindow/TabNames/Description")}</h3>
           <div class="info-description">{@render markupLines(ownerDescription)}</div>

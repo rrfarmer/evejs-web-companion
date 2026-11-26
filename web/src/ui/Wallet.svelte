@@ -38,6 +38,10 @@
   import WalletLoyalty from "./WalletLoyalty.svelte";
   import WalletIncursionLog from "./WalletIncursionLog.svelte";
   import WalletDonateLp from "./WalletDonateLp.svelte";
+  import { AGENCY_SCREEN_GROUPS } from "./agencyContentGroups.ts";
+  import { openAgencyGroup } from "./agencyRequests.ts";
+  import { showCorporationInfoTab, TAB_STATIONS } from "./showInfo.ts";
+  import { clientTexture } from "./skillGroupIcons.ts";
 
   let { store, flow, onBuyPlex, onShowOmegaOffers, onShowMultipleTraining, onOpenStore }: {
     store: ClientStore;
@@ -86,13 +90,15 @@
    */
   const retail = getContext("retailChrome") === true;
   let walletTab = $state<"mine" | "settings">("mine");
-  let currency = $state<"isk" | "plex" | "loyalty">("isk");
+  let currency = $state<"isk" | "plex" | "loyalty" | "evermarks">("isk");
   let loyaltyTab = $state<"overview" | "incursions" | "donate">("overview");
   const LP_LOG = "UI/Incursion/Journal/LoyaltyPointLog";
   const LP_DONATE = "UI/Wallet/WalletWindow/TabDonate";
   const paragon = 1000419;
   const LP_COUNT = "UI/Wallet/WalletWindow/TabLPCorpNumber";
   const EM_AMOUNT = "UI/Wallet/WalletWindow/EvermarkAmount";
+  const EM_EARN = "UI/Wallet/WalletWindow/EverMarkEarn";
+  const EM_SPEND = "UI/Wallet/WalletWindow/EverMarkSpend";
   let lpBalances = $state.raw<readonly WalletLPBalance[] | null>(null);
   let lpError = $state("");
   let reloadLp = $state(0);
@@ -212,7 +218,7 @@
   const RETAIL_WORDS = ["UI/Wallet/WalletWindow/MyWallet", "UI/Common/Settings", "UI/Common/ISK", "UI/Common/PLEX",
     "UI/Journal/JournalWindow/Agents/LoyaltyPoints", "UI/Wallet/WalletWindow/EverMarks", "UI/Wallet/WalletWindow/ISKDescription",
     SHOW_CENTS, SHOW_BALANCE_UPDATES, SHOW_LP_UPDATES, BALANCE_THRESHOLD, NOTIFY_ISK, NOTIFY_SHARES, NOTIFY_BILLS, NOTIFY_PLEX, CORP_WALLET,
-    PLEX_DESCRIPTION, PLEX_UNAVAILABLE, PLEX_UNAVAILABLE_HINT, BUY_PLEX, BUY_PLEX_HINT, SELL_PLEX, SELL_PLEX_HINT, LP_COUNT, EM_AMOUNT, LP_LOG, LP_DONATE];
+    PLEX_DESCRIPTION, PLEX_UNAVAILABLE, PLEX_UNAVAILABLE_HINT, BUY_PLEX, BUY_PLEX_HINT, SELL_PLEX, SELL_PLEX_HINT, LP_COUNT, EM_AMOUNT, EM_EARN, EM_SPEND, LP_LOG, LP_DONATE];
   $effect(() => { if (retail) flow.requestWords([...RETAIL_WORDS, ...PLEX_ACTIONS.map(action => action.label)]); });
 
   let busy = $state(false);
@@ -341,9 +347,10 @@
           <span class="data"><b>{loyalty === null ? tabWord("UI/Journal/JournalWindow/Agents/LoyaltyPoints", "Loyalty Points")
             : loyaltyWord(LP_COUNT, { numLPCorps: loyalty.length }, `${loyalty.length} LP Corporations`)}</b></span>
         </button>
-        <div class="wl-tab small"><span class="ic"><img alt="" src="/client-res/ui/texture/windowicons/evermark_24px.png" /></span>
+        <button type="button" class="wl-tab small currency-tab evermarks-tile" class:sel={currency === "evermarks"}
+          aria-pressed={currency === "evermarks"} onclick={() => (currency = "evermarks")}><span class="ic"><img alt="" src="/client-res/ui/texture/windowicons/evermark_24px.png" /></span>
           <span class="data evermarks-balance"><b>{lpBalances === null ? tabWord("UI/Wallet/WalletWindow/EverMarks", "EverMarks")
-            : loyaltyWord(EM_AMOUNT, { everMarkAmount: evermarks }, `${evermarks.toLocaleString("en-US")} EverMarks`)}</b></span></div>
+            : loyaltyWord(EM_AMOUNT, { everMarkAmount: evermarks }, `${evermarks.toLocaleString("en-US")} EverMarks`)}</b></span></button>
       </div>
     </div>
   {/if}
@@ -373,6 +380,18 @@
           </div>
         </div>
       {/if}
+    </div>
+  {:else if retail && walletTab === "mine" && currency === "evermarks"}
+    <header class="tabs"><span>{tabWord(TAB_WORDS.overview, "Overview")}</span></header>
+    <div class="evermarks-overview">
+      <button type="button" class="evermarks-earn" onclick={() => openAgencyGroup(AGENCY_SCREEN_GROUPS.HERALDRY_AGENTS!)}>
+        <img alt="" src={clientTexture("res:/ui/texture/WindowIcons/evermark_64px.png")} />
+        <span>{tabWord(EM_EARN, "Earn EverMarks")}</span>
+      </button>
+      <button type="button" class="evermarks-spend" onclick={() => showCorporationInfoTab(paragon, TAB_STATIONS)}>
+        <img alt="" src={clientTexture("res:/ui/texture/WindowIcons/lpstore.png")} />
+        <span>{tabWord(EM_SPEND, "Spend EverMarks")}</span>
+      </button>
     </div>
   {:else if retail && walletTab === "mine" && currency === "loyalty"}
     <nav class="tabs loyalty-tabs" aria-label={tabWord("UI/Journal/JournalWindow/Agents/LoyaltyPoints", "Loyalty Points")}>
@@ -449,6 +468,10 @@
 
 <style>
   .currency-tab { padding: 0; color: inherit; text-align: left; }
+  .evermarks-overview { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; padding: 20px 0 8px; }
+  .evermarks-overview button { box-sizing: border-box; width: 128px; min-height: 160px; padding: 12px 6px;
+    display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+  .evermarks-overview img { width: 64px; height: 64px; object-fit: contain; }
   .plex-tab { position: relative; min-width: 0; }
   .plex-select { display: flex; flex: 1; min-width: 0; background: transparent; border: 0; }
   .plex-plus { position: absolute; bottom: 7px; right: 6px; min-width: 20px; height: 20px; padding: 0 3px; }

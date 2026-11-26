@@ -49,6 +49,7 @@ export function subjectOfShowInfoLink(url: string): InfoSubject | null {
 
 /** infoConst.TAB_FREELANCE_PROJECTS: a player corporation's Freelance Projects tab (infosvc.UpdateDataCorp). */
 export const TAB_FREELANCE_PROJECTS = "tab_freelance_projects";
+export const TAB_STATIONS = "tab_stations";
 /** ShowInfo(..., selectTabType=...): the tab a corporation's info window opens on, taken by the window that shows it. */
 export interface InfoTabRequest { readonly corporationID: number; readonly tab: string; readonly atMs: number }
 const tabRequest = createSignal<InfoTabRequest | null>(null);

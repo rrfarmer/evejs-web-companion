@@ -3834,6 +3834,7 @@ export interface AppFlow {
    */
   loadRewards(): Promise<void>;
   walletLoyaltyLocations(issuers: readonly number[]): Promise<ReadonlyMap<number, { factionID: number | null; stationID: number | null }>>;
+  npcCorporationStations(corporationID: number): Promise<readonly { stationID: number; systemID: number; jumps: number | null }[]>;
   /**
    * R50 — the Wallet + Corp Wallet tabs: the personal ISK balance and the
    * corporation division balances, in one pull. Both tabs call this on mount.
@@ -26848,6 +26849,25 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // The three reads are independent on the BFF (Promise.allSettled); a per-read
   // error rides in the `error` field rather than blanking the whole panel. The
   // journal (the fourth Step-12 read) is refreshed separately via loadJournal.
+  async function npcCorporationStations(corporationID: number) {
+    const here = store.station.get().online?.solarSystemID;
+    const [places, distances] = await Promise.all([
+      agentPlacesHeld ?? api.loadAgentPlaces(callOptions),
+      here ? autopilotDistancesFrom(here).catch(() => null) : null,
+    ]);
+    if (!places) throw new Error("The NPC station directory could not be read.");
+    agentPlacesHeld ??= places;
+    const rows = Object.entries(places.stations).flatMap(([stationID, [systemID, ownerID]]) =>
+      ownerID === corporationID ? [{ stationID: Number(stationID), systemID,
+        jumps: systemID === here ? 0 : distances?.get(systemID) ?? null }]
+        : []);
+    requestNames(rows.flatMap(row => [
+      { kind: "station" as const, id: row.stationID }, { kind: "system" as const, id: row.systemID },
+      { kind: "systemConstellation" as const, id: row.systemID }, { kind: "systemRegion" as const, id: row.systemID },
+    ]));
+    return rows;
+  }
+
   async function walletLoyaltyLocations(issuers: readonly number[]) {
     const wanted = new Set(issuers);
     const pilot = store.station.get().online;
@@ -40160,6 +40180,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     loadRewards,
     walletLoyaltyLocations,
+    npcCorporationStations,
 
     loadWallet,
     pilotWealth,
