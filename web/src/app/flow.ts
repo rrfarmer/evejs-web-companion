@@ -1193,7 +1193,7 @@ import { fittingEftString } from "../bridge/fittingExport.ts";
 import { parseFittingFile, reserveImportedFittingName, resolveFittingFileProfile, type FittingFileEntry, type FittingFileType } from "../bridge/fittingFileImport.ts";
 import { decodeAllianceInfo, decodeRankedAlliances, toStr as allianceText, type AllianceInfo, type AllianceInfoExtra } from "../bridge/allianceInfo.ts";
 import { canUseCorporationWalletCurrency, CORPORATION_EVERMARK_MIN_DAYS, EVERMARK_ISSUER } from "../bridge/corporationWalletCurrencies.ts";
-import { readCorporationBills, type CorporationBill, type CorporationBillsView } from "../bridge/corporationBills.ts";
+import { automaticBillSettingsWire, canPayCorporationBills, readAutomaticBillSettings, readCorporationBills, type AutomaticBillSettings, type CorporationBill, type CorporationBillsView } from "../bridge/corporationBills.ts";
 import { aggressionSettingsOf, type AggressionSettings, assertCorpAggressionStatusMethod, corporationPublicInfoOf, enlistmentFactionsOf, isNpcCorporation, type CorporationPublicInfo, type CorporationShowInfo } from "../bridge/ownerInfo.ts";
 import { toNumOrNull as corporationShareNumber } from "../bridge/allianceInfo.ts";
 import { BULK_FIT_SHIPS_CONFIG, fitShips, isShipAssembled, listPlace, maxAvailableAndMissing, maxShipsToFit, personalContainers, qtyInPlaceByTypeIDs } from "../bridge/multiFit.ts";
@@ -3852,6 +3852,9 @@ export interface AppFlow {
   readonly walletBlink: ReadableSignal<WalletBlink | null>;
   readonly corporationBillsChanged: ReadableSignal<number>;
   corporationBills(view: CorporationBillsView): Promise<readonly CorporationBill[]>;
+  corporationAutomaticBillSettings(): Promise<readonly AutomaticBillSettings[]>;
+  saveCorporationAutomaticBillSettings(settings: readonly AutomaticBillSettings[]): Promise<void>;
+  payCorporationBills(bills: readonly CorporationBill[]): Promise<void>;
   readonly walletLpChanged: ReadableSignal<WalletLpChange | null>;
   readonly corporationWalletLpChanged: ReadableSignal<number>;
   /** walletSvc.GetCorpWealth: fresh, None for active division; native UserError becomes0. */
@@ -19526,6 +19529,43 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const latest = store.station.get().online;
     if (!latest || latest.allianceID !== online.allianceID || !canViewCorporateJournal(latest.corpRole)) return [];
     return bills;
+  }
+
+  async function corporationAutomaticBillSettings(): Promise<readonly AutomaticBillSettings[]> {
+    const { online, ask, current } = captureMemberOperation();
+    if (!canViewCorporateJournal(online.corpRole)) throw new Error("Your corporation roles do not allow viewing bills.");
+    const settings = await readAutomaticBillSettings(ask);
+    current();
+    return settings;
+  }
+
+  async function saveCorporationAutomaticBillSettings(settings: readonly AutomaticBillSettings[]): Promise<void> {
+    const { online, write, current } = captureMemberOperation();
+    if (!canPayCorporationBills(online.corpRole) || settings.some(row =>
+      (row.ownerID !== online.corporationID && row.ownerID !== online.allianceID) || !canReceiveCorporationWealth(online.corpRole, row.division))) {
+      throw new Error("Your corporation roles do not allow applying these payment settings.");
+    }
+    await write("billMgr", "SendAutomaticPaySettings", [automaticBillSettingsWire(settings)]);
+    current();
+  }
+
+  async function payCorporationBills(bills: readonly CorporationBill[]): Promise<void> {
+    const { online, write, current } = captureMemberOperation();
+    const key = online.corpAccountKey ?? null;
+    try {
+      for (const bill of bills) {
+        current();
+        const latest = store.station.get().online;
+        if (key === null || !canPayCorporationBills(latest?.corpRole) || !canReceiveCorporationWealth(latest?.corpRole, key)) {
+          throw new Error("Your corporation roles do not allow paying bills from the active division.");
+        }
+        if (bill.paid) continue;
+        if (bill.debtorID === online.corporationID) await write("billMgr", "PayCorporationBill", [bill.id], { fromAccountKey: key });
+        else if (bill.debtorID === latest?.allianceID) await write("allianceRegistry", "PayBill", [bill.id], { fromAccountKey: key });
+      }
+    } finally {
+      corporationBillsChanged.update(revision => revision + 1);
+    }
   }
 
   async function corporationMarketTransactions(accountKey: number | null): Promise<MarketTransactionsRead["transactions"]> {
@@ -40388,6 +40428,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     walletBlink: readonlySignal(walletBlinkSignal),
     corporationBillsChanged: readonlySignal(corporationBillsChanged),
     corporationBills,
+    corporationAutomaticBillSettings,
+    saveCorporationAutomaticBillSettings,
+    payCorporationBills,
     walletLpChanged: readonlySignal(walletLpSignal),
     corporationWalletLpChanged: readonlySignal(corporationWalletLpSignal),
     corporationWealth: accountKey => corporationWealthReads.fresh(accountKey),

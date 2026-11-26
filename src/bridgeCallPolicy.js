@@ -58,6 +58,7 @@ const PLUMBING_SWEEP_WRITE_METHODS = freezeMethodMap({
   charUnboundMgr: ["CancelCharacterDeletePrepare", "ToggleValidation", "CreateCharacterWithDoll", "UpdateCharacterGender", "UpdateCharacterBloodline"],
   LSC: ["SendMessage"],
   account: ["SetContactCost", "GiveCash", "GiveCashFromCorpAccount"],
+  billMgr: ["PayCorporationBill", "SendAutomaticPaySettings"],
   LPSvc: ["ExchangeConcordLP", "TransferLPFromMyWalletToOtherCorp", "TransferLPFromMyCorpWalletToOtherCorp"],
   LPStoreMgr: ["TakeOfferForCharacter", "TakeOfferForCorporation"],
   insuranceSvc: ["InsureShip", "UnInsureShip"],
@@ -955,6 +956,7 @@ function isBridgeWritePair(service, method) {
  *   charMgr.RemoveOwnerNote   RemoveOwnerNote(noteID): that note gone (a folder's notes deleted, a setting's spare part).
  */
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
+  "billMgr.PayCorporationBill", "billMgr.SendAutomaticPaySettings", "allianceRegistry.PayBill",
   "invbroker.WithdrawPlexFromVault", "invbroker.DepositPlexToVault", "marketProxy.PlacePlexSellOrder",
   "ownerGroupManager.Create", "ownerGroupManager.UpdateName", "ownerGroupManager.UpdateDescription", "ownerGroupManager.Delete",
   "ownerGroupManager.AddMembers", "ownerGroupManager.UpdateMembershipTypes", "ownerGroupManager.DeleteMembers",
