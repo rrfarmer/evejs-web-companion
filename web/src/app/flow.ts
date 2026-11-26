@@ -4602,6 +4602,7 @@ export interface AppFlow {
   createStructureProfile(name: string, description: string): Promise<number>;
   updateStructureProfile(profileID: number, name: string, description: string): Promise<void>;
   duplicateStructureProfile(profileID: number): Promise<void>;
+  deleteStructureProfile(profileID: number): Promise<boolean>;
   startMoonPull(structureID: number, readyAtMs: number, addToCalendar: boolean): Promise<void>;
   controlMoonPull(structureID: number, extractionID: number, action: "fracture" | "cancel"): Promise<void>;
   loadCorporationMiningObservers(): Promise<readonly MiningLedgerObserver[]>;
@@ -29097,6 +29098,43 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
+  async function deleteStructureProfile(profileID: number): Promise<boolean> {
+    const scope = captureMemberOperation();
+    requireStructureProfileManager(scope);
+    const [profiles, directory] = await Promise.all([
+      scope.ask("structureProfiles", "GetProfiles", []),
+      scope.ask("structureDirectory", "GetCorporationStructures", []),
+    ]);
+    requireStructureProfileManager(scope);
+    const target = decodeStructureProfiles(profiles).get(profileID);
+    if (!target) throw new Error("This corporation profile is unavailable.");
+    const numStructures = decodeCorporationStructures(directory)
+      .filter(row => row.ownerID === scope.online.corporationID && row.profileID === profileID).length;
+    const inUse = "CannotDeleteStructureProfileInUse";
+    const inUseFallback = "Assign different profiles to the structures using this profile before deleting it.";
+    if (numStructures > 0) {
+      sayDialog(inUse, { type: "dict", entries: [["numStructures", numStructures]] }, inUseFallback, "error");
+      return false;
+    }
+    const dialog = "DeleteStructureProfile";
+    await wordsNow([`dialog:${dialog}/title`, `dialog:${dialog}/body`]).catch(() => {});
+    requireStructureProfileManager(scope);
+    if (!await askDialog(dialog, null, "This Profile belongs to your corporation. Are you sure you want to delete it?")) return false;
+    requireStructureProfileManager(scope);
+    try {
+      await scope.write("structureProfiles", "DeleteProfile", [profileID]);
+    } catch (cause) {
+      scope.current();
+      if (refusalDialogOf(cause)?.dialog !== inUse) throw cause;
+      sayRefusalDialog(cause, inUseFallback);
+      return false;
+    }
+    const remaining = await scope.ask("structureProfiles", "GetProfiles", []);
+    scope.current();
+    if (decodeStructureProfiles(remaining).has(profileID)) throw new Error("The profile could not be deleted.");
+    return true;
+  }
+
   async function assignStructureProfile(structureIDs: readonly number[], profileID: number): Promise<void> {
     const scope = captureMemberOperation();
     const ids = new Set(structureIDs);
@@ -40946,6 +40984,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     createStructureProfile,
     updateStructureProfile,
     duplicateStructureProfile,
+    deleteStructureProfile,
     startMoonPull,
     controlMoonPull,
     loadCorporationMiningObservers,

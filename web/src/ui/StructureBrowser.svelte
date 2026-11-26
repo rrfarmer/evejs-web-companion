@@ -99,6 +99,7 @@
     confirmProfile: ["UI/StructureProfiles/CreateProfileBtn", "Create"],
     editProfile: ["UI/StructureBrowser/EditNameAndDescription", "Edit Name and Description"],
     duplicateProfile: ["UI/StructureBrowser/DuplicateProfile", "Duplicate Profile"],
+    deleteProfile: ["UI/StructureBrowser/DeleteProfile", "Delete Profile"],
     editProfileTitle: ["UI/StructureProfiles/EditProfileName", "Edit Profile"],
     saveProfile: ["UI/StructureProfiles/EditProfileNameBtn", "Edit Profile"],
     profileName: ["UI/StructureProfiles/ProfileName", "Profile Name"],
@@ -276,6 +277,22 @@
     try {
       await flow.duplicateStructureProfile(profileID);
       directoryRevision++;
+    } catch (cause) {
+      actionError = panelErrorWords(cause);
+    } finally {
+      profileBusy = false;
+    }
+  }
+
+  async function deleteProfile(profileID: number): Promise<void> {
+    if (profileBusy || profileEditor !== null || !canManage) return;
+    profileBusy = true;
+    actionError = "";
+    try {
+      if (await flow.deleteStructureProfile(profileID)) {
+        profile = null;
+        directoryRevision++;
+      }
     } catch (cause) {
       actionError = panelErrorWords(cause);
     } finally {
@@ -530,6 +547,7 @@
           {@const target = selectedProfile}
           <button type="button" disabled={profileBusy || profileEditor !== null} onclick={() => openProfileEditor(target)}>{word("editProfile")}</button>
           <button type="button" disabled={profileBusy || profileEditor !== null} onclick={() => void duplicateProfile(target.id)}>{word("duplicateProfile")}</button>
+          <button type="button" disabled={profileBusy || profileEditor !== null} onclick={() => void deleteProfile(target.id)}>{word("deleteProfile")}</button>
         {/if}
         <label><input type="checkbox" bind:checked={onlyLowPower} /> {word("lowPower")}</label>
         <label>Search <input type="search" bind:value={ownedSearch} /></label>
