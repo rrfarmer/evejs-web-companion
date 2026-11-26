@@ -30,6 +30,9 @@
     shadeReverse: ["UI/Common/ColorShadeReversed", "Color Shade Reversed"],
     buy: [prefix + "Studio/BuyElement", "Buy Element"],
     market: ["UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details"],
+    firstPage: ["UI/Common/FirstPage", "First Page"],
+    previousPage: ["UI/Common/PreviousPage", "Previous Page"],
+    nextPage: ["UI/Common/NextPage", "Next Page"],
   } as const;
   const sections = ["nanocoatings", "metallics", "patterns"] as const;
   const finishes = ["any", "matte", "satin", "gloss"] as const;
@@ -85,6 +88,7 @@
       lastPilot = character;
       buying = null;
       notice = "";
+      firstPage();
     }
     rows = [];
     error = "";
@@ -192,9 +196,10 @@
   </div>
   {#if pageCount > 1}
     <nav class="pages" aria-label="Design element pages">
-      <button type="button" disabled={page === 1} onclick={() => { page--; selected = null; }}>Previous</button>
+      <button type="button" disabled={page === 1} onclick={firstPage}>{word("firstPage")}</button>
+      <button type="button" disabled={page === 1} onclick={() => { page--; selected = null; }}>{word("previousPage")}</button>
       <span>Page {page} of {pageCount}</span>
-      <button type="button" disabled={page === pageCount} onclick={() => { page++; selected = null; }}>Next</button>
+      <button type="button" disabled={page === pageCount} onclick={() => { page++; selected = null; }}>{word("nextPage")}</button>
     </nav>
   {/if}
 </section>
