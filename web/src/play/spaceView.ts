@@ -1157,6 +1157,7 @@ export class SpaceView {
   /** The Skills tooltip's training rows (Neocom.skillTip). */
   neocomSkillTip(read: Neocom["skillTip"]): void { if (this.neocom) this.neocom.skillTip = read; }
   neocomWalletTip(read: Neocom["walletTip"]): void { if (this.neocom) this.neocom.walletTip = read; }
+  neocomWalletBalanceUpdate(change: Parameters<Neocom["walletBalanceUpdate"]>[0]): void { this.neocom?.walletBalanceUpdate(change); }
   neocomSkillCompleted(): void { this.neocom?.playSkillCompletion(); }
   neocomPlanCompleted(): void { this.neocom?.playPlanCompletion(); }
   private readonly shipHud: ShipHud | NewShipHud = hudSettingNow("shipHudNew_preview") ? new NewShipHud() : new ShipHud({ slots: { hi: 0, med: 0, low: 0 } });

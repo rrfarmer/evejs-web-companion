@@ -144,7 +144,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { canReceiveCorporationWealth } from "../bridge/corporationWealth.ts";
   import { formatWalletCents, formatWholeIsk } from "./isk.ts";
-  import { walletShowsCents } from "./walletSettings.ts";
+  import { walletSetting, walletShowsCents } from "./walletSettings.ts";
   import { canClaimNow } from "../bridge/loginRewards.ts";
   import { seasonalClaimable } from "../bridge/seasonalCampaigns.ts";
   import { dronesToLaunch, watchLaunches, DRONE_DRAG_TYPE, INV_FROM_DRAG_TYPE, INV_ITEMS_DRAG_TYPE, type DroneDragPayload, type InvItemsDragPayload } from "./droneGroups.ts";
@@ -1062,6 +1062,8 @@
   let neocomInst = $state<Neocom | null>(null);
   const WALLET_BALANCE_LABEL = "Tooltips/Neocom/Balance";
   const CORPORATION_BALANCE_LABEL = "Tooltips/Neocom/CorporationBalance";
+  const WALLET_CREDIT_LABEL = "Tooltips/Neocom/WalletCredit";
+  const WALLET_DEBIT_LABEL = "Tooltips/Neocom/WalletDebit";
   const readWalletTip: NonNullable<Neocom["walletTip"]> = async () => {
     const currentSession = session;
     const pilot = currentSession?.store.station.get().online;
@@ -1088,8 +1090,32 @@
     return rows;
   };
   $effect(() => {
-    session?.flow.requestWords([WALLET_BALANCE_LABEL, CORPORATION_BALANCE_LABEL]);
+    session?.flow.requestWords([WALLET_BALANCE_LABEL, CORPORATION_BALANCE_LABEL, WALLET_CREDIT_LABEL, WALLET_DEBIT_LABEL]);
     if (neocomInst) neocomInst.walletTip = readWalletTip;
+  });
+  $effect(() => {
+    const current = session;
+    if (!current) return;
+    const changes = current.flow.personalWalletChanged;
+    let previous = changes.get();
+    return changes.subscribe((change) => {
+      if (previous === change) return;
+      previous = change;
+      if (!change || stage !== "game" || current.store.station.get().online?.characterID !== change.characterID) return;
+      const magnitude = Math.abs(change.difference);
+      if (magnitude < 1 || magnitude < walletSetting(change.characterID, "iskNotifyThreshold") ||
+          !walletSetting(change.characterID, "walletShowBalanceUpdates")) return;
+      const templates = current.store.words.get().templates;
+      const word = (label: string, fallback: string) => plainText(templates[label] ?? "") || fallback;
+      const update = {
+        ...change,
+        balanceLabel: word(WALLET_BALANCE_LABEL, "ISK Balance"),
+        creditLabel: word(WALLET_CREDIT_LABEL, "Credit"),
+        debitLabel: word(WALLET_DEBIT_LABEL, "Debit"),
+      };
+      if (docked) neocomInst?.walletBalanceUpdate(update);
+      else view?.neocomWalletBalanceUpdate(update);
+    });
   });
   // ButtonSkillsTooltipPanel's training rows: the queue's head (skillqueue.SkillInTraining), its name and next level in
   // Roman, the time left (GetTimeLeftToTrainText: FormatTimeIntervalShortWritten from day to hour over a day, minute over

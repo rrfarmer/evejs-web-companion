@@ -3820,6 +3820,7 @@ export interface AppFlow {
   loadWallet(how?: { readonly fresh?: boolean }): Promise<void>;
   /** The pilot's own ISK as the client keeps it (walletSvc.py wealth); null where it could not be read. */
   pilotWealth(): Promise<number | null>;
+  readonly personalWalletChanged: ReadableSignal<{ readonly characterID: number; readonly balance: number; readonly difference: number } | null>;
   /** walletSvc.GetCorpWealth: fresh, None for active division; native UserError becomes0. */
   corporationWealth(accountKey?: number | null): Promise<number>;
   /** walletSvc.GetCorpWealthCached1Min, keyed separately from fresh window reads. */
@@ -7152,6 +7153,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // The wallet's reads, asked call by call as the client's wallet and account services ask them
   // (bridge/walletReads.ts), with what those services keep kept for this pilot.
   const walletReads = createWalletReads(bridgeAsk);
+  const personalWalletSignal = createSignal<{ characterID: number; balance: number; difference: number } | null>(null);
   const corporationWealthSignal = createSignal<CorporationWealthChange | null>(null);
   const incursionSignal = createSignal<IncursionData | null>(null);
   const corporationWealthReads = createCorporationWealth({
@@ -7178,6 +7180,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     cameraTaskReporter.reset();
     // accountsvc.ProcessSessionChange: another character, and what the account service kept was the last one's.
     walletReads.forget();
+    personalWalletSignal.set(null);
     corporationWealthReads.forget();
     corporationWealthSignal.set(null);
     closeMoneyTransfer();
@@ -7236,6 +7239,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // R10: the session is live, so open the push channel before the docked
     // reads — anything the reads trigger is then already being observed.
     startLiveStream();
+    void walletReads.wealth().catch(() => {});
     void retryDroneRecovery();
     void loadCrimewatch().catch(() => {});
     void loadCloneGrade().catch(() => {});
@@ -8009,13 +8013,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // kept, asking only for what is not.
     if (method === "OnAccountChange") {
       const online = store.station.get().online;
-      walletReads.accountChanged(args[0], args[1], (args[2] ?? null) as JsonValue, {
+      const personal = walletReads.accountChanged(args[0], args[1], (args[2] ?? null) as JsonValue, {
         characterID: online?.characterID ?? null,
         corporationID: online?.corporationID ?? null,
       });
-      if (args[0] === "cash" && Number(args[1]) === online?.characterID && args[2] !== null && args[2] !== undefined) {
-        const digits = toAmountString(args[2] as JsonValue), balance = digits === null ? Number.NaN : Number(digits);
-        if (Number.isFinite(balance)) updateTransferWealth(balance);
+      if (personal && online) {
+        updateTransferWealth(personal.balance);
+        if (personal.difference !== null) {
+          personalWalletSignal.set({ characterID: online.characterID, balance: personal.balance, difference: personal.difference });
+        }
       }
       void corporationWealthReads.accountChanged(args[0], args[1], (args[2] ?? null) as JsonValue, {
         corporationID: online?.corporationID ?? null,
@@ -39859,6 +39865,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     loadWallet,
     pilotWealth,
+    personalWalletChanged: readonlySignal(personalWalletSignal),
     corporationWealth: accountKey => corporationWealthReads.fresh(accountKey),
     cachedCorporationWealth: accountKey => corporationWealthReads.cached(accountKey),
     corporationWealthChanged: readonlySignal(corporationWealthSignal),

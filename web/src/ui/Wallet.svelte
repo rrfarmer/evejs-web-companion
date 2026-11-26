@@ -18,7 +18,7 @@
   import { BridgeCallError } from "../bridge/callMethod.ts";
   import { isSessionLost } from "../app/flow.ts";
   import { formatWalletCents, formatWholeIsk } from "./isk.ts";
-  import { setWalletShowsCents, walletShowsCents } from "./walletSettings.ts";
+  import { setWalletSetting, setWalletShowsCents, walletSetting, walletShowsCents } from "./walletSettings.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
@@ -70,8 +70,18 @@
   const retail = getContext("retailChrome") === true;
   let walletTab = $state<"mine" | "settings">("mine");
   const SHOW_CENTS = "UI/Wallet/WalletWindow/WalletShowCents";
+  const SHOW_BALANCE_UPDATES = "UI/Wallet/WalletWindow/Configuration/WalletShowBalanceChange";
+  const BALANCE_THRESHOLD = "UI/Wallet/WalletWindow/Configuration/WalletBalanceChangeThreshold";
+  const balanceUpdatesEnabled = $derived(walletSetting(characterID, "walletShowBalanceUpdates"));
+  const balanceThreshold = $derived(walletSetting(characterID, "iskNotifyThreshold"));
+  function editBalanceThreshold(input: HTMLInputElement): void {
+    if (characterID === null || !/^-?\d*$/.test(input.value) || input.value === "-") return;
+    const value = Math.min(Math.abs(Number(input.value)), 2_147_483_647);
+    setWalletSetting(characterID, "iskNotifyThreshold", value);
+  }
   const RETAIL_WORDS = ["UI/Wallet/WalletWindow/MyWallet", "UI/Common/Settings", "UI/Common/ISK", "UI/Common/PLEX",
-    "UI/Journal/JournalWindow/Agents/LoyaltyPoints", "UI/Wallet/WalletWindow/EverMarks", "UI/Wallet/WalletWindow/ISKDescription", SHOW_CENTS];
+    "UI/Journal/JournalWindow/Agents/LoyaltyPoints", "UI/Wallet/WalletWindow/EverMarks", "UI/Wallet/WalletWindow/ISKDescription",
+    SHOW_CENTS, SHOW_BALANCE_UPDATES, BALANCE_THRESHOLD];
   $effect(() => { if (retail) flow.requestWords(RETAIL_WORDS); });
 
   let busy = $state(false);
@@ -118,11 +128,24 @@
       <button type="button" class:active={walletTab === "settings"} onclick={() => (walletTab = "settings")}>{tabWord("UI/Common/Settings", "Settings")}</button>
     </nav>
     {#if walletTab === "settings"}
-      <label class="wallet-cents">
-        <input type="checkbox" checked={showCents} disabled={characterID === null}
-          onchange={(event) => { if (characterID !== null) setWalletShowsCents(characterID, event.currentTarget.checked); }} />
-        {tabWord(SHOW_CENTS, "Show ISK Cents on Amounts")}
-      </label>
+      <div class="wallet-settings">
+        <label class="wallet-cents">
+          <input type="checkbox" checked={showCents} disabled={characterID === null}
+            onchange={(event) => { if (characterID !== null) setWalletShowsCents(characterID, event.currentTarget.checked); }} />
+          {tabWord(SHOW_CENTS, "Show ISK Cents on Amounts")}
+        </label>
+        <label class="wallet-balance-updates">
+          <input type="checkbox" checked={balanceUpdatesEnabled} disabled={characterID === null}
+            onchange={(event) => { if (characterID !== null) setWalletSetting(characterID, "walletShowBalanceUpdates", event.currentTarget.checked); }} />
+          {tabWord(SHOW_BALANCE_UPDATES, "Live Balance Updates")}
+        </label>
+        <label class="wallet-balance-threshold">
+          {tabWord(BALANCE_THRESHOLD, "Suppress if balance change under:")}
+          <input type="text" inputmode="numeric" value={balanceThreshold} disabled={characterID === null}
+            oninput={(event) => editBalanceThreshold(event.currentTarget)}
+            onblur={(event) => { event.currentTarget.value = String(balanceThreshold); }} />
+        </label>
+      </div>
     {/if}
     <div class="wl-tabs" hidden={walletTab !== "mine"}>
       <div class="wl-tab sel">
@@ -194,6 +217,8 @@
 </section>
 
 <style>
-  .wallet-cents { display: flex; align-items: center; gap: 8px; }
+  .wallet-settings { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+  .wallet-settings label { display: flex; align-items: center; gap: 8px; }
+  .wallet-balance-threshold input { width: 9em; }
 </style>
 

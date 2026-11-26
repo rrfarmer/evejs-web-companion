@@ -43,6 +43,7 @@
 // THE ROUTE STILL STANDS (src/server.js). Nothing of the page's asks it now.
 
 import { failsTheReading, failureCode as codeOf, type Ask } from "./ask.ts";
+import { toAmountString } from "./rewards.ts";
 import type { JsonValue } from "./wire.ts";
 
 export type { Ask } from "./ask.ts";
@@ -91,11 +92,16 @@ export interface WalletReads {
    * The server's word that an account changed: OnAccountChange(accountKey, ownerID, balance). `whose` is the pilot
    * and its corporation, to tell its own accounts from another's.
    */
-  accountChanged(accountKey: unknown, ownerID: unknown, balance: JsonValue, whose: { readonly characterID: number | null; readonly corporationID: number | null }): void;
+  accountChanged(accountKey: unknown, ownerID: unknown, balance: JsonValue, whose: { readonly characterID: number | null; readonly corporationID: number | null }): PersonalWalletChange | null;
   /** The server's word that the corporation changed: its row is asked for again when next wanted. */
   corporationChanged(): void;
   /** The pilot is another one: what was kept was the last one's. */
   forget(): void;
+}
+
+export interface PersonalWalletChange {
+  readonly balance: number;
+  readonly difference: number | null;
 }
 
 export interface WalletDeps {
@@ -182,7 +188,19 @@ export function createWalletReads(ask: Ask, deps: WalletDeps = {}): WalletReads 
   const now = deps.now ?? (() => Date.now());
   const cash = (): Promise<JsonValue> => ask("account", "GetCashBalance", [0]);
   const kinds = keptOnce(() => ask("account", "GetEntryTypes", []));
-  const wealth = keptOnce(cash);
+  let personalBalance: number | null = null;
+  let personalRevision = 0;
+  function balanceNumber(value: JsonValue): number | null {
+    const digits = toAmountString(value);
+    const balance = digits === null ? Number.NaN : Number(digits);
+    return Number.isFinite(balance) ? balance : null;
+  }
+  const wealth = keptOnce(async () => {
+    const revision = personalRevision;
+    const value = await cash();
+    if (revision === personalRevision) personalBalance = balanceNumber(value);
+    return value;
+  });
   // accountsvc.transactionCache: each period's journal, kept by its year and month, all let go together.
   const periods = new Map<string, Kept>();
   const corporatePeriods = new Map<string, Kept>();
@@ -262,20 +280,28 @@ export function createWalletReads(ask: Ask, deps: WalletDeps = {}): WalletReads 
       // accountsvc.OnAccountChange (64): whichever account it was, the transactions kept are out of date.
       forgetLedgers();
       // walletSvc.OnAccountChange (80): `if balance is not None`.
-      if (balance === null || balance === undefined) return;
+      if (balance === null || balance === undefined) return null;
       const owner = Number(ownerID);
       if (accountKey === CASH && owner === whose.characterID) {
         // _OnCharAccountChange: the pilot's ISK is what the server says, with nothing asked.
         wealth.put(balance);
+        personalRevision++;
+        const value = balanceNumber(balance);
+        const previous = personalBalance;
+        personalBalance = value;
+        if (value !== null) return { balance: value, difference: previous === null ? null : value - previous };
       } else if (CORPORATION_ACCOUNTS.has(accountKey) && owner === whose.corporationID) {
         divisionsKept.forget();
       }
+      return null;
     },
     corporationChanged() {
       corporationRow.forget();
       for (const each of corporatePeriods.values()) each.forget();
     },
     forget() {
+      personalRevision++;
+      personalBalance = null;
       for (const each of [kinds, wealth, corporationRow, divisionsKept]) each.forget();
       forgetLedgers();
     },

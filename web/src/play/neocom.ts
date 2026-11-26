@@ -6,6 +6,7 @@ import { clientTexture } from "./window.ts";
 import { shortcutOf } from "./shortcutKeys.ts";
 import { hideLabelShortcutTooltip, showLabelShortcutTooltip, tooltipDue, showSkillTrainingTooltip, type SkillTrainingTip, type TooltipValue } from "./labelShortcutTooltip.ts";
 import { playUiEvent } from "./uiAudio.ts";
+import { WalletBalancePopup, type WalletBalanceUpdate } from "./walletBalancePopup.ts";
 import type { SkillsState } from "../store/types.ts";
 
 /**
@@ -197,6 +198,10 @@ export class Neocom {
   private readonly indicators = new Map<string, HTMLElement>();
   /** The buttons by id, for their blink. */
   private readonly buttons = new Map<string, HTMLElement>();
+  private readonly walletPopup = new WalletBalancePopup(() => {
+    const button = this.buttons.get("wallet");
+    return button && button.style.visibility !== "hidden" ? button : this.portrait;
+  });
   private windowStates: ReadonlyMap<string, "open" | "active"> = new Map();
   /**
    * btnDataNode's blink: SetBlinkingOn - NUM_BLINKS 3 (each neocomSvc blink pulse, BLINK_INTERVAL 1 s, BlinkOnce: the
@@ -391,7 +396,12 @@ export class Neocom {
   /** The EVE menu's panels, on the page's body. */
   private menuParts: HTMLElement[] = [];
   /** Takes the EVE menu's panels off the page. */
-  dispose(): void { for (const el of this.menuParts) el.remove(); if (this.pulseTimer) clearInterval(this.pulseTimer); }
+  walletBalanceUpdate(change: WalletBalanceUpdate): void { this.walletPopup.add(change); }
+  dispose(): void {
+    this.walletPopup.dispose();
+    for (const el of this.menuParts) el.remove();
+    if (this.pulseTimer) clearInterval(this.pulseTimer);
+  }
   private indicator(id: string): HTMLElement {
     const ind = document.createElement("span");
     ind.className = "nc-ind";
