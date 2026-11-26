@@ -8347,6 +8347,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         corpWalletJournalGeneration += 1;
         corpWalletJournalSignal.set(NO_CORP_WALLET_JOURNAL);
         walletReads.corporationChanged();
+        if (store.wallet.get().loaded) void loadWallet().catch(() => {});
         containerReadGeneration += 1;
         const open = store.inventory.get().container;
         if (open && (open.safety || safetyWrapAncestor(open.itemID, safetyItemCache) !== null)) store.apply({ type: "inventory/container", container: null });
@@ -27229,7 +27230,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   async function loadWallet(how: { readonly fresh?: boolean } = {}): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    const scope = store.station.get().online;
     const reads = await walletReads.read(how);
+    current();
+    const online = store.station.get().online;
+    if (scope?.corporationID !== online?.corporationID || scope?.corpRole !== online?.corpRole) return;
     const corpFailed = reads.errors.divisions !== null;
     const corpError = [
       reads.errors.divisions ? `corp wallet: ${reads.errors.divisions}` : null,

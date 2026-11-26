@@ -1158,6 +1158,10 @@ export function createClientStore(): ClientStore {
         const current = station.get();
         if (current.online === null) break;
         const { type: _type, ...changed } = event;
+        if (("corporationID" in changed && changed.corporationID !== current.online.corporationID) ||
+            ("corpRole" in changed && changed.corpRole !== current.online.corpRole)) {
+          wallet.set({ ...wallet.get(), corpDivisions: null, corpError: null });
+        }
         station.set({ ...current, online: { ...current.online, ...changed } });
         break;
       }

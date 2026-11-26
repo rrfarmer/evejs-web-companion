@@ -297,6 +297,7 @@ export function createWalletReads(ask: Ask, deps: WalletDeps = {}): WalletReads 
     },
     corporationChanged() {
       corporationRow.forget();
+      divisionsKept.forget();
       for (const each of corporatePeriods.values()) each.forget();
     },
     forget() {

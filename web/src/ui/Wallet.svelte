@@ -39,6 +39,9 @@
   import WalletIncursionLog from "./WalletIncursionLog.svelte";
   import WalletDonateLp from "./WalletDonateLp.svelte";
   import WalletDonateEvermarks from "./WalletDonateEvermarks.svelte";
+  import CorpWallet from "./CorpWallet.svelte";
+  import { hasAccessToCorporationWallet } from "../bridge/corporationWealth.ts";
+  import { isNpcCorporation } from "../bridge/ownerInfo.ts";
   import { AGENCY_SCREEN_GROUPS } from "./agencyContentGroups.ts";
   import { openAgencyGroup } from "./agencyRequests.ts";
   import { showCorporationInfoTab, TAB_STATIONS } from "./showInfo.ts";
@@ -90,7 +93,13 @@
    * Give ISK).
    */
   const retail = getContext("retailChrome") === true;
-  let walletTab = $state<"mine" | "settings">("mine");
+  let walletTab = $state<"mine" | "corporation" | "settings">("mine");
+  const corporationID = $derived($station.online?.corporationID ?? null);
+  const corporationAllowed = $derived(corporationID !== null && !isNpcCorporation(corporationID) &&
+    hasAccessToCorporationWallet($station.online?.corpRole));
+  $effect(() => {
+    if (!corporationAllowed && walletTab === "corporation") walletTab = "mine";
+  });
   let currency = $state<"isk" | "plex" | "loyalty" | "evermarks">("isk");
   let loyaltyTab = $state<"overview" | "incursions" | "donate">("overview");
   let evermarksTab = $state<"overview" | "donate">("overview");
@@ -264,10 +273,20 @@
        moved to the band every other window keeps its controls in. -->
   {#if retail}
     <nav class="tabs wl-head-tabs">
-      <button type="button" class:active={walletTab === "mine"} onclick={() => (walletTab = "mine")}>{tabWord("UI/Wallet/WalletWindow/MyWallet", "My Wallet")}</button>
-      <button type="button" class:active={walletTab === "settings"} onclick={() => (walletTab = "settings")}>{tabWord("UI/Common/Settings", "Settings")}</button>
+      <button type="button" class:active={walletTab === "mine"} aria-pressed={walletTab === "mine"}
+        onclick={() => (walletTab = "mine")}>{tabWord("UI/Wallet/WalletWindow/MyWallet", "My Wallet")}</button>
+      {#if corporationAllowed}
+        <button type="button" class:active={walletTab === "corporation"} aria-pressed={walletTab === "corporation"}
+          onclick={() => (walletTab = "corporation")}>{tabWord(CORP_WALLET, "Corporation Wallet")}</button>
+      {/if}
+      <button type="button" class:active={walletTab === "settings"} aria-pressed={walletTab === "settings"}
+        onclick={() => (walletTab = "settings")}>{tabWord("UI/Common/Settings", "Settings")}</button>
     </nav>
-    {#if walletTab === "settings"}
+    {#if walletTab === "corporation" && corporationAllowed}
+      {#key `${characterID}:${corporationID}`}
+        <CorpWallet {store} {flow} embedded />
+      {/key}
+    {:else if walletTab === "settings"}
       <div class="wallet-settings">
         <label class="wallet-personal-isk-blink">
           <input type="checkbox" checked={walletSetting(characterID, "notifyAccountChange")} disabled={characterID === null}

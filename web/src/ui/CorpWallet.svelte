@@ -23,8 +23,9 @@
   import WalletShares from "./WalletShares.svelte";
   import WalletJournal from "./WalletJournal.svelte";
   import { canViewCorporateJournal } from "../bridge/walletJournal.ts";
+  import { canReceiveCorporationWealth } from "../bridge/corporationWealth.ts";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, embedded = false }: { store: ClientStore; flow: AppFlow; embedded?: boolean } = $props();
 
   // svelte-ignore state_referenced_locally
   const wallet = store.wallet;
@@ -36,6 +37,11 @@
   const sharesAllowed = $derived(canViewCorporateShares($station.online?.corpRole));
   const journalAllowed = $derived(canViewCorporateJournal($station.online?.corpRole));
   let tab = $state<"divisions" | "shares" | "transactions">("divisions");
+  const activeKey = $derived($station.online?.corpAccountKey ?? null);
+  const divisionReadable = $derived(activeKey !== null && canReceiveCorporationWealth($station.online?.corpRole, activeKey));
+  let divisionBalance = $state<number | null>(null);
+  let divisionError = $state("");
+  let divisionRefresh = $state(0);
   const labels = {
     shares: "UI/Corporations/CorpUIHome/Shares",
     divisions: "UI/Wallet/WalletWindow/TabWalletDivisions",
@@ -69,6 +75,10 @@
 
   // The button asks the server again; the window opening takes what is kept (bridge/walletReads.ts).
   function refresh(): void {
+    if (embedded && !journalAllowed) {
+      divisionRefresh++;
+      return;
+    }
     void run(async () => {
       if (tab === "shares" && sharesAllowed) await flow.loadWalletShares(true);
       else {
@@ -79,7 +89,18 @@
   }
 
   onMount(() => {
-    void run(() => flow.loadWallet());
+    if (embedded) tab = "transactions";
+    else void run(() => flow.loadWallet());
+  });
+  $effect(() => {
+    void divisionRefresh;
+    if (!embedded || journalAllowed || !divisionReadable || activeKey === null) return;
+    let current = true;
+    divisionBalance = null;
+    divisionError = "";
+    void flow.corporationWealth(activeKey).then(balance => { if (current) divisionBalance = balance; })
+      .catch(cause => { if (current) divisionError = panelErrorWords(cause); });
+    return () => { current = false; };
   });
 
   // The player-authored division name, or a plain "Division N" fallback — never
@@ -89,7 +110,7 @@
   }
 </script>
 
-<section class="panel">
+<section class="panel corp-wallet-panel">
   <!-- ⚠ REFRESH LIVES IN THE STRIP, NOT AT THE BOTTOM OF THE PAGE. It used
        to be a bare <p><button> after the last section, so this window put its
        one action somewhere no other window puts one — below content of
@@ -97,7 +118,7 @@
        everything to reach it. Nothing was added or taken away; the control
        moved to the band every other window keeps its controls in. -->
   <header class="panel-head">
-    <h2 class="panel-title">Corp Wallet</h2>
+    {#if !embedded}<h2 class="panel-title">Corp Wallet</h2>{/if}
     <span class="controls">
       <button type="button" disabled={busy} onclick={refresh}>Refresh</button>
     </span>
@@ -106,23 +127,32 @@
   {#if error}
     <p class="error">Could not read the corp wallet: {error}</p>
   {/if}
-  {#if $wallet.corpError}
+  {#if journalAllowed && $wallet.corpError}
     <p class="error">The corp wallet read failed: {$wallet.corpError}</p>
   {/if}
 
+  {#if journalAllowed || sharesAllowed}
   <nav class="tabs" aria-label="Corporation wallet">
     {#if journalAllowed}
-      <button type="button" class:active={tab === "transactions"} onclick={() => (tab = "transactions")}>{word(labels.transactions, "Transactions")}</button>
+      <button type="button" class:active={tab === "transactions"} aria-pressed={tab === "transactions"}
+        onclick={() => (tab = "transactions")}>{word(labels.transactions, "Transactions")}</button>
     {/if}
     {#if sharesAllowed}
-      <button type="button" class:active={tab === "shares"} onclick={() => (tab = "shares")}>{word(labels.shares, "Shares")}</button>
+      <button type="button" class:active={tab === "shares"} aria-pressed={tab === "shares"}
+        onclick={() => (tab = "shares")}>{word(labels.shares, "Shares")}</button>
     {/if}
     {#if journalAllowed}
-      <button type="button" class:active={tab === "divisions"} onclick={() => (tab = "divisions")}>{word(labels.divisions, "Wallet Divisions")}</button>
+      <button type="button" class:active={tab === "divisions"} aria-pressed={tab === "divisions"}
+        onclick={() => (tab = "divisions")}>{word(labels.divisions, "Divisions")}</button>
     {/if}
   </nav>
+  {/if}
 
-  {#if !journalAllowed}
+  {#if !journalAllowed && embedded && divisionReadable}
+    {#if divisionError}<p role="alert">{divisionError}</p>
+    {:else if divisionBalance === null}<p role="status">Reading the active division…</p>
+    {:else}<p class="corp-division-balance">{showCents ? formatWalletCents(String(divisionBalance)) : formatWholeIsk(String(divisionBalance), "truncate")}</p>{/if}
+  {:else if !journalAllowed}
     <p class="empty">Your corporation roles do not allow viewing wallet records.</p>
   {:else if tab === "transactions"}
     <WalletJournal {store} {flow} corporate />
