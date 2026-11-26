@@ -47,10 +47,13 @@ export function sessionChangeValue(method: string | null, args: readonly unknown
   return undefined;
 }
 
-/** A whole number as the wire gives one, a number or a long's digits, as its digits; null for none or any other. */
+/** Session numbers can be JSON numbers, gateway decimal strings, or marshaled longs. */
 export function wholeDigits(value: unknown): string | null {
   if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
     return String(value);
+  }
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    return value;
   }
   if (typeof value === "bigint" && value >= 0n) {
     return value.toString();

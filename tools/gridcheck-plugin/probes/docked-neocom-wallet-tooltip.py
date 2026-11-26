@@ -13,6 +13,8 @@ class Tooltip(object):
 
 def observe():
     station_id = session.stationid
+    actual_account_key = session.corpAccountKey
+    actual_role = str(session.corprole)
     actual = Tooltip()
     neocomTooltips.LoadTooltipPanel(actual, KeyVal(id='wallet'))
     personal = 1939882211.6
@@ -61,7 +63,8 @@ def observe():
                                  rows=tooltip.rows, corporationReads=list(calls)))
         other = Tooltip()
         neocomTooltips.LoadTooltipPanel(other, KeyVal(id='inventory'))
-        return dict(station=station_id, actual=actual.rows, personal=personal, balances=balances,
+        return dict(station=station_id, actual=actual.rows, actualAccountKey=actual_account_key,
+                    actualRole=actual_role, personal=personal, balances=balances,
                     cases=readings, other=other.rows)
     finally:
         for module, name, value in original:

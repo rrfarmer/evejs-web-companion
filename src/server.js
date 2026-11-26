@@ -2292,8 +2292,7 @@ function selectedCharacterAnswer(characterID, session) {
     structureID: session.structureID === undefined ? null : session.structureID,
     solarSystemID: session.solarSystemID === undefined ? null : session.solarSystemID,
     corporationID: session.corporationID === undefined ? null : session.corporationID,
-    // The alliance and the corporation roles, as the client's session holds them, where the transport says
-    // them (the game port does; the gateway does not, and the page holds none).
+    // The alliance and corporation roles from the selected pilot's session, when the transport supplies them.
     allianceID: session.allianceID === undefined ? null : session.allianceID,
     corpRole: typeof session.corpRole === "string" && /^\d+$/.test(session.corpRole) ? session.corpRole : null,
     // session.role, the session's own roles (a GM's among them), where the transport says them: the game port
