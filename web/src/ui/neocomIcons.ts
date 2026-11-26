@@ -99,6 +99,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   mercenaryDens: ["M3 12l9-7 9 7-9 7z", "M9 12h6"],
   paintTool: ["M5 19l4-1 10-10-3-3L6 15z", "M14 6l3 3"],
   shipSkinr: ["M5 19l4-1 10-10-3-3L6 15z", "M14 6l3 3"],
+  hyperNet: ["M12 3l9 9-9 9-9-9z", "M7 12h10M12 7v10"],
   locationSearch: ["M10 4a6 6 0 1 0 0 12a6 6 0 1 0 0-12", "M15 15l5 5"],
   achievements: ["M8 4h8v5a4 4 0 0 1-8 0z", "M8 6H5v2a3 3 0 0 0 3 3M16 6h3v2a3 3 0 0 1-3 3M12 13v5m-4 2h8"],
   assets: ["M4 14h7v6H4z", "M13 14h7v6h-7z", "M8.5 7h7v6h-7z"],

@@ -142,6 +142,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
     { id: "wallet", label: "Wallet", icon: icon("wallet") },
     { id: "contracts", label: "Contracts", icon: icon("contracts") },
     { id: "multibuy", label: "Multibuy", icon: clientTexture("res:/UI/Texture/classes/MultiSell/multiBuy.png") },
+    { id: "hyperNet", label: "HyperNet Relay", icon: clientTexture("res:/UI/Texture/WindowIcons/hypernet.png") },
   ] },
   { label: "Industry", icon: icon("directoryIndustry"), items: [
     { id: "industry", label: "Industry", icon: icon("industry") },

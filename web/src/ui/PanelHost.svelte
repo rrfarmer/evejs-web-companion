@@ -51,6 +51,7 @@
   import AchievementsWindow from "./AchievementsWindow.svelte";
   import PaintToolWindow from "./PaintToolWindow.svelte";
   import ShipSkinrWindow from "./ShipSkinrWindow.svelte";
+  import HyperNetWindow from "./HyperNetWindow.svelte";
   import Flight from "./Flight.svelte";
   import Mining from "./Mining.svelte";
   import ReprocessingPlant from "./ReprocessingPlant.svelte";
@@ -306,6 +307,8 @@
   <PaintToolWindow {store} {flow} {onClose} />
 {:else if tab === "shipSkinr"}
   <ShipSkinrWindow {store} {flow} {registerBeforeClose} />
+{:else if tab === "hyperNet"}
+  <HyperNetWindow {store} {flow} />
 {:else if tab === "achievements"}
   <AchievementsWindow {store} {flow} />
 {:else if tab === "locationSearch"}

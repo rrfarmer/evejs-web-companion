@@ -33,6 +33,7 @@ export type CoreTabID =
   | "inventory"
   | "market"
   | "marketOrders"
+  | "hyperNet"
   | "industry"
   | "academyShips"
   | "shipTree"
@@ -246,6 +247,7 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "inventory", label: "Inventory & Ship", where: "both" },
   { id: "market", label: "Market", where: "both" },
   { id: "marketOrders", label: "Market Orders", where: "both", launchable: false },
+  { id: "hyperNet", label: "HyperNet Relay", where: "both", launchable: false },
   { id: "industry", label: "Industry", where: "both" },
   { id: "contracts", label: "Contracts", where: "both" },
   { id: "assets", label: "Personal Assets", where: "both" },

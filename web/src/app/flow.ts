@@ -11,6 +11,7 @@ import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, dec
 import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
+import { decodeHyperNetOffers, type HyperNetOffer } from "../bridge/hyperNet.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
@@ -4628,6 +4629,7 @@ export interface AppFlow {
   loadShipSkinrPurchaseFunds(currency: ShipSkinrCurrency, issuer?: number): Promise<{ balance: number; evermarks: number }>;
   buyShipSkinrListing(listing: string, quantity: number, version: string): Promise<string>;
   loadShipSkinrComponentOffers(): Promise<readonly ShipSkinrComponentOffer[]>;
+  loadHyperNetOffers(): Promise<readonly HyperNetOffer[]>;
   buyShipSkinrComponentOffer(listing: string, quantity: number, activate: boolean): Promise<string>;
   cancelShipSkinrListing(id: string): Promise<void>;
   loadShipSkinrListingLimit(): Promise<number>;
@@ -29225,6 +29227,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return receipt;
   }
 
+  async function loadHyperNetOffers(): Promise<readonly HyperNetOffer[]> {
+    const current = callOptions.captureRequestGuard!();
+    const reply = await bridgeAsk("raffleProxy", "Grab", []);
+    current();
+    return decodeHyperNetOffers(reply);
+  }
+
   async function loadShipSkinrComponentOffers(): Promise<readonly ShipSkinrComponentOffer[]> {
     const current = callOptions.captureRequestGuard!();
     const answer = await gatewayAsk(SHIP_SKINR_MARKET + "component.listing.api.GetAllRequest");
@@ -41754,6 +41763,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadShipSkinrPurchaseFunds,
     buyShipSkinrListing,
     loadShipSkinrComponentOffers,
+    loadHyperNetOffers,
     buyShipSkinrComponentOffer,
     cancelShipSkinrListing,
     loadShipSkinrListingLimit,
