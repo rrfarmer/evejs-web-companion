@@ -1003,7 +1003,7 @@ import { autopilotDistances, autopilotJumpCounts, autopilotMap, autopilotPath, t
 import { availableJumpGateJumps, type JumpGateJump } from "../nav/jumpGates.ts";
 import { decodeCharacterStructureDirectory, decodeCorporationStructures, decodeJumpBridgesWithMyAccess, decodeStructureMapData, decodeStructureProfileNames, decodeStructureProfiles, encodeStructureDescription, MAX_STRUCTURE_DESCRIPTION_LENGTH, type StructureBrowserDirectory } from "../bridge/structures.ts";
 import { decodeProfileSettingRows, profileSettingSignature, PROFILE_SETTING_CATEGORIES, type ProfileSettingRow } from "../bridge/structureProfileSettings.ts";
-import { decodeMercenaryDen, mercenaryDenID, mercenaryDenInteger, mercenaryDenRecord, type MercenaryDensRead } from "../bridge/mercenaryDens.ts";
+import { decodeMercenaryDen, decodeMercenaryDenActivities, mercenaryDenID, mercenaryDenInteger, mercenaryDenRecord, type MercenaryDenActivities, type MercenaryDensRead } from "../bridge/mercenaryDens.ts";
 import { NO_REINFORCEMENT_WEEKDAY, structureDecommissionAction, structureDecommissionSeconds } from "../bridge/structureBrowserFilters.ts";
 import {
   AVOIDING_DIALOGS,
@@ -4588,6 +4588,7 @@ export interface AppFlow {
   loadCorporationMoonSchedule(current?: () => void): Promise<CorporationMoonSchedule>;
   loadStructureBrowser(systemID: number, corporation?: boolean): Promise<StructureBrowserDirectory>;
   loadMyMercenaryDens(): Promise<MercenaryDensRead>;
+  loadMercenaryDenActivities(denID: number): Promise<MercenaryDenActivities>;
   loadMySkyhooks(systemID: number): Promise<{ rows: SkyhookRow[]; currentRegionID: number | null }>;
   loadSkyhookRegions(): Promise<readonly { id: number; name: string }[]>;
   readSkyhookFilters(): SkyhookFilters;
@@ -28901,6 +28902,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return { owned, rows, maximum, absoluteMaximum };
   }
 
+  async function loadMercenaryDenActivities(denID: number): Promise<MercenaryDenActivities> {
+    const current = callOptions.captureRequestGuard!();
+    const prefix = "eve_public.sovereignty.mercenaryden.activity.api.";
+    const [reply, capacity] = await Promise.all([
+      api.publicGatewayRequest(prefix + "GetForMercenaryDenRequest", { mercenary_den: { sequential: denID } }, callOptions),
+      api.publicGatewayRequest(prefix + "GetCapacityRequest", {}, callOptions).catch(() => null),
+    ]);
+    current();
+    if (reply.statusCode !== 200) throw new Error("Mercenary Den activities could not be read.");
+    const result = decodeMercenaryDenActivities(reply.payload, capacity?.statusCode === 200
+      ? mercenaryDenInteger(mercenaryDenRecord(capacity.payload).capacity) : null);
+    requestWords(result.rows.flatMap(row => [row.nameID, row.descriptionID].filter(Boolean).map(id => `#${id}`)));
+    return result;
+  }
+
   async function loadMySkyhooks(systemID: number): Promise<{ rows: SkyhookRow[]; currentRegionID: number | null }> {
     const scope = captureMemberOperation();
     const corporationID = scope.online.corporationID;
@@ -41143,6 +41159,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadStructureBrowser,
     loadMySkyhooks,
     loadMyMercenaryDens,
+    loadMercenaryDenActivities,
     loadSkyhookRegions,
     readSkyhookFilters: () => skyhookFilters(charUiSetting),
     saveSkyhookFilter: (key, value) => setCharUiSetting(skyhookFilterSetting(key), value === null ? "" : String(value)),

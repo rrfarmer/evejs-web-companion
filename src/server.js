@@ -16011,6 +16011,8 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.sovereignty.mercenaryden.api.GetMaximumForCharacterRequest",
   "eve_public.sovereignty.mercenaryden.api.GetAsOwnerRequest",
   "eve_public.sovereignty.mercenaryden.activity.api.GetAllRequest",
+  "eve_public.sovereignty.mercenaryden.activity.api.GetForMercenaryDenRequest",
+  "eve_public.sovereignty.mercenaryden.activity.api.GetCapacityRequest",
   // The alliance's Sov Hubs page (SovHubEntryController through QuasarCallWrapper): a hub's installed upgrades and the
   // upgrade definitions, its available resources, its fuel, its workforce state; the planets' and stars' resource
   // definitions for the system's max power and workforce (sovereigntyResourceSvc.GetMaxPowerAndWorkforce).

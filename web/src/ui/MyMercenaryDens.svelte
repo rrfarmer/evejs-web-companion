@@ -7,6 +7,7 @@
   import { resolvedName } from "../store/names.ts";
   import { openAgencyGroup } from "./agencyRequests.ts";
   import { showInfo } from "./showInfo.ts";
+  import MercenaryDenManagement from "./MercenaryDenManagement.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const words = $derived(store.words);
@@ -161,6 +162,7 @@
               <dt>{word("workforce")}</dt>
               <dd title={word("workforceHint", { workforce_units: selected.workforceCost, workforce_cost_percentage: workforcePercent })}>{workforcePercent}</dd>
             </dl>
+            <MercenaryDenManagement {store} {flow} den={selected} {characterID} />
           </aside>
         {/if}
       </div>
