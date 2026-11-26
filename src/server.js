@@ -15734,6 +15734,7 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.plex.vault.api.BalanceRequest",
   "eve_public.plex.vault.transaction.api.GetAllLoggedForUserRequest",
   "eve_public.plex.vault.transaction.api.GetLogRequest",
+  "eve_public.plex.vault.transaction.api.GetStatisticsRequest",
   // achievement_system/client/repository/message_bus/request_messenger.py.
   "eve_public.achievement.api.GetRequest",
   "eve_public.achievement.category.api.GetRequest",

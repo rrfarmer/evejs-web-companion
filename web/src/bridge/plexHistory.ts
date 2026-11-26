@@ -26,11 +26,39 @@ function messageID(value: JsonValue | undefined): number | null {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
-async function request(method: string, payload: Record<string, JsonValue>, options: ApiOptions) {
+async function request(method: string, payload: Record<string, JsonValue>, options: ApiOptions,
+  error = "The PLEX transactions could not be read.") {
   const answer = await publicGatewayRequest(API + method + "Request", payload, options);
   const result = record(answer.payload);
-  if (answer.statusCode !== 200 || !result) throw new Error("The PLEX transactions could not be read.");
+  if (answer.statusCode !== 200 || !result) throw new Error(error);
   return result;
+}
+
+export interface PlexCategoryTotals {
+  readonly categoryID: number;
+  readonly income: bigint;
+  readonly expenses: bigint;
+}
+
+export async function readPlexStatistics(options: ApiOptions): Promise<readonly PlexCategoryTotals[]> {
+  const failure = "The PLEX overview could not be read.";
+  const reply = await request("GetStatistics", {}, options, failure);
+  const entries = reply.entries ?? [];
+  if (!Array.isArray(entries)) throw new Error(failure);
+  const totals = new Map<number, PlexCategoryTotals>();
+  for (const value of entries) {
+    const entry = record(value);
+    if (!entry) throw new Error(failure);
+    const categoryID = messageID(entry.category) ?? 1022601;
+    const income = entry.incomes === undefined ? 0n : currency(entry.incomes);
+    const expenses = entry.expenses === undefined ? 0n : currency(entry.expenses);
+    if (income === null || expenses === null) throw new Error(failure);
+    const previous = totals.get(categoryID);
+    totals.set(categoryID, { categoryID,
+      income: (previous?.income ?? 0n) + (income < 0n ? -income : income),
+      expenses: (previous?.expenses ?? 0n) + (expenses < 0n ? -expenses : expenses) });
+  }
+  return [...totals.values()];
 }
 
 export async function readPlexHistoryIDs(options: ApiOptions): Promise<readonly string[]> {

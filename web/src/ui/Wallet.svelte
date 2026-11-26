@@ -31,6 +31,7 @@
   import WalletGiveIsk from "./WalletGiveIsk.svelte";
   import WalletShares from "./WalletShares.svelte";
   import WalletPlexHistory from "./WalletPlexHistory.svelte";
+  import WalletPlexOverview from "./WalletPlexOverview.svelte";
 
   let { store, flow, onBuyPlex, onShowOmegaOffers, onShowMultipleTraining, onOpenStore }: {
     store: ClientStore;
@@ -302,15 +303,18 @@
         <WalletPlexHistory {store} {flow} />
       {:else}
         {#if error}<p role="status">{error}</p>{/if}
-        <div class="plex-actions">
-          <span title={plexBalance === 0n ? tabWord(SELL_PLEX_HINT, "PLEX Vault is empty") : null}>
-            <button type="button" disabled={!canSellPlex || busy} onclick={() => void run(() => flow.openVaultPlexSale())}>
-              {tabWord(SELL_PLEX, "Sell PLEX for ISK")}
-            </button>
-          </span>
-          {#each PLEX_ACTIONS as action (action.label)}
-            {#if action.run}<button type="button" onclick={action.run}>{tabWord(action.label, action.fallback)}</button>{/if}
-          {/each}
+        <div class="plex-overview">
+          <WalletPlexOverview {store} {flow} />
+          <div class="plex-actions">
+            <span title={plexBalance === 0n ? tabWord(SELL_PLEX_HINT, "PLEX Vault is empty") : null}>
+              <button type="button" disabled={!canSellPlex || busy} onclick={() => void run(() => flow.openVaultPlexSale())}>
+                {tabWord(SELL_PLEX, "Sell PLEX for ISK")}
+              </button>
+            </span>
+            {#each PLEX_ACTIONS as action (action.label)}
+              {#if action.run}<button type="button" onclick={action.run}>{tabWord(action.label, action.fallback)}</button>{/if}
+            {/each}
+          </div>
         </div>
       {/if}
     </div>
@@ -372,7 +376,8 @@
   .plex-select { display: flex; flex: 1; min-width: 0; background: transparent; border: 0; }
   .plex-plus { position: absolute; bottom: 7px; right: 6px; min-width: 20px; height: 20px; padding: 0 3px; }
   .plex-select .amount { padding-right: 30px; font-size: clamp(12px, 2vw, 17px); overflow: hidden; text-overflow: ellipsis; }
-  .plex-actions { display: grid; gap: 6px; max-width: 320px; padding-top: 12px; }
+  .plex-overview { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; padding-top: 12px; }
+  .plex-actions { display: grid; gap: 6px; flex: 0 1 14rem; width: 100%; }
   .plex-actions button { min-height: 44px; text-align: left; }
   .plex-actions span > button { width: 100%; }
   .wallet-settings { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
