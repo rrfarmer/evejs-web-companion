@@ -24,13 +24,26 @@
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   const ticketCount = (offer: HyperNetOffer) => plainText(formatTemplate(word("tickets"),
     { remaining_ticket_count: offer.remaining, ticket_count: offer.tickets }, { nameOf: () => "" }));
+  const pageSize = 12;
   let offers = $state.raw<readonly HyperNetOffer[]>([]);
+  let page = $state(0);
   let loading = $state(false);
   let error = $state("");
   let refresh = $state(0);
   let now = $state(Date.now());
-  const active = $derived(offers.filter(offer => offer.expires > now).slice(0, 12)
+  const pageOffers = $derived(offers.slice(page * pageSize, (page + 1) * pageSize)
     .sort((left, right) => left.price === right.price ? 0 : left.price > right.price ? -1 : 1));
+  const active = $derived(pageOffers.filter(offer => offer.expires > now));
+
+  function refreshBrowse() {
+    const remaining = offers.filter(offer => offer.expires > Date.now());
+    if ((page + 2) * pageSize <= remaining.length) {
+      offers = remaining;
+      page++;
+    } else {
+      refresh++;
+    }
+  }
 
   onMount(() => {
     flow.requestWords(Object.values(labels).map(([path]) => path));
@@ -42,13 +55,19 @@
     const owner = pilot;
     void refresh;
     offers = [];
+    page = 0;
     error = "";
     loading = !!owner;
     if (!owner) return;
     let current = true;
     void flow.loadHyperNetOffers().then(result => {
       if (!current) return;
-      offers = result;
+      const shuffled = [...result];
+      for (let index = shuffled.length - 1; index > 0; index--) {
+        const swap = Math.floor(Math.random() * (index + 1));
+        [shuffled[index], shuffled[swap]] = [shuffled[swap]!, shuffled[index]!];
+      }
+      offers = shuffled;
       flow.requestNames([...new Set(result.map(offer => offer.typeID))].map(id => ({ kind: "type", id })));
     }, cause => {
       if (current) error = panelErrorWords(cause);
@@ -61,7 +80,7 @@
 
 <section class="hypernet">
   <header>
-    <button type="button" onclick={() => refresh++} disabled={loading || !pilot}>{word("refresh")}</button>
+    <button type="button" onclick={refreshBrowse} disabled={loading || !pilot}>{word("refresh")}</button>
   </header>
   {#if loading}
     <p role="status">Loading HyperNet offers…</p>
