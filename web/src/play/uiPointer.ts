@@ -1,15 +1,36 @@
 import { clientTexture } from "../ui/skillGroupIcons.ts";
+import type { IndustryActivity } from "../store/types.ts";
 
 export interface UiPointerTarget {
   readonly name: string;
   readonly label: string;
-  readonly icon: string;
+  readonly icon?: string;
   readonly parent?: string;
   readonly linkLabel?: string;
 }
 
 export const UI_POINTER_COMMAND = "CmdGetUiPointer";
 export const UI_POINTER_DRAG_TYPE = "application/x-evejs-ui-pointer";
+
+export const INDUSTRY_TAB_POINTERS = {
+  blueprints: "unique_UI_industryBlueprintsTab",
+  facilities: "unique_UI_industryFacilitiesTab",
+  jobs: "unique_UI_industryJobsTab",
+  research: "unique_UI_industryResearchTab",
+} as const;
+
+export const INDUSTRY_ACTIVITY_POINTERS = {
+  manufacturing: "unique_UI_manufacturingBtn",
+  copying: "unique_UI_industryCopyBtn",
+  research_material: "unique_UI_materialEfficiencyBtn",
+  research_time: "unique_UI_timeEfficiencyBtn",
+  invention: "unique_UI_inventionBtn",
+} as const satisfies Partial<Record<IndustryActivity, string>>;
+
+export const INDUSTRY_LOCATION_POINTERS = {
+  input: "unique_UI_industryInputLocation",
+  output: "unique_UI_industryOutputLocation",
+} as const;
 
 export function dragUiPointer(event: DragEvent, name: string) {
   if (!event.dataTransfer) return;

@@ -5,8 +5,8 @@
   import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { onShortcutsChanged, shortcutOf } from "../play/shortcutKeys.ts";
-  import { dragUiPointer, STATION_POINTERS, UI_POINTER_COMMAND, UI_POINTER_DRAG_TYPE, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "../play/uiPointer.ts";
-  import { dragUiPointerLinks, droppedUiPointerLinks, NEOCOM_POINTERS, resolveUiPointer, STATION_POINTER_LINK_LABEL, UI_POINTER_BY_NAME as targetByName, UI_POINTER_TARGETS as targets } from "../play/uiPointerCatalog.ts";
+  import { dragUiPointer, STATION_POINTERS, UI_POINTER_COMMAND, UI_POINTER_DRAG_TYPE, visiblePointerTarget, type UiPointerTarget } from "../play/uiPointer.ts";
+  import { dragUiPointerLinks, droppedUiPointerLinks, INTERFACE_POINTERS, NEOCOM_POINTERS, resolveUiPointer, STATION_POINTER_LINK_LABEL, UI_POINTER_BY_NAME as targetByName, UI_POINTER_TARGETS as targets } from "../play/uiPointerCatalog.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { portal } from "./portal.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -70,7 +70,7 @@
   const showFavorites = $derived(!needle || rootEntries.length > 0 || folders.length > 0);
   const groups = $derived([
     { id: "neocom", label: label("neocom", "Neocom"), entries: NEOCOM_POINTERS },
-    { id: "interface", label: label("interface", "User Interface Elements"), entries: WALLET_POINTERS },
+    { id: "interface", label: label("interface", "User Interface Elements"), entries: INTERFACE_POINTERS },
     { id: "station", label: label("station", "Station Services"), entries: STATION_POINTERS },
   ].map(group => ({ ...group, entries: group.entries.filter(matches).sort((a, b) => a.label.localeCompare(b.label)) }))
     .filter(group => group.entries.length > 0));
@@ -260,7 +260,8 @@
     ondragstart={(event) => dragRow(event, target.name)}
     ondragover={groupID === undefined ? undefined : allowPointerDrop}
     ondrop={groupID === undefined ? undefined : (event) => dropPointer(event, groupID, target.name)}>
-    <img src={target.icon} alt="" /><span>{target.label}</span><img src={pointerIcon} alt="" class="point-icon" />
+    {#if target.icon}<img src={target.icon} alt="" />{:else}<span class="icon-space" aria-hidden="true"></span>{/if}
+    <span>{target.label}</span><img src={pointerIcon} alt="" class="point-icon" />
   </button>
 {/snippet}
 
@@ -344,6 +345,7 @@
   .folder-actions { display: flex; justify-content: end; gap: 0.5rem; }
   .pointer-row { min-height: 32px; width: 100%; display: flex; align-items: center; gap: 0.6rem; text-align: left; }
   .pointer-row img { width: 24px; height: 24px; object-fit: contain; }
+  .icon-space { flex: 0 0 24px; }
   .pointer-row .point-icon { margin-left: auto; width: 20px; height: 20px; }
   .pointer-row[data-pointer-selected="true"] { box-shadow: inset 2px 0 #73c991; }
   .pointer-layer { position: fixed; inset: 0; pointer-events: none; z-index: 950; }

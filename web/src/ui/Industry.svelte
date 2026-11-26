@@ -14,6 +14,7 @@
   import { filetimeToUnixMs } from "../bridge/activity.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { installTarget } from "../app/industryInstallTarget.ts";
+  import { INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS } from "../play/uiPointer.ts";
   import {
     ACTIVITY_LABELS,
     ACTIVITY_ORDER,
@@ -1137,7 +1138,7 @@
             <span class="name">{chosenFacilityID !== null ? facilityName(chosenFacilityID) : industryWord("UI/Industry/NoneSelected") || "None Selected"}</span>
             {#if viewFacility}<span class="facpic"><TypeIcon typeID={viewFacility.typeID} name={typeName(viewFacility.typeID)} size="md" /></span>{/if}
           </div>
-          <div class="ind-cv-box inloc"><small>{industryWord("UI/Industry/InputMaterialLocation") || "Input Material Location"}</small>
+          <div class="ind-cv-box inloc" data-ui-pointer={startingBlueprint ? INDUSTRY_LOCATION_POINTERS.input : undefined}><small>{industryWord("UI/Industry/InputMaterialLocation") || "Input Material Location"}</small>
             <span class="combo">{chosenFacilityID !== null ? facilityName(chosenFacilityID) : ""}</span></div>
           <div class="ind-cv-outcome" style={`--job: ${viewColor}`}>
             <span class="pattern"></span><span class="vignette"></span>
@@ -1155,7 +1156,7 @@
               </div>
             {/if}
           </div>
-          <div class="ind-cv-box outloc"><small>{industryWord("UI/Industry/OutputLocation") || "Output Location"}</small>
+          <div class="ind-cv-box outloc" data-ui-pointer={startingBlueprint ? INDUSTRY_LOCATION_POINTERS.output : undefined}><small>{industryWord("UI/Industry/OutputLocation") || "Output Location"}</small>
             <span class="combo">{chosenFacilityID !== null ? facilityName(chosenFacilityID) : ""}</span></div>
           <div class="ind-cv-labels">
             <div><small>{industryWord("UI/Industry/JobDuration") || "Job Duration"}</small><span>{startingBlueprint ? formatDuration(duration) : ""}</span></div>
@@ -1236,7 +1237,7 @@
       <div class="ind-js-acts">
         {#each CLIENT_ACTIVITIES as a (a.id)}
           {@const on = startingBlueprint !== null && blueprintActivities(startingBlueprint).includes(a.id)}
-          <button type="button" class:sel={on && chosenActivity === a.id} disabled={!on || busy}
+          <button type="button" class:sel={on && chosenActivity === a.id} disabled={!on || busy} data-ui-pointer={a.id === "reaction" ? undefined : INDUSTRY_ACTIVITY_POINTERS[a.id]}
             style={`--sel: ${ACTIVITY_DIM[a.id] ?? "#1a3a5b"}`} title={industryWord(a.label) || ACTIVITY_LABELS[a.id]}
             onclick={() => { if (startingBlueprint) chooseBlueprintActivity(startingBlueprint, a.id); }}>
             <img alt="" src={`/client-res/ui/texture/classes/industry/activity/${ACTIVITY_LARGE[a.id]}.png`} />
@@ -1251,7 +1252,7 @@
     </div>
     <nav class="ind-tabs">
       {#each INDUSTRY_TABS as t (t.id)}
-        <button type="button" class:active={browserTab === t.id} onclick={() => (browserTab = t.id)}>{industryWord(t.label) || t.own}</button>
+        <button type="button" class:active={browserTab === t.id} data-ui-pointer={INDUSTRY_TAB_POINTERS[t.id]} onclick={() => (browserTab = t.id)}>{industryWord(t.label) || t.own}</button>
       {/each}
     </nav>
     {#if browserTab === "research"}<IndustryResearch {store} {flow} {showAgents} />{/if}
