@@ -4605,6 +4605,8 @@ export interface AppFlow {
   duplicateStructureProfile(profileID: number): Promise<void>;
   deleteStructureProfile(profileID: number): Promise<boolean>;
   setDefaultStructureProfile(profileID: number): Promise<void>;
+  loadCorporationReinforcementDefault(): Promise<{ hour: number; canEdit: boolean }>;
+  saveCorporationReinforcementDefault(hour: number): Promise<void>;
   loadStructureProfileSettings(profileID: number): Promise<readonly ProfileSettingRow[]>;
   readStructureProfileAccessLists(groupIDs: readonly number[]): Promise<{ available: readonly AccessGroup[]; referenced: readonly AccessGroup[] }>;
   saveStructureProfileSettings(profileID: number, baseline: readonly ProfileSettingRow[], rows: readonly ProfileSettingRow[]): Promise<readonly ProfileSettingRow[]>;
@@ -29168,6 +29170,44 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return decodeProfileSettingRows(settings);
   }
 
+  async function corporationReinforcementHour(scope: MemberOperation): Promise<number> {
+    const result = await scope.ask("corpRegistry", "GetStructureReinforceDefault", []);
+    scope.current();
+    const parts = Array.isArray(result) ? result : isListValue(result) ? result.items : [];
+    const hour = Number(unwrapLong(parts[1]) ?? NaN);
+    if (parts.length !== 2 || !Number.isInteger(hour) || hour < 0 || hour > 23) {
+      throw new Error("The corporation's default reinforcement hour could not be read.");
+    }
+    return hour;
+  }
+
+  async function canEditCorporationReinforcement(scope: MemberOperation): Promise<boolean> {
+    if ((BigInt(store.station.get().online?.corpRole ?? "0") & 1n) !== 0n) return true;
+    const corporation = await scope.ask("corpRegistry", "GetCorporation", []);
+    scope.current();
+    return memberInteger(corporation, "ceoID") === BigInt(scope.online.characterID);
+  }
+
+  async function loadCorporationReinforcementDefault(): Promise<{ hour: number; canEdit: boolean }> {
+    const scope = captureMemberOperation();
+    requireStructureProfileManager(scope);
+    const [hour, canEdit] = await Promise.all([corporationReinforcementHour(scope), canEditCorporationReinforcement(scope)]);
+    requireStructureProfileManager(scope);
+    return { hour, canEdit };
+  }
+
+  async function saveCorporationReinforcementDefault(hour: number): Promise<void> {
+    const scope = captureMemberOperation();
+    requireStructureProfileManager(scope);
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error("Select a reinforcement hour.");
+    if (!await canEditCorporationReinforcement(scope)) throw new Error("Only the CEO or a Director can change this setting.");
+    requireStructureProfileManager(scope);
+    await scope.write("corpRegistry", "SetStructureReinforceDefault", [hour]);
+    if (await corporationReinforcementHour(scope) !== hour) throw new Error("The default reinforcement hour could not be confirmed.");
+    const message = templateWords("UI/StructureBrowser/DefaultReinforcementSuccessfullyUpdated", {}, "Default reinforcement time updated.");
+    sayDialog("CustomNotify", { type: "dict", entries: [["notify", message]] }, message, "notify");
+  }
+
   async function resolveStructureProfileGroups(scope: MemberOperation, groupIDs: readonly number[]): Promise<readonly AccessGroup[]> {
     const ids = [...new Set(groupIDs.filter(id => Number.isSafeInteger(id) && id > 0))];
     if (ids.length === 0) return [];
@@ -41069,6 +41109,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     duplicateStructureProfile,
     deleteStructureProfile,
     setDefaultStructureProfile,
+    loadCorporationReinforcementDefault,
+    saveCorporationReinforcementDefault,
     loadStructureProfileSettings,
     readStructureProfileAccessLists,
     saveStructureProfileSettings,

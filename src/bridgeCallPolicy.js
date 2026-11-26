@@ -983,6 +983,7 @@ const PAGE_WRITE_PAIR_KEYS = Object.freeze([
   "structureProfiles.DeleteProfile",
   "structureProfiles.SetDefaultProfile",
   "structureProfiles.SaveProfileSettings",
+  "corpRegistry.SetStructureReinforceDefault",
   "moonExtractions.StartNewExtraction", "moonExtractions.FractureChunkWithStructure", "moonExtractions.CancelExtraction",
   "academy_ship.borrow_academy_ship",
   "ProjectDiscovery.get_new_task", "ProjectDiscovery.post_classification",

@@ -1406,6 +1406,15 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       return;
     }
   }
+  if (body.service === "corpRegistry" && ["GetStructureReinforceDefault", "SetStructureReinforceDefault"].includes(body.method)) {
+    const writeDefault = body.method === "SetStructureReinforceDefault";
+    const hour = body.args?.[0];
+    if (body.pilot !== true || body.of != null || body.kwargs != null || !Array.isArray(body.args) ||
+        (writeDefault ? body.args.length !== 1 || !Number.isInteger(hour) || hour < 0 || hour > 23 : body.args.length !== 0)) {
+      res.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "The corporation reinforcement default requires a held pilot and an hour from 0 to 23 when saving." });
+      return;
+    }
+  }
   if (body.service === "ownerGroupManager" && body.method === "GetGroupsMany") {
     const ids = body.args?.[0];
     if (body.pilot !== true || body.of != null || body.kwargs != null || !Array.isArray(body.args) || body.args.length !== 1 ||

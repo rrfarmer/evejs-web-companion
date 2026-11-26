@@ -22,6 +22,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import CorporationMoonSchedule from "./CorporationMoonSchedule.svelte";
+  import CorporationReinforcementDefault from "./CorporationReinforcementDefault.svelte";
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import HomeStationPanel from "./HomeStationPanel.svelte";
   import StructureDescription from "./StructureDescription.svelte";
@@ -51,10 +52,11 @@
   const hasCorporationTabs = $derived(corporationID !== null && !isNpcCorporation(corporationID));
   let tab = $state<"all" | "corporation" | "skyhooks">("all");
   let skyhookSearch = $state("");
-  let corporationPanel = $state<"structures" | "extractions" | "settings">("structures");
+  let corporationPanel = $state<"structures" | "extractions" | "settings" | "defaults">("structures");
   const activeTab = $derived(hasCorporationTabs && (tab !== "corporation" || canManage) ? tab : "all");
   const scheduleOpen = $derived(activeTab === "corporation" && corporationPanel === "extractions");
   const profileSettingsOpen = $derived(activeTab === "corporation" && corporationPanel === "settings");
+  const reinforcementDefaultOpen = $derived(activeTab === "corporation" && corporationPanel === "defaults");
   let directory = $state.raw<StructureBrowserDirectory | null>(null);
   const rows = $derived(directory?.entries ?? []);
   let loading = $state(true);
@@ -109,6 +111,7 @@
     deleteProfile: ["UI/StructureBrowser/DeleteProfile", "Delete Profile"],
     setDefaultProfile: ["UI/StructureBrowser/SetDefaultProfile", "Set as default profile"],
     profileSettings: ["UI/StructureBrowser/ProfileSettings", "Profile Settings"],
+    corpSettings: ["UI/StructureBrowser/CorpSettingsTab", "Corporation Settings"],
     unsavedSettings: ["UI/StructureBrowser/UnsavedChanges", "Unsaved Changes"],
     discardSettings: ["UI/StructureBrowser/UnsavedChangesQuestion", "Discard the unsaved changes to this profile?"],
     editProfileTitle: ["UI/StructureProfiles/EditProfileName", "Edit Profile"],
@@ -359,7 +362,8 @@
     if (!await leaveProfileSettings()) return;
     settingsDirty = false;
     profile = next;
-    if (next === null || !directory?.profiles.has(next)) corporationPanel = "structures";
+    if ((profileSettingsOpen && (next === null || !directory?.profiles.has(next))) ||
+        (reinforcementDefaultOpen && next !== null)) corporationPanel = "structures";
   }
 
   function addReinforcementOptions(entries: (ContextEntry | null)[], rows: readonly StructureBrowserEntry[]): void {
@@ -599,6 +603,10 @@
           onclick={() => void switchCorporationPanel("settings")}>{word("profileSettings")}</button>
       {/if}
       <button type="button" aria-pressed={scheduleOpen} onclick={() => void switchCorporationPanel("extractions")}>{word("extractions")}</button>
+      {#if displayedProfile === null}
+        <button type="button" aria-pressed={reinforcementDefaultOpen} disabled={loading || profileEditor !== null || profileBusy}
+          onclick={() => void switchCorporationPanel("defaults")}>{word("corpSettings")}</button>
+      {/if}
     </nav>
     {#if !scheduleOpen}
       <div class="directory-filters">
@@ -611,7 +619,7 @@
             {/each}
           </select>
         </label>
-        {#if !profileSettingsOpen}
+        {#if !profileSettingsOpen && !reinforcementDefaultOpen}
         <button type="button" disabled={loading || profileBusy || profileEditor !== null} onclick={() => openProfileEditor("new")}>{word("newProfile")}</button>
         {#if selectedProfile}
           {@const target = selectedProfile}
@@ -681,6 +689,8 @@
     <MySkyhooks {store} {flow} {systemID} {onShowSystem} bind:search={skyhookSearch} />
   {:else if scheduleOpen}
     <CorporationMoonSchedule {store} {flow} />
+  {:else if reinforcementDefaultOpen}
+    <CorporationReinforcementDefault {store} {flow} />
   {:else if profileSettingsOpen && selectedProfile}
     {#key selectedProfile.id}
       <StructureProfileSettings {store} {flow} profile={selectedProfile} {onManageAccessGroups}
