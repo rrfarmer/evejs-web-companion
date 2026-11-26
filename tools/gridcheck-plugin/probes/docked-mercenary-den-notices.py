@@ -1,8 +1,9 @@
 from datetime import timedelta
 from eveProto.generated.eve_public.sovereignty.mercenaryden.activity.api.notices_pb2 import AddedNotice, ExpiryChangedNotice, RemovedNotice
-from eveProto.generated.eve_public.sovereignty.mercenaryden.api.notices_pb2 import EvolutionStateChangedNotice
+from eveProto.generated.eve_public.sovereignty.mercenaryden.api.notices_pb2 import DefinitionsUpdatedNotice, EvolutionStateChangedNotice
 from sovereignty.mercenaryden.client.activity_cache import ActivityCache
 from sovereignty.mercenaryden.client.data.evolution_simulation import EvolutionSimulationInfo
+from sovereignty.mercenaryden.client.mocks.data import create_evolution_definition_mock, create_infomorphs_mock
 from sovereignty.mercenaryden.client.mocks.request_messenger_mock import MockMercenaryDenRequestMessenger
 from sovereignty.mercenaryden.client.notice_listener import ExternalNoticeListener
 
@@ -70,5 +71,25 @@ listener.on_evolution_simulation_changed_notice.connect(on_evolution_changed)
 state = EvolutionSimulationInfo(20, 2, 40, 3, False, development_last_simulated_at=sample.attributes.expiry,
                                anarchy_last_simulated_at=sample.attributes.expiry)
 registry.receive(EvolutionStateChangedNotice(mercenary_den=sample.attributes.mercenary_den, state=state.get_proto()))
+
+definition_change = {}
+
+def on_definitions_updated(den_id, evolution, infomorphs):
+    definition_change.update(denID=den_id, stage2Development=evolution.development_level_bands_by_stage[2],
+                             stage3Workforce=evolution.anarchy_workforce_consumption_by_stage[3],
+                             stage2Generation=infomorphs.generation_rates[2],
+                             generationTickSeconds=infomorphs.generation_rate_tick_seconds,
+                             cargoCapacity=infomorphs.capacity)
+
+listener.on_mercenary_den_definitions_updated_notice.connect(on_definitions_updated)
+evolution = create_evolution_definition_mock()
+evolution.development_level_bands_by_stage[2] = (20, 49)
+evolution.anarchy_workforce_consumption_by_stage[3] = 698
+infomorphs = create_infomorphs_mock().get_proto().definition
+stage2_band = next(band for band in infomorphs.generation_bands if band.stage == 2)
+stage2_band.lower_band = 90
+stage2_band.upper_band = 130
+registry.receive(DefinitionsUpdatedNotice(mercenary_den=sample.attributes.mercenary_den,
+                                          evolution=evolution.get_proto(), infomorphs=infomorphs))
 result = dict(station=session.stationid, notices=registry.types, callbacks=callbacks,
-              expiryChange=expiry_change, evolutionChange=evolution_change)
+              expiryChange=expiry_change, evolutionChange=evolution_change, definitionChange=definition_change)
