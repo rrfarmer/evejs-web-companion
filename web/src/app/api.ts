@@ -2511,6 +2511,11 @@ export async function getSpaceSnapshot(
   };
 }
 
+/** The held pilot's exterior grid while remaining docked at an Upwell structure. */
+export async function getDockedStructureGrid(options: ApiOptions = {}): Promise<JsonValue> {
+  return (await getJson("/api/bridge/structure-view/snapshot", options)).grid ?? null;
+}
+
 // --- R23 slice A: targeting + module activation -----------------------------
 //
 // THE GENERIC IN-SPACE ACTION LAYER. Nothing here names mining, combat,

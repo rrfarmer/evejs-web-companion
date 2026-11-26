@@ -172,6 +172,7 @@
   import { authoritativeFleetMemberCharacterIDs } from "../bridge/fleetCenter.ts";
   import { hangarGraphics } from "../play/hangarRegistry.ts";
   import { HangarView } from "../play/hangarView.ts";
+  import UpwellExterior from "./UpwellExterior.svelte";
   import { dirtLevelFromTime } from "../three/hullModel.ts";
   import { Neocom, neocomSkillState, type ChatRailEntry } from "../play/neocom.ts";
   import { createChatUnread } from "../play/chatUnread.ts";
@@ -561,6 +562,35 @@
   });
   const dockedStructureID = $derived(docked ? ($flight?.status ? $flight.status.structureID : $station?.online?.structureID) ?? null : null);
   const controllingStructure = $derived(dockedStructureID !== null && $flight?.status?.shipID === dockedStructureID);
+  const dockedViewPreference = $derived($station?.online ? `evejs.user.${session?.store.session.get().accountID ?? "local"}.defaultStructureView` : null);
+  let dockedView = $state<"hangar" | "exterior">("hangar");
+  const viewingStructureExterior = $derived(dockedStructureID !== null && !controllingStructure && dockedView === "exterior");
+  const dockedViewWords = $derived(session?.store.words);
+  const dockedViewWord = (label: string, fallback: string) => plainText($dockedViewWords?.templates[label] ?? "") || fallback;
+  const dockViewCaption = $derived(viewingStructureExterior
+    ? dockedViewWord("UI/Commands/EnterHangar", "Enter Ship Hangar")
+    : dockedViewWord("UI/Commands/EnterStructure", "View Outside Structure"));
+  const dockViewHint = $derived(viewingStructureExterior
+    ? dockedViewWord("UI/Station/ViewHangarHint", "Switch to the ship hangar")
+    : dockedViewWord("UI/Station/ViewOutsideHint", "View space around this structure"));
+  $effect(() => {
+    const key = dockedViewPreference;
+    try { dockedView = key && localStorage.getItem(key) === "exterior" ? "exterior" : "hangar"; }
+    catch { dockedView = "hangar"; }
+  });
+  $effect(() => {
+    if (dockedStructureID === null) return;
+    session?.flow.requestWords(["UI/Commands/EnterHangar", "UI/Commands/EnterStructure", "UI/Station/ViewHangarHint", "UI/Station/ViewOutsideHint"]);
+  });
+  function changeDockedView(mode: "hangar" | "exterior"): void {
+    if (dockedStructureID === null || controllingStructure || undockPending || refineryPending || corvettePending ||
+        planetInMode !== null || dockedView === mode) return;
+    dockedView = mode;
+    if (dockedViewPreference) {
+      try { localStorage.setItem(dockedViewPreference, mode); }
+      catch { /* The active view still changes when storage is unavailable. */ }
+    }
+  }
   const controllingMetenox = $derived($flight?.status?.shipTypeID === METENOX_TYPE_ID
     && $flight.status.shipID !== null && $flight.status.shipID === $flight.status.structureID);
   $effect(() => {
@@ -2706,6 +2736,12 @@
       return;
     }
     if (cmd === null) return;
+    if (cmd === "CmdEnterStructure" || cmd === "CmdEnterHangar") {
+      if (dockedStructureID === null || systemMenu || e.defaultPrevented) return;
+      e.preventDefault();
+      if (!e.repeat) changeDockedView(cmd === "CmdEnterStructure" ? "exterior" : "hangar");
+      return;
+    }
     if (cmd === "OpenMilitia" || cmd === "OpenFwEnlistment" || cmd === "OpenInsurgencyDashboard" || cmd === "OpenRelevantFWWindow") {
       e.preventDefault();
       openTheatersOfWar(cmd === "OpenMilitia" ? "warfare" : cmd === "OpenFwEnlistment" ? "enlistment" : cmd === "OpenInsurgencyDashboard" ? "insurgencies"
@@ -4460,7 +4496,13 @@
   {:else if docked}
     <!-- The docked ship and Neocom sit below the Station Services window. -->
     <div class="station">
-      <div class="fly-hangar" class:planet-covered={planetInMode !== null} bind:this={hangarHost}></div>
+      {#if viewingStructureExterior && dockedStructureID !== null}
+        {#key dockedStructureID}
+          <UpwellExterior flow={session.flow} structureID={dockedStructureID} />
+        {/key}
+      {:else}
+        <div class="fly-hangar" class:planet-covered={planetInMode !== null} bind:this={hangarHost}></div>
+      {/if}
       <div class="fly-neocom" bind:this={neocomHost}></div>
     </div>
   {:else}
@@ -4546,6 +4588,11 @@
             </div>
           {:else}
             <button class="undock" disabled={undockPending || refineryPending || corvettePending} onclick={undock}>Undock</button>
+            {#if dockedStructureID !== null}
+              <button type="button" class="academy-service dock-view-mode" title={dockViewHint}
+                disabled={undockPending || refineryPending || corvettePending}
+                onclick={() => changeDockedView(viewingStructureExterior ? "hangar" : "exterior")}>{dockViewCaption}</button>
+            {/if}
             {#if moonRefinery?.canControl}
               <button class="academy-service" disabled={refineryPending || undockPending || corvettePending} onclick={() => changeRefineryControl(true)}>Take Control</button>
             {/if}
