@@ -240,6 +240,12 @@ export function createChatConversations(hooks: Hooks) {
         removeRoom(room);
       });
     },
+    updateDirectoryChannelTitle(room: string, title: string) {
+      if (destroyedRooms.has(room)) return;
+      directoryTitles.set(room, title);
+      information.set(room, { ...information.get(room), name: title });
+      patch({ rooms: state.get().rooms.map(entry => entry.channel === room ? { ...entry, title } : entry) });
+    },
     async answer(sender: number, choice: ChatInviteChoice, expectedGeneration: number) {
       if (expectedGeneration !== generation) return;
       await task(async scope => {

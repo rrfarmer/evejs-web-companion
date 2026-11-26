@@ -9805,6 +9805,36 @@ app.get("/api/bridge/chat/:roomName/info", requireAuth, async (req, res, next) =
   } catch (error) { next(error); }
 });
 
+app.get("/api/bridge/chat/:roomName/settings", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  const session = heldChatSession(held);
+  if (!session) return chatUnavailable(res);
+  try {
+    res.json({ ok: true, settings: await session.channelSettings(req.params.roomName, chatContext(held, req)) });
+  } catch (error) { next(error); }
+});
+
+app.post("/api/bridge/chat/:roomName/settings", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  const { name, access, password, motd } = req.body ?? {};
+  const invalidName = name !== undefined && (typeof name !== "string" || !name || name.trim() !== name || name.length > 50 || /\p{Cc}/u.test(name));
+  const invalidAccess = access !== undefined && !["allowed", "moderated", "blocked"].includes(access);
+  const invalidPassword = password !== undefined && (typeof password !== "string" || password !== password.trim() ||
+    password.length > 20 || (password.length > 0 && password.length < 3) || /\p{Cc}/u.test(password));
+  if (invalidName || invalidAccess || invalidPassword || typeof motd !== "string" || motd.length > 4000 ||
+      /\p{Cc}/u.test(motd.replace(/[\n\t]/g, ""))) {
+    return res.status(400).json({ ok: false, error: "INVALID_CHAT_SETTINGS", message: "Check the channel name, access, password, and message of the day." });
+  }
+  const session = heldChatSession(held);
+  if (!session) return chatUnavailable(res);
+  try {
+    const settings = await session.saveChannelSettings(req.params.roomName, { name, access, password, motd: motd.trim() }, chatContext(held, req));
+    res.json({ ok: true, settings });
+  } catch (error) { next(error); }
+});
+
 app.post("/api/bridge/chat/:roomName/destroy", requireAuth, async (req, res, next) => {
   const held = requireHeldBridgeSession(req, res);
   if (!held) return;

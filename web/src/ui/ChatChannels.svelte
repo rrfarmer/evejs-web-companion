@@ -6,6 +6,7 @@
   import { plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { ContextMenu } from "../play/contextMenu.ts";
+  import ChatChannelSettings from "./ChatChannelSettings.svelte";
 
   let { store, flow, showChat }: { store: ClientStore; flow: AppFlow; showChat?: () => void } = $props();
   const words = $derived(store.words);
@@ -23,9 +24,10 @@
     joinChannel: "UI/Chat/ChannelWindow/JoinChannel",
     leaveChannel: "UI/Chat/ChannelWindow/LeaveChannel",
     deleteChannel: "UI/Chat/ChannelWindow/DeleteChannel",
+    settings: "UI/Chat/Settings",
   } as const;
   const locale = (path: string, fallback: string) => plainText($words.templates[path] ?? "") || fallback;
-  type DirectoryRow = { roomName: string; label: string; owned: boolean };
+  type DirectoryRow = { roomName: string; label: string; affiliation: string | null };
 
   let channels = $state.raw<readonly ChatDirectoryChannel[]>([]);
   let exact = $state.raw<readonly ChatDirectoryChannel[] | null>(null);
@@ -39,6 +41,7 @@
   let roomObserver: IntersectionObserver | null = null;
   let counts = $state.raw<ReadonlyMap<string, number>>(new Map());
   let tabVisible = $state(true);
+  let settingsRoom = $state<string | null>(null);
   const rowMenu = new ContextMenu();
 
   function observeRoom(node: HTMLElement, roomName: string) {
@@ -96,11 +99,10 @@
     const translated = locale(`#${ids[2]}`, name || row.roomName);
     return name && name !== translated ? `${translated} (${name})` : translated;
   }
-  function channelGroup(row: ChatDirectoryChannel) {
+  function channelGroup(row: ChatDirectoryChannel, affiliation: string | null) {
     const ids = systemLabels(row.roomName);
     if (ids) return { id: `system:${ids[1]}`, label: locale(`#${ids[1]}`, "System Channels") };
     if (row.roomName.startsWith("player_")) {
-      const affiliation = row.affiliation ?? channels.find(channel => channel.roomName === row.roomName)?.affiliation;
       return affiliation === "owner" ? { id: "owned", label: locale(paths.owned, "My Channels") } :
         { id: "player", label: locale(paths.player, "Player Channels") };
     }
@@ -112,9 +114,10 @@
     for (const row of exact ?? channels) {
       const label = channelName(row);
       if (exact === null && needle && !label.toLowerCase().includes(needle) && !row.roomName.toLowerCase().includes(needle)) continue;
-      const group = channelGroup(row);
+      const affiliation = row.affiliation ?? channels.find(channel => channel.roomName === row.roomName)?.affiliation ?? null;
+      const group = channelGroup(row, affiliation);
       const existing = grouped.get(group.id) ?? { ...group, channels: [] };
-      existing.channels.push({ roomName: row.roomName, label, owned: group.id === "owned" });
+      existing.channels.push({ roomName: row.roomName, label, affiliation });
       grouped.set(group.id, existing);
     }
     return [...grouped.values()].sort((a, b) => a.label.localeCompare(b.label));
@@ -255,9 +258,17 @@
     const action = joined ? paths.leaveChannel : paths.joinChannel;
     const entries = [{ label: locale(action, joined ? "Leave Channel" : "Join Channel"), path: action,
       run: () => toggleMembership(channel.roomName, channel.label, joined) }];
-    if (channel.owned) entries.push({ label: locale(paths.deleteChannel, "Delete Channel"), path: paths.deleteChannel,
+    if (joined && (channel.affiliation === "owner" || channel.affiliation === "admin")) {
+      entries.push({ label: locale(paths.settings, "Settings"), path: paths.settings, run: () => { settingsRoom = channel.roomName; } });
+    }
+    if (channel.affiliation === "owner") entries.push({ label: locale(paths.deleteChannel, "Delete Channel"), path: paths.deleteChannel,
       run: () => deleteChannel(channel) });
     rowMenu.open(pointer?.clientX ?? bounds.left, pointer?.clientY ?? bounds.bottom, entries);
+  }
+  function reflectSavedSettings(room: string, name: string) {
+    channels = channels.map(row => row.roomName === room ? { ...row, name } : row);
+    exact = null;
+    settingsRoom = null;
   }
 </script>
 
@@ -296,6 +307,10 @@
   </table>
 {:else if !loading && !searching && !error}
   <p class="empty" role="status">{query.trim() ? "No channels match." : "No channels are available."}</p>
+{/if}
+{#if settingsRoom !== null}
+  {@const room = settingsRoom}
+  <ChatChannelSettings {store} {flow} {room} close={() => { settingsRoom = null; }} saved={(value) => reflectSavedSettings(room, value.name)} />
 {/if}
 
 <style>

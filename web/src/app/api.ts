@@ -2110,6 +2110,31 @@ export async function readChatRoomInfo(roomName: string, options: ApiOptions = {
   return (await getJson(`/api/bridge/chat/${encodeURIComponent(roomName)}/info`, options)).chat ?? null;
 }
 
+export type ChatChannelAccess = "allowed" | "moderated" | "blocked";
+export interface ChatChannelSettings {
+  readonly name: string;
+  readonly motd: string;
+  readonly owner: boolean;
+  readonly passwordProtected: boolean;
+  readonly access: ChatChannelAccess | null;
+}
+export interface ChatChannelSettingsChange {
+  readonly name?: string;
+  readonly access?: ChatChannelAccess;
+  readonly password?: string;
+  readonly motd: string;
+}
+export async function chatChannelSettings(roomName: string, change: ChatChannelSettingsChange | null, options: ApiOptions = {}): Promise<ChatChannelSettings> {
+  const path = `/api/bridge/chat/${encodeURIComponent(roomName)}/settings`;
+  const data = change === null ? await getJson(path, options) : await postJson(path, change, options);
+  const value = (data.settings ?? {}) as Record<string, JsonValue>;
+  if (typeof value.name !== "string" || typeof value.motd !== "string" || typeof value.owner !== "boolean" ||
+      typeof value.passwordProtected !== "boolean" || !(value.access === null || value.access === "allowed" || value.access === "moderated" || value.access === "blocked")) {
+    throw new Error("The channel settings could not be read.");
+  }
+  return { name: value.name, motd: value.motd, owner: value.owner, passwordProtected: value.passwordProtected, access: value.access };
+}
+
 export async function joinChatRoom(roomName: string, password = "", options: ApiOptions = {}): Promise<JsonValue> {
   return (await postJson(`/api/bridge/chat/${encodeURIComponent(roomName)}/join`, { password }, options)).chat ?? null;
 }

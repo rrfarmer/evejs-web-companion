@@ -5685,6 +5685,7 @@ export interface AppFlow {
   setChatChannel(channel: ChatChannel): void;
   readChatChannelDirectory(name: string | null): Promise<readonly api.ChatDirectoryChannel[]>;
   createChatDirectoryChannel(name: string): Promise<string>;
+  chatDirectoryChannelSettings(room: string, change?: api.ChatChannelSettingsChange): Promise<api.ChatChannelSettings>;
   readChatChannelMembers(rooms: readonly string[]): Promise<ReadonlyMap<string, number>>;
   /**
    * R7c — request display names for a set of `{kind, id}` refs (names-everywhere).
@@ -41214,6 +41215,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       scope.current();
       if (typeof room !== "string" || !/^player_\d+$/.test(room)) throw new Error("The channel could not be created.");
       return room;
+    },
+    async chatDirectoryChannelSettings(room, change) {
+      const scope = captureMemberOperation();
+      const settings = await api.chatChannelSettings(room, change ?? null, scope.options);
+      scope.current();
+      if (change) conversations.updateDirectoryChannelTitle(room, settings.name);
+      return settings;
     },
     async readChatChannelMembers(rooms) {
       const scope = captureMemberOperation();

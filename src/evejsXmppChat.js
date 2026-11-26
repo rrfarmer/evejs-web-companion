@@ -411,6 +411,7 @@ class XmppChatSession {
     this.stanzaCounter = 0;
     // channel -> { roomJid, roomName, joinedAtMs, joinedFor, pending }
     this.rooms = new Map();
+    this.roomSubjects = new Map();
     // roomName -> Map(characterID -> { name, corporationID, allianceID })
     this.rosters = new Map();
     this.memberOrder = new Map();
@@ -524,11 +525,16 @@ class XmppChatSession {
         const query = `<query xmlns='http://jabber.org/protocol/disco#items' node='${escapeXml(node)}'/>`;
         return { id, xml: `<iq id='${id}' type='get' from='${escapeXml(jid())}' to='${escapeXml(this.conferenceDomain)}'>${query}</iq>` };
       },
-      destroyChannel: (roomName) => {
+      roomOwner: (roomName, type, payload = "") => {
         const id = requestID();
         const target = `${roomName}@${this.conferenceDomain}`;
-        const query = "<query xmlns='http://jabber.org/protocol/muc#owner'><destroy/></query>";
-        return { id, xml: `<iq id='${id}' type='set' from='${escapeXml(jid())}' to='${escapeXml(target)}'>${query}</iq>` };
+        const query = `<query xmlns='http://jabber.org/protocol/muc#owner'>${payload}</query>`;
+        return { id, xml: `<iq id='${id}' type='${type}' from='${escapeXml(jid())}' to='${escapeXml(target)}'>${query}</iq>` };
+      },
+      roomSubject: (roomName, subject) => {
+        const id = requestID();
+        const target = `${roomName}@${this.conferenceDomain}`;
+        return `<message id='${id}' type='groupchat' from='${escapeXml(jid())}' to='${escapeXml(target)}'><subject>${escapeXml(subject)}</subject></message>`;
       },
       // _handle_ping (168 to 175): the server's ping answered, its `to` for
       // this answer's `from` and its `from` for the `to`.
@@ -921,6 +927,7 @@ class XmppChatSession {
       );
     }
     this.rooms.clear();
+    this.roomSubjects.clear();
     this.sessionRooms.clear();
     this.leftRooms.clear();
     this.systemChannelsAskedAtMs = 0;
@@ -932,6 +939,7 @@ class XmppChatSession {
     this.stopWatchingChannels();
     this.ready = false;
     this.rooms.clear();
+    this.roomSubjects.clear();
     this.sessionRooms.clear();
     this.leftRooms.clear();
     this.systemChannelsAskedAtMs = 0;
@@ -1075,6 +1083,15 @@ class XmppChatSession {
     }
     const slash = from.indexOf("/");
     if (slash === -1) {
+      const [roomName, domain] = from.split("@");
+      const subject = /<subject>([\s\S]*?)<\/subject>/i.exec(xml);
+      if (domain === this.conferenceDomain && this.rooms.has(roomName) && subject) {
+        const text = decodeXml(subject[1]);
+        this.roomSubjects.set(roomName, text);
+        const key = `subject:${roomName}`;
+        const pending = this.infoRequests.get(key);
+        if (pending?.expectedSubject === text) this.resolveChatInformation(key, xml);
+      }
       return;
     }
     const roomJid = from.slice(0, slash);
@@ -1743,6 +1760,7 @@ class XmppChatSession {
     this.idleChecks.delete(room.channel);
     this.activityAtMs.delete(room.channel);
     this.rooms.delete(room.channel);
+    this.roomSubjects.delete(room.roomName);
     // The tail of what was said in a system this pilot has left is not this
     // pilot's chat any more.
     this.messages.delete(room.roomName);
@@ -1843,12 +1861,79 @@ class XmppChatSession {
     }
     await this.ensureReady();
     this.assertChatCurrent(context);
-    const response = await this.requestChatInformation(this.retailStanzas().destroyChannel(roomName), "channel deletion");
+    const response = await this.requestChatInformation(this.retailStanzas().roomOwner(roomName, "set", "<destroy/>"), "channel deletion");
     this.assertChatCurrent(context);
     if (attr(response.match(/^<iq\b[^>]*>/i)?.[0] || "", "type") !== "result") {
       throw new XmppChatError("The chat server refused to delete this channel.", { code: "CHAT_DELETE_REFUSED", statusCode: 403 });
     }
     this.leaveRoom(this.rooms.get(roomName), false);
+  }
+
+  async channelSettings(roomName, context = {}) {
+    if (typeof roomName !== "string" || !/^player_\d+$/.test(roomName)) {
+      throw new XmppChatError("Choose a player chat channel.", { code: "INVALID_CHANNEL", statusCode: 400 });
+    }
+    const channels = await this.channelDirectory(null, context);
+    const channel = channels.find(row => row.roomName === roomName);
+    const joined = this.rooms.get(roomName);
+    if (!joined?.roomName || joined.pending || !["owner", "admin"].includes(channel?.affiliation)) {
+      throw new XmppChatError("Join a channel you own or operate to open Settings.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
+    }
+    const settings = { name: channel.name, motd: this.roomSubjects.get(roomName) || "", owner: channel.affiliation === "owner",
+      access: null, passwordProtected: false };
+    if (!settings.owner) return settings;
+    const response = await this.requestChatInformation(this.retailStanzas().roomOwner(roomName, "get"), "channel settings");
+    this.assertChatCurrent(context);
+    if (attr(response.match(/^<iq\b[^>]*>/i)?.[0] || "", "type") !== "result") {
+      throw new XmppChatError("The chat server refused to read channel settings.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
+    }
+    const fields = new Map();
+    for (const [, tag, value] of response.matchAll(/(<field\b[^>]*>)\s*<value>([\s\S]*?)<\/value>\s*<\/field>/gi)) {
+      const key = attr(tag, "var");
+      if (key !== "muc#roomconfig_roomsecret") fields.set(key, decodeXml(value));
+    }
+    if (fields.get("FORM_TYPE") !== "http://jabber.org/protocol/muc#roomconfig") {
+      throw new XmppChatError("The chat server did not return a channel settings form.", { code: "CHAT_SETTINGS_UNAVAILABLE", statusCode: 502 });
+    }
+    return { ...settings, name: fields.get("muc#roomconfig_roomname") || settings.name,
+      motd: this.roomSubjects.get(roomName) || "", passwordProtected: fields.get("muc#roomconfig_passwordprotectedroom") === "1",
+      access: fields.get("muc#roomconfig_membersonly") === "1" ? "blocked" : fields.get("members_by_default") === "1" ? "allowed" : "moderated" };
+  }
+
+  async saveChannelSettings(roomName, change, context = {}) {
+    const before = await this.channelSettings(roomName, context);
+    const { name, access, password, motd } = change;
+    if (!before.owner && (name !== undefined || access !== undefined || password !== undefined)) {
+      throw new XmppChatError("Only the channel owner can change its name, password, or access.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
+    }
+    const fields = [];
+    if (name !== undefined && name !== before.name) fields.push(["muc#roomconfig_roomname", name]);
+    if (password !== undefined) {
+      fields.push(["muc#roomconfig_passwordprotectedroom", password ? "1" : "0"]);
+      if (password) fields.push(["muc#roomconfig_roomsecret", password]);
+    }
+    if (access !== undefined && access !== before.access) {
+      fields.push(["muc#roomconfig_moderatedroom", "1"], ["muc#roomconfig_membersonly", access === "blocked" ? "1" : "0"],
+        ["muc#roomconfig_allowinvites", access === "blocked" ? "0" : "1"], ["members_by_default", access === "moderated" ? "0" : "1"]);
+    }
+    const stanzas = this.retailStanzas();
+    if (fields.length) {
+      fields.unshift(["FORM_TYPE", "http://jabber.org/protocol/muc#roomconfig"]);
+      const values = fields.map(([key, value]) => `<field var='${key}'><value>${escapeXml(value)}</value></field>`).join("");
+      this.assertChatCurrent(context);
+      const response = await this.requestChatInformation(stanzas.roomOwner(roomName, "set",
+        `<x xmlns='jabber:x:data' type='submit'>${values}</x>`), "channel settings update");
+      this.assertChatCurrent(context);
+      if (attr(response.match(/^<iq\b[^>]*>/i)?.[0] || "", "type") !== "result") {
+        throw new XmppChatError("The chat server refused to save channel settings.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
+      }
+    }
+    if (motd !== this.roomSubjects.get(roomName) && (motd || this.roomSubjects.has(roomName))) {
+      this.assertChatCurrent(context);
+      await this.requestChatInformation({ id: `subject:${roomName}`, xml: stanzas.roomSubject(roomName, motd), expectedSubject: motd }, "channel message update");
+      this.assertChatCurrent(context);
+    }
+    return this.channelSettings(roomName, context);
   }
 
   async channelMembers(roomNames, context = {}) {
@@ -1867,6 +1952,9 @@ class XmppChatSession {
   }
 
   requestChatInformation(request, description) {
+    if (this.infoRequests.has(request.id)) {
+      return Promise.reject(new XmppChatError("This channel update is already in progress.", { code: "CHAT_UPDATE_BUSY", statusCode: 409 }));
+    }
     return new Promise((resolve, reject) => {
       // xmppConnection.IssueRequest waits thirty seconds.
       const timer = setTimeout(() => {
@@ -1874,7 +1962,7 @@ class XmppChatSession {
         reject(new XmppChatError(`The chat server did not answer the ${description} request.`, { code: "CHAT_INFO_TIMEOUT", statusCode: 504 }));
       }, 30_000);
       timer.unref?.();
-      this.infoRequests.set(request.id, { resolve, reject, timer });
+      this.infoRequests.set(request.id, { resolve, reject, timer, expectedSubject: request.expectedSubject });
       try {
         this.write(request.xml);
       } catch (error) {
@@ -1887,6 +1975,10 @@ class XmppChatSession {
 
   takeRoomInfo(xml) {
     const id = attr(xml.match(/^<iq\b[^>]*>/i)?.[0] || "", "id");
+    this.resolveChatInformation(id, xml);
+  }
+
+  resolveChatInformation(id, xml) {
     const pending = this.infoRequests.get(id);
     if (!pending) return;
     this.infoRequests.delete(id);
