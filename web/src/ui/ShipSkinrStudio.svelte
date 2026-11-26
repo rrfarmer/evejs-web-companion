@@ -1,8 +1,12 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import type { ShipSkinrDesign, ShipSkinrEntry, ShipSkinrStudio } from "../bridge/shipSkinr.ts";
+  import { SHIP_SKINR_GATEWAY, shipSkinrEarlyPrice, type ShipSkinrDesign, type ShipSkinrEarlyPrice,
+    type ShipSkinrEntry, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
+  import { readPlexVaultBalance } from "../bridge/plexVault.ts";
+  import { PLEX_WALLET_NOTICE } from "../bridge/plexWalletNotice.ts";
+  import { formatDuration } from "../bridge/skills.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
@@ -27,9 +31,13 @@
     create: [prefix + "CreateNewDesign", "Create New Design"],
     edit: [prefix + "EditDesign", "Edit Design"],
     delete: [prefix + "DeleteDesign", "Delete Design"],
+    complete: [prefix + "CompleteJobNow", "Complete Now"],
+    completed: ["UI/Generic/Completed", "Completed"],
   } as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   const limitPath = prefix + "DesignErrors/SaveLimitReached";
+  const timeLeftPath = prefix + "TimeLeft";
+  const insufficientPath = prefix + "InsufficientPLEX";
   let studio = $state.raw<ShipSkinrStudio | null>(null);
   let sequencingCapacity = $state.raw<Awaited<ReturnType<AppFlow["loadShipSkinrSequencingCapacity"]>> | null>(null);
   let designs = $state.raw<ReadonlyMap<string, ShipSkinrDesign | null>>(new Map());
@@ -40,6 +48,14 @@
   let designer = $state.raw<{ entry: ShipSkinrEntry; design: ShipSkinrDesign } | "new" | null>(null);
   let deleting = $state.raw<ShipSkinrEntry | null>(null);
   let deleteError = $state("");
+  let now = $state(Date.now());
+  let completing = $state<string | null>(null);
+  let jobError = $state("");
+  let completed = $state("");
+  let prices = $state.raw<readonly ShipSkinrEarlyPrice[]>([]);
+  let plex = $state<bigint | null>(null);
+  let jobRequest = 0;
+  let balanceRequest = 0;
   let destroyed = false;
   const atSaveLimit = $derived(studio !== null && studio.designs.length >= studio.capacity);
   const saveLimit = $derived(studio ? plainText(formatTemplate(
@@ -49,6 +65,14 @@
   )) : "");
   const selectedEntry = $derived([...(studio?.designs ?? []), ...(studio?.jobs ?? [])].find(row => row.id === selected));
   const selectedDesign = $derived(selectedEntry ? designs.get(selectedEntry.skin) : null);
+  const hasJobs = $derived(Boolean(studio?.jobs.length));
+  const formatPlex = (cents: number | bigint) => (Number(cents) / 100).toLocaleString();
+  const format = (path: string, fallback: string, args: Record<string, string | number>) =>
+    plainText(formatTemplate($words.templates[path] ?? fallback, args, { nameOf: () => "" }));
+  const progress = (job: ShipSkinrEntry) => Math.max(0, Math.min(1,
+    (now - job.startedAt) / (job.finishesAt - job.startedAt)));
+  const remaining = (job: ShipSkinrEntry) =>
+    format(timeLeftPath, "Time Left: {time_left}", { time_left: formatDuration(job.finishesAt - now) });
   const shipName = (design: ShipSkinrDesign) => resolvedName($names.resolved, "type", design.shipTypeID, String(design.shipTypeID));
   const title = (entry: ShipSkinrEntry) => {
     const design = designs.get(entry.skin);
@@ -65,15 +89,16 @@
   async function remove(entry: ShipSkinrEntry) {
     const loaded = studio;
     if (!loaded?.designs.includes(entry) || designer || deleting) return;
-    const current = () => !destroyed && studio === loaded && deleting === entry;
+    const current = () => !destroyed && deleting === entry && studio?.designs.includes(entry);
     deleting = entry;
     deleteError = "";
     try {
       const confirmed = await flow.askClientDialogWith("DeleteDesign", {}, "Delete this saved design?");
       if (!confirmed || !current()) return;
       await flow.deleteShipSkinrDesign(entry.id);
-      if (!current()) return;
-      studio = { ...loaded, designs: loaded.designs.filter(row => row.id !== entry.id) };
+      const latest = studio;
+      if (!current() || !latest) return;
+      studio = { ...latest, designs: latest.designs.filter(row => row.id !== entry.id) };
       selected = null;
     } catch (cause) {
       if (current()) deleteError = panelErrorWords(cause);
@@ -82,7 +107,99 @@
     }
   }
 
-  $effect(() => { flow.requestWords([...Object.values(labels).map(([path]) => path), limitPath]); });
+  async function refreshJobs() {
+    if (!studio || !pilot) return;
+    const request = ++jobRequest;
+    const owner = pilot;
+    const current = () => !destroyed && owner === pilot && request === jobRequest;
+    try {
+      const jobs = await flow.loadShipSkinrJobs();
+      if (!current() || !studio) return;
+      if (studio.jobs.some(job => job.id === selected) && !jobs.some(job => job.id === selected)) selected = null;
+      studio = { ...studio, jobs };
+      const missing = new Set(jobs.filter(job => !designs.has(job.skin)).map(job => job.skin));
+      const entries = await Promise.all([...missing].map(async skin =>
+        [skin, await flow.loadShipSkinrDesign(skin).catch(() => null)] as const));
+      if (current() && entries.length) designs = new Map([...designs, ...entries]);
+    } catch (cause) {
+      if (current()) jobError = panelErrorWords(cause);
+    }
+  }
+
+  async function refreshBalance() {
+    const request = ++balanceRequest;
+    try {
+      const latest = await readPlexVaultBalance(flow.requestOptions());
+      if (!destroyed && request === balanceRequest) plex = latest;
+    } catch {
+      if (!destroyed && request === balanceRequest) plex = null;
+    }
+  }
+
+  async function complete(job: ShipSkinrEntry) {
+    const quote = shipSkinrEarlyPrice(prices, job.finishesAt, Date.now());
+    if (completing || quote === null || plex === null || plex < BigInt(quote)) return;
+    const owner = pilot;
+    const current = () => !destroyed && owner === pilot;
+    completing = job.id;
+    completed = "";
+    jobError = "";
+    try {
+      const confirmed = await flow.askClientDialogWith("CompleteSequencingNow", { plex_cost: formatPlex(quote) },
+        `Complete this sequencing job now for ${formatPlex(quote)} PLEX?`);
+      if (!confirmed || !current() || !studio?.jobs.some(row => row.id === job.id)) return;
+      const latest = shipSkinrEarlyPrice(prices, job.finishesAt, Date.now());
+      if (latest !== quote) {
+        jobError = "The completion price changed. Review the current price and try again.";
+        return;
+      }
+      await flow.completeShipSkinrJob(job.id);
+      if (!current() || !studio) return;
+      completed = `${title(job)} · ${word("completed")}`;
+      studio = { ...studio, jobs: studio.jobs.filter(row => row.id !== job.id) };
+      if (selected === job.id) selected = null;
+      void refreshJobs();
+    } catch (cause) {
+      if (current()) {
+        jobError = panelErrorWords(cause);
+        void refreshBalance();
+      }
+    } finally {
+      if (current() && completing === job.id) completing = null;
+    }
+  }
+
+  onMount(() => {
+    const notices = flow.gatewayNotices;
+    let previous = notices.get();
+    const stop = notices.subscribe(notice => {
+      if (previous === notice) return;
+      previous = notice;
+      if (notice?.typeName.startsWith(SHIP_SKINR_GATEWAY + "sequencing.job.api.")) void refreshJobs();
+      if (hasJobs && notice?.typeName === PLEX_WALLET_NOTICE) void refreshBalance();
+    });
+    const changes = flow.plexVaultChanged;
+    let last = changes.get();
+    const stopChanges = changes.subscribe(change => {
+      if (last === change) return;
+      last = change;
+      if (hasJobs) void refreshBalance();
+    });
+    return () => { stop(); stopChanges(); };
+  });
+
+  $effect(() => { flow.requestWords([...Object.values(labels).map(([path]) => path), limitPath, timeLeftPath, insufficientPath]); });
+  $effect(() => {
+    if (!hasJobs || !pilot) return;
+    now = Date.now();
+    const timer = window.setInterval(() => { now = Date.now(); }, 500);
+    let current = true;
+    void refreshBalance();
+    void flow.loadShipSkinrEarlyPricing().then(result => {
+      if (current) prices = result;
+    }, cause => { if (current) jobError = panelErrorWords(cause); });
+    return () => { current = false; clearInterval(timer); balanceRequest++; prices = []; plex = null; };
+  });
   $effect(() => {
     void $skillsChanged;
     void attempt;
@@ -98,6 +215,7 @@
   });
   $effect(() => {
     void attempt;
+    jobRequest++;
     studio = null;
     designs = new Map();
     selected = selectionAfterReload;
@@ -105,6 +223,9 @@
     designer = null;
     deleting = null;
     deleteError = "";
+    jobError = "";
+    completed = "";
+    completing = null;
     error = "";
     if (!pilot) return;
     let mounted = true;
@@ -115,11 +236,21 @@
       return Promise.all([...skins].map(async skin => {
         const design = await flow.loadShipSkinrDesign(skin).catch(() => null);
         return [skin, design] as const;
-      })).then(entries => { if (mounted) designs = new Map(entries); });
+      })).then(entries => { if (mounted) designs = new Map([...entries, ...designs]); });
     }, cause => { if (mounted) error = panelErrorWords(cause); });
     return () => { mounted = false; };
   });
 </script>
+
+{#snippet completeButton(job: ShipSkinrEntry)}
+  {@const quote = shipSkinrEarlyPrice(prices, job.finishesAt, now)}
+  {#if quote !== null && job.startedAt}
+    {@const insufficient = plex !== null && plex < BigInt(quote)}
+    <button type="button" class="complete-job" disabled={!!completing || plex === null || insufficient}
+      title={insufficient ? format(insufficientPath, "Insufficient PLEX. PLEX balance {plex_balance}.", { plex_balance: formatPlex(plex) }) : undefined}
+      onclick={() => void complete(job)}>{word("complete")} · {formatPlex(quote)} PLEX</button>
+  {/if}
+{/snippet}
 
 <section class="ship-skinr" aria-labelledby="ship-skinr-studio">
   <h2 id="ship-skinr-studio">{word(designer === "new" ? "create" : designer ? "edit" : "studio")}</h2>
@@ -154,12 +285,20 @@
         </header>
         {#if !studio.jobs.length}<p>No active sequencing jobs.</p>{/if}
         {#each studio.jobs as row (row.id)}
-          <button class="skinr-entry" type="button" data-entry="job" aria-pressed={selected === row.id} disabled={!!deleting}
-            onclick={() => selected = selected === row.id ? null : row.id}>
-            <strong>{title(row)}</strong>
-            <span>{row.quantity} SKINs</span>
-            {#if row.finishesAt}<time datetime={new Date(row.finishesAt).toISOString()}>{new Date(row.finishesAt).toLocaleString()}</time>{/if}
-          </button>
+          <div class="sequence-job">
+            <button class="skinr-entry" type="button" data-entry="job" aria-pressed={selected === row.id} disabled={!!deleting}
+              onclick={() => selected = selected === row.id ? null : row.id}>
+              <strong>{title(row)}</strong>
+              <span>{row.quantity} SKINs</span>
+              {#if row.startedAt && row.finishesAt > row.startedAt}
+                <progress max="1" value={progress(row)} aria-label={word("sequencing")}></progress>
+                <time datetime={new Date(row.finishesAt).toISOString()}>{remaining(row)}</time>
+              {:else}
+                <span>Pending</span>
+              {/if}
+            </button>
+            {@render completeButton(row)}
+          </div>
         {/each}
       </section>
       <section aria-label={word("saved")}>
@@ -187,6 +326,8 @@
           {#if studio.designs.includes(selectedEntry)}
             <button type="button" disabled={!!deleting} onclick={() => designer = { entry, design }}>{word("edit")}</button>
             <button type="button" class="danger" disabled={!!deleting} onclick={() => void remove(entry)}>{word("delete")}</button>
+          {:else}
+            {@render completeButton(entry)}
           {/if}
         </div>
       </section>
@@ -196,6 +337,8 @@
       </div>
     {/if}
     {#if deleteError}<p role="alert">{deleteError}</p>{/if}
+    {#if jobError}<p role="alert">{jobError}</p>{/if}
+    {#if completed}<p role="status">{completed}</p>{/if}
   {/if}
 </section>
 
@@ -213,6 +356,9 @@
   p, time, span { color: #b8c3cc; }
   .skinr-entry { display: flex; flex-wrap: wrap; justify-content: space-between; text-align: left; gap: 8px; padding: 8px; }
   .skinr-entry[aria-pressed="true"] { border-color: #94b8c2; }
+  .sequence-job { display: grid; gap: 4px; }
+  .sequence-job progress { flex-basis: 100%; width: 100%; height: 5px; accent-color: #94b8c2; }
+  .complete-job { justify-self: start; }
   .skinr-details { display: flex; align-items: center; gap: 12px; padding: 14px; background: #ffffff08; }
   .skinr-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-inline-start: auto; }
 </style>

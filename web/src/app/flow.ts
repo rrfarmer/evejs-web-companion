@@ -6,7 +6,8 @@
 
 import { getCharacterSelectionData } from "../bridge/characterSelection.ts";
 import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, decodeShipSkinrEntries, decodeShipSkinrEntry,
-  shipSkinrSequencingCapacity, type ShipSkinrDesign, type ShipSkinrEntry, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
+  decodeShipSkinrEarlyPricing, shipSkinrSequencingCapacity, type ShipSkinrDesign, type ShipSkinrEarlyPrice,
+  type ShipSkinrEntry, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
 import { setSessionToken } from "./sessionToken.ts";
 import { pageFetch } from "./pageFetch.ts";
 import {
@@ -4591,6 +4592,9 @@ export interface AppFlow {
   loadStructureBrowser(systemID: number, corporation?: boolean): Promise<StructureBrowserDirectory>;
   loadMyMercenaryDens(): Promise<MercenaryDensRead>;
   loadShipSkinrStudio(): Promise<ShipSkinrStudio>;
+  loadShipSkinrJobs(): Promise<readonly ShipSkinrEntry[]>;
+  loadShipSkinrEarlyPricing(): Promise<readonly ShipSkinrEarlyPrice[]>;
+  completeShipSkinrJob(id: string): Promise<void>;
   loadShipSkinrSequencingCapacity(): Promise<ReturnType<typeof shipSkinrSequencingCapacity>>;
   readonly shipSkinrSkillsChanged: ReadableSignal<number>;
   loadShipSkinrDesign(skin: string): Promise<ShipSkinrDesign | null>;
@@ -28888,11 +28892,30 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const [designs, capacity, jobs] = await Promise.all([
       gatewayAsk(SHIP_SKINR_GATEWAY + "draft.api.GetAllSavedRequest"),
       gatewayAsk(SHIP_SKINR_GATEWAY + "draft.api.GetSaveCapacityRequest"),
-      gatewayAsk(SHIP_SKINR_GATEWAY + "sequencing.job.api.GetAllActiveRequest"),
+      loadShipSkinrJobs(),
     ]);
     current();
-    return { designs: decodeShipSkinrEntries(designs, "drafts"), capacity: decodeShipSkinrCapacity(capacity),
-      jobs: decodeShipSkinrEntries(jobs, "jobs") };
+    return { designs: decodeShipSkinrEntries(designs, "drafts"), capacity: decodeShipSkinrCapacity(capacity), jobs };
+  }
+
+  async function loadShipSkinrJobs(): Promise<readonly ShipSkinrEntry[]> {
+    const current = callOptions.captureRequestGuard!();
+    const jobs = await gatewayAsk(SHIP_SKINR_GATEWAY + "sequencing.job.api.GetAllActiveRequest");
+    current();
+    return decodeShipSkinrEntries(jobs, "jobs");
+  }
+
+  async function loadShipSkinrEarlyPricing(): Promise<readonly ShipSkinrEarlyPrice[]> {
+    const current = callOptions.captureRequestGuard!();
+    const pricing = await gatewayAsk(SHIP_SKINR_GATEWAY + "sequencing.api.GetEarlyCompletionPricingRequest");
+    current();
+    return decodeShipSkinrEarlyPricing(pricing);
+  }
+
+  async function completeShipSkinrJob(id: string): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    await gatewayAsk(SHIP_SKINR_GATEWAY + "sequencing.job.api.CompleteEarlyRequest", { job: { uuid: id } }, true);
+    current();
   }
 
   async function loadShipSkinrSequencingCapacity(): Promise<ReturnType<typeof shipSkinrSequencingCapacity>> {
@@ -41292,6 +41315,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMySkyhooks,
     loadMyMercenaryDens,
     loadShipSkinrStudio,
+    loadShipSkinrJobs,
+    loadShipSkinrEarlyPricing,
+    completeShipSkinrJob,
     loadShipSkinrSequencingCapacity,
     shipSkinrSkillsChanged: readonlySignal(shipSkinrSkillsChanged),
     loadShipSkinrDesign,

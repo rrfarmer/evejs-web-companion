@@ -15749,6 +15749,99 @@
      "label": 1
     }
    ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.api.GetEarlyCompletionPricingRequest": {
+   "fields": []
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.api.GetEarlyCompletionPricingResponse": {
+   "fields": [
+    {
+     "name": "prices",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.sequencing.api.GetEarlyCompletionPricingResponse.Price"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.api.GetEarlyCompletionPricingResponse.Price": {
+   "fields": [
+    {
+     "name": "remaining_greater",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Duration"
+    },
+    {
+     "name": "remaining_lesser_or_equal",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "google.protobuf.Duration"
+    },
+    {
+     "name": "plex",
+     "number": 3,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.plex.Currency"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.api.CompleteEarlyRequest": {
+   "fields": [
+    {
+     "name": "job",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.api.CompleteEarlyResponse": {
+   "fields": []
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.api.CompletedNotice": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.api.FailedNotice": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.Identifier"
+    },
+    {
+     "name": "reason",
+     "number": 2,
+     "type": 14,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.Failure"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.api.StartedNotice": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.Identifier"
+    }
+   ]
   }
  },
  "enums": {

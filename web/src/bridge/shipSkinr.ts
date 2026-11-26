@@ -29,6 +29,7 @@ export interface ShipSkinrEntry {
   readonly id: string;
   readonly skin: string;
   readonly quantity: number;
+  readonly startedAt: number;
   readonly finishesAt: number;
   readonly editorConfigurations: JsonValue[];
 }
@@ -47,6 +48,12 @@ export interface ShipSkinrDesign {
   readonly layout: Record<string, JsonValue>;
 }
 
+export interface ShipSkinrEarlyPrice {
+  readonly above: number;
+  readonly atMost: number;
+  readonly cents: number;
+}
+
 function record(value: unknown): Record<string, JsonValue> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, JsonValue> : {};
 }
@@ -54,6 +61,30 @@ function record(value: unknown): Record<string, JsonValue> {
 function integer(value: unknown): number {
   const number = typeof value === "number" || typeof value === "string" ? Number(value) : NaN;
   return Number.isSafeInteger(number) && number >= 0 ? number : 0;
+}
+
+function timestamp(value: unknown): number {
+  const { seconds, nanos } = record(value);
+  return integer(seconds) * 1000 + Math.floor(integer(nanos) / 1000000);
+}
+
+export function decodeShipSkinrEarlyPricing(payload: unknown): ShipSkinrEarlyPrice[] {
+  const prices = record(payload).prices;
+  if (!Array.isArray(prices)) return [];
+  return prices.flatMap(row => {
+    const { remaining_greater, remaining_lesser_or_equal, plex } = record(row);
+    const above = Number(record(remaining_greater).seconds ?? 0);
+    const atMost = Number(record(remaining_lesser_or_equal).seconds ?? 0);
+    const cents = integer(record(plex).total_in_cents);
+    return Number.isSafeInteger(above) && Number.isSafeInteger(atMost) && cents ? [{ above, atMost, cents }] : [];
+  });
+}
+
+export function shipSkinrEarlyPrice(prices: readonly ShipSkinrEarlyPrice[], finishesAt: number, now: number): number | null {
+  const seconds = Math.ceil((finishesAt - now) / 1000);
+  if (seconds <= 0) return null;
+  return prices.find(price => (price.above < 0 || seconds > price.above) &&
+    (price.atMost < 0 || seconds <= price.atMost))?.cents ?? null;
 }
 
 export function decodeShipSkinrEntries(payload: unknown, field: "drafts" | "jobs"): ShipSkinrEntry[] {
@@ -71,7 +102,8 @@ export function decodeShipSkinrEntry(payload: unknown): ShipSkinrEntry | null {
   if (typeof id !== "string" || !id || typeof skin !== "string" || !skin) return null;
   return {
     id, skin, quantity: integer(attributes.quantity),
-    finishesAt: integer(record(attributes.planned_completion).seconds) * 1000,
+    startedAt: timestamp(attributes.started),
+    finishesAt: timestamp(attributes.planned_completion),
     editorConfigurations: Array.isArray(configurations) ? configurations : [],
   };
 }

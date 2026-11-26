@@ -15941,6 +15941,7 @@ app.get("/api/client-data/dogma-types", requireAuth, async (req, res, next) => {
 const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetAllSavedRequest",
   "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetSaveCapacityRequest",
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.api.GetEarlyCompletionPricingRequest",
   "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.api.GetAllActiveRequest",
   "eve_public.cosmetic.ship.skin.thirdparty.api.GetRequest",
   "eve_public.ai.assistant.chat.api.QueryRequest",
@@ -16048,6 +16049,7 @@ const PUBLIC_GATEWAY_WRITES = new Set([
   "eve_public.cosmetic.ship.skin.thirdparty.draft.api.DeleteRequest",
   "eve_public.cosmetic.ship.skin.thirdparty.draft.api.SaveRequest",
   "eve_public.cosmetic.ship.skin.thirdparty.draft.api.UpdateRequest",
+  "eve_public.cosmetic.ship.skin.thirdparty.sequencing.job.api.CompleteEarlyRequest",
   "eve_public.sovereignty.mercenaryden.activity.api.StartRequest",
   "eve_public.achievement.reward.api.ClaimRequest",
   "eve_public.cosmetic.character.title.api.EquipRequest",
