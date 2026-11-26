@@ -8,6 +8,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import ShipSkinrShare from "./ShipSkinrShare.svelte";
+  import ShipSkinrPreview from "./ShipSkinrPreview.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   type Listing = Awaited<ReturnType<AppFlow["loadShipSkinrOwnedListings"]>>[number];
@@ -177,6 +178,7 @@
       {#if detail}
         <article aria-label={skinName(detail)}>
           <h4>{skinName(detail)}</h4>
+          {#if detail.design}<ShipSkinrPreview {flow} design={detail.design} />{/if}
           <dl>
             <dt>{word("listedTo")}</dt><dd>{audience(detail)}</dd>
             <dt>Price per SKIN</dt><dd>{price(detail)}</dd>

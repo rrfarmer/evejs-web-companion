@@ -10,9 +10,9 @@
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
-  import { typeIconUrl } from "./typeIcons.ts";
   import { showInfo } from "./showInfo.ts";
   import ShipSkinrDesigner from "./ShipSkinrDesigner.svelte";
+  import ShipSkinrPreview from "./ShipSkinrPreview.svelte";
   import ShipSkinrShare from "./ShipSkinrShare.svelte";
 
   let { store, flow, registerBeforeClose, linkedDesign = null }: {
@@ -316,11 +316,10 @@
       </section>
     </div>
     {#if selectedEntry && selectedDesign}
-      {@const icon = typeIconUrl(selectedDesign.shipTypeID)}
       {@const entry = selectedEntry}
       {@const design = selectedDesign}
       <section class="skinr-details" aria-label={title(selectedEntry)}>
-        {#if icon}<img src={icon} alt="" width="64" height="64" />{/if}
+        <div class="studio-preview"><ShipSkinrPreview {flow} {design} /></div>
         <div>
           <h3>{title(selectedEntry)}</h3>
           {#if selectedDesign.lineName}<p>{selectedDesign.lineName}</p>{/if}
@@ -367,6 +366,7 @@
   .sequence-job { display: grid; gap: 4px; }
   .sequence-job progress { flex-basis: 100%; width: 100%; height: 5px; accent-color: #94b8c2; }
   .complete-job { justify-self: start; }
-  .skinr-details { display: flex; align-items: center; gap: 12px; padding: 14px; background: #ffffff08; }
+  .skinr-details { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px; background: #ffffff08; }
+  .studio-preview { flex: 0 1 17rem; min-width: min(100%, 10rem); }
   .skinr-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-inline-start: auto; }
 </style>
