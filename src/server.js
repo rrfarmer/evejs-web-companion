@@ -15955,6 +15955,7 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.cosmetic.market.api.GetTaxRateRequest",
   "eve_public.cosmetic.market.api.GetBuyerFeeRequest",
   "eve_public.cosmetic.market.skin.listing.api.GetAllOwnedRequest",
+  "eve_public.cosmetic.market.skin.listing.api.GetAllRequest",
   "eve_public.cosmetic.market.transaction.api.GetRequest",
   "eve_public.cosmetic.ship.skin.thirdparty.api.GetRequest",
   "eve_public.ai.assistant.chat.api.QueryRequest",

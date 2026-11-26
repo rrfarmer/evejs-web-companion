@@ -13,8 +13,9 @@ import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequ
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
-import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, encodeShipSkinrListingTarget, shipSkinrListingLimit,
-  shipSkinrListingQuote, type ShipSkinrListingInput, type ShipSkinrListingTarget } from "../bridge/shipSkinrMarket.ts";
+import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrBrowse, encodeShipSkinrBrowse, encodeShipSkinrListingTarget,
+  shipSkinrListingLimit, shipSkinrListingQuote, type ShipSkinrBrowseQuery, type ShipSkinrListingInput,
+  type ShipSkinrListingTarget } from "../bridge/shipSkinrMarket.ts";
 import { setSessionToken } from "./sessionToken.ts";
 import { pageFetch } from "./pageFetch.ts";
 import {
@@ -4607,6 +4608,7 @@ export interface AppFlow {
   loadShipSkinrApplied(shipID: number): Promise<void>;
   applyShipSkinrLicense(hex: string, shipID: number, remove: boolean): Promise<void>;
   loadShipSkinrOwnedListings(): Promise<ReturnType<typeof decodeOwnedShipSkinrListings>>;
+  browseShipSkinrListings(query: ShipSkinrBrowseQuery): Promise<ReturnType<typeof decodeShipSkinrBrowse>>;
   cancelShipSkinrListing(id: string): Promise<void>;
   loadShipSkinrListingLimit(): Promise<number>;
   quoteShipSkinrListing(hex: string, target: ShipSkinrListingTarget): Promise<ReturnType<typeof shipSkinrListingQuote>>;
@@ -29043,6 +29045,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return decodeOwnedShipSkinrListings(reply);
   }
 
+  async function browseShipSkinrListings(query: ShipSkinrBrowseQuery): Promise<ReturnType<typeof decodeShipSkinrBrowse>> {
+    const current = callOptions.captureRequestGuard!();
+    const reply = await gatewayAsk(SHIP_SKINR_MARKET + "skin.listing.api.GetAllRequest", encodeShipSkinrBrowse(query));
+    current();
+    const result = decodeShipSkinrBrowse(reply);
+    requestNames(result.listings.flatMap(row => row.seller ? [{ kind: "character" as const, id: row.seller }] : []));
+    return result;
+  }
+
   async function cancelShipSkinrListing(id: string): Promise<void> {
     const current = callOptions.captureRequestGuard!();
     await gatewayAsk(SHIP_SKINR_MARKET + "skin.listing.api.CancelListingRequest", { listing: { uuid: id } }, true);
@@ -41542,6 +41553,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadShipSkinrApplied,
     applyShipSkinrLicense,
     loadShipSkinrOwnedListings,
+    browseShipSkinrListings,
     cancelShipSkinrListing,
     loadShipSkinrListingLimit,
     quoteShipSkinrListing,

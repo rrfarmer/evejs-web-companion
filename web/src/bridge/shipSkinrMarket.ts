@@ -14,6 +14,23 @@ export interface ShipSkinrListingInput {
   readonly target: ShipSkinrListingTarget;
 }
 
+export interface ShipSkinrBrowseQuery {
+  readonly target: "public" | "my_corporation" | "my_alliance" | "my_character";
+  readonly hull?: number;
+  readonly membership?: 1 | 2;
+  readonly ascending: boolean;
+  readonly token?: string;
+}
+
+export function encodeShipSkinrBrowse(query: ShipSkinrBrowseQuery): Record<string, JsonValue> {
+  return {
+    page: { size: 12, ...(query.token ? { token: query.token } : {}) },
+    order: { field: 1, ascending: query.ascending },
+    listing_target: { [query.target]: query.membership ? { required_membership: query.membership } : {} },
+    ...(query.hull ? { filter: { ship_type_filter: { ship_types: [{ sequential: query.hull }] } } } : {}),
+  };
+}
+
 export function encodeShipSkinrListingTarget(target: ShipSkinrListingTarget): Record<string, JsonValue> {
   return target.kind === "public" ? { public: true } : { [target.kind]: { sequential: target.id } };
 }
@@ -56,7 +73,13 @@ export function decodeOwnedShipSkinrListings(payload: JsonValue | null) {
     const currency: ShipSkinrCurrency = attributes?.plex ? "PLEX" : "ISK";
     return [{ id, hex, quantity: Number(attributes?.quantity), currency,
       amount: currency === "PLEX" ? Number(object(attributes?.plex)?.total_in_cents) / 100 : fixed(attributes?.isk),
-      target: object(attributes?.target) ?? {}, expires: Number(object(attributes?.expires)?.seconds) * 1000,
+      seller: Number(object(attributes?.seller)?.sequential ?? object(object(attributes?.skin)?.character)?.sequential ?? 0),
+      branded: attributes?.branded === true, target: object(attributes?.target) ?? {}, expires: Number(object(attributes?.expires)?.seconds) * 1000,
       created: Number(object(attributes?.created)?.seconds) * 1000 }];
   });
+}
+
+export function decodeShipSkinrBrowse(payload: JsonValue | null) {
+  const token = object(object(payload ?? undefined)?.next_page)?.token;
+  return { listings: decodeOwnedShipSkinrListings(payload), token: typeof token === "string" && token ? token : undefined };
 }

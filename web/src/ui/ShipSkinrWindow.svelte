@@ -3,7 +3,7 @@
   import { plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import ShipSkinrCollection from "./ShipSkinrCollection.svelte";
-  import ShipSkinrMyListings from "./ShipSkinrMyListings.svelte";
+  import ShipSkinrStore from "./ShipSkinrStore.svelte";
   import ShipSkinrStudio from "./ShipSkinrStudio.svelte";
 
   type Page = "studio" | "collection" | "store";
@@ -51,7 +51,7 @@
 {:else if page === "collection"}
   <ShipSkinrCollection {store} {flow} />
 {:else}
-  <ShipSkinrMyListings {store} {flow} />
+  <ShipSkinrStore {store} {flow} />
 {/if}
 
 <style>
