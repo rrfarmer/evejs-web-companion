@@ -6,7 +6,7 @@
 
 import { getCharacterSelectionData } from "../bridge/characterSelection.ts";
 import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, decodeShipSkinrEntries, decodeShipSkinrEntry,
-  type ShipSkinrDesign, type ShipSkinrEntry, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
+  shipSkinrSequencingCapacity, type ShipSkinrDesign, type ShipSkinrEntry, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
 import { setSessionToken } from "./sessionToken.ts";
 import { pageFetch } from "./pageFetch.ts";
 import {
@@ -4591,6 +4591,8 @@ export interface AppFlow {
   loadStructureBrowser(systemID: number, corporation?: boolean): Promise<StructureBrowserDirectory>;
   loadMyMercenaryDens(): Promise<MercenaryDensRead>;
   loadShipSkinrStudio(): Promise<ShipSkinrStudio>;
+  loadShipSkinrSequencingCapacity(): Promise<ReturnType<typeof shipSkinrSequencingCapacity>>;
+  readonly shipSkinrSkillsChanged: ReadableSignal<number>;
   loadShipSkinrDesign(skin: string): Promise<ShipSkinrDesign | null>;
   saveShipSkinrDraft(layout: Record<string, JsonValue>, editorConfigurations: JsonValue[], name: string, lineName: string, id?: string): Promise<ShipSkinrEntry>;
   deleteShipSkinrDesign(id: string): Promise<void>;
@@ -8281,6 +8283,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       hasSkillByTypeID.clear();
       // The skill warning's skills let go too, and the window's warnings reckoned again (WarningIconCont.UpdateIcon).
       pilotSkillsHeld = null;
+      shipSkinrSkillsChanged.set(shipSkinrSkillsChanged.get() + 1);
       void reckonActiveShip().catch(() => {});
       if (store.skills.get().loaded) void loadSkills().catch(() => {});
       if (simulation) showSimulation();
@@ -14371,6 +14374,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // The client's books window (MissingSkillbooksWnd), one at a time; and what it has bought, which its end answers.
   const skillBooksAskedSignal = createSignal<SkillBooksAsk | null>(null);
   const gatewayNoticesSignal = createSignal<GatewayNotice | null>(null);
+  const shipSkinrSkillsChanged = createSignal(0);
   let gatewayNoticesHeard = 0;
   const skillPlanLinksSignal = createSignal<SkillPlanLinkFollowed | null>(null);
   let skillPlanLinksFollowed = 0;
@@ -28891,6 +28895,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       jobs: decodeShipSkinrEntries(jobs, "jobs") };
   }
 
+  async function loadShipSkinrSequencingCapacity(): Promise<ReturnType<typeof shipSkinrSequencingCapacity>> {
+    const current = callOptions.captureRequestGuard!();
+    const skills = await bridgeAsk("skillHandler", "GetSkills", []);
+    current();
+    const capacity = shipSkinrSequencingCapacity(skills);
+    requestNames(capacity.skills.map(({ typeID }) => ({ kind: "type", id: typeID })));
+    return capacity;
+  }
+
   async function loadShipSkinrDesign(skin: string): Promise<ShipSkinrDesign | null> {
     const current = callOptions.captureRequestGuard!();
     const result = await gatewayAsk(SHIP_SKINR_GATEWAY + "api.GetRequest", { skin: { hex: skin } });
@@ -41279,6 +41292,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMySkyhooks,
     loadMyMercenaryDens,
     loadShipSkinrStudio,
+    loadShipSkinrSequencingCapacity,
+    shipSkinrSkillsChanged: readonlySignal(shipSkinrSkillsChanged),
     loadShipSkinrDesign,
     saveShipSkinrDraft,
     deleteShipSkinrDesign,

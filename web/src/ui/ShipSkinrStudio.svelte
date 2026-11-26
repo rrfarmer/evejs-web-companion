@@ -7,6 +7,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { typeIconUrl } from "./typeIcons.ts";
+  import { showInfo } from "./showInfo.ts";
   import ShipSkinrDesigner from "./ShipSkinrDesigner.svelte";
 
   let { store, flow, registerBeforeClose }: {
@@ -15,11 +16,13 @@
   const words = $derived(store.words);
   const names = $derived(store.names);
   const station = $derived(store.station);
+  const skillsChanged = $derived(flow.shipSkinrSkillsChanged);
   const pilot = $derived($station.online?.characterID ?? null);
   const prefix = "UI/Personalization/ShipSkins/SKINR/Studio/";
   const labels = {
     studio: [prefix + "Title", "Studio"],
     sequencing: [prefix + "SequencingInProgress", "Sequencing In Progress"],
+    sequencingSkills: [prefix + "MaxConcurrentSequencingJobsTooltipText", "Maximum number of concurrent Sequencing Jobs is affected by the following skills:"],
     saved: [prefix + "SavedDesigns", "Saved Designs"],
     create: [prefix + "CreateNewDesign", "Create New Design"],
     edit: [prefix + "EditDesign", "Edit Design"],
@@ -28,6 +31,7 @@
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   const limitPath = prefix + "DesignErrors/SaveLimitReached";
   let studio = $state.raw<ShipSkinrStudio | null>(null);
+  let sequencingCapacity = $state.raw<Awaited<ReturnType<AppFlow["loadShipSkinrSequencingCapacity"]>> | null>(null);
   let designs = $state.raw<ReadonlyMap<string, ShipSkinrDesign | null>>(new Map());
   let error = $state("");
   let attempt = $state(0);
@@ -80,6 +84,19 @@
 
   $effect(() => { flow.requestWords([...Object.values(labels).map(([path]) => path), limitPath]); });
   $effect(() => {
+    void $skillsChanged;
+    void attempt;
+    if (!pilot) {
+      sequencingCapacity = null;
+      return;
+    }
+    let current = true;
+    void flow.loadShipSkinrSequencingCapacity().then(capacity => {
+      if (current) sequencingCapacity = capacity;
+    }, () => { if (current) sequencingCapacity = null; });
+    return () => { current = false; };
+  });
+  $effect(() => {
     void attempt;
     studio = null;
     designs = new Map();
@@ -117,7 +134,24 @@
   {:else}
     <div class="skinr-sections">
       <section aria-label={word("sequencing")}>
-        <header><h3>{word("sequencing")}</h3><span>{studio.jobs.length}</span></header>
+        <header>
+          <h3>{word("sequencing")}</h3>
+          <span>{studio.jobs.length}{sequencingCapacity ? `/${sequencingCapacity.maximum}` : ""}</span>
+          {#if sequencingCapacity}
+            <details class="sequencing-skills">
+              <summary aria-label={word("sequencingSkills")}>ⓘ</summary>
+              <div>
+                <p>{word("sequencingSkills")}</p>
+                {#each sequencingCapacity.skills as skill (skill.typeID)}
+                  <button type="button" data-sequencing-skill={skill.typeID} onclick={() => showInfo({ kind: "type", typeID: skill.typeID })}>
+                    {resolvedName($names.resolved, "type", skill.typeID, skill.name)}
+                    <span>{skill.level}/5</span>
+                  </button>
+                {/each}
+              </div>
+            </details>
+          {/if}
+        </header>
         {#if !studio.jobs.length}<p>No active sequencing jobs.</p>{/if}
         {#each studio.jobs as row (row.id)}
           <button class="skinr-entry" type="button" data-entry="job" aria-pressed={selected === row.id} disabled={!!deleting}
@@ -171,6 +205,11 @@
   .skinr-sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; }
   .skinr-sections section { display: grid; align-content: start; gap: 8px; padding: 14px; background: #ffffff08; }
   header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .sequencing-skills { position: relative; }
+  .sequencing-skills summary { cursor: pointer; list-style: none; padding-inline: 4px; }
+  .sequencing-skills div { position: absolute; z-index: 1; inset-inline-end: 0; display: grid; gap: 6px;
+    width: min(15rem, 50vw); padding: 10px; background: #182128; border: 1px solid #51606c; }
+  .sequencing-skills button { display: flex; justify-content: space-between; gap: 6px; text-align: start; }
   p, time, span { color: #b8c3cc; }
   .skinr-entry { display: flex; flex-wrap: wrap; justify-content: space-between; text-align: left; gap: 8px; padding: 8px; }
   .skinr-entry[aria-pressed="true"] { border-color: #94b8c2; }

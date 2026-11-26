@@ -1,8 +1,24 @@
 import type { JsonValue } from "./wire.ts";
+import { skillLevelsOf } from "./skillSheet.ts";
 
 export const SHIP_SKINR_GATEWAY = "eve_public.cosmetic.ship.skin.thirdparty.";
 export const SHIP_SKINR_NAME_MAX = 20;
 export const SHIP_SKINR_LINE_NAME_MAX = 50;
+
+// sequencing_const.max_concurrent_jobs_added_by_skill_and_level, accumulated from level 0.
+const SEQUENCING_JOB_BONUSES = [
+  { typeID: 81366, name: "Parallel Sequencing", bonus: [0, 1, 3, 5, 7, 9] },
+  { typeID: 81367, name: "Multi-thread Sequencing", bonus: [0, 2, 4, 6, 8, 10] },
+] as const;
+
+export function shipSkinrSequencingCapacity(answer: unknown) {
+  const levels = skillLevelsOf(answer);
+  const skills = SEQUENCING_JOB_BONUSES.map(({ typeID, name, bonus }) => {
+    const level = Math.max(0, Math.min(5, Math.trunc(levels.get(typeID)?.trainedSkillLevel ?? 0)));
+    return { typeID, name, level, bonus: bonus[level]! };
+  });
+  return { maximum: skills.reduce((total, skill) => total + skill.bonus, 1), skills };
+}
 
 export function validShipSkinrName(name: string, lineName: string): boolean {
   return name.trim() !== "" && [...name].length <= SHIP_SKINR_NAME_MAX && [...lineName].length <= SHIP_SKINR_LINE_NAME_MAX &&
