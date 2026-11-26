@@ -54,6 +54,12 @@ const RETAIL_CLIENT = Object.freeze({
   codename: "V24.01",
   region: "ccp",
 });
+const RETAIL_CLIENT_3724492 = Object.freeze({
+  ...RETAIL_CLIENT,
+  version: 24.02,
+  build: 3724492,
+  codename: "V24.02",
+});
 
 /** boot.GetValue('handShakePaddingLength', 64): the client challenge's length. */
 const HANDSHAKE_PADDING_LENGTH = 64;
@@ -286,7 +292,7 @@ function readNotification(packet) {
 class GamePortSession {
   constructor({
     transport,
-    client = RETAIL_CLIENT,
+    client,
     languageID = "EN",
     handshakeFunctions = KNOWN_HANDSHAKE_FUNCTIONS,
     onLoginProgram = null,
@@ -300,7 +306,8 @@ class GamePortSession {
   } = {}) {
     if (!transport) throw new TypeError("A game-port session needs a transport.");
     this.transport = transport;
-    this.client = client;
+    this.client = client ?? RETAIL_CLIENT;
+    this.autoClientProfile = client === undefined;
     this.languageID = languageID;
     this.onLoginProgram = onLoginProgram;
     this.handshakeFunctions = handshakeFunctions;
@@ -547,17 +554,23 @@ class GamePortSession {
     // The checks GPS.py makes, in its order. A mismatch closes the connection.
     const [, machoVersion, , version, build, project] = server;
     const [codename, region = ""] = String(text(project) ?? "").split("@");
+    let client = this.client;
+    // Choose a supported profile on the first exchange and keep it for authentication.
+    if (this.autoClientProfile && !this.serverVersion && codename === RETAIL_CLIENT_3724492.codename) {
+      client = RETAIL_CLIENT_3724492;
+    }
     const refuse = (code, what) => this._fail(new GamePortError(code, `Incompatible ${what}: the server is ${text(project)} ${version} build ${build}, protocol ${machoVersion}.`));
-    if (region !== this.client.region) throw refuse("HANDSHAKE_INCOMPATIBLEREGION", "region");
-    if (codename !== this.client.codename) throw refuse("HANDSHAKE_INCOMPATIBLERELEASE", "release");
-    if (version !== this.client.version) throw refuse("HANDSHAKE_INCOMPATIBLEVERSION", "version");
-    if (machoVersion !== this.client.machoVersion) throw refuse("HANDSHAKE_INCOMPATIBLEPROTOCOL", "protocol");
-    if (this.client.build < build) throw refuse("HANDSHAKE_INCOMPATIBLEBUILD", "build");
+    if (region !== client.region) throw refuse("HANDSHAKE_INCOMPATIBLEREGION", "region");
+    if (codename !== client.codename) throw refuse("HANDSHAKE_INCOMPATIBLERELEASE", "release");
+    if (version !== client.version) throw refuse("HANDSHAKE_INCOMPATIBLEVERSION", "version");
+    if (machoVersion !== client.machoVersion) throw refuse("HANDSHAKE_INCOMPATIBLEPROTOCOL", "protocol");
+    if (client.build < build) throw refuse("HANDSHAKE_INCOMPATIBLEBUILD", "build");
+    this.client = client;
     this.serverVersion = { machoVersion, userCount: integer(server[2]), version, build, codename, region };
     // (secret, macho.version, 0, boot.version, boot.build, codename@region)
     this._writeRaw([
-      this.client.handshakeSecret, this.client.machoVersion, 0, this.client.version, this.client.build,
-      `${this.client.codename}@${this.client.region}`,
+      client.handshakeSecret, client.machoVersion, 0, client.version, client.build,
+      `${client.codename}@${client.region}`,
     ]);
   }
 

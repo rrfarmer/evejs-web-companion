@@ -13,6 +13,15 @@ const RIGHTS = { roles: ORDINARY, grantableRoles: ORDINARY,
 function scalar(value) { return value && typeof value === "object" && "value" in value ? value.value : value; }
 function row(value) {
   if (value?.type === "packedrow" && value.fields) return Object.fromEntries(Object.entries(value.fields).map(([k, v]) => [k, scalar(v)]));
+  if (value?.type === "objectex2" && scalar(value.header?.[0]?.[0]) === "carbon.common.script.sys.row.Row") {
+    // The 24.02 Row carries (columns, cells) as its constructor arguments.
+    const args = value.header[1];
+    const columns = args?.[0]?.items ?? args?.[0];
+    const cells = args?.[1]?.items ?? args?.[1];
+    if (!Array.isArray(columns) || !Array.isArray(cells) || columns.length !== cells.length)
+      throw trainingError("CORPORATION_STATE_UNKNOWN");
+    return Object.fromEntries(columns.map((column, i) => [scalar(column), scalar(cells[i])]));
+  }
   const entries = value?.args?.entries;
   if (!Array.isArray(entries)) throw trainingError("CORPORATION_STATE_UNKNOWN");
   const fields = Object.fromEntries(entries);

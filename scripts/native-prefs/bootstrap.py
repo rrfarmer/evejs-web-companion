@@ -21,6 +21,8 @@ class InstalledPreferencesModules(object):
         filename = code.co_filename.replace('\\', '/')
         if name in ('eveprefs', 'eveprefs.filebased', 'eveprefs.iniformat'):
             allowed = '/packages/eveprefs/' in filename
+        elif name in ('future', 'future.utils'):
+            allowed = filename.endswith('/packages/' + name.replace('.', '/') + '/__init__.py')
         elif name in ('caching', 'caching.lazy', 'caching.memoize'):
             allowed = '/packages/caching/' in filename
         elif name in ('brennivin', 'brennivin.compat', 'brennivin.traceback2', 'traceback2', 'stringutil'):
@@ -351,6 +353,9 @@ def _create_static_service_types(wallclock, logging, preferences, high, low, med
     core_namespace = literal_prefix(core_code, core_globals['__name__'])
     for name in ('__init__', 'InitService', '__getattr__', '__setattr__'):
         core_namespace[name] = types.FunctionType(definition(core_code, name), core_globals)
+    if 'raise_' in core_namespace['__getattr__'].func_code.co_names:
+        from future.utils import raise_
+        core_globals['raise_'] = raise_
     core = type('CoreService', (object,), core_namespace)
     core_globals['CoreService'] = core
     # boot/counter services remain absent: the ORIGINAL static class has empty

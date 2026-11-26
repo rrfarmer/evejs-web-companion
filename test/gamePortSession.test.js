@@ -385,6 +385,39 @@ test("a login the server answers with the wrong challenge hash is abandoned", { 
   assert.equal(session.closed, true);
 });
 
+function v2402Version(frame, build = 3724492) {
+  const version = decoded(frame);
+  return marshalEncode([...version.slice(0, 3), 24.02, build, "V24.02@ccp"]);
+}
+
+test("the V24.02 profile is used in both version exchanges and the login credentials", { timeout: 5000 }, async (context) => {
+  const { transport } = await loggedIn(context, { replay: {
+    rewrite: (frame, index) => index === 0 || index === 2 ? v2402Version(frame) : frame.bytes,
+  } });
+  for (const index of [0, 2]) {
+    const reply = marshalDecodeExact(inflated(transport.sent[index]));
+    assert.deepEqual(reply.slice(0, 5), [170472, 496, 0, 24.02, 3724492]);
+    assert.equal(text(reply[5]), "V24.02@ccp");
+  }
+  const [, credentials] = marshalDecodeExact(inflated(transport.sent[5]));
+  assert.equal(dictGet(credentials, "boot_build"), 3724492);
+  assert.equal(dictGet(credentials, "boot_version"), 24.02);
+  assert.equal(text(dictGet(credentials, "boot_codename")), "V24.02");
+});
+
+test("V24.02 refuses a newer build or a release change before authentication", { timeout: 5000 }, async () => {
+  for (const [build, code, sent] of [
+    [3724493, "HANDSHAKE_INCOMPATIBLEBUILD", 0],
+    [3724492, "HANDSHAKE_INCOMPATIBLERELEASE", 2],
+  ]) {
+    const transport = replayTransport({ rewrite: (frame, index) => index === 0 ? v2402Version(frame, build) : frame.bytes });
+    const session = new GamePortSession({ transport, ...recordingSessionOptions() });
+    await assert.rejects(session.login(fixture.accountName, ""), { code });
+    assert.equal(transport.sent.length, sent);
+    assert.equal(transport.closed, true);
+  }
+});
+
 test("a server of another build, release or region is refused before anything is sent to it", { timeout: 5000 }, async () => {
   for (const [change, code] of [
     [(tuple) => { tuple[4] = 3396211; }, "HANDSHAKE_INCOMPATIBLEBUILD"],

@@ -3,6 +3,7 @@
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const { Module } = require("node:module");
+const path = require("node:path");
 const test = require("node:test");
 const { setImmediate: nextTurn } = require("node:timers/promises");
 const { getHeapSpaceStatistics, setFlagsFromString } = require("node:v8");
@@ -56,6 +57,29 @@ test("native value handles preserve identity, disposal, and numeric classes", ()
   const replacement = values.wrap({ object: original });
   assert.notEqual(replacement, value);
   assert.equal(replacement.identity, value.identity);
+});
+
+const clientV2402 = process.env.EVEJS_TEST_V2402_CLIENT_ROOT;
+test("V24.02 loads the archive's future.utils and binds its raise_ to CoreService", {
+  skip: !clientV2402 && "Set EVEJS_TEST_V2402_CLIENT_ROOT to an installed V24.02 client",
+}, () => {
+  const { nativePreferencesShipped } = require("../scripts/build-native-preferences");
+  const binary = nativePreferencesShipped();
+  assert.ok(binary, "The test requires the shipped Windows x64 preferences binding");
+  const binding = require(binary);
+  const tq = path.resolve(clientV2402, "tq");
+  const archive = path.join(tq, "code.ccp").replaceAll("\\", "/");
+  const bootstrap = readFileSync(path.join(__dirname, "../scripts/native-prefs/bootstrap.py"), "utf8");
+  binding.dispose(binding.initialize(path.join(tq, "bin64", "python27.dll"), Buffer.from(archive), bootstrap));
+  binding.dispose(binding.run(`
+probe_types = _create_static_service_types(None, None, None, 0, 0, 0, 0)
+probe_getattr = probe_types.CoreService.__getattr__.im_func
+assert 'raise_' in probe_getattr.func_code.co_names
+import future.utils
+assert future.__file__.replace('\\\\', '/').startswith(_archive + '/')
+assert future.utils.__file__.replace('\\\\', '/').startswith(_archive + '/')
+assert probe_getattr.func_globals['raise_'] is future.utils.raise_
+`));
 });
 
 function largeObjectBytes() {
