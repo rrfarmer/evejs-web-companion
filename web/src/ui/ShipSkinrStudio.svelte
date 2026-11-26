@@ -7,6 +7,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { typeIconUrl } from "./typeIcons.ts";
+  import ShipSkinrNewDesign from "./ShipSkinrNewDesign.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const words = $derived(store.words);
@@ -18,6 +19,7 @@
     studio: [prefix + "Title", "Studio"],
     sequencing: [prefix + "SequencingInProgress", "Sequencing In Progress"],
     saved: [prefix + "SavedDesigns", "Saved Designs"],
+    create: [prefix + "CreateNewDesign", "Create New Design"],
     edit: [prefix + "EditDesign", "Edit Design"],
     delete: [prefix + "DeleteDesign", "Delete Design"],
     name: [prefix + "SKINName", "SKIN Name"],
@@ -34,6 +36,7 @@
   let error = $state("");
   let attempt = $state(0);
   let selected = $state<string | null>(null);
+  let creating = $state(false);
   let editor = $state.raw<{ entry: ShipSkinrEntry; design: ShipSkinrDesign } | null>(null);
   let name = $state("");
   let lineName = $state("");
@@ -134,6 +137,7 @@
     studio = null;
     designs = new Map();
     selected = null;
+    creating = false;
     editor = null;
     beforeCopy = null;
     saving = false;
@@ -156,8 +160,10 @@
 </script>
 
 <section class="ship-skinr" aria-labelledby="ship-skinr-studio">
-  <h2 id="ship-skinr-studio">{word("studio")}</h2>
-  {#if error}
+  <h2 id="ship-skinr-studio">{word(creating ? "create" : "studio")}</h2>
+  {#if creating}
+    <ShipSkinrNewDesign {store} {flow} onBack={() => creating = false} />
+  {:else if error}
     <p role="alert">{error}</p>
     <button type="button" onclick={() => attempt++}>Retry</button>
   {:else if !studio}
@@ -205,6 +211,8 @@
       </form>
     {:else if selectedEntry && selectedDesign}
       {@const icon = typeIconUrl(selectedDesign.shipTypeID)}
+      {@const entry = selectedEntry}
+      {@const design = selectedDesign}
       <section class="skinr-details" aria-label={title(selectedEntry)}>
         {#if icon}<img src={icon} alt="" width="64" height="64" />{/if}
         <div>
@@ -212,15 +220,18 @@
           {#if selectedDesign.lineName}<p>{selectedDesign.lineName}</p>{/if}
           <p>{selectedDesign.tier ? `${shipName(selectedDesign)} · Tier ${selectedDesign.tier}` : shipName(selectedDesign)}</p>
         </div>
-        {#if studio.designs.includes(selectedEntry)}
-          {@const entry = selectedEntry}
-          {@const design = selectedDesign}
-          <div class="skinr-actions">
+        <div class="skinr-actions">
+          <button type="button" disabled={!!deleting} onclick={() => creating = true}>{word("create")}</button>
+          {#if studio.designs.includes(selectedEntry)}
             <button type="button" disabled={!!deleting} onclick={() => edit(entry, design)}>{word("edit")}</button>
             <button type="button" class="danger" disabled={!!deleting} onclick={() => void remove(entry)}>{word("delete")}</button>
-          </div>
-        {/if}
+          {/if}
+        </div>
       </section>
+    {:else if !selectedEntry}
+      <div class="skinr-actions">
+        <button type="button" onclick={() => creating = true}>{word("create")}</button>
+      </div>
     {/if}
     {#if deleteError}<p role="alert">{deleteError}</p>{/if}
   {/if}
