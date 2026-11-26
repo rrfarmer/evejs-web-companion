@@ -97,6 +97,7 @@
     chatUnread,
     onOpen,
     onClose,
+    registerBeforeClose,
     sessions,
     onGoToPilot,
     onShowConvoys,
@@ -140,6 +141,7 @@
      */
     onOpen?: (tab: TabID, sessionID?: string) => void;
     onClose?: () => void;
+    registerBeforeClose?: (guard: () => Promise<boolean>) => () => void;
     inventoryVaultRequested?: boolean;
     storeCategoryRequest?: { tag: "gametime" | "plex" } | { typeID: number } | null;
     onShowOmegaOffers?: () => void;
@@ -281,7 +283,7 @@
     {/key}
   {/if}
 {:else if tab === "structureBrowser"}
-  <StructureBrowser {store} {flow} {schedulableRefineryID} {onOpenRefinerySchedule} {onShowSystem}
+  <StructureBrowser {store} {flow} {schedulableRefineryID} {onOpenRefinerySchedule} {onShowSystem} {registerBeforeClose}
     onManageAccessGroups={onOpen ? () => onOpen?.("accessGroups") : undefined} />
 {:else if tab === "accessGroups"}
   <AccessLists {store} {flow} />

@@ -383,6 +383,29 @@
   let username = $state("");
   let password = $state("");
   let wins = $state<WinState[]>([]);
+  let structureBrowserCloseGuard: (() => Promise<boolean>) | undefined;
+
+  function registerStructureBrowserClose(guard: () => Promise<boolean>): () => void {
+    structureBrowserCloseGuard = guard;
+    return () => {
+      if (structureBrowserCloseGuard === guard) structureBrowserCloseGuard = undefined;
+    };
+  }
+
+  function closePlayWindow(id: TabID, playSound = false): void {
+    const close = () => {
+      if (playSound) void playUiEvent("ui_object_close_play");
+      wins = closeWindow(wins, id);
+    };
+    const guard = id === "structureBrowser" ? structureBrowserCloseGuard : undefined;
+    if (!guard) { close(); return; }
+    const owner = session;
+    void guard().then(allowed => {
+      if (allowed && session === owner && structureBrowserCloseGuard === guard) close();
+    }).catch(cause => notify({
+      kind: "danger", title: "Close Structure Browser", detail: cause instanceof Error ? cause.message : String(cause),
+    }));
+  }
   let reprocessingInput = $state<readonly number[] | null>(null);
   const focusedId = $derived(wins.length ? wins.reduce((a, b) => (b.z > a.z ? b : a)).id : null);
   // uicore.registry's one active window (Window.active, its header's caption HIGHLIGHT): the window pressed last of
@@ -2434,6 +2457,54 @@
    * the pilot controls at the active target, the first locked) and CmdDronesReturnToBay (Shift+R: entity.CmdReturnBay of
    * every drone). True where the command was one of these.
    */
+  const spaceWindows = (): HTMLElement[] => [...(windowsEl?.querySelectorAll<HTMLElement>(":scope > section.pw") ?? [])];
+  function playWindowCommand(cmd: string): boolean {
+    const s = session;
+    if (!s || planetInMode) return false;
+    // carbonui command.py's window commands on the page's windows, the active one the one on top that is not minimized:
+    // CmdCloseActiveWindow (Ctrl-W) its close (CloseByUser), CmdMinimizeActiveWindow its minimize, CmdCloseAllWindows
+    // (Ctrl-Alt-W) every window closed, CmdToggleMinimizeMaximizeAllWindows all minimized where any is open, else all back
+    // (the active window is uicore.registry.GetActive: the one window pressed or opened last, of any kind - activeWinKey,
+    // or the active PlayWindow; Window.CloseByUser does nothing for a window that is not killable (the Drones window))
+    if (cmd === "CmdCloseActiveWindow" || cmd === "CmdMinimizeActiveWindow") {
+      const close = cmd === "CmdCloseActiveWindow";
+      const active = activeWinKey === null ? undefined : wins.find((w) => w.id === activeWinKey && !w.minimized);
+      if (active) {
+        if (close) { if (active.id !== "drones") closePlayWindow(active.id, true); }
+        // (Window.Minimize: SetFocus(None) - none active after)
+        else { wins = toggleMinimize(wins, active.id); activeWinKey = null; }
+        return true;
+      }
+      const bay = bayWindows.find((b) => b.win.id === activeWinKey);
+      if (bay) {
+        if (close) { void playUiEvent("ui_object_close_play"); bayWindows = bayWindows.filter((b) => b !== bay); } else { bay.win.minimized = true; activeWinKey = null; }
+        return true;
+      }
+      if (activeWinKey === containerWin.id && spaceContainer) {
+        if (close) { void playUiEvent("ui_object_close_play"); void s.flow.openContainer(null); } else { containerWin.minimized = true; activeWinKey = null; }
+        return true;
+      }
+      const pw = document.querySelector<HTMLElement>(".pw.pw-active");
+      if (pw && !pw.classList.contains("minimized")) pw.querySelector<HTMLElement>(close ? ".pw-close" : ".pw-min")?.click();
+      return true;
+    }
+    // (the space view's own windows too: one that can be closed (IsKillable) closed, one that cannot minimized)
+    if (cmd === "CmdCloseAllWindows") {
+      const guarded = structureBrowserCloseGuard && wins.some(win => win.id === "structureBrowser");
+      const othersOpen = wins.some(win => !guarded || win.id !== "structureBrowser");
+      if (othersOpen) void playUiEvent("ui_object_close_play");
+      wins = guarded ? wins.filter(win => win.id === "structureBrowser") : [];
+      if (guarded) closePlayWindow("structureBrowser", !othersOpen);
+      for (const w of spaceWindows()) {
+        const close = w.querySelector<HTMLElement>(".pw-close");
+        if (close) close.click();
+        else if (!w.classList.contains("minimized")) w.querySelector<HTMLElement>(".pw-min")?.click();
+      }
+      return true;
+    }
+    return false;
+  }
+
   function spaceCommand(cmd: string): boolean {
     const s = session;
     if (!s || docked || planetInMode) return false;
@@ -2463,45 +2534,6 @@
     if (cmd === "CmdReloadAmmo") {
       const reloading = new Set(Object.keys(s.store.fitting.get().reloads ?? {}).map(Number));
       void s.flow.reloadAll(reloading).catch(say("Reload all"));
-      return true;
-    }
-    // carbonui command.py's window commands on the page's windows, the active one the one on top that is not minimized:
-    // CmdCloseActiveWindow (Ctrl-W) its close (CloseByUser), CmdMinimizeActiveWindow its minimize, CmdCloseAllWindows
-    // (Ctrl-Alt-W) every window closed, CmdToggleMinimizeMaximizeAllWindows all minimized where any is open, else all back
-    // (the active window is uicore.registry.GetActive: the one window pressed or opened last, of any kind - activeWinKey,
-    // or the active PlayWindow; Window.CloseByUser does nothing for a window that is not killable (the Drones window))
-    if (cmd === "CmdCloseActiveWindow" || cmd === "CmdMinimizeActiveWindow") {
-      const close = cmd === "CmdCloseActiveWindow";
-      const active = activeWinKey === null ? undefined : wins.find((w) => w.id === activeWinKey && !w.minimized);
-      if (active) {
-        if (close) { if (active.id !== "drones") { void playUiEvent("ui_object_close_play"); wins = closeWindow(wins, active.id); } }
-        // (Window.Minimize: SetFocus(None) - none active after)
-        else { wins = toggleMinimize(wins, active.id); activeWinKey = null; }
-        return true;
-      }
-      const bay = bayWindows.find((b) => b.win.id === activeWinKey);
-      if (bay) {
-        if (close) { void playUiEvent("ui_object_close_play"); bayWindows = bayWindows.filter((b) => b !== bay); } else { bay.win.minimized = true; activeWinKey = null; }
-        return true;
-      }
-      if (activeWinKey === containerWin.id && spaceContainer) {
-        if (close) { void playUiEvent("ui_object_close_play"); void s.flow.openContainer(null); } else { containerWin.minimized = true; activeWinKey = null; }
-        return true;
-      }
-      const pw = document.querySelector<HTMLElement>(".pw.pw-active");
-      if (pw && !pw.classList.contains("minimized")) pw.querySelector<HTMLElement>(close ? ".pw-close" : ".pw-min")?.click();
-      return true;
-    }
-    // (the space view's own windows too: one that can be closed (IsKillable) closed, one that cannot minimized)
-    const spaceWindows = (): HTMLElement[] => [...(windowsEl?.querySelectorAll<HTMLElement>(":scope > section.pw") ?? [])];
-    if (cmd === "CmdCloseAllWindows") {
-      if (wins.length) void playUiEvent("ui_object_close_play");
-      wins = [];
-      for (const w of spaceWindows()) {
-        const close = w.querySelector<HTMLElement>(".pw-close");
-        if (close) close.click();
-        else if (!w.classList.contains("minimized")) w.querySelector<HTMLElement>(".pw-min")?.click();
-      }
       return true;
     }
     // CmdToggleCollapseAllWindows: registry.ToggleCollapseAllWindows - with none remembered, every floating window not
@@ -2865,7 +2897,7 @@
       void quitGame();
       return;
     }
-    if (spaceCommand(cmd)) { e.preventDefault(); return; }
+    if (playWindowCommand(cmd) || spaceCommand(cmd)) { e.preventDefault(); return; }
     if (cmd === "OnEsc") {
       e.preventDefault();
       if (starMap) toggleStarMap(false);
@@ -2878,7 +2910,8 @@
     if (!tab) return;
     e.preventDefault();
     const shown = wins.find((w) => w.id === tab);
-    wins = shown ? closeWindow(wins, tab) : openFly(wins, tab);
+    if (shown) closePlayWindow(tab);
+    else wins = openFly(wins, tab);
   }
 
   /**
@@ -4702,7 +4735,7 @@
           minHeight={minimum.h}
           focused={win.id === activeWinKey}
           onFocus={() => { wins = focusWindow(wins, win.id); raiseApp(win.id); }}
-          onClose={() => (wins = closeWindow(wins, win.id))}
+          onClose={() => closePlayWindow(win.id)}
           onToggleMinimize={() => { const was = win.minimized; wins = toggleMinimize(wins, win.id); if (!was && activeWinKey === win.id) activeWinKey = null; }}
           onMove={(x, y) => (wins = moveWindow(wins, win.id, x, y))}
           onResizeRect={(rect) => resizeFlightWindow(win.id, rect)}
@@ -4722,7 +4755,9 @@
             <!-- in space, the active ship's inventory in the client's layout (ActiveShipCargo) -->
             <FlyInventoryWindow store={session.store} flow={session.flow} />
           {:else}
-            <PanelHost store={session.store} flow={session.flow} tab={win.id} chatUnread={win.id === "chat" ? chatUnread : undefined} onOpen={(t) => open(t)} onClose={() => (wins = closeWindow(wins, win.id))}
+            <PanelHost store={session.store} flow={session.flow} tab={win.id} chatUnread={win.id === "chat" ? chatUnread : undefined}
+              onOpen={(t) => open(t)} onClose={() => closePlayWindow(win.id)}
+              registerBeforeClose={win.id === "structureBrowser" ? registerStructureBrowserClose : undefined}
               {upwellLpIssuer}
               {inventoryVaultRequested}
               {storeCategoryRequest} onShowOmegaOffers={showOmegaOffers} onShowMultipleTraining={showMultipleTraining}

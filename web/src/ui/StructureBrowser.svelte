@@ -31,11 +31,12 @@
   import { startLinkDrag } from "./linkFollowers.ts";
   import { showInfo } from "./showInfo.ts";
 
-  let { flow, store, schedulableRefineryID = null, onOpenRefinerySchedule, onShowSystem, onManageAccessGroups }: {
+  let { flow, store, schedulableRefineryID = null, onOpenRefinerySchedule, onShowSystem, onManageAccessGroups, registerBeforeClose }: {
     flow: AppFlow; store: ClientStore; schedulableRefineryID?: number | null;
     onOpenRefinerySchedule?: (structureID: number) => Promise<void>;
     onShowSystem?: (systemID: number) => void;
     onManageAccessGroups?: () => void;
+    registerBeforeClose?: (guard: () => Promise<boolean>) => () => void;
   } = $props();
   const station = $derived(store.station);
   const flight = $derived(store.flight);
@@ -335,6 +336,8 @@
       settingsQuestion = false;
     }
   }
+
+  $effect(() => registerBeforeClose?.(leaveProfileSettings));
 
   async function switchTab(next: typeof tab): Promise<void> {
     if (next === activeTab || !await leaveProfileSettings()) return;
