@@ -16421,7 +16421,7 @@ async function loadItemNameCatalogue() {
       }
       const groupsByName = Object.entries(groups).filter(([, group]) =>
         group.published && categories[group.categoryID]?.published)
-        .map(([id, group]) => ({ id: Number(id), nameID: group.groupNameID }));
+        .map(([id, group]) => ({ id: Number(id), categoryID: Number(group.categoryID), nameID: group.groupNameID }));
       const categoriesByName = Object.entries(categories).filter(([, category]) => category.published)
         .map(([id, category]) => ({ id: Number(id), nameID: category.categoryNameID }));
       const names = clientWords.messages([...rows, ...groupsByName, ...categoriesByName].map(row => row.nameID));
@@ -16465,7 +16465,8 @@ app.get("/api/client-data/hypernet-item-suggestions", requireAuth, async (req, r
       for (const row of rows) {
         const name = row.name.toLowerCase();
         if (name.includes(q)) {
-          matches.push({ key, id: row[idKey], name: row.name, rank: name === q ? 0 : name.startsWith(q) ? 1 : 2 });
+          matches.push({ key, id: row[idKey], name: row.name, categoryID: row.categoryID ?? row.id,
+            rank: name === q ? 0 : name.startsWith(q) ? 1 : 2 });
         }
       }
       return matches.sort(compare).slice(0, 8);
@@ -16474,7 +16475,7 @@ app.get("/api/client-data/hypernet-item-suggestions", requireAuth, async (req, r
       ...matching(catalogue.types, "type_id", "typeID"),
       ...matching(catalogue.groups, "group_id", "id"),
       ...matching(catalogue.categories.filter(row => hyperNetItemCategories.has(row.id)), "category_id", "id"),
-    ].sort(compare).map(({ key, id, name }) => ({ key, id, name }));
+    ].sort(compare).map(({ key, id, name, categoryID }) => ({ key, id, name, categoryID }));
     res.json({ ok: true, suggestions });
   } catch (error) {
     next(error);

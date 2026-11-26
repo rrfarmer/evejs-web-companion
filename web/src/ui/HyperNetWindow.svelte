@@ -34,6 +34,10 @@
     location: ["UI/HyperNet/FilterLocationLabel", "Solar system"],
     metaGroup: ["UI/HyperNet/FilterMetaGroupLabel", "Meta group"],
     all: ["UI/Common/All", "All"],
+    blueprint: ["UI/HyperNet/FilterBlueprintLabel", "Blueprint type"],
+    blueprintAll: ["UI/Generic/All", "All"],
+    blueprintOriginal: ["UI/Generic/Original", "Original"],
+    blueprintCopy: ["UI/Generic/Copy", "Copy"],
   } as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   const ticketCount = (offer: HyperNetOffer) => plainText(formatTemplate(word("tickets"),
@@ -44,11 +48,12 @@
   const defaults = { minPrice: 0, maxPrice: 0, minCount: 8, maxCount: 512 };
   type Ranges = typeof defaults;
   type Option = { readonly id: number; readonly name: string };
-  type Filters = Ranges & { item?: HyperNetItem; system?: Option; metaGroup?: number };
+  type Filters = Ranges & { item?: HyperNetItem; system?: Option; metaGroup?: number; blueprintType?: 1 | 2 };
   let filter = $state.raw<{ owner: number; values: Filters } | null>(null);
   const values = $derived(filter?.values ?? defaults);
   const ranges = $derived({ minPrice: values.minPrice, maxPrice: values.maxPrice, minCount: values.minCount, maxCount: values.maxCount });
   const selectedItem = $derived(values.item);
+  const isBlueprint = $derived((selectedItem?.key === "category_id" ? selectedItem.id : selectedItem?.categoryID) === 9);
   const storageKey = (owner: number) => `evejs.hypernet.ranges.${owner}`;
 
   function loadFilters(owner: number): Filters {
@@ -70,6 +75,7 @@
           typeof system.name === "string" && system.name.length > 0 ? system : undefined,
         metaGroup: typeof saved.metaGroup === "number" && Number.isSafeInteger(saved.metaGroup) &&
           saved.metaGroup > 0 ? saved.metaGroup : undefined,
+        blueprintType: saved.blueprintType === 1 || saved.blueprintType === 2 ? saved.blueprintType : undefined,
       };
     } catch {
       return defaults;
@@ -112,6 +118,18 @@
     filter = owner ? { owner, values: loadFilters(owner) } : null;
     search = "";
     systemSearch = "";
+  });
+
+  $effect(() => {
+    const item = selectedItem;
+    const owner = pilot;
+    if (!owner || !item || item.key === "category_id" || item.categoryID !== undefined) return;
+    let current = true;
+    void flow.hyperNetItemCategory(item).then(categoryID => {
+      if (current && pilot === owner && selectedItem === item && categoryID !== null)
+        applyFilters({ ...values, item: { ...item, categoryID } });
+    }).catch(() => { /* keep the stored item filter */ });
+    return () => { current = false; };
   });
 
   $effect(() => {
@@ -201,7 +219,7 @@
     error = "";
     loading = !!owner;
     if (!owner || selection?.owner !== owner) return;
-    const { minPrice, maxPrice, minCount, maxCount, item, system, metaGroup } = selection.values;
+    const { minPrice, maxPrice, minCount, maxCount, item, system, metaGroup, blueprintType } = selection.values;
     const constraints: HyperNetConstraints = {
       ...(minPrice ? { min_ticket_price: minPrice } : {}),
       ...(maxPrice ? { max_ticket_price: maxPrice } : {}),
@@ -212,6 +230,7 @@
     void flow.loadHyperNetOffers(constraints, item, {
       ...(system ? { solar_system_id: system.id } : {}),
       ...(metaGroup ? { meta_group_id: metaGroup } : {}),
+      ...(isBlueprint && blueprintType ? { blueprint_type: blueprintType } : {}),
     }).then(result => {
       if (!current) return;
       const shuffled = [...result];
@@ -262,6 +281,18 @@
           {/if}
         {/if}
       </fieldset>
+      {#if isBlueprint}
+        <label class="meta-group">{word("blueprint")}
+          <select data-blueprint-type value={values.blueprintType ?? 0} onchange={event => {
+            const subtype = Number(event.currentTarget.value);
+            applyFilters({ ...values, blueprintType: subtype === 1 || subtype === 2 ? subtype : undefined });
+          }}>
+            <option value={0}>{word("blueprintAll")}</option>
+            <option value={1}>{word("blueprintOriginal")}</option>
+            <option value={2}>{word("blueprintCopy")}</option>
+          </select>
+        </label>
+      {/if}
       <fieldset class="item-filter">
         <legend>{word("location")}</legend>
         {#if values.system}
@@ -332,7 +363,7 @@
         </label>
       </fieldset>
       <button type="button" onclick={() => { search = ""; systemSearch = ""; applyFilters(defaults); }}
-        disabled={!selectedItem && !values.system && !values.metaGroup &&
+        disabled={!selectedItem && !values.system && !values.metaGroup && !values.blueprintType &&
           ranges.minPrice === 0 && ranges.maxPrice === 0 && ranges.minCount === 8 && ranges.maxCount === 512}>
         {word("reset")}
       </button>

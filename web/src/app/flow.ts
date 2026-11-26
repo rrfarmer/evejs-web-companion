@@ -4631,6 +4631,7 @@ export interface AppFlow {
   loadShipSkinrComponentOffers(): Promise<readonly ShipSkinrComponentOffer[]>;
   loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null, scope?: HyperNetBrowseScope): Promise<readonly HyperNetOffer[]>;
   searchHyperNetItems(text: string): Promise<readonly HyperNetItem[]>;
+  hyperNetItemCategory(item: HyperNetItem): Promise<number | null>;
   loadHyperNetMetaGroups(): Promise<readonly { readonly id: number; readonly name: string }[]>;
   buyShipSkinrComponentOffer(listing: string, quantity: number, activate: boolean): Promise<string>;
   cancelShipSkinrListing(id: string): Promise<void>;
@@ -29253,6 +29254,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id);
   }
 
+  async function hyperNetItemCategory(item: HyperNetItem): Promise<number | null> {
+    if (item.key === "category_id") return item.id;
+    if (item.categoryID !== undefined) return item.categoryID;
+    if (item.key === "group_id") return (await api.getGroupCategories([item.id], callOptions)).groups[item.id] ?? null;
+    return (await api.getTypeMeta([item.id], callOptions)).types.get(item.id)?.categoryID ?? null;
+  }
+
   async function loadShipSkinrComponentOffers(): Promise<readonly ShipSkinrComponentOffer[]> {
     const current = callOptions.captureRequestGuard!();
     const answer = await gatewayAsk(SHIP_SKINR_MARKET + "component.listing.api.GetAllRequest");
@@ -41784,6 +41792,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadShipSkinrComponentOffers,
     loadHyperNetOffers,
     searchHyperNetItems: text => api.getHyperNetItems(text, callOptions),
+    hyperNetItemCategory,
     loadHyperNetMetaGroups,
     buyShipSkinrComponentOffer,
     cancelShipSkinrListing,

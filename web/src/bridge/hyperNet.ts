@@ -20,12 +20,14 @@ export interface HyperNetConstraints {
 export interface HyperNetBrowseScope {
   readonly solar_system_id?: number;
   readonly meta_group_id?: number;
+  readonly blueprint_type?: 1 | 2;
 }
 
 export interface HyperNetItem {
   readonly key: "type_id" | "group_id" | "category_id";
   readonly id: number;
   readonly name: string;
+  readonly categoryID?: number;
 }
 
 export function isHyperNetItem(value: unknown): value is HyperNetItem {
@@ -33,7 +35,8 @@ export function isHyperNetItem(value: unknown): value is HyperNetItem {
   const item = value as Partial<HyperNetItem>;
   return (item.key === "type_id" || item.key === "group_id" || item.key === "category_id") &&
     typeof item.id === "number" && Number.isSafeInteger(item.id) && item.id > 0 &&
-    typeof item.name === "string" && item.name.length > 0;
+    typeof item.name === "string" && item.name.length > 0 &&
+    (item.categoryID === undefined || Number.isSafeInteger(item.categoryID) && item.categoryID > 0);
 }
 
 export function decodeHyperNetOffers(payload: unknown): readonly HyperNetOffer[] {
