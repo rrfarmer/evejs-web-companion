@@ -41,6 +41,20 @@ export interface SofArea { kind: string; name: string; index: number; areaType: 
 /** A hull's default pattern layer (sof.mjs): its mask texture, projection and the materials it pulls toward. */
 export interface SofPatternLayer { texture: string | null; projectionU: number; projectionV: number; source: number; targets: number[]; position: number[]; scaling: number[]; rotation: number[]; mirrored: boolean }
 export interface SofPattern { layers: SofPatternLayer[]; pmtl1: SofMaterial | null; pmtl2?: SofMaterial | null; blendMode?: ShipSkinrBlendMode }
+interface StudioDarkhull { channel: number; cleared: boolean }
+
+const darkhullMasks = new Map<number, THREE.DataTexture>();
+function darkhullMask(channel: number): THREE.DataTexture {
+  let mask = darkhullMasks.get(channel);
+  if (!mask) {
+    // The four native MaterialMaps use constant red bytes 0, 85, 170 and 255.
+    const value = (channel - 1) * 85;
+    mask = new THREE.DataTexture(new Uint8Array([value, value, value, 255]), 1, 1);
+    mask.needsUpdate = true;
+    darkhullMasks.set(channel, mask);
+  }
+  return mask;
+}
 /** A pattern layer as a material draws it: its loaded mask with the hull's PMtl1. */
 interface HullPattern { layer: SofPatternLayer; mask: THREE.Texture }
 export interface SofBooster { glowColor: number[] | null; glowScale: number | null; haloColor: number[] | null; haloScaleX: number | null; haloScaleY: number | null; shape0Color: number[] | null; shape1Color: number[] | null; symHaloScale?: number | null; warpGlowColor?: number[] | null; warpHaloColor?: number[] | null; volumetric?: BoosterVolumetricData | null }
@@ -896,9 +910,9 @@ export async function typeModel(typeID: number, skinMaterialSetID: number | null
  * own build (its materials are its own).
  */
 export async function paintedTypeModel(typeID: number, materials: readonly (SofMaterial | null)[],
-  appliesTo?: (area: SofArea) => boolean, patterns?: SofPattern): Promise<THREE.Object3D | null> {
+  appliesTo?: (area: SofArea) => boolean, patterns?: SofPattern, darkhull?: StudioDarkhull): Promise<THREE.Object3D | null> {
   const info = (await (await fetch(`/client-assets/type/${typeID}`)).json()) as TypeModelInfo;
-  return loadModel(info, typeID, materials, appliesTo, patterns);
+  return loadModel(info, typeID, materials, appliesTo, patterns, darkhull);
 }
 
 export function updateSkinrProjection(model: THREE.Object3D, layers: readonly SofPatternLayer[], blendMode: ShipSkinrBlendMode): void {
@@ -936,7 +950,7 @@ async function loadType(typeID: number): Promise<THREE.Object3D | null> {
 }
 
 async function loadModel(info: TypeModelInfo, typeID: number | null, materialOverrides: readonly (SofMaterial | null)[] | null = null,
-  appliesTo?: (area: SofArea) => boolean, studioPatterns?: SofPattern): Promise<THREE.Object3D | null> {
+  appliesTo?: (area: SofArea) => boolean, studioPatterns?: SofPattern, darkhull?: StudioDarkhull): Promise<THREE.Object3D | null> {
   if (!info.model) return null;
   const gltf = await loader.loadAsync(info.model);
   const dir = info.model.slice(0, info.model.lastIndexOf("/") + 1);
@@ -959,6 +973,11 @@ async function loadModel(info: TypeModelInfo, typeID: number | null, materialOve
   // The Space Object Factory's build of this hull for the type's faction, where there is one: each mesh area takes the
   // SOF area of its index (EveSOFDataHullArea.index), with that area's own textures and the faction's materials.
   const sof = info.sof ? ((await (await fetch(info.sof)).json()) as SofHull) : null;
+  const techChannel = darkhull?.channel;
+  const stockTech = darkhull?.cleared && techChannel !== undefined
+    ? sof?.areas.find(area => area.kind === "opaque" && area.areaType === "Primary")?.materials[techChannel - 1]
+    : null;
+  const tech = techChannel === undefined ? null : materialOverrides?.[techChannel - 1] ?? stockTech;
   if (sof && materialOverrides) {
     for (const area of sof.areas) {
       if (!appliesTo || appliesTo(area)) {
@@ -970,7 +989,15 @@ async function loadModel(info: TypeModelInfo, typeID: number | null, materialOve
   const areaMaps = new Map<SofArea, Record<string, THREE.Texture | undefined>>();
   for (const area of sof?.areas ?? []) {
     const am: Record<string, THREE.Texture | undefined> = {};
-    await Promise.all(Object.entries(area.textures).map(async ([name, url]) => { const role = ROLE[name]; if (role && url) am[role] = await tex(url); }));
+    const useDarkhullMask = techChannel !== undefined && area.kind === "opaque" && area.areaType === "Darkhull";
+    await Promise.all(Object.entries(area.textures).map(async ([name, url]) => {
+      const role = ROLE[name];
+      if (role && url && !(useDarkhullMask && role === "materialMap")) am[role] = await tex(url);
+    }));
+    if (useDarkhullMask) {
+      am.materialMap = darkhullMask(techChannel);
+      if (tech) area.materials = [tech, tech, tech, tech];
+    }
     if (am.albedo) am.albedo.colorSpace = THREE.SRGBColorSpace;
     areaMaps.set(area, am);
   }

@@ -61,6 +61,7 @@
   let editedProjectors = $state.raw(new Map<number, ShipSkinrPatternControls>());
   let projectionFailed = $state(false);
   let layoutSlots = $state.raw(initialSlots);
+  let clearedTechCoating = $state(false);
   let blend = $state(initialBlend);
   let selectedSlot = $state<number | null>(null);
   let coatingSearch = $state("");
@@ -177,6 +178,7 @@
     const next = configurationFor(typeID);
     layoutSlots = new Map([...layoutSlots].filter(([slotID]) => next?.slots.includes(slotID)));
     if (selectedSlot && !next?.slots.includes(selectedSlot)) selectedSlot = null;
+    clearedTechCoating = false;
     chosen = typeID;
   }
 
@@ -185,6 +187,7 @@
     const next = new Map(layoutSlots);
     const initial = initialSlots.get(slot.id);
     if (coating && shipSkinrCoatingID(next.get(slot.id)) === coating.id) return;
+    if (slot.id === 4) clearedTechCoating = !coating && next.has(slot.id);
     if (coating) next.set(slot.id, initial && shipSkinrCoatingID(initial) === coating.id ? initial : shipSkinrCoatingSlot(slot.id, coating.id));
     else next.delete(slot.id);
     layoutSlots = next;
@@ -404,6 +407,7 @@
           <div class="preview-scene">
             <ShipInfoPreview typeID={selectedTypeID} factionID={selected?.factionID ?? null}
               coatings={materialNames} patterns={previewPatterns} blendMode={blend}
+              darkhullChannel={areaMap[3]} {clearedTechCoating}
               onProjectorGesture={projectorControls && !naming ? useProjectorGesture : undefined} active expanded={false} />
           </div>
           <div class="coating-slots" aria-label="Design slots">

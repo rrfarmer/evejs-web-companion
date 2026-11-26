@@ -114,16 +114,19 @@ export class ShipInfoScene {
   }
 
   async show(typeID: number, factionID: number | null, coatings: readonly (string | null)[] = [],
-    patterns: readonly ShipSkinrPatternPreview[] = [], blendMode: ShipSkinrBlendMode = 1): Promise<boolean> {
+    patterns: readonly ShipSkinrPatternPreview[] = [], blendMode: ShipSkinrBlendMode = 1,
+    darkhullChannel?: number, clearedTechCoating = false): Promise<boolean> {
     const request = ++this.serial;
-    const variant = JSON.stringify([typeID, factionID, coatings, patterns.map(({ layer, material }) =>
+    const variant = JSON.stringify([typeID, factionID, coatings, darkhullChannel, clearedTechCoating, patterns.map(({ layer, material }) =>
       [layer.texture, layer.projectionU, layer.projectionV, material])]);
     if (this.model && variant === this.variant) {
       if (patterns.length) updateSkinrProjection(this.model, patterns.map(({ layer }) => layer), blendMode);
       return true;
     }
-    const custom = coatings.some(Boolean) || patterns.length > 0;
-    const modelRead = custom ? loadSofMaterials().then(materials => {
+    const needsMaterials = coatings.some(Boolean) || patterns.some(pattern => pattern.material);
+    const custom = needsMaterials || patterns.length > 0 || darkhullChannel !== undefined;
+    const materialRead = needsMaterials ? loadSofMaterials() : Promise.resolve<Record<string, never>>({});
+    const modelRead = custom ? materialRead.then(materials => {
       const overrides = coatings.map(name => name ? materials[name] ?? null : null);
       if (coatings.some((name, index) => name && !overrides[index])) return null;
       const patternMaterials = patterns.map(pattern => pattern.material ? materials[pattern.material] ?? null : null);
@@ -131,7 +134,7 @@ export class ShipInfoScene {
         layers: patterns.map(pattern => pattern.layer),
         pmtl1: patternMaterials[0] ?? null, pmtl2: patternMaterials[1] ?? null,
         blendMode,
-      } : undefined);
+      } : undefined, darkhullChannel === undefined ? undefined : { channel: darkhullChannel, cleared: clearedTechCoating });
     }) : typeModel(typeID);
     const [model] = await Promise.all([modelRead.catch(() => null), this.ready.catch(() => {})]);
     if (this.closed || request !== this.serial) {
