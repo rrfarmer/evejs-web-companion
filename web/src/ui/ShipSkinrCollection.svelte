@@ -11,6 +11,8 @@
   import { typeIconUrl } from "./typeIcons.ts";
   import { showMarketDetails } from "./marketDetails.ts";
   import ShipSkinrSell from "./ShipSkinrSell.svelte";
+  import ShipSkinrPreview from "./ShipSkinrPreview.svelte";
+  import ShipSkinrElementPreview from "./ShipSkinrElementPreview.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const words = $derived(store.words);
@@ -283,6 +285,7 @@
       <aside class="collection-details">
         <h3>{skinName(selectedSkin)}</h3>
         {#if selectedSkin.design}
+          <ShipSkinrPreview {flow} design={selectedSkin.design} active={!selling} />
           {#if selectedSkin.design.lineName}<p>{selectedSkin.design.lineName}</p>{/if}
           <p>{hullName(selectedSkin.design.shipTypeID)} · Tier {selectedSkin.design.tier}</p>
         {/if}
@@ -311,6 +314,7 @@
     {:else if selectedElement}
       <aside class="collection-details">
         <h3>{elementName(selectedElement)}</h3>
+        <ShipSkinrElementPreview {store} {flow} element={selectedElement} />
         {#if rights}
           {#if rights.infinite}<p>Unlimited use</p>{/if}
           {#if rights.finite}

@@ -11,6 +11,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import ShipSkinrBuy from "./ShipSkinrBuy.svelte";
+  import ShipSkinrPreview from "./ShipSkinrPreview.svelte";
   import ShipSkinrShare from "./ShipSkinrShare.svelte";
   import ShipSkinrMyListings from "./ShipSkinrMyListings.svelte";
 
@@ -210,6 +211,7 @@
       {#if detail}
         <article aria-label={skinName(detail)}>
           <h4>{skinName(detail)}</h4>
+          {#if detail.design}<ShipSkinrPreview {flow} design={detail.design} active={!purchasing} />{/if}
           <dl>
             {#if detail.design}<dt>Ship</dt><dd>{typeName(detail.design.shipTypeID)}</dd>
               <dt>Tier</dt><dd>{detail.design.tier}</dd>{/if}
