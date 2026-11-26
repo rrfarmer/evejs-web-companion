@@ -38,6 +38,7 @@
   import WalletLoyalty from "./WalletLoyalty.svelte";
   import WalletIncursionLog from "./WalletIncursionLog.svelte";
   import WalletDonateLp from "./WalletDonateLp.svelte";
+  import WalletDonateEvermarks from "./WalletDonateEvermarks.svelte";
   import { AGENCY_SCREEN_GROUPS } from "./agencyContentGroups.ts";
   import { openAgencyGroup } from "./agencyRequests.ts";
   import { showCorporationInfoTab, TAB_STATIONS } from "./showInfo.ts";
@@ -92,6 +93,7 @@
   let walletTab = $state<"mine" | "settings">("mine");
   let currency = $state<"isk" | "plex" | "loyalty" | "evermarks">("isk");
   let loyaltyTab = $state<"overview" | "incursions" | "donate">("overview");
+  let evermarksTab = $state<"overview" | "donate">("overview");
   const LP_LOG = "UI/Incursion/Journal/LoyaltyPointLog";
   const LP_DONATE = "UI/Wallet/WalletWindow/TabDonate";
   const paragon = 1000419;
@@ -164,6 +166,7 @@
     let revision = 0;
     currency = "isk";
     loyaltyTab = "overview";
+    evermarksTab = "overview";
     plexTab = "overview";
     plexBalance = null;
     plexUnavailable = false;
@@ -382,7 +385,13 @@
       {/if}
     </div>
   {:else if retail && walletTab === "mine" && currency === "evermarks"}
-    <header class="tabs"><span>{tabWord(TAB_WORDS.overview, "Overview")}</span></header>
+    <nav class="tabs evermarks-tabs" aria-label={tabWord("UI/Wallet/WalletWindow/EverMarks", "EverMarks")}>
+      <button type="button" class:active={evermarksTab === "overview"} aria-pressed={evermarksTab === "overview"}
+        onclick={() => (evermarksTab = "overview")}>{tabWord(TAB_WORDS.overview, "Overview")}</button>
+      <button type="button" class:active={evermarksTab === "donate"} aria-pressed={evermarksTab === "donate"}
+        onclick={() => (evermarksTab = "donate")}>{tabWord(LP_DONATE, "Donate")}</button>
+    </nav>
+    {#if evermarksTab === "overview"}
     <div class="evermarks-overview">
       <button type="button" class="evermarks-earn" onclick={() => openAgencyGroup(AGENCY_SCREEN_GROUPS.HERALDRY_AGENTS!)}>
         <img alt="" src={clientTexture("res:/ui/texture/WindowIcons/evermark_64px.png")} />
@@ -393,6 +402,12 @@
         <span>{tabWord(EM_SPEND, "Spend EverMarks")}</span>
       </button>
     </div>
+    {:else if characterID !== null}
+      {#key `${characterID}:${$station.online?.corporationID}:${$station.online?.allianceID}`}
+        <WalletDonateEvermarks {store} {flow} issuerID={paragon} balance={lpBalances === null ? null : evermarks}
+          refresh={() => reloadLp++} />
+      {/key}
+    {/if}
   {:else if retail && walletTab === "mine" && currency === "loyalty"}
     <nav class="tabs loyalty-tabs" aria-label={tabWord("UI/Journal/JournalWindow/Agents/LoyaltyPoints", "Loyalty Points")}>
       <button type="button" class:active={loyaltyTab === "overview"} aria-pressed={loyaltyTab === "overview"}

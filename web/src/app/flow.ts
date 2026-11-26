@@ -3898,6 +3898,7 @@ export interface AppFlow {
   giveIskFromWallet(toID: number, amount: number, cons: string): Promise<boolean>;
   searchLpDonationRecipients(text: string, matchBy: number, current: () => boolean): Promise<readonly { readonly id: number; readonly name: string }[]>;
   donatePersonalLp(toID: number, issuerID: number, amount: number, cons: string): Promise<boolean>;
+  personalEvermarkDonationEligibility(): Promise<{ minimumDays: number; recipients: readonly number[] }>;
   /**
    * The seasonal tab's Claim (seasonalLoginCampaignService.py claim_reward, 80 to 88): the day's rewards, into the
    * account's redeem queue; the campaign is read again after. Fails where the server gave nothing.
@@ -27195,6 +27196,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return true;
   }
 
+  async function personalEvermarkDonationEligibility() {
+    const reply = await bridgeAsk("LPSvc", "GetMyEvermarkDonationEligibility", []);
+    const days = unwrapLong(readKeyVal(reply, "minimumDays"));
+    const recipients = readKeyVal(reply, "recipients");
+    if (days === null || days < 0n || days > BigInt(Number.MAX_SAFE_INTEGER) || !isListValue(recipients)) {
+      throw new Error("EverMarks donation eligibility could not be read.");
+    }
+    const ids = recipients.items.map(value => Number(unwrapLong(value)));
+    if (!ids.every(id => Number.isSafeInteger(id) && id > 0)) {
+      throw new Error("EverMarks donation recipients could not be read.");
+    }
+    requestNames(ids.map(id => ({ kind: "corporation", id })));
+    return { minimumDays: Number(days), recipients: ids };
+  }
+
   async function loadWallet(how: { readonly fresh?: boolean } = {}): Promise<void> {
     const reads = await walletReads.read(how);
     const corpFailed = reads.errors.divisions !== null;
@@ -40213,6 +40229,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     giveIskFromWallet,
     searchLpDonationRecipients,
     donatePersonalLp,
+    personalEvermarkDonationEligibility,
     loadRedeemTokens,
     redeemHomeStation,
     redeemTokens,
