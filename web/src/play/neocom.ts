@@ -58,7 +58,8 @@ const NEOCOM_TOOLTIPS: Readonly<Record<string, { cmd: string | null; name: strin
   log: { cmd: "OpenLog", name: "Log and Messages", description: "" },
   // ButtonReward (loginRewards): OpenLoginRewardWindow, Daily Login Campaigns (the live client, gridcheck g291 / g292)
   loginRewards: { cmd: "OpenLoginRewardWindow", name: "Daily Login Campaigns", description: "Log in daily during active campaigns to receive your rewards" },
-  chat: { cmd: "OpenChannels", name: "Chat Channels", description: "Browse available chat channels or create your own channel" },
+  chat: { cmd: null, name: "Chat", description: "" },
+  channels: { cmd: "OpenChannels", name: "Chat Channels", description: "Browse available chat channels or create your own channel" },
   // the EVE menu's Calendar (groupSocial): OpenCalendar, no description, no shortcut (the live client, g297)
   calendar: { cmd: "OpenCalendar", name: "Calendar", description: "" },
 };
@@ -159,7 +160,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
   ] },
   { label: "Social", icon: icon("directorySocial"), items: [
     { id: "contacts", label: "Contacts", icon: icon("peopleandplaces") },
-    { id: "chat", label: "Channels", icon: icon("chatchannels") },
+    { id: "channels", label: "Channels", icon: icon("chatchannels") },
     { id: "fleet", label: "Fleet", icon: icon("fleet") },
     { id: "mail", label: "EVE Mail", icon: icon("evemail") },
     { id: "corporation", label: "Corporation", icon: icon("corporation") },

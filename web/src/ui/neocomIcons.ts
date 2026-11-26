@@ -128,6 +128,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   // Locations: a pin, the bookmarks' places.
   locations: ["M12 21s-6-5.5-6-10a6 6 0 0 1 12 0c0 4.5-6 10-6 10z", "M12 8.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4"],
   chat: ["M4 5h16v10H9l-5 4z"],
+  channels: ["M3 4h14v10H8l-5 4z", "M19 8h2v10h-5l-3 3v-3h-2"],
   activity: ["M6 17h12l-1.5-2v-4a4.5 4.5 0 0 0-9 0v4z", "M10 20h4"],
 
   // --- the app itself ---

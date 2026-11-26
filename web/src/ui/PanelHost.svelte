@@ -66,6 +66,7 @@
   import Bots from "./Bots.svelte";
   import BotBuilder from "./BotBuilder.svelte";
   import Chat from "./Chat.svelte";
+  import ChatChannels from "./ChatChannels.svelte";
   import Wallet from "./Wallet.svelte";
   import CorpWallet from "./CorpWallet.svelte";
   import RedeemItems from "./RedeemItems.svelte";
@@ -394,6 +395,8 @@
 {:else if tab === "chat"}
   <!-- A skill plan link in a message, followed (link.py handle_link): the Skills window opens on it. -->
   <Chat {store} {flow} {openInventoryFilterLink} openSkillPlanLink={(url) => { flow.openSkillPlanLink(url); onOpen?.("skills"); }} />
+{:else if tab === "channels"}
+  <ChatChannels {store} {flow} />
 {:else if tab === "compare"}
   <TypeCompare {store} {flow} />
 {:else}

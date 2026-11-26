@@ -5683,6 +5683,7 @@ export interface AppFlow {
   sendChatMessage(channel: ChatChannel, message: string): Promise<void>;
   /** R7 — switch the active chat tab (Local <-> Corp). */
   setChatChannel(channel: ChatChannel): void;
+  readChatChannelDirectory(name: string | null): Promise<readonly api.ChatDirectoryChannel[]>;
   /**
    * R7c — request display names for a set of `{kind, id}` refs (names-everywhere).
    * Fire-and-forget: unresolved refs are batched into one /api/names round-trip,
@@ -41199,6 +41200,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
     sendChatMessage,
 
+    async readChatChannelDirectory(name) {
+      const scope = captureMemberOperation();
+      const rows = await api.readChatChannelDirectory(name, scope.options);
+      scope.current();
+      return rows;
+    },
     setChatChannel(channel) {
       conversations.select(null);
       store.apply({ type: "chat/active", channel });

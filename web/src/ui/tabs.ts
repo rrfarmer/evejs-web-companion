@@ -68,6 +68,7 @@ export type CoreTabID =
   | "contacts"
   | "locations"
   | "chat"
+  | "channels"
   | "wallet"
   | "corpWallet"
   | "redeem"
@@ -271,6 +272,7 @@ export const TABS: readonly CoreTabDef[] = [
   // The client's Locations window (neocom/locations/window.py): the pilot's bookmarks.
   { id: "locations", label: "Locations", where: "both" },
   { id: "chat", label: "Chat", where: "both" },
+  { id: "channels", label: "Channels", where: "both" },
   { id: "wallet", label: "Wallet", where: "both" },
   { id: "corpWallet", label: "Corp Wallet", where: "both" },
   // The client's Redeem Items (redeemsvc.py, the neocom's redeem button): what the account may redeem.

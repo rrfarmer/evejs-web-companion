@@ -219,7 +219,7 @@
   const NEOCOM_TABS: Record<string, TabID> = {
     theatersOfWar: "theatersOfWar",
     achievements: "achievements", agency: "finder", jobboard: "jobBoard", mail: "mail", inventory: "inventory", assets: "assets", wallet: "wallet", market: "market",
-    fitting: "fitting", map: "travel", charactersheet: "characterSheet", skills: "skills", loginRewards: "loginRewards", chat: "chat", shipTree: "shipTree",
+    fitting: "fitting", map: "travel", charactersheet: "characterSheet", skills: "skills", loginRewards: "loginRewards", chat: "chat", channels: "channels", shipTree: "shipTree",
     // the EVE menu's commands (play/neocom.ts EVE_MENU)
     marketorders: "marketOrders", contracts: "contracts", industry: "industry", miningScan: "miningScan", miningLedger: "miningLedger", planets: "planets", locations: "locations",
     contacts: "contacts", fleet: "fleet", corporation: "corporation", structureBrowser: "structureBrowser", compare: "compare", log: "log", notepad: "notepad", calendar: "calendar",
@@ -1632,6 +1632,7 @@
     fittingManagement: { w: 620, h: 600 },
     calculator: { w: 327, h: 340 },
     marketOrders: { w: 600, h: 500 },
+    channels: { w: 440, h: 560 },
     characterSheet: { w: 1235, h: 768 }, assets: { w: 550, h: 450 }, locations: { w: 450, h: 450 }, contacts: { w: 600, h: 500 },
     mail: { w: 800, h: 600 }, finder: { w: 1188, h: 694 }, wallet: { w: 900, h: 600 }, planets: { w: 500, h: 500 }, log: { w: 400, h: 200 },
     notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, paintTool: { w: 1030, h: 650 }, locationSearch: { w: 420, h: 480 }, achievements: { w: 1040, h: 825 },
@@ -1649,6 +1650,7 @@
   const FLIGHT_MINIMUMS: Partial<Record<TabID, { w: number; h: number }>> = {
     auraGuidance: { w: 270, h: 300 },
     fittingManagement: { w: 525, h: 400 },
+    channels: { w: 400, h: 250 },
     structureBrowser: { w: 600, h: 450 }, accessGroups: { w: 600, h: 400 },
     drones: { w: 240, h: 120 }, scanner: { w: 300, h: 150 }, inventory: { w: 170, h: 140 },
     market: { w: 650, h: 435 }, marketOrders: { w: 300, h: 300 }, contracts: { w: 700, h: 560 }, corporation: { w: 700, h: 832 },
@@ -1851,6 +1853,7 @@
     fittingManagement: "UI/Fitting/FittingWindow/FittingManagement/WindowCaption",
     calculator: "UI/Accessories/Calculator/Calculator",
     marketOrders: "Tooltips/StationServices/MarketOrders",
+    channels: "UI/Neocom/ChatChannelsBtn",
     scanner: "UI/Inflight/Scanner/ProbeScanner", miningScan: "UI/Inflight/Scanner/MiningScanResults", miningLedger: "UI/Ledger/LedgerWnd", finder: "UI/Agency/Caption", contacts: "UI/PeopleAndPlaces/WindowTitle",
     mail: "Tooltips/Neocom/Mail", wallet: "UI/Wallet/WalletWindow/Wallet", characterSheet: "UI/CharacterSheet/CharacterSheetWindow/CharacterSheetCaption",
     assets: "Tooltips/Neocom/PersonalAssets", locations: "UI/PeopleAndPlaces/Locations", log: "UI/Accessories/Log/Log",
@@ -2018,7 +2021,7 @@
     OpenWallet: "wallet", OpenCharactersheet: "characterSheet", OpenSkillsWindow: "skills", OpenPeopleAndPlaces: "contacts",
     OpenLocations: "locations", OpenAgencyNew: "finder", OpenJobBoardWindow: "jobBoard", OpenAssets: "assets", OpenIndustry: "industry", OpenLedger: "miningLedger",
     OpenAchievementsWindow: "achievements", OpenFleetWatchlist: "watchlist", OpenStructureBrowser: "structureBrowser",
-    OpenAccessGroupsWindow: "accessGroups",
+    OpenAccessGroupsWindow: "accessGroups", OpenChannels: "channels",
     OpenHelp: "help",
     OpenOmegaUpsellWindow: "omegaUpsell",
     ToggleTheatersOfWarWindow: "theatersOfWar", CmdToggleShipTree: "shipTree",

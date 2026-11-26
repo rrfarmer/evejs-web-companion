@@ -511,6 +511,11 @@ class XmppChatSession {
           : "<query xmlns='http://jabber.org/protocol/disco#info'/>";
         return { id, xml: `<iq id='${id}' type='get' from='${escapeXml(jid())}' to='${escapeXml(target)}'>${query}</iq>` };
       },
+      channelDirectory: (node) => {
+        const id = requestID();
+        const query = `<query xmlns='http://jabber.org/protocol/disco#items' node='${escapeXml(node)}'/>`;
+        return { id, xml: `<iq id='${id}' type='get' from='${escapeXml(jid())}' to='${escapeXml(this.conferenceDomain)}'>${query}</iq>` };
+      },
       // _handle_ping (168 to 175): the server's ping answered, its `to` for
       // this answer's `from` and its `from` for the `to`.
       pong: (id, to, from) => `<iq id='${escapeXml(id)}' type='result' from='${escapeXml(to)}' to='${escapeXml(from)}'/>`,
@@ -1787,16 +1792,7 @@ class XmppChatSession {
     await this.ensureReady();
     this.assertChatCurrent(context);
     const request = this.retailStanzas().roomInfo(roomName);
-    const response = await new Promise((resolve, reject) => {
-      // xmppConnection.IssueRequest (203-234) waits thirty seconds.
-      const timer = setTimeout(() => {
-        this.infoRequests.delete(request.id);
-        reject(new XmppChatError("The chat server did not answer the room information request.", { code: "CHAT_INFO_TIMEOUT", statusCode: 504 }));
-      }, 30_000);
-      timer.unref?.();
-      this.infoRequests.set(request.id, { resolve, reject, timer });
-      this.write(request.xml);
-    });
+    const response = await this.requestChatInformation(request, "room information");
     this.assertChatCurrent(context);
     const identity = /<identity\b[^>]*>/i.exec(response);
     const field = /<field\b[^>]*\bvar=['"]muc#roominfo_occupants['"][^>]*>([\s\S]*?)<\/field>/i.exec(response);
@@ -1809,6 +1805,45 @@ class XmppChatSession {
       name: identity ? attr(identity[0], "name") || null : null,
       occupants: Number.isFinite(occupants) ? occupants : 0,
     };
+  }
+
+  /** Native GetChannels and GetChannelByDisplayName read the same directory. */
+  async channelDirectory(displayName, context = {}) {
+    await this.ensureReady();
+    this.assertChatCurrent(context);
+    const node = displayName === null ? "forme" : `byname/${displayName}`;
+    const response = await this.requestChatInformation(this.retailStanzas().channelDirectory(node), "channel directory");
+    this.assertChatCurrent(context);
+    if (attr(response.match(/^<iq\b[^>]*>/i)?.[0] || "", "type") !== "result") {
+      throw new XmppChatError("The chat server refused the channel directory request.", { code: "CHAT_DIRECTORY_REFUSED", statusCode: 502 });
+    }
+    const rows = [];
+    for (const [item] of response.matchAll(/<item\b[^>]*>/gi)) {
+      const jid = attr(item, "jid");
+      const [roomName, domain] = jid.split("@");
+      if (domain !== this.conferenceDomain || !/^[a-z0-9]+_[a-z0-9_-]+$/i.test(roomName ?? "")) continue;
+      rows.push({ roomName, name: attr(item, "name"), affiliation: attr(item, "node") || null });
+    }
+    return rows;
+  }
+
+  requestChatInformation(request, description) {
+    return new Promise((resolve, reject) => {
+      // xmppConnection.IssueRequest waits thirty seconds.
+      const timer = setTimeout(() => {
+        this.infoRequests.delete(request.id);
+        reject(new XmppChatError(`The chat server did not answer the ${description} request.`, { code: "CHAT_INFO_TIMEOUT", statusCode: 504 }));
+      }, 30_000);
+      timer.unref?.();
+      this.infoRequests.set(request.id, { resolve, reject, timer });
+      try {
+        this.write(request.xml);
+      } catch (error) {
+        clearTimeout(timer);
+        this.infoRequests.delete(request.id);
+        reject(error);
+      }
+    });
   }
 
   takeRoomInfo(xml) {

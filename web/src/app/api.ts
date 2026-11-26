@@ -2068,6 +2068,24 @@ export async function readChatRooms(options: ApiOptions = {}): Promise<JsonValue
   return (await getJson("/api/bridge/chat", options)).chat ?? null;
 }
 
+export interface ChatDirectoryChannel {
+  readonly roomName: string;
+  readonly name: string;
+  readonly affiliation: string | null;
+}
+
+export async function readChatChannelDirectory(name: string | null, options: ApiOptions = {}): Promise<readonly ChatDirectoryChannel[]> {
+  const query = name === null ? "" : `?name=${encodeURIComponent(name)}`;
+  const data = await getJson(`/api/bridge/chat/directory${query}`, options);
+  if (!Array.isArray(data.channels)) throw new Error("The chat directory could not be read.");
+  return data.channels.flatMap((row: unknown) => {
+    if (!row || typeof row !== "object" || !("roomName" in row) || typeof row.roomName !== "string" ||
+        !("name" in row) || typeof row.name !== "string") return [];
+    const affiliation = "affiliation" in row && typeof row.affiliation === "string" ? row.affiliation : null;
+    return [{ roomName: row.roomName, name: row.name, affiliation }];
+  });
+}
+
 export async function readChatRules(options: ApiOptions = {}): Promise<{ readonly groupCharacter: number; readonly elevated: bigint }> {
   const data = await getJson("/api/client-data/chat-rules", options);
   const rules = data.rules as Record<string, JsonValue> | null;

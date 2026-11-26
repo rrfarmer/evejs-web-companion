@@ -9757,6 +9757,21 @@ app.get("/api/bridge/chat", requireAuth, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.get("/api/bridge/chat/directory", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  const session = heldChatSession(held);
+  if (!session) return chatUnavailable(res);
+  const name = typeof req.query.name === "string" ? req.query.name.trim() : null;
+  if ("name" in req.query && (!name || name.length > 60 || /\p{Cc}/u.test(name))) {
+    return res.status(400).json({ ok: false, error: "INVALID_CHANNEL_NAME", message: "Enter a channel name of up to 60 characters." });
+  }
+  try {
+    const channels = await session.channelDirectory(name, chatContext(held, req));
+    res.json({ ok: true, channels });
+  } catch (error) { next(error); }
+});
+
 app.get("/api/bridge/chat/:roomName/info", requireAuth, async (req, res, next) => {
   const held = requireHeldBridgeSession(req, res);
   if (!held) return;
