@@ -46,6 +46,8 @@
   const characters = $derived(store.character);
   const pilot = $derived($station.online?.characterID);
   const owner = $derived($characters.characters.find(row => row.characterID === pilot));
+  const sessionAlliance = $derived($station.online?.allianceID);
+  const alliance = $derived(sessionAlliance === undefined ? owner?.allianceID : sessionAlliance);
   const activeHull = $derived($flight.status?.shipTypeID ?? owner?.shipTypeID);
   const word = (key: keyof typeof labels) => {
     const template = $words.templates[prefix + labels[key][0]] ?? labels[key][1];
@@ -66,7 +68,8 @@
   const hulls = $derived([...catalogue].sort((a, b) => hullName(a).localeCompare(hullName(b))));
   const membershipFilter = $derived(section === "corporation" || section === "alliance");
   const allowHull = $derived(section === "all" || membershipFilter);
-  const query = $derived<ShipSkinrBrowseQuery | null>(section === "owned" || (section === "active" && !activeHull) ? null : {
+  const query = $derived<ShipSkinrBrowseQuery | null>(section === "owned" || (section === "active" && !activeHull) ||
+    (section === "alliance" && !alliance) ? null : {
     target: targets[section], hull: section === "active" ? activeHull : allowHull ? hull : undefined,
     membership: membershipFilter && membership ? membership : undefined, ascending,
   });
@@ -88,6 +91,9 @@
   let lastPilot: number | undefined;
 
   $effect(() => { pinned = linked; });
+  $effect(() => {
+    if (section === "alliance" && !alliance) choose("all");
+  });
 
   $effect(() => {
     flow.requestWords(Object.values(labels).map(([path]) => prefix + path));
@@ -165,7 +171,7 @@
 
 <nav class="store-sections" aria-label="Paragon Hub sections">
   {#each sections as key (key)}
-    {#if (key !== "alliance" || owner?.allianceID) && (key !== "active" || activeHull)}
+    {#if (key !== "alliance" || alliance) && (key !== "active" || activeHull)}
       <button type="button" aria-pressed={section === key} onclick={() => choose(key)}>{word(key)}</button>
     {/if}
   {/each}
