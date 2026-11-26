@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
   import { plainText } from "../bridge/clientWords.ts";
+  import { SHIP_SKINR_GATEWAY } from "../bridge/shipSkinr.ts";
+  import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import ShipSkinrCollection from "./ShipSkinrCollection.svelte";
   import ShipSkinrElementStore from "./ShipSkinrElementStore.svelte";
@@ -15,9 +17,12 @@
   let storePage = $state<"skins" | "elements">("skins");
   let linked = $state.raw<ReturnType<AppFlow["takeShipSkinrListingLink"]>>(null);
   let linkedDesign = $state.raw<ReturnType<AppFlow["takeShipSkinrDesignLink"]>>(null);
+  let sequenceFailure = $state<keyof typeof failureWords | null>(null);
   let guard: Guard | undefined;
   let changingPage = false;
   const words = $derived(store.words);
+  const station = $derived(store.station);
+  const pilot = $derived($station.online?.characterID);
   const prefix = "UI/Personalization/ShipSkins/SKINR/";
   const tabs = [
     { page: "studio", path: prefix + "Studio/Title", fallback: "Studio" },
@@ -28,7 +33,37 @@
     { page: "skins", path: prefix + "Studio/SKINs", fallback: "SKINs" },
     { page: "elements", path: prefix + "Studio/DesignElements", fallback: "Design Elements" },
   ] as const;
-  $effect(() => { flow.requestWords([...tabs, ...storeTabs].map(tab => tab.path)); });
+  const errorPrefix = prefix + "Studio/SequencingErrors/";
+  const failureWords = {
+    internal: [errorPrefix + "InternalError", "The sequencing job could not be started."],
+    funds: [errorPrefix + "InsufficientPLEXFunds", "There is not enough PLEX to start sequencing."],
+    resources: [errorPrefix + "InsufficientSequenceBinders", "There are not enough sequence binders."],
+  } as const;
+  const closeLabel = "UI/Common/Buttons/Close";
+  $effect(() => {
+    flow.requestWords([...tabs.map(tab => tab.path), ...storeTabs.map(tab => tab.path),
+      ...Object.values(failureWords).map(([path]) => path), closeLabel]);
+  });
+  $effect(() => {
+    const owner = pilot;
+    sequenceFailure = null;
+    if (!owner) return;
+    const notices = flow.gatewayNotices;
+    let previous = notices.get();
+    return notices.subscribe(notice => {
+      if (notice === previous) return;
+      previous = notice;
+      if (pilot !== owner || notice?.typeName !== SHIP_SKINR_GATEWAY + "sequencing.job.api.FailedNotice") return;
+      const payload = shipSkinrRecord(notice.payload);
+      if (!payload) return;
+      switch (payload.reason) {
+        case 1: case "FAILURE_MISSING_FUNDS": sequenceFailure = "funds"; break;
+        case 3: case "FAILURE_MISSING_RESOURCES": sequenceFailure = "resources"; break;
+        case undefined: case 0: case "FAILURE_UNSPECIFIED":
+        case 4: case "FAILURE_INTERNAL_SERVER_ERROR": sequenceFailure = "internal"; break;
+      }
+    });
+  });
   $effect(() => registerBeforeClose?.(() => guard?.() ?? Promise.resolve(true)));
   $effect(() => flow.shipSkinrListingLink.subscribe(request => {
     if (!request) return;
@@ -76,6 +111,13 @@
     </button>
   {/each}
 </nav>
+{#if sequenceFailure}
+  {@const [path, fallback] = failureWords[sequenceFailure]}
+  <div class="sequence-failure">
+    <p role="alert">{plainText($words.templates[path] ?? fallback)}</p>
+    <button type="button" onclick={() => sequenceFailure = null}>{plainText($words.templates[closeLabel] ?? "Close")}</button>
+  </div>
+{/if}
 {#if page === "studio"}
   {#key linkedDesign}
     <ShipSkinrStudio {store} {flow} {linkedDesign} registerBeforeClose={registerGuard} />
@@ -105,4 +147,6 @@
 <style>
   .skinr-pages { display: flex; gap: 6px; padding: 10px 18px 0; }
   .skinr-pages button[aria-pressed="true"] { border-color: #94b8c2; }
+  .sequence-failure { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 18px 0; padding: 8px; background: #a43b3826; }
+  .sequence-failure p { margin: 0; }
 </style>
