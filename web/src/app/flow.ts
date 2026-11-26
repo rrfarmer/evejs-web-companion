@@ -2999,6 +2999,8 @@ export interface AppFlow {
    * it is not a listing of nobody.
    */
   loadFleetAdverts(): Promise<readonly FleetAdvert[]>;
+  /** Fleet Finder reads outgoing personal standings to fleet bosses from the address book. */
+  loadFleetFinderStandings(): Promise<ReadonlyMap<number, number>>;
   /**
    * APPLY to an advertised fleet, and return WHICH HALF of the round trip the
    * server took.
@@ -39263,6 +39265,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     readFleetFinder,
     async loadFleetAdverts() {
       return decodeAvailableFleetAds(await readAvailableFleetAds(bridgeAsk)).filter((ad) => ad.fleetID !== null && ad.fleetID > 0);
+    },
+    async loadFleetFinderStandings() {
+      const { contacts } = addressBookOf(await bridgeAsk("charMgr", "GetContactList", []));
+      return new Map(contacts.map(contact => [contact.contactID, contact.relationshipID]));
     },
     applyToJoinFleet,
     flyToPoint,

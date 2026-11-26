@@ -6,6 +6,7 @@
   import { memberWhereabouts } from "../bridge/fleetCenter.ts";
   import { isFleetCommander } from "../bridge/fleetCommand.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { CONTACT_STANDING } from "../bridge/contacts.ts";
   import FleetHistory from "./FleetHistory.svelte";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import type { FleetMember, FleetSquad, FleetWing } from "../bridge/boundFleet.ts";
@@ -61,6 +62,18 @@
   let finderRange = $state<FinderRange>(finderRanges.find(option => option.value === savedRange)?.value ?? null);
   let appliedRange = $state<FinderRange>(null);
   let rangeFacts = $state.raw<Awaited<ReturnType<AppFlow["systemRangeFacts"]>>>(new Map());
+  const finderStandings = [
+    { value: null, label: "UI/Standings/AnyStanding", fallback: "Any Standing" },
+    { value: CONTACT_STANDING.good, label: "UI/Standings/GoodStanding", fallback: "Good Standing" },
+    { value: CONTACT_STANDING.high, label: "UI/Standings/ExcellentStanding", fallback: "Excellent Standing" },
+  ] as const;
+  type FinderStanding = (typeof finderStandings)[number]["value"];
+  // svelte-ignore state_referenced_locally
+  const standingKey = `evejs.user.${store.session.get().accountID ?? 0}.fleetfinder_standingFilter`;
+  const savedStanding = Number(localStorage.getItem(standingKey));
+  let finderStanding = $state<FinderStanding>(finderStandings.find(option => option.value === savedStanding)?.value ?? null);
+  let appliedStanding = $state<FinderStanding>(null);
+  let bossStandings = $state.raw<ReadonlyMap<number, number>>(new Map());
   function rangeLabel(option: (typeof finderRanges)[number]): string {
     const template = fleetWord(option.label);
     return template ? plainText(formatTemplate(template, { numJumps: option.value ?? 0 }, { nameOf: () => "" })) : option.fallback;
@@ -69,17 +82,27 @@
     finderRange = finderRanges.find(option => (option.value === null ? "" : String(option.value)) === value)?.value ?? null;
     localStorage.setItem(rangeKey, finderRange === null ? "" : String(finderRange));
   }
+  function selectStanding(value: string) {
+    finderStanding = finderStandings.find(option => (option.value === null ? "" : String(option.value)) === value)?.value ?? null;
+    localStorage.setItem(standingKey, finderStanding === null ? "" : String(finderStanding));
+  }
   async function findFleets(): Promise<void> {
     const range = finderRange;
+    const standing = finderStanding;
     const origin = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
     finderBusy = true;
     finderError = null;
     try {
       const ads = await flow.loadFleetAdverts();
       const systems = [...new Set(ads.flatMap(ad => ad.solarSystemID === null ? [] : [ad.solarSystemID]))];
-      const facts = range !== null && origin !== null && systems.length ? await flow.systemRangeFacts(origin, systems) : new Map();
+      const [facts, standings] = await Promise.all([
+        range !== null && origin !== null && systems.length ? flow.systemRangeFacts(origin, systems) : new Map(),
+        standing !== null && ads.some(ad => ad.leader.charID !== null) ? flow.loadFleetFinderStandings() : new Map(),
+      ]);
       appliedRange = range;
       rangeFacts = facts;
+      appliedStanding = standing;
+      bossStandings = standings;
       finderAds = ads;
       flow.requestNames(ads.flatMap((ad) => [
         ...(ad.leader.charID ? [{ kind: "character" as const, id: ad.leader.charID }] : []),
@@ -97,6 +120,7 @@
       const facts = ad.solarSystemID === null ? undefined : rangeFacts.get(ad.solarSystemID);
       if (!facts || (appliedRange === -1 ? !facts.sameRegion : facts.jumps === null || facts.jumps > appliedRange)) return false;
     }
+    if (appliedStanding !== null && (bossStandings.get(ad.leader.charID ?? 0) ?? CONTACT_STANDING.neutral) < appliedStanding) return false;
     if (finderScope === null) return true;
     if ((ad.inviteScope & finderScope) === 0) return false;
     if (finderScope === 1 && ad.leader.corpID !== ($station.online?.corporationID ?? null)) return false;
@@ -107,8 +131,8 @@
     if (retail && (fleetTab === "finder" || fleetTab === "find") && finderAds === null && !finderBusy && finderError === null) void findFleets();
   });
   const FINDER_WORDS = ["UI/Fleet/FleetRegistry/MyAvailableFleets", "UI/Fleet/FleetRegistry/MyCorpFleets", "UI/Fleet/FleetRegistry/BasedOnStandings",
-    ...finderRanges.map(option => option.label), "UI/Standings/AnyStanding", "UI/Standings/GoodStanding",
-    "UI/Standings/ExcellentStanding", "UI/Fleet/FleetRegistry/ShowGroupAndHighStandingsFleets", "UI/Fleet/Ranks/Boss",
+    ...finderRanges.map(option => option.label), ...finderStandings.map(option => option.label),
+    "UI/Fleet/FleetRegistry/ShowGroupAndHighStandingsFleets", "UI/Fleet/Ranks/Boss",
     "UI/Fleet/FleetRegistry/BossLocationHeader", "UI/Fleet/NameOfFleet", "UI/Fleet/FleetRegistry/MemberCount", "UI/Common/Description",
     "UI/Fleet/FleetRegistry/SearchHint", "UI/Fleet/FleetRegistry/SearchNoResult", "UI/Fleet/FleetRegistry/JoinFleet",
     "UI/Fleet/FleetRegistry/RequestJoinFleet", "UI/Fleet/FleetRegistry/UnnamedFleet", "UI/Generic/Private"];
@@ -372,7 +396,11 @@
               <option value={range.value ?? ""}>{rangeLabel(range)}</option>
             {/each}
           </select>
-          <select><option>{fleetWord("UI/Standings/AnyStanding") || "Any Standing"}</option><option>{fleetWord("UI/Standings/GoodStanding") || "Good Standing"}</option><option>{fleetWord("UI/Standings/ExcellentStanding") || "Excellent Standing"}</option></select>
+          <select aria-label="Standing" value={finderStanding ?? ""} onchange={(event) => selectStanding(event.currentTarget.value)}>
+            {#each finderStandings as standing (standing.value)}
+              <option value={standing.value ?? ""}>{fleetWord(standing.label) || standing.fallback}</option>
+            {/each}
+          </select>
           <button type="button" disabled={finderBusy} onclick={() => void findFleets()}>{fleetWord("UI/Fleet/FleetRegistry/FindFleets") || "Find Fleets"}</button>
         </div>
         <label class="fl-finder-check"><input type="checkbox" disabled /> {fleetWord("UI/Fleet/FleetRegistry/ShowGroupAndHighStandingsFleets") || "Show group and high standings fleets"}</label>
