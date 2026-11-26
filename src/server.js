@@ -16045,6 +16045,7 @@ const PUBLIC_GATEWAY_READS = new Set([
   "eve_public.career.goal.api.GetAllRequest",
 ]);
 const PUBLIC_GATEWAY_WRITES = new Set([
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.UpdateRequest",
   "eve_public.sovereignty.mercenaryden.activity.api.StartRequest",
   "eve_public.achievement.reward.api.ClaimRequest",
   "eve_public.cosmetic.character.title.api.EquipRequest",

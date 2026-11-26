@@ -17,6 +17,11 @@
     studio: [prefix + "Title", "Studio"],
     sequencing: [prefix + "SequencingInProgress", "Sequencing In Progress"],
     saved: [prefix + "SavedDesigns", "Saved Designs"],
+    edit: [prefix + "EditDesign", "Edit Design"],
+    name: [prefix + "SKINName", "SKIN Name"],
+    line: [prefix + "SKINLineNameOptional", "SKIN Line Name (Optional)"],
+    save: ["UI/Common/Buttons/Save", "Save"],
+    cancel: ["UI/Common/Buttons/Cancel", "Cancel"],
   } as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   let studio = $state.raw<ShipSkinrStudio | null>(null);
@@ -24,6 +29,13 @@
   let error = $state("");
   let attempt = $state(0);
   let selected = $state<string | null>(null);
+  let editor = $state.raw<{ entry: ShipSkinrEntry; design: ShipSkinrDesign } | null>(null);
+  let name = $state("");
+  let lineName = $state("");
+  let saving = $state(false);
+  let saveError = $state("");
+  const validName = $derived(name.trim() !== "" && [...name].length <= 20 && [...lineName].length <= 50 &&
+    !/[\p{Cc}\p{Cs}]/u.test(name + lineName));
   const selectedEntry = $derived([...(studio?.designs ?? []), ...(studio?.jobs ?? [])].find(row => row.id === selected));
   const selectedDesign = $derived(selectedEntry ? designs.get(selectedEntry.skin) : null);
   const shipName = (design: ShipSkinrDesign) => resolvedName($names.resolved, "type", design.shipTypeID, String(design.shipTypeID));
@@ -32,12 +44,41 @@
     return design ? design.name || shipName(design) : design === null ? "Design unavailable" : "Loading design…";
   };
 
+  function edit(entry: ShipSkinrEntry, design: ShipSkinrDesign) {
+    editor = { entry, design };
+    name = design.name;
+    lineName = design.lineName;
+    saveError = "";
+  }
+
+  async function save(event: SubmitEvent) {
+    event.preventDefault();
+    if (!editor || !studio || saving || !validName) return;
+    const target = editor;
+    const edited = { ...target.design, name, lineName };
+    saving = true;
+    saveError = "";
+    try {
+      const updated = await flow.updateShipSkinrDesign(target.entry, target.design, edited.name, edited.lineName);
+      if (editor !== target || !studio) return;
+      designs = new Map(designs).set(updated.skin, edited);
+      studio = { ...studio, designs: studio.designs.map(row => row.id === updated.id ? updated : row) };
+      editor = null;
+    } catch (cause) {
+      if (editor === target) saveError = panelErrorWords(cause);
+    } finally {
+      if (editor === target || !editor) saving = false;
+    }
+  }
+
   $effect(() => { flow.requestWords(Object.values(labels).map(([path]) => path)); });
   $effect(() => {
     void attempt;
     studio = null;
     designs = new Map();
     selected = null;
+    editor = null;
+    saving = false;
     error = "";
     if (!pilot) return;
     let mounted = true;
@@ -67,7 +108,7 @@
         <header><h3>{word("sequencing")}</h3><span>{studio.jobs.length}</span></header>
         {#if !studio.jobs.length}<p>No active sequencing jobs.</p>{/if}
         {#each studio.jobs as row (row.id)}
-          <button class="skinr-entry" type="button" data-entry="job" aria-pressed={selected === row.id}
+          <button class="skinr-entry" type="button" data-entry="job" aria-pressed={selected === row.id} disabled={!!editor}
             onclick={() => selected = selected === row.id ? null : row.id}>
             <strong>{title(row)}</strong>
             <span>{row.quantity} SKINs</span>
@@ -79,12 +120,26 @@
         <header><h3>{word("saved")}</h3><span>{studio.designs.length}/{studio.capacity}</span></header>
         {#if !studio.designs.length}<p>No saved designs.</p>{/if}
         {#each studio.designs as row (row.id)}
-          <button class="skinr-entry" type="button" data-entry="draft" aria-pressed={selected === row.id}
+          <button class="skinr-entry" type="button" data-entry="draft" aria-pressed={selected === row.id} disabled={!!editor}
             onclick={() => selected = selected === row.id ? null : row.id}><strong>{title(row)}</strong></button>
         {/each}
       </section>
     </div>
-    {#if selectedEntry && selectedDesign}
+    {#if editor}
+      <form class="skinr-editor" aria-labelledby="skinr-editor-heading" onsubmit={save}>
+        <h3 id="skinr-editor-heading">{word("edit")}</h3>
+        <label>{word("name")} <input bind:value={name} required disabled={saving} /></label>
+        <label>{word("line")} <input bind:value={lineName} disabled={saving} /></label>
+        {#if [...name].length > 20 || [...lineName].length > 50}
+          <p role="alert">Use up to 20 characters for the name and 50 for the line name.</p>
+        {/if}
+        {#if saveError}<p role="alert">{saveError}</p>{/if}
+        <footer>
+          <button type="submit" disabled={saving || !validName}>{word("save")}</button>
+          <button type="button" disabled={saving} onclick={() => editor = null}>{word("cancel")}</button>
+        </footer>
+      </form>
+    {:else if selectedEntry && selectedDesign}
       {@const icon = typeIconUrl(selectedDesign.shipTypeID)}
       <section class="skinr-details" aria-label={title(selectedEntry)}>
         {#if icon}<img src={icon} alt="" width="64" height="64" />{/if}
@@ -93,6 +148,11 @@
           {#if selectedDesign.lineName}<p>{selectedDesign.lineName}</p>{/if}
           <p>{selectedDesign.tier ? `${shipName(selectedDesign)} · Tier ${selectedDesign.tier}` : shipName(selectedDesign)}</p>
         </div>
+        {#if studio.designs.includes(selectedEntry)}
+          {@const entry = selectedEntry}
+          {@const design = selectedDesign}
+          <button type="button" onclick={() => edit(entry, design)}>{word("edit")}</button>
+        {/if}
       </section>
     {/if}
   {/if}
@@ -108,4 +168,8 @@
   .skinr-entry { display: flex; flex-wrap: wrap; justify-content: space-between; text-align: left; gap: 8px; padding: 8px; }
   .skinr-entry[aria-pressed="true"] { border-color: #94b8c2; }
   .skinr-details { display: flex; align-items: center; gap: 12px; padding: 14px; background: #ffffff08; }
+  .skinr-details button { margin-inline-start: auto; }
+  .skinr-editor { display: grid; gap: 12px; padding: 14px; background: #ffffff08; }
+  .skinr-editor label { display: grid; gap: 4px; max-width: 400px; }
+  .skinr-editor footer { display: flex; gap: 8px; }
 </style>

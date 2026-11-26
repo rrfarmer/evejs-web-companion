@@ -8436,6 +8436,61 @@
     }
    ]
   },
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.UpdateRequest": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.draft.Identifier"
+    },
+    {
+     "name": "name",
+     "number": 2,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "line_name",
+     "number": 3,
+     "type": 9,
+     "label": 1
+    },
+    {
+     "name": "layout",
+     "number": 4,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.Layout"
+    },
+    {
+     "name": "editor_configurations",
+     "number": 5,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.draft.SlotEditorConfiguration"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.skin.thirdparty.draft.api.UpdateResponse": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.draft.Identifier"
+    },
+    {
+     "name": "attributes",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.skin.thirdparty.draft.Attributes"
+    }
+   ]
+  },
   "eve_public.cosmetic.ship.skin.thirdparty.draft.api.GetAllSavedRequest": {
    "fields": []
   },

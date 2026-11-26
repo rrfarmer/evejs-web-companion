@@ -5,8 +5,8 @@
 // it stays framework-agnostic and unit-testable under node:test.
 
 import { getCharacterSelectionData } from "../bridge/characterSelection.ts";
-import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, decodeShipSkinrEntries,
-  type ShipSkinrDesign, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
+import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, decodeShipSkinrEntries, decodeShipSkinrEntry,
+  type ShipSkinrDesign, type ShipSkinrEntry, type ShipSkinrStudio } from "../bridge/shipSkinr.ts";
 import { setSessionToken } from "./sessionToken.ts";
 import { pageFetch } from "./pageFetch.ts";
 import {
@@ -4592,6 +4592,7 @@ export interface AppFlow {
   loadMyMercenaryDens(): Promise<MercenaryDensRead>;
   loadShipSkinrStudio(): Promise<ShipSkinrStudio>;
   loadShipSkinrDesign(skin: string): Promise<ShipSkinrDesign | null>;
+  updateShipSkinrDesign(entry: ShipSkinrEntry, design: ShipSkinrDesign, name: string, lineName: string): Promise<ShipSkinrEntry>;
   reloadMercenaryDen(denID: number): Promise<MercenaryDenRow | null>;
   loadMercenaryDenActivities(denID: number): Promise<MercenaryDenActivities>;
   loadMercenaryOperations(): Promise<readonly MercenaryDenActivity[]>;
@@ -28898,6 +28899,18 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return design;
   }
 
+  async function updateShipSkinrDesign(entry: ShipSkinrEntry, design: ShipSkinrDesign, name: string, lineName: string): Promise<ShipSkinrEntry> {
+    const current = callOptions.captureRequestGuard!();
+    const result = await gatewayAsk(SHIP_SKINR_GATEWAY + "draft.api.UpdateRequest", {
+      id: { uuid: entry.id }, name, line_name: lineName, layout: design.layout,
+      editor_configurations: entry.editorConfigurations,
+    }, true);
+    current();
+    const updated = decodeShipSkinrEntry(result);
+    if (!updated || updated.id !== entry.id) throw new Error("The saved design could not be confirmed.");
+    return updated;
+  }
+
   async function loadMyMercenaryDens(): Promise<MercenaryDensRead> {
     const current = callOptions.captureRequestGuard!();
     const [ownedReply, capacityReply] = await Promise.all([
@@ -41257,6 +41270,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadMyMercenaryDens,
     loadShipSkinrStudio,
     loadShipSkinrDesign,
+    updateShipSkinrDesign,
     reloadMercenaryDen,
     loadMercenaryDenActivities,
     loadMercenaryOperations,
