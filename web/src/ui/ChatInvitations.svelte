@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import type { Session } from "../app/sessions.ts";
+  import { SESSION_CHANNEL_WORDS } from "../app/chatConversations.ts";
   import ChatInvitationWindow from "./ChatInvitationWindow.svelte";
   import ContactActionDialog from "./ContactActionDialog.svelte";
   let { session, inFront }: { session: Session; inFront: boolean } = $props();
@@ -18,6 +19,7 @@
     void refresh();
   });
   onMount(() => {
+    session.flow.requestWords(SESSION_CHANNEL_WORDS);
     session.flow.requestWords(["UI/Chat/ChatInvite", "UI/Chat/InvitedToConversation", "UI/Chat/AcceptInvitation", "UI/Chat/AcceptInvitationAndAddContact", "UI/Chat/RejectInvitation", "UI/Chat/RejectInvitationAndBlock", "UI/Chat/PrivateChatAlone", "UI/Chat/PrivateChat", "UI/Chat/GroupChat", "UI/Chat/StartConversation", "UI/Chat/InviteToChat", "UI/Chat/ErrorNotAPlayerCharacter", "UI/Generic/OK"]);
     timer = setInterval(() => void refresh(), 2000);
   });

@@ -30,6 +30,15 @@ interface Hooks {
 const record = (value: JsonValue | undefined): Record<string, JsonValue> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, JsonValue> : {};
 const retired = (error: unknown): boolean => (error as { code?: string })?.code === "SESSION_REQUEST_RETIRED";
 const ENGLISH_HELP_ROOM = "system_263238_263262";
+// XmppChatService.GetDisplayName supplies these names for the session rooms.
+const SESSION_CHANNEL_TITLES = new Map<string, readonly [string, string]>([
+  ["alliance", ["UI/Common/Alliance", "Alliance"]],
+  ["fleet", ["UI/Fleet/Fleet", "Fleet"]],
+  ["faction", ["UI/Common/Militia", "Militia"]],
+  ["wing", ["UI/Fleet/Wing", "Wing"]],
+  ["squad", ["UI/Fleet/Squad", "Squad"]],
+]);
+export const SESSION_CHANNEL_WORDS = [...SESSION_CHANNEL_TITLES.values()].map(([label]) => label);
 // 3698585 carbon/common/script/sys/serviceConst.py ROLEMASK_ELEVATEDPLAYER.
 const ELEVATED_PLAYER_ROLES = 0x959c3fff7effffdfn;
 
@@ -138,15 +147,21 @@ export function createChatConversations(hooks: Hooks) {
     const value = record(raw), channel = String(value.channel ?? ""), roomName = String(value.roomName ?? "");
     const isHelpRoom = channel === ENGLISH_HELP_ROOM;
     const systemMessage = /^system_\d+_(\d+)$/.exec(channel)?.[1];
-    if ((!/^(private|player)_/.test(channel) && !systemMessage) || !roomName || destroyedRooms.has(channel)) return;
+    const sessionTitle = SESSION_CHANNEL_TITLES.get(channel);
+    if (!roomName || destroyedRooms.has(channel)) return;
+    if (sessionTitle) {
+      // Only the held transport's joined room establishes membership.
+      if (!roomName.startsWith(`${channel}_`) || !/^[1-9]\d*$/.test(roomName.slice(channel.length + 1))) return;
+    } else if (!/^(private|player)_/.test(channel) && !systemMessage) return;
     const decoded = decodeChatChannel(raw), pending = pendingPrivate.get(channel);
     const observed = Array.isArray(value.seenMembers) ? value.seenMembers : decoded.roster.map(member => member.characterID);
     if (pending && observed.includes(pending.target)) { pendingPrivate.delete(channel); if (pendingInvites.get(pending.target) === channel) pendingInvites.delete(pending.target); }
     for (const [who, room] of pendingInvites) if (room === channel && observed.includes(who)) pendingInvites.delete(who);
     await names(scope, [...decoded.roster.map(member => member.characterID), ...(pendingPrivate.get(channel) ? [pendingPrivate.get(channel)!.target] : [])]);
-    if (!systemMessage && !information.has(channel)) { const info = await api.readChatRoomInfo(roomName, scope.options); scope.current(); information.set(channel, record(info)); }
+    if (!systemMessage && !sessionTitle && !information.has(channel)) { const info = await api.readChatRoomInfo(roomName, scope.options); scope.current(); information.set(channel, record(info)); }
     const info = information.get(channel);
-    let title = systemMessage ? hooks.word(`#${systemMessage}`, {}, directoryTitles.get(channel) ?? (isHelpRoom ? "English Help" : roomName)) :
+    let title = sessionTitle ? hooks.word(sessionTitle[0], {}, sessionTitle[1]) :
+      systemMessage ? hooks.word(`#${systemMessage}`, {}, directoryTitles.get(channel) ?? (isHelpRoom ? "English Help" : roomName)) :
       typeof info?.name === "string" && info.name ? info.name : (directoryTitles.get(channel) ?? roomName);
     if (channel.startsWith("private_")) {
       const others = decoded.roster.filter(member => member.characterID !== scope.me).map(member => name(member.characterID));
@@ -204,7 +219,9 @@ export function createChatConversations(hooks: Hooks) {
     const channels = Array.isArray(answer.channels) ? answer.channels : [];
     const joined = new Set(channels.map(entry => String(record(entry).channel ?? "")));
     for (const raw of channels) await applyRoom(scope, raw);
-    scope.current(); patch({ rooms: state.get().rooms.filter(room => joined.has(room.channel)) });
+    scope.current();
+    const { rooms, active } = state.get();
+    patch({ rooms: rooms.filter(room => joined.has(room.channel)), active: active !== null && joined.has(active) ? active : null });
     const declines = Array.isArray(answer.declines) ? answer.declines : [];
     for (const value of declines) {
       const decline = record(value), id = String(decline.id), who = Number(decline.senderCharacterID), room = String(decline.roomName), reason = String(decline.reason);
