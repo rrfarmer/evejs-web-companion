@@ -1952,9 +1952,10 @@ class XmppChatSession {
   async channelAccess(roomName, list, change, context = {}) {
     const channel = await this.managedPlayerChannel(roomName, context);
     const stanzas = this.retailStanzas();
-    const affiliation = list === "operators" ? "admin" : list === "blocked" ? "outcast" : "member";
-    if (list === "operators" && change && (channel.affiliation !== "owner" || change.kind !== "character")) {
-      throw new XmppChatError("Only a channel owner can change character operators.", { code: "CHAT_ACCESS_REFUSED", statusCode: 403 });
+    const roleList = list === "operators" || list === "owners";
+    const affiliation = { operators: "admin", owners: "owner", blocked: "outcast" }[list] ?? "member";
+    if (roleList && change && (channel.affiliation !== "owner" || change.kind !== "character")) {
+      throw new XmppChatError(`Only a channel owner can change the ${list} list.`, { code: "CHAT_ACCESS_REFUSED", statusCode: 403 });
     }
     const request = async (stanza) => {
       this.assertChatCurrent(context);
@@ -1980,6 +1981,9 @@ class XmppChatSession {
       }
       const response = await request(stanzas.roomIq(roomName, "admin", "get", `<item affiliation='${affiliation}'/>`));
       const entries = new Map(parse(response, affiliation));
+      if (list === "owners") {
+        return [...entries.keys()].map(id => ({ id, temporary: false, removable: entries.size > 1 }));
+      }
       if (list === "operators") {
         const response = await request(stanzas.roomIq(roomName, "admin", "get", "<item affiliation='owner'/>"));
         const owners = new Map(parse(response, "owner"));
@@ -1998,9 +2002,10 @@ class XmppChatSession {
     const before = await read();
     if (!change) return before;
     const current = before.find(entry => entry.id === change.ownerID);
-    if (list === "operators" && current?.removable === false) {
+    if (roleList && current?.removable === false) {
       if (change.listed) return before;
-      throw new XmppChatError("This operator is a channel owner.", { code: "CHAT_ACCESS_REFUSED", statusCode: 403 });
+      throw new XmppChatError(list === "owners" ? "Keep at least one channel owner." : "This operator is a channel owner.",
+        { code: "CHAT_ACCESS_REFUSED", statusCode: 403 });
     }
     if (list === "muted") {
       if (change.listed || change.kind !== "character") {
@@ -2013,7 +2018,7 @@ class XmppChatSession {
     }
     if (change.listed ? current && !current.temporary : !current) return before;
     const owner = `${change.ownerID}@${this.domain}`;
-    const next = change.listed ? affiliation : list === "operators" ? "member" : "none";
+    const next = change.listed ? affiliation : roleList ? "member" : "none";
     const item = `<item affiliation='${next}' jid='${escapeXml(owner)}'><reason>${escapeXml(change.kind)}</reason></item>`;
     await request(stanzas.roomIq(roomName, "admin", "set", item));
     if (!change.listed && current?.temporary) await request(stanzas.roomRestrictionRecords(roomName, "ban", change.ownerID));

@@ -270,6 +270,12 @@
     exact = null;
     settingsRoom = null;
   }
+  function reflectLostOwnership(room: string) {
+    const demote = (row: ChatDirectoryChannel) => row.roomName === room ? { ...row, affiliation: "member" } : row;
+    channels = channels.map(demote);
+    exact = exact?.map(demote) ?? null;
+    settingsRoom = null;
+  }
 </script>
 
 <form class="controls channel-search" onsubmit={(event) => { event.preventDefault(); actOnName(false); }}>
@@ -310,7 +316,8 @@
 {/if}
 {#if settingsRoom !== null}
   {@const room = settingsRoom}
-  <ChatChannelSettings {store} {flow} {room} close={() => { settingsRoom = null; }} saved={(value) => reflectSavedSettings(room, value.name)} />
+  <ChatChannelSettings {store} {flow} {room} close={() => { settingsRoom = null; }} saved={(value) => reflectSavedSettings(room, value.name)}
+    ownershipLost={() => reflectLostOwnership(room)} />
 {/if}
 
 <style>

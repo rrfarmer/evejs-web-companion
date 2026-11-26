@@ -9835,7 +9835,7 @@ app.post("/api/bridge/chat/:roomName/settings", requireAuth, async (req, res, ne
   } catch (error) { next(error); }
 });
 
-for (const list of ["allowed", "blocked", "muted", "operators"]) app.all(`/api/bridge/chat/:roomName/${list}`, requireAuth, async (req, res, next) => {
+for (const list of ["allowed", "blocked", "muted", "operators", "owners"]) app.all(`/api/bridge/chat/:roomName/${list}`, requireAuth, async (req, res, next) => {
   if (req.method !== "GET" && req.method !== "POST") return res.sendStatus(405);
   const held = requireHeldBridgeSession(req, res);
   if (!held) return;

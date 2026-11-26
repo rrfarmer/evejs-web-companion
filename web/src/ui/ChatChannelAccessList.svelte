@@ -7,23 +7,30 @@
   import { isAllianceOwner, isCorporationOwner } from "../bridge/mail.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
-  let { store, flow, room, list, roomOwner, mutating = $bindable(false) }: {
-    store: ClientStore; flow: AppFlow; room: string; list: ChatAccessList; roomOwner: boolean; mutating?: boolean;
+  let { store, flow, room, list, roomOwner, ownershipLost, mutating = $bindable(false) }: {
+    store: ClientStore; flow: AppFlow; room: string; list: ChatAccessList; roomOwner: boolean; ownershipLost: () => void; mutating?: boolean;
   } = $props();
   type Owner = { id: number; name: string };
   type Entry = Owner & { temporary: boolean; removable: boolean };
   type Match = Owner & { kind: ChatAccessOwnerKind };
   const ownerTypes = [[2, "character"], [3, "corporation"], [4, "alliance"]] as const;
   const paths = {
-    allowed: "UI/Chat/Allowed", blocked: "UI/Chat/Blocked", muted: "UI/Chat/Muted", operators: "UI/Chat/Operators",
-    addAllowed: "UI/Chat/AddToAllowedList", addBlocked: "UI/Chat/AddToBlockedList", addOperator: "UI/Chat/AddToOperatorList",
+    allowed: "UI/Chat/Allowed", blocked: "UI/Chat/Blocked", muted: "UI/Chat/Muted", operators: "UI/Chat/Operators", owners: "UI/Chat/Owners",
+    addAllowed: "UI/Chat/AddToAllowedList", addBlocked: "UI/Chat/AddToBlockedList", addOperator: "UI/Chat/AddToOperatorList", addOwner: "UI/Chat/AddToOwnerList",
     remove: "UI/Chat/RemoveSelected", picker: "UI/Chat/SelectAllianceCorpChar", temporary: "UI/Chat/TemporaryBan",
     search: "UI/Common/Buttons/Search", ok: "UI/Common/Buttons/OK", cancel: "UI/Common/Buttons/Cancel",
   } as const;
   const words = $derived(store.words);
   const label = (key: keyof typeof paths, fallback: string) => plainText($words.templates[paths[key]] ?? "") || fallback;
-  const canEdit = $derived(list !== "operators" || roomOwner);
-  const pickerTitle = $derived(list === "operators" ? "Select a character" : label("picker", "Select Alliance, Corporation or Character"));
+  const roleList = $derived(list === "operators" || list === "owners");
+  const canEdit = $derived(!roleList || roomOwner);
+  const pickerTitle = $derived(roleList ? "Select a character" : label("picker", "Select Alliance, Corporation or Character"));
+  const station = $derived(store.station);
+  const pilotID = $derived($station.online?.characterID);
+  const addButtons = {
+    allowed: ["addAllowed", "Add to Allowed List"], blocked: ["addBlocked", "Add to Blocked List"],
+    operators: ["addOperator", "Add to Operators List"], owners: ["addOwner", "Add to Owners list"],
+  } as const;
   const selected = new SvelteSet<number>();
   const knownKinds = new Map<number, ChatAccessOwnerKind>();
   let current = true;
@@ -64,7 +71,7 @@
     chosen = null;
     searching = true;
     try {
-      const types = list === "operators" ? ownerTypes.slice(0, 1) : ownerTypes;
+      const types = roleList ? ownerTypes.slice(0, 1) : ownerTypes;
       const found = await flow.searchOwners(text, types.map(([type]) => type), 0);
       if (request !== generation) return;
       matches = types.flatMap(([type, kind]) => (found.get(type) ?? []).map(owner => ({ ...owner, kind })))
@@ -91,7 +98,7 @@
     finally { if (current) { busy = false; mutating = false; } }
   }
   async function accessKind(owner: Owner): Promise<ChatAccessOwnerKind> {
-    if (list === "muted" || list === "operators") return "character";
+    if (list === "muted" || roleList) return "character";
     const known = knownKinds.get(owner.id);
     if (known) return known;
     if (isCorporationOwner(owner.id)) return "corporation";
@@ -104,17 +111,27 @@
   }
   async function remove() {
     if (!selected.size || busy || !canEdit) return;
+    if (list === "owners" && selected.size >= entries.length) {
+      error = "Keep at least one channel owner.";
+      return;
+    }
     busy = true;
     mutating = true;
     error = "";
     try {
-      for (const owner of entries.filter(owner => owner.removable && selected.has(owner.id))) {
+      const chosen = entries.filter(owner => owner.removable && selected.has(owner.id));
+      if (list === "owners") chosen.sort((a, b) => Number(a.id === pilotID) - Number(b.id === pilotID));
+      for (const owner of chosen) {
         const kind = await accessKind(owner);
         if (!current) return;
         const rows = await flow.chatDirectoryChannelAccess(room, list, { ownerID: owner.id, kind, listed: false });
         if (!current) return;
         entries = rows;
         selected.delete(owner.id);
+        if (list === "owners" && owner.id === pilotID && !rows.some(row => row.id === pilotID)) {
+          ownershipLost();
+          return;
+        }
       }
     } catch (cause) { report(cause); }
     finally { if (current) { busy = false; mutating = false; } }
@@ -125,7 +142,7 @@
   {#if canEdit}<div class="actions">
     {#if list !== "muted"}
       <button type="button" disabled={busy || picker} onclick={() => { picker = true; }}>
-        {list === "operators" ? label("addOperator", "Add to Operators List") : list === "allowed" ? label("addAllowed", "Add to Allowed List") : label("addBlocked", "Add to Blocked List")}
+        {label(addButtons[list][0], addButtons[list][1])}
       </button>
     {/if}
     <button type="button" disabled={busy || picker || !selected.size} onclick={remove}>{label("remove", "Remove Selected")}</button>
@@ -134,7 +151,8 @@
     <ul>
       {#each entries as owner (owner.id)}
         <li data-allowed-owner={list === "allowed" ? owner.id : undefined} data-blocked-owner={list === "blocked" ? owner.id : undefined}
-          data-muted-owner={list === "muted" ? owner.id : undefined} data-operator-owner={list === "operators" ? owner.id : undefined}>
+          data-muted-owner={list === "muted" ? owner.id : undefined} data-operator-owner={list === "operators" ? owner.id : undefined}
+          data-channel-owner={list === "owners" ? owner.id : undefined}>
           {#if canEdit && owner.removable}
             <label><input type="checkbox" checked={selected.has(owner.id)} disabled={busy || picker}
               onchange={(event) => { if (event.currentTarget.checked) selected.add(owner.id); else selected.delete(owner.id); }} />{owner.name}
@@ -164,7 +182,7 @@
             <li><label><input type="radio" name="access-owner" checked={chosen === match.id} onchange={() => { chosen = match.id; }} />{match.name} <small>{match.kind}</small></label></li>
           {/each}
         </ul>
-      {:else if matches}<p>{list === "operators" ? "No matching characters." : "No matching characters, corporations, or alliances."}</p>{/if}
+      {:else if matches}<p>{roleList ? "No matching characters." : "No matching characters, corporations, or alliances."}</p>{/if}
       <div class="actions">
         <button type="button" disabled={chosen === null || searching} onclick={add}>{label("ok", "OK")}</button>
         <button type="button" onclick={closePicker}>{label("cancel", "Cancel")}</button>
