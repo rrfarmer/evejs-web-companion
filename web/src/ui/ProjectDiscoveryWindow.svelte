@@ -14,7 +14,10 @@
   const beginLabel = "UI/ProjectDiscovery/Covid/Intro/ButtonBegin";
   const tutorialLabels = "UI/ProjectDiscovery/Covid/Tutorial/";
   const introLabels = "UI/ProjectDiscovery/Covid/Intro/";
+  const resultLabels = "UI/ProjectDiscovery/Covid/Results/";
+  const rewardLabels = "UI/ProjectDiscovery/Covid/Rewards/";
   const word = (label: string, fallback: string) => plainText($words.templates[label] ?? "") || fallback;
+  const percent = (value: number) => value.toLocaleString(undefined, { style: "percent", maximumFractionDigits: 1 });
   const sampleImage = clientTexture("res:/UI/Texture/classes/ProjectDiscovery/covid/intro/project_discovery.png");
   const practiceImage = clientTexture("res:/UI/Texture/classes/ProjectDiscovery/covid/tutorial/onegate.png");
   const practiceTargets = [[.77, .31], [.59, .50], [.48, .72], [.33, .70], [.26, .47], [.13, .36], [.19, .18], [.43, .10], [.72, .13]] as const;
@@ -36,6 +39,10 @@
   let error = $state("");
   let sample = $state.raw<Sample | null>(null);
   let score = $state<number | null>(null);
+  let taskScores = $state<{ high: number; average: number } | null>(null);
+  let pilotAccuracy = $state<number | null>(null);
+  let rewardView = $state(false);
+  let xpBand = $state<{ rank: number; lower: number; upper: number } | null>(null);
   let completion = $state<{ xp: number; kredits: number } | null>(null);
   let regularReward = $state<{ xp: number; isk: number; kredits: number; bonus: boolean; rank: number | null; crates: number; tier: number | null } | null>(null);
   let restarting = $state(false);
@@ -50,6 +57,9 @@
   const practice = $derived(sample?.lesson === 0);
   const practiceIndex = $derived(outline.length === practiceTargets.length ? 0 : outline.length);
   const practiceTarget = $derived(practice && !polygons.length ? practiceTargets[practiceIndex] : undefined);
+  const rankProgress = $derived(progress && xpBand && xpBand.rank === progress.rank
+    ? { xp: Math.min(xpBand.upper - xpBand.lower, Math.max(0, progress.experience - xpBand.lower)), cap: xpBand.upper - xpBand.lower }
+    : null);
 
   function pilotProgress(value: JsonValue): Progress {
     const rank = unwrapReal(readKeyVal(value, "rank"));
@@ -65,6 +75,23 @@
   }
 
   const readProgress = async () => pilotProgress(await bridgeAsk(flow.requestOptions())(service, "get_player_state", []));
+
+  function accuracyOf(value: unknown) {
+    const number = unwrapReal(value);
+    return number !== null && number >= 0 && number <= 1 ? number : null;
+  }
+
+  $effect(() => {
+    const rank = progress?.rank;
+    if (!Number.isSafeInteger(rank) || rank === undefined || rank < 1) return;
+    const ask = bridgeAsk(flow.requestOptions());
+    let active = true;
+    void Promise.all([rank, rank + 1].map(level => ask(service, "get_total_needed_xp", [level]))).then(values => {
+      const [lower, upper] = values.map(unwrapReal);
+      if (active && lower !== null && upper !== null && upper > lower) xpBand = { rank, lower, upper };
+    }).catch(() => {});
+    return () => { active = false; };
+  });
 
   async function load() {
     if (loading) return;
@@ -100,6 +127,8 @@
     outline = [];
     polygons = [];
     score = null;
+    taskScores = null;
+    rewardView = false;
     solution = [];
     showSolution = false;
     completion = null;
@@ -249,6 +278,8 @@
       const previousRank = progress?.rank;
       progress = pilotProgress(player);
       score = resultScore;
+      const updatedAccuracy = accuracyOf(readDictEntry(readDictEntry(result, "player"), "score"));
+      if (updatedAccuracy !== null) pilotAccuracy = updatedAccuracy;
       if (sample.lesson === null) {
         const crates = readDictEntry(result, "loot_crates");
         regularReward = {
@@ -262,6 +293,9 @@
         };
       }
       const returnedTask = readDictEntry(result, "task");
+      const votes = readDictEntry(returnedTask, "votes");
+      taskScores = { high: Math.max(resultScore, accuracyOf(readDictEntry(votes, "highScore")) ?? 0),
+        average: accuracyOf(readDictEntry(votes, "avgScore")) ?? 0 };
       const clusters = readDictEntry(readDictEntry(returnedTask, "solution"), "clusters");
       solution = isListValue(clusters) ? clusters.items.flatMap(cluster => {
         const gates = readDictEntry(cluster, "polygons");
@@ -330,11 +364,25 @@
 
   onMount(() => {
     flow.requestWords([welcomeLabel, beginLabel, "UI/ProjectDiscovery/HelpTutorialTooltip",
+      ...["Accuracy", "HighScore", "ParScore", "AverageScore"].map(label => resultLabels + label),
+      ...["Experience", "RankProgress", "Reward"].map(label => rewardLabels + label),
       ...["RestartCaption", "RestartText", "ButtonRestartOk", "ButtonRestartCancel"].map(label => tutorialLabels + label),
       ...["RetrainingText", "RetrainingButtonContinue", "RetrainingButtonSkip", "TransitionButtonSkip"].map(label => introLabels + label)]);
     void load();
+    let active = true;
+    void bridgeAsk(flow.requestOptions())(service, "get_player_statistics", [], { get_history: true }).then(stats => {
+      if (active && pilotAccuracy === null) pilotAccuracy = accuracyOf(readDictEntry(readDictEntry(stats, "project"), "score"));
+    }).catch(() => {});
+    return () => { active = false; };
   });
 </script>
+
+{#snippet gauge(label: string, fraction: number)}
+  <label class="gauge">
+    <span>{label} <strong>{percent(fraction)}</strong></span>
+    <meter min="0" max="1" value={fraction}></meter>
+  </label>
+{/snippet}
 
 <section class="discovery" aria-label="Project Discovery">
   {#if progress}
@@ -342,6 +390,7 @@
       <div><dt>Rank</dt><dd>{progress.rank.toLocaleString()}</dd></div>
       <div><dt>Experience</dt><dd>{progress.experience.toLocaleString()}</dd></div>
       <div><dt>Analysis Kredits</dt><dd>{progress.analysisKredits.toLocaleString()}</dd></div>
+      {#if pilotAccuracy !== null}<div><dt>Pilot accuracy</dt><dd>{percent(pilotAccuracy)}</dd></div>{/if}
     </dl>
     {#if restarting}
       <article role="alertdialog" aria-labelledby="discovery-restart-title">
@@ -365,7 +414,7 @@
       </article>
     {:else if sample}
       <div class="sample">
-        <div class="chart" style:aspect-ratio={`${sample.width} / ${sample.height}`}>
+        <div class="chart" hidden={rewardView} style:aspect-ratio={`${sample.width} / ${sample.height}`}>
           {#if practice}
             <img class="practice-image" src={practiceImage} alt="One Gate practice scatter plot" />
           {:else}
@@ -379,14 +428,28 @@
             <button class="chart-input" type="button" aria-label="Place polygon point on the population chart" disabled={loading || score !== null || polygons.length >= 8} onclick={addVertex}></button>
           {/if}
         </div>
-        <section class="sample-controls">
-          <h2>{sample.lesson === null ? "Classify sample" : lessons[sample.lesson].title}</h2>
+        <section class="sample-controls" class:reward-view={rewardView}>
+          <h2>{rewardView ? word(rewardLabels + "Reward", "Reward") : sample.lesson === null ? "Classify sample" : lessons[sample.lesson].title}</h2>
           {#if completion}
             <p role="status">Training complete</p>
             {#if completion.xp || completion.kredits}
               <p>{completion.xp.toLocaleString()} XP · {completion.kredits.toLocaleString()} Analysis Kredits</p>
             {/if}
             <button type="button" disabled={loading} onclick={() => void loadSample()}>Open sample</button>
+          {:else if rewardView}
+            <p>Rank {progress.rank.toLocaleString()}</p>
+            {#if rankProgress}
+              <label class="gauge rank-progress">
+                <span>{word(rewardLabels + "RankProgress", "Rank progress")} <strong>{rankProgress.xp.toLocaleString()} / {rankProgress.cap.toLocaleString()} XP</strong></span>
+                <meter min="0" max={rankProgress.cap} value={rankProgress.xp}></meter>
+              </label>
+            {/if}
+            {#if regularReward?.rank}<p>New rank reached · {regularReward.rank.toLocaleString()}</p>{/if}
+            {#if regularReward?.crates}
+              <p>{regularReward.crates.toLocaleString()} {regularReward.crates === 1 ? "reward crate" : "reward crates"} in Redeem Items</p>
+            {/if}
+            {#if regularReward?.tier}<p>Tier reward · Rank {regularReward.tier.toLocaleString()}</p>{/if}
+            <button type="button" disabled={loading} onclick={() => void loadSample()}>Next sample</button>
           {:else if score === null}
             <p>{practice ? "Select each highlighted point. Return to the first point to close the outline." : "Click around each group of cells. Click the first point again or select Close outline to finish each group."}</p>
             <p role="status">{polygons.length} {polygons.length === 1 ? "group" : "groups"} outlined</p>
@@ -397,7 +460,15 @@
             </div>
             <button type="button" disabled={loading || outline.length > 0 || !polygons.length} onclick={submit}>Submit</button>
           {:else}
-            <p role="status">{practice ? "Practice outline complete" : `Classification score ${score.toLocaleString(undefined, { style: "percent", maximumFractionDigits: 1 })}`}</p>
+            <p role="status">{practice ? "Practice outline complete" : `Classification score ${percent(score)}`}</p>
+            {#if taskScores}
+              <div class="result-gauges">
+                {@render gauge(word(resultLabels + "Accuracy", "Accuracy"), score)}
+                {@render gauge(word(resultLabels + "HighScore", "High score"), taskScores.high)}
+                {@render gauge(word(resultLabels + "ParScore", "Par score"), 0.5)}
+                {@render gauge(word(resultLabels + "AverageScore", "Average score"), taskScores.average)}
+              </div>
+            {/if}
             {#if solution.length}
               <label><input type="checkbox" bind:checked={showSolution} /> Show reference outlines</label>
             {/if}
@@ -405,15 +476,14 @@
               <p>{regularReward.xp.toLocaleString()} XP · {regularReward.isk.toLocaleString()} ISK · {regularReward.kredits.toLocaleString()} Analysis Kredits</p>
             {/if}
             {#if regularReward?.bonus}<p>Bonus XP × 2</p>{/if}
-            {#if regularReward?.rank}<p>New rank reached · {regularReward.rank.toLocaleString()}</p>{/if}
-            {#if regularReward?.crates}
-              <p>{regularReward.crates.toLocaleString()} {regularReward.crates === 1 ? "reward crate" : "reward crates"} in Redeem Items</p>
+            {#if sample.lesson === null}
+              <button type="button" disabled={loading} onclick={() => { rewardView = true; }}>Continue</button>
+            {:else}
+              {@const advance = score > 0.5}
+              <button type="button" disabled={loading} onclick={() => void loadSample(advance)}>
+                {advance ? sample.lesson === lessons.length - 1 ? sample.review ? "Finish retraining" : "Finish training" : "Next lesson" : "Try again"}
+              </button>
             {/if}
-            {#if regularReward?.tier}<p>Tier reward · Rank {regularReward.tier.toLocaleString()}</p>{/if}
-            {@const advance = sample.lesson !== null && score > 0.5}
-            <button type="button" disabled={loading} onclick={() => void loadSample(advance)}>
-              {sample.lesson === null ? "Next sample" : advance ? sample.lesson === lessons.length - 1 ? sample.review ? "Finish retraining" : "Finish training" : "Next lesson" : "Try again"}
-            </button>
           {/if}
           <button type="button" disabled={loading} onclick={() => { sample = null; error = ""; }}>Back</button>
           {#if loading}<p role="status">Contacting Project Discovery…</p>{/if}
@@ -475,5 +545,9 @@
   .chart-input:hover:not(:disabled) { background: transparent; }
   .chart-input:disabled { cursor: default; }
   .sample-controls { display: grid; justify-items: start; gap: 12px; width: min(100%, 280px); }
+  .reward-view { width: min(100%, 460px); }
+  .result-gauges, .gauge { display: grid; gap: 5px; width: 100%; }
+  .gauge span { display: flex; justify-content: space-between; gap: 12px; }
+  .gauge meter { width: 100%; height: 10px; accent-color: #75b4bf; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 </style>
