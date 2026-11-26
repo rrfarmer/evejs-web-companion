@@ -7,6 +7,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { showMarketDetails } from "./marketDetails.ts";
   import ShipSkinrBuy from "./ShipSkinrBuy.svelte";
+  import ShipSkinrElementPreview from "./ShipSkinrElementPreview.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const prefix = "UI/Personalization/ShipSkins/SKINR/";
@@ -175,6 +176,7 @@
     {#if detail}
       <article aria-label={name(detail)}>
         <h4>{name(detail)}</h4>
+        <ShipSkinrElementPreview {store} {flow} element={detail.component} active={!buying} />
         <dl>
           <dt>License</dt><dd>{detail.component.uses < 0 ? "Unlimited use" : "Limited use"}</dd>
           <dt>Bundle size</dt><dd>{detail.bundle.toLocaleString()}</dd>

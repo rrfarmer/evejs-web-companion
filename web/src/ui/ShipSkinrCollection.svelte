@@ -12,6 +12,7 @@
   import { showMarketDetails } from "./marketDetails.ts";
   import ShipSkinrSell from "./ShipSkinrSell.svelte";
   import ShipSkinrPreview from "./ShipSkinrPreview.svelte";
+  import ShipSkinrElementPreview from "./ShipSkinrElementPreview.svelte";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const words = $derived(store.words);
@@ -313,6 +314,7 @@
     {:else if selectedElement}
       <aside class="collection-details">
         <h3>{elementName(selectedElement)}</h3>
+        <ShipSkinrElementPreview {store} {flow} element={selectedElement} />
         {#if rights}
           {#if rights.infinite}<p>Unlimited use</p>{/if}
           {#if rights.finite}

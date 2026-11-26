@@ -4,7 +4,7 @@
   import type { shipSkinrPreviewPaint } from "../three/shipSkinrModel.ts";
   import ShipInfoPreview from "./ShipInfoPreview.svelte";
 
-  let { design, flow, active = true }: { design: ShipSkinrDesign; flow: AppFlow; active?: boolean } = $props();
+  let { design, flow, active = true }: { design: Pick<ShipSkinrDesign, "shipTypeID" | "layout">; flow: AppFlow; active?: boolean } = $props();
   let host = $state<HTMLDivElement>();
   let visible = $state(false);
   let failed = $state(false);
