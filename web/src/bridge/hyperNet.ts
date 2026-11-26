@@ -13,11 +13,36 @@ export interface HyperNetOffer {
 export interface HyperNetHistoryOffer extends HyperNetOffer {
   readonly runningID: number;
   readonly ownerID: number;
+  readonly joined: boolean;
   readonly locationID: number;
   readonly systemID: number;
   readonly winnerID: number | null;
   readonly status: number;
   readonly ended: number | null;
+}
+
+export interface HyperNetParticipation {
+  readonly created: number;
+  readonly completed: number;
+  readonly joined: number;
+  readonly won: number;
+}
+
+export function decodeHyperNetParticipation(payload: unknown): HyperNetParticipation {
+  const count = (key: string) => {
+    const value = unwrapLong(readKeyVal(payload, key));
+    if (value === null || value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error("HyperNet returned unreadable participation statistics.");
+    }
+    return Number(value);
+  };
+  const completed = count("finished_delivered") + count("finished_undelivered");
+  return {
+    created: completed + count("finished_expired") + count("created_running"),
+    completed,
+    joined: count("raffles_participated"),
+    won: count("raffles_won"),
+  };
 }
 
 export interface HyperNetConstraints {
@@ -68,7 +93,7 @@ function decodeHyperNetOffer(row: unknown): HyperNetOffer {
     return { id, typeID, price, tickets, remaining: tickets - Number(sold), expires };
 }
 
-export function decodeHyperNetHistoryPage(payload: unknown): { rows: readonly HyperNetHistoryOffer[]; size: number } {
+export function decodeHyperNetHistoryPage(payload: unknown, pilot: number): { rows: readonly HyperNetHistoryOffer[]; size: number } {
   if (!Array.isArray(payload) || payload.length !== 2 || !isListValue(payload[0])) {
     throw new Error("HyperNet history is unavailable.");
   }
@@ -89,7 +114,9 @@ export function decodeHyperNetHistoryPage(payload: unknown): { rows: readonly Hy
         status > 9) {
       throw new Error("HyperNet returned an unreadable history offer.");
     }
-    return { ...offer, runningID, ownerID, locationID, systemID, status, winnerID: winner > 0 ? winner : null, ended };
+    const sold = readKeyVal(row, "sold_tickets");
+    const joined = isListValue(sold) && sold.items.some(ticket => Number(unwrapLong(readKeyVal(ticket, "owner_id"))) === pilot);
+    return { ...offer, runningID, ownerID, locationID, systemID, status, winnerID: winner > 0 ? winner : null, ended, joined };
   });
   return { rows, size };
 }
