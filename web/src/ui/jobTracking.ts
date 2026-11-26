@@ -8,7 +8,7 @@ import { militiaFactionID, type MilitiaFactionID } from "../bridge/militiaEnlist
 import { WAR_DUNGEON_PROVIDERS, dungeonJobID, type TrackedDungeonIdentity, type TrackedDungeonKind, type WarDungeonKind } from "../bridge/dungeonJobs.ts";
 
 const PROVIDER_ID = "freelance_projects";
-const key = (characterID: number) => `evejs.play.${characterID}.tracked_opportunities_${PROVIDER_ID}`;
+const key = (characterID: number, provider = PROVIDER_ID) => `evejs.play.${characterID}.tracked_opportunities_${provider}`;
 const changes = createSignal(0);
 /** Bumped at each change of any character's tracked jobs. */
 export const trackedJobsChanged: ReadableSignal<number> = readonlySignal(changes);
@@ -111,5 +111,35 @@ export function setDungeonTracked(characterID: number | null, job: TrackedDungeo
   if (tracked) jobs[id] = Date.now();
   else delete jobs[id];
   try { localStorage.setItem(dungeonKey(characterID, job.kind), JSON.stringify(jobs)); } catch { return; }
+  changes.set(changes.get() + 1);
+}
+
+const MERCENARY_PROVIDER = "mercenary_tactical_ops";
+const MERCENARY_JOB_PREFIX = `${MERCENARY_PROVIDER}:`;
+const operationID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
+
+export function trackedMercenaryOperations(characterID: number | null): Readonly<Record<string, number>> {
+  if (!characterID) return {};
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(key(characterID, MERCENARY_PROVIDER)) ?? "{}");
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) return {};
+    const jobs: Record<string, number> = {};
+    for (const [jobID, since] of Object.entries(stored)) {
+      if (!jobID.startsWith(MERCENARY_JOB_PREFIX) || typeof since !== "number" || !Number.isFinite(since)) continue;
+      const id = jobID.slice(MERCENARY_JOB_PREFIX.length);
+      if (operationID.test(id)) jobs[id] = since;
+    }
+    return jobs;
+  } catch { return {}; }
+}
+
+export function setMercenaryOperationTracked(characterID: number | null, id: string, tracked: boolean): void {
+  if (!characterID || !operationID.test(id)) return;
+  const jobs = { ...trackedMercenaryOperations(characterID) };
+  if (Object.hasOwn(jobs, id) === tracked) return;
+  if (tracked) jobs[id] = Date.now();
+  else delete jobs[id];
+  const stored = Object.fromEntries(Object.entries(jobs).map(([id, since]) => [MERCENARY_JOB_PREFIX + id, since]));
+  try { localStorage.setItem(key(characterID, MERCENARY_PROVIDER), JSON.stringify(stored)); } catch { return; }
   changes.set(changes.get() + 1);
 }

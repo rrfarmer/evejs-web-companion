@@ -5,6 +5,7 @@
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { openMercenaryOperation } from "./jobBoardRequests.ts";
+  import MercenaryOperationTrackButton from "./MercenaryOperationTrackButton.svelte";
 
   let { store, flow, den, characterID, activityRevision }: {
     store: ClientStore; flow: AppFlow; den: MercenaryDenRow; characterID: number | null; activityRevision: number;
@@ -185,6 +186,7 @@
             </details>
             <button type="button" class="operation-open" title={word("openOpportunity")} aria-label={`${word("openOpportunity")} · ${name}`}
               onclick={() => openMercenaryOperation(row.id)}>↗</button>
+            <MercenaryOperationTrackButton {store} {flow} id={row.id} eligible compact />
             </div>
           {/each}
         </div>
@@ -221,7 +223,7 @@
   .evolution-detail:hover .evolution-tooltip, .evolution-detail:focus-within .evolution-tooltip { display: block; }
   small { color: #bcc6ce; }
   details { background: #ffffff0d; }
-  .operation-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  .operation-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; }
   .operation-open { align-self: start; margin: 4px; }
   summary { cursor: pointer; padding: 6px 8px; }
   summary small { display: flex; justify-content: space-between; gap: 4px; flex-wrap: wrap; margin-left: 14px; }

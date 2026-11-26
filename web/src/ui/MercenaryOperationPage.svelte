@@ -7,6 +7,7 @@
   import { celestialRouteEntries, isWaypointPlace } from "../nav/waypoints.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
+  import MercenaryOperationTrackButton from "./MercenaryOperationTrackButton.svelte";
   import { showInfo } from "./showInfo.ts";
 
   let { store, flow, operation, name, onBack }: {
@@ -83,6 +84,7 @@
           {word("expires")} {formatInterval((operation.expiresAt - now) * 10_000)}
         </time>
       {/if}
+      <MercenaryOperationTrackButton {store} {flow} id={operation.id} eligible={!operation.expiresAt || operation.expiresAt > now} />
       {#if route.setDestination}<button type="button" onclick={() => flow.setDestination(operation.solarSystemID)}>{word("destination")}</button>{/if}
     </div>
   </header>
@@ -122,7 +124,7 @@
   p { white-space: pre-line; }
   section { display: grid; gap: 6px; }
   .mto-header-details, ul { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-  .mto-header-details button { margin-left: auto; }
+  .mto-header-details button:first-of-type { margin-left: auto; }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; }
   ul { list-style: none; padding: 0; }
   li { padding: 5px 8px; background: #ffffff0d; }

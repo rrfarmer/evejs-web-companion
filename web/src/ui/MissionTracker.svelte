@@ -48,6 +48,7 @@
   import { dungeonJobID } from "../bridge/dungeonJobs.ts";
   import DungeonOpportunity from "./DungeonOpportunity.svelte";
   import MilitiaOpportunity from "./MilitiaOpportunity.svelte";
+  import TrackedMercenaryOperations from "./TrackedMercenaryOperations.svelte";
   import { openJobBoard } from "./jobBoardRequests.ts";
 
   // embedded: inside the play view's info panel (PlayInfoPanels.svelte), which draws the caption and is shown only
@@ -133,7 +134,8 @@
     }, () => {});
     return () => { current = false; };
   });
-  $effect(() => { onCount?.(missions.length + freelance.length + visibleDungeonJobs.length + (militia === null ? 0 : 1)); });
+  let trackedOperationCount = $state(0);
+  $effect(() => { onCount?.(missions.length + freelance.length + visibleDungeonJobs.length + trackedOperationCount + (militia === null ? 0 : 1)); });
   const jobProgress = (j: FreelanceJob) => (j.project.target ? j.project.current / j.project.target : 0);
   const jobProgressText = (j: FreelanceJob) => (!j.project.target ? "" : j.project.target >= 100 ? `${Math.floor(jobProgress(j) * 100)}%`
     : `${j.project.current.toLocaleString("en-US")}/${j.project.target.toLocaleString("en-US")}`);
@@ -409,6 +411,7 @@
     </article>
   {/each}
   {#if militia !== null}<MilitiaOpportunity {store} {flow} factionID={militia} />{/if}
+  <TrackedMercenaryOperations {store} {flow} onCount={(count) => { trackedOperationCount = count; }} />
   {#each dungeonJobs as job (dungeonJobID(job))}
     {@const key = dungeonJobID(job)}
     <DungeonOpportunity {store} {flow} {job} visible={visibleDungeonJobs.includes(job)} expanded={expandedDungeonID === key}

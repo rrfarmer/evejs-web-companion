@@ -46,6 +46,7 @@
   import DungeonCard from "./DungeonCard.svelte";
   import DungeonPage from "./DungeonPage.svelte";
   import MercenaryOperationPage from "./MercenaryOperationPage.svelte";
+  import MercenaryOperationTrackButton from "./MercenaryOperationTrackButton.svelte";
   import { mercenaryDenNotice, type MercenaryDenActivity } from "../bridge/mercenaryDens.ts";
   import { ARC_AVAILABLE, ARC_STARTED } from "../bridge/epicArcs.ts";
   import type { JournalMission } from "../store/types.ts";
@@ -344,10 +345,13 @@
           <DungeonCard {store} {flow} job={d} onOpen={() => { openDungeon = { kind: d.kind, instanceID: d.instanceID }; open = null; openMission = null; openGoal = null; openDaily = null; openArc = null; }} />
         {/each}
         {#each shownOperations as operation (operation.id)}
-          <button type="button" class="jb-mto" data-operation={operation.id} onclick={() => showOperation(operation.id)}>
-            <strong>{operationName(operation)}</strong>
-            <small>{nameAny("system", operation.solarSystemID)} · {operation.started ? word(MTO_STARTED) || "In Progress" : word(MTO_READY) || "Ready to Start"}</small>
-          </button>
+          <div class="jb-mto" data-operation={operation.id}>
+            <button type="button" class="jb-mto-open" onclick={() => showOperation(operation.id)}>
+              <strong>{operationName(operation)}</strong>
+              <small>{nameAny("system", operation.solarSystemID)} · {operation.started ? word(MTO_STARTED) || "In Progress" : word(MTO_READY) || "Ready to Start"}</small>
+            </button>
+            <MercenaryOperationTrackButton {store} {flow} id={operation.id} eligible={!operation.expiresAt || operation.expiresAt > Date.now()} compact />
+          </div>
         {/each}
         {#each shownGoals as g (g.goalID)}
           <CorporationGoalCard {store} {flow} goal={g} methods={goals?.methods ?? {}} onOpen={() => { openGoal = g.goalID; open = null; openMission = null; }} />
@@ -366,7 +370,8 @@
   .jb-tabs { display: flex; gap: 2px; padding: 4px 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); flex: none; }
   .jb-tabs button { all: unset; cursor: pointer; padding: 4px 12px; opacity: 0.7; }
   .jb-tabs button.on { opacity: 1; border-bottom: 2px solid var(--theme-focus, #58a6dc); }
-  .jb-mto { display: grid; gap: 4px; align-content: start; text-align: left; padding: 10px; background: #ffffff0d; }
+  .jb-mto { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: start; background: #ffffff0d; }
+  .jb-mto-open { display: grid; gap: 4px; text-align: left; padding: 10px; background: none; border: 0; }
   .jb-mto small { color: #bcc6ce; }
   .jb-count { margin-left: 6px; padding: 0 5px; border-radius: 8px; background: rgba(88, 166, 220, 0.4); font-size: 11px; }
   .jb-count.gold { background: rgba(212, 170, 60, 0.5); }
