@@ -31,6 +31,9 @@
     group_id: ["UI/Common/Group", "Group"],
     category_id: ["UI/Common/Category", "Category"],
     clear: ["UI/Common/Clear", "Clear"],
+    location: ["UI/HyperNet/FilterLocationLabel", "Solar system"],
+    metaGroup: ["UI/HyperNet/FilterMetaGroupLabel", "Meta group"],
+    all: ["UI/Common/All", "All"],
   } as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   const ticketCount = (offer: HyperNetOffer) => plainText(formatTemplate(word("tickets"),
@@ -40,7 +43,8 @@
   const countBounds = [8, 16, 48, 512] as const;
   const defaults = { minPrice: 0, maxPrice: 0, minCount: 8, maxCount: 512 };
   type Ranges = typeof defaults;
-  type Filters = Ranges & { item?: HyperNetItem };
+  type Option = { readonly id: number; readonly name: string };
+  type Filters = Ranges & { item?: HyperNetItem; system?: Option; metaGroup?: number };
   let filter = $state.raw<{ owner: number; values: Filters } | null>(null);
   const values = $derived(filter?.values ?? defaults);
   const ranges = $derived({ minPrice: values.minPrice, maxPrice: values.maxPrice, minCount: values.minCount, maxCount: values.maxCount });
@@ -58,7 +62,15 @@
         minCount: count(saved.minCount, 8), maxCount: count(saved.maxCount, 512) };
       const ranges = (restored.maxPrice && restored.minPrice > restored.maxPrice) || restored.minCount > restored.maxCount
         ? defaults : restored;
-      return isHyperNetItem(saved.item) ? { ...ranges, item: saved.item } : ranges;
+      const system = saved.system;
+      return {
+        ...ranges,
+        item: isHyperNetItem(saved.item) ? saved.item : undefined,
+        system: system && Number.isSafeInteger(system.id) && system.id > 0 &&
+          typeof system.name === "string" && system.name.length > 0 ? system : undefined,
+        metaGroup: typeof saved.metaGroup === "number" && Number.isSafeInteger(saved.metaGroup) &&
+          saved.metaGroup > 0 ? saved.metaGroup : undefined,
+      };
     } catch {
       return defaults;
     }
@@ -72,23 +84,55 @@
   }
 
   function applyRanges(next: Ranges) {
-    applyFilters({ ...next, item: selectedItem });
+    applyFilters({ ...values, ...next });
   }
 
   let search = $state("");
   let searching = $state(false);
   let suggestions = $state.raw<readonly HyperNetItem[]>([]);
   let searchError = $state("");
+  let systemSearch = $state("");
+  let systemOptions = $state.raw<readonly Option[]>([]);
+  let systemStatus = $state("");
+  let metaGroups = $state.raw<readonly Option[]>([]);
+  let metaError = $state("");
 
   function applyItem(item?: HyperNetItem) {
     search = "";
-    applyFilters({ ...ranges, item });
+    applyFilters({ ...values, item });
+  }
+
+  function applySystem(system?: Option) {
+    systemSearch = "";
+    applyFilters({ ...values, system });
   }
 
   $effect(() => {
     const owner = pilot;
     filter = owner ? { owner, values: loadFilters(owner) } : null;
     search = "";
+    systemSearch = "";
+  });
+
+  $effect(() => {
+    const text = systemSearch.trim();
+    systemOptions = [];
+    systemStatus = text.length < 2 ? "" : "Searching…";
+    if (text.length < 2) return;
+    let current = true;
+    const timer = window.setTimeout(() => {
+      void flow.searchDestinations(text, "system").then(matches => {
+        if (!current) return;
+        systemOptions = matches.map(({ id, name }) => ({ id, name }));
+        systemStatus = matches.length ? "" : "No matching solar systems";
+      }, cause => {
+        if (current) systemStatus = panelErrorWords(cause);
+      });
+    }, 200);
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
   });
 
   $effect(() => {
@@ -135,8 +179,17 @@
 
   onMount(() => {
     flow.requestWords(Object.values(labels).map(([path]) => path));
+    let current = true;
+    void flow.loadHyperNetMetaGroups().then(groups => {
+      if (current) metaGroups = groups;
+    }, cause => {
+      if (current) metaError = panelErrorWords(cause);
+    });
     const timer = window.setInterval(() => { now = Date.now(); }, 1000);
-    return () => window.clearInterval(timer);
+    return () => {
+      current = false;
+      window.clearInterval(timer);
+    };
   });
 
   $effect(() => {
@@ -148,7 +201,7 @@
     error = "";
     loading = !!owner;
     if (!owner || selection?.owner !== owner) return;
-    const { minPrice, maxPrice, minCount, maxCount, item } = selection.values;
+    const { minPrice, maxPrice, minCount, maxCount, item, system, metaGroup } = selection.values;
     const constraints: HyperNetConstraints = {
       ...(minPrice ? { min_ticket_price: minPrice } : {}),
       ...(maxPrice ? { max_ticket_price: maxPrice } : {}),
@@ -156,7 +209,10 @@
       ...(maxCount !== defaults.maxCount ? { max_ticket_count: maxCount } : {}),
     };
     let current = true;
-    void flow.loadHyperNetOffers(constraints, item).then(result => {
+    void flow.loadHyperNetOffers(constraints, item, {
+      ...(system ? { solar_system_id: system.id } : {}),
+      ...(metaGroup ? { meta_group_id: metaGroup } : {}),
+    }).then(result => {
       if (!current) return;
       const shuffled = [...result];
       for (let index = shuffled.length - 1; index > 0; index--) {
@@ -206,6 +262,35 @@
           {/if}
         {/if}
       </fieldset>
+      <fieldset class="item-filter">
+        <legend>{word("location")}</legend>
+        {#if values.system}
+          <span data-selected-system>{values.system.name}</span>
+          <button type="button" onclick={() => applySystem()}>{word("clear")}</button>
+        {/if}
+        <input type="search" aria-label={word("location")} bind:value={systemSearch} autocomplete="off"
+          onkeydown={event => {
+            if (event.key === "Enter" && systemOptions.length === 1) applySystem(systemOptions[0]);
+          }} />
+        {#if systemStatus}<p role="status">{systemStatus}</p>{/if}
+        {#if systemOptions.length}
+          <div class="item-suggestions">
+            {#each systemOptions as system (system.id)}
+              <button type="button" data-system-filter={system.id} onclick={() => applySystem(system)}>{system.name}</button>
+            {/each}
+          </div>
+        {/if}
+      </fieldset>
+      <label class="meta-group">{word("metaGroup")}
+        <select data-meta-group value={values.metaGroup ?? 0} disabled={!metaGroups.length}
+          onchange={event => applyFilters({ ...values, metaGroup: Number(event.currentTarget.value) || undefined })}>
+          <option value={0}>{word("all")}</option>
+          {#each metaGroups as group (group.id)}
+            <option value={group.id}>{group.name}</option>
+          {/each}
+        </select>
+      </label>
+      {#if metaError}<p role="alert">{metaError}</p>{/if}
       <fieldset>
         <legend>{word("price")}</legend>
         <label>{word("minimum")}
@@ -246,8 +331,9 @@
           </select>
         </label>
       </fieldset>
-      <button type="button" onclick={() => { search = ""; applyFilters(defaults); }}
-        disabled={!selectedItem && ranges.minPrice === 0 && ranges.maxPrice === 0 && ranges.minCount === 8 && ranges.maxCount === 512}>
+      <button type="button" onclick={() => { search = ""; systemSearch = ""; applyFilters(defaults); }}
+        disabled={!selectedItem && !values.system && !values.metaGroup &&
+          ranges.minPrice === 0 && ranges.maxPrice === 0 && ranges.minCount === 8 && ranges.maxCount === 512}>
         {word("reset")}
       </button>
     </details>
@@ -288,6 +374,7 @@
   .item-filter input { width: min(230px, 100%); }
   .item-suggestions { width: 100%; max-height: 12em; overflow: auto; display: grid; gap: 3px; }
   .item-suggestions button { text-align: start; }
+  .meta-group { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
   small { color: #b8c3cc; margin-inline-start: 4px; }
   ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr)); gap: 8px; padding: 0; margin: 0; list-style: none; }
   li { display: grid; gap: 8px; padding: 8px; background: #ffffff08; }

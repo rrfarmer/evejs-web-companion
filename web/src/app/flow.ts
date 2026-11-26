@@ -11,7 +11,7 @@ import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, dec
 import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
-import { decodeHyperNetOffers, type HyperNetConstraints, type HyperNetItem, type HyperNetOffer } from "../bridge/hyperNet.ts";
+import { decodeHyperNetOffers, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetItem, type HyperNetOffer } from "../bridge/hyperNet.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
@@ -4629,8 +4629,9 @@ export interface AppFlow {
   loadShipSkinrPurchaseFunds(currency: ShipSkinrCurrency, issuer?: number): Promise<{ balance: number; evermarks: number }>;
   buyShipSkinrListing(listing: string, quantity: number, version: string): Promise<string>;
   loadShipSkinrComponentOffers(): Promise<readonly ShipSkinrComponentOffer[]>;
-  loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null): Promise<readonly HyperNetOffer[]>;
+  loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null, scope?: HyperNetBrowseScope): Promise<readonly HyperNetOffer[]>;
   searchHyperNetItems(text: string): Promise<readonly HyperNetItem[]>;
+  loadHyperNetMetaGroups(): Promise<readonly { readonly id: number; readonly name: string }[]>;
   buyShipSkinrComponentOffer(listing: string, quantity: number, activate: boolean): Promise<string>;
   cancelShipSkinrListing(id: string): Promise<void>;
   loadShipSkinrListingLimit(): Promise<number>;
@@ -29228,14 +29229,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return receipt;
   }
 
-  async function loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null): Promise<readonly HyperNetOffer[]> {
+  async function loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null, scope?: HyperNetBrowseScope): Promise<readonly HyperNetOffer[]> {
     const current = callOptions.captureRequestGuard!();
     const entries = Object.entries(constraints ?? {});
-    const reply = entries.length || item ? await bridgeAsk("raffleProxy", "FilteredGrab", [], {
-      filters: { type: "dict", entries: item ? [[item.key, item.id]] : [] }, constraints: { type: "dict", entries },
+    const filters = Object.entries(scope ?? {});
+    if (item) filters.push([item.key, item.id]);
+    const reply = entries.length || filters.length ? await bridgeAsk("raffleProxy", "FilteredGrab", [], {
+      filters: { type: "dict", entries: filters }, constraints: { type: "dict", entries },
     }) : await bridgeAsk("raffleProxy", "Grab", []);
     current();
     return decodeHyperNetOffers(reply);
+  }
+
+  async function loadHyperNetMetaGroups(): Promise<readonly { readonly id: number; readonly name: string }[]> {
+    const data = await api.getTypeMeta([], callOptions);
+    if (!data.available) throw new Error("Meta groups are unavailable.");
+    const keys = [...data.metaGroupNameIDs.values()].flatMap(id => id === null ? [] : [`#${id}`]);
+    await wordsNow(keys);
+    const templates = store.words.get().templates;
+    return [...data.metaGroupNameIDs].flatMap(([id, nameID]) => {
+      const name = plainText(templates[`#${nameID}`] ?? "");
+      return name ? [{ id, name }] : [];
+    }).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id);
   }
 
   async function loadShipSkinrComponentOffers(): Promise<readonly ShipSkinrComponentOffer[]> {
@@ -41769,6 +41784,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadShipSkinrComponentOffers,
     loadHyperNetOffers,
     searchHyperNetItems: text => api.getHyperNetItems(text, callOptions),
+    loadHyperNetMetaGroups,
     buyShipSkinrComponentOffer,
     cancelShipSkinrListing,
     loadShipSkinrListingLimit,

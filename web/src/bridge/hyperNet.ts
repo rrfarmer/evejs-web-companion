@@ -17,6 +17,11 @@ export interface HyperNetConstraints {
   readonly max_ticket_count?: number;
 }
 
+export interface HyperNetBrowseScope {
+  readonly solar_system_id?: number;
+  readonly meta_group_id?: number;
+}
+
 export interface HyperNetItem {
   readonly key: "type_id" | "group_id" | "category_id";
   readonly id: number;
