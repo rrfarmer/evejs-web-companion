@@ -731,8 +731,8 @@
     ]
   },
   "bffWritePolicy": {
-    "count": 488,
-    "sha256": "fd3292019a6c3c4d9998157c08a389d0eabcfca291c7516f061e1f2fbc1450ca",
+    "count": 489,
+    "sha256": "2b76b3e2d8581264cb405ce6e22197c19cb389e675289d907dcc128e519dfb03",
     "pairs": [
       "LPStoreMgr.TakeOfferForCharacter",
       "LPStoreMgr.TakeOfferForCorporation",
@@ -741,6 +741,7 @@
       "LPSvc.TransferLPFromMyWalletToOtherCorp",
       "LSC.SendMessage",
       "XmppChatMgr.AddCharacterToChannel",
+      "XmppChatMgr.CreatePlayerOwnedChannel",
       "XmppChatMgr.CreatePrivateChannel",
       "abyssalMgr.AbyssalEndGateActivation",
       "abyssalMgr.AbyssalEntranceDeployment",
@@ -1228,6 +1229,7 @@
     "genericBridgeAllowsWrites": true,
     "genericBridgeWrites": [
       "XmppChatMgr.AddCharacterToChannel",
+      "XmppChatMgr.CreatePlayerOwnedChannel",
       "XmppChatMgr.CreatePrivateChannel",
       "abyssalMgr.AbyssalEndGateActivation",
       "abyssalMgr.AbyssalEntranceDeployment",

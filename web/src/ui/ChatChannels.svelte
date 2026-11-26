@@ -18,6 +18,7 @@
     owned: "UI/Chat/ChannelWindow/MyChannels",
     join: "UI/Chat/ChannelWindow/Join",
     leave: "UI/Chat/ChannelWindow/Leave",
+    create: "UI/Chat/ChannelWindow/Create",
   } as const;
   const locale = (path: string, fallback: string) => plainText($words.templates[path] ?? "") || fallback;
 
@@ -93,7 +94,8 @@
     const ids = systemLabels(row.roomName);
     if (ids) return { id: `system:${ids[1]}`, label: locale(`#${ids[1]}`, "System Channels") };
     if (row.roomName.startsWith("player_")) {
-      return row.affiliation === "owner" ? { id: "owned", label: locale(paths.owned, "My Channels") } :
+      const affiliation = row.affiliation ?? channels.find(channel => channel.roomName === row.roomName)?.affiliation;
+      return affiliation === "owner" ? { id: "owned", label: locale(paths.owned, "My Channels") } :
         { id: "player", label: locale(paths.player, "Player Channels") };
     }
     return { id: "system", label: "System Channels" };
@@ -181,21 +183,48 @@
     await flow.conversations.joinDirectoryChannel(roomName, name);
     showChat?.();
   }
-  function joinByName(event: SubmitEvent) {
-    event.preventDefault();
+  async function lookupChannel(name: string, refresh = false) {
+    const folded = name.toLowerCase();
+    const held = (exact ?? channels).filter(row => (!refresh || systemLabels(row.roomName)) &&
+      (channelName(row).toLowerCase() === folded || row.name.trim().toLowerCase() === folded || row.roomName === folded));
+    const rows = held.length ? held : await flow.readChatChannelDirectory(name);
+    return rows.find(row => systemLabels(row.roomName)) ?? rows[0];
+  }
+  async function createChannel(name: string) {
+    const roomName = await flow.createChatDirectoryChannel(name);
+    const row = { roomName, name, affiliation: "owner" };
+    channels = [...channels.filter(channel => channel.roomName !== roomName), row];
+    if (exact !== null) exact = [row];
+    await joinChannel(roomName, name);
+  }
+  async function createFromName(typedName: string) {
+    const name = typedName.replace(/<[^>]*>/g, "").trim();
+    if (query !== name) changeQuery(name);
+    if (!name) { error = "Enter at least one character for the channel name."; return; }
+    const serial = request;
+    const match = await lookupChannel(name, true);
+    if (request !== serial) return;
+    if (!match) { await createChannel(name); return; }
+    const joined = $conversations.rooms.some(room => room.channel === match.roomName);
+    if ((joined || await flow.askClientDialogWith("LSCJoinInstead", { displayName: name }, `The channel “${name}” already exists. Join it instead?`)) && request === serial) {
+      await joinChannel(match.roomName, channelName(match));
+    }
+  }
+  function actOnName(creating: boolean) {
     const name = query.trim();
-    if (!name) return;
     void changeMembership(async () => {
-      const folded = name.toLowerCase();
-      const held = (exact ?? channels).filter(row =>
-        channelName(row).toLowerCase() === folded || row.name.trim().toLowerCase() === folded || row.roomName === folded);
-      const rows = held.length ? held : await flow.readChatChannelDirectory(name);
-      const match = rows.find(row => systemLabels(row.roomName)) ?? rows[0];
-      if (!match) {
-        error = `No channel named “${name}” was found.`;
+      if (creating) { await createFromName(name); return; }
+      if (!name) return;
+      const serial = request;
+      const match = await lookupChannel(name);
+      if (request !== serial) return;
+      if (match) {
+        await joinChannel(match.roomName, channelName(match));
         return;
       }
-      await joinChannel(match.roomName, channelName(match));
+      if (await flow.askClientDialogWith("LSCChannelDoesNotExistCreate", { displayName: name }, `The channel “${name}” does not exist. Create it?`) && request === serial) {
+        await createFromName(name);
+      }
     });
   }
   function toggleMembership(roomName: string, name: string, joined: boolean) {
@@ -203,10 +232,11 @@
   }
 </script>
 
-<form class="controls channel-search" onsubmit={joinByName}>
+<form class="controls channel-search" onsubmit={(event) => { event.preventDefault(); actOnName(false); }}>
   <input type="search" class="grow" maxlength="60" aria-label={locale(paths.channelName, "Channel Name")}
-    placeholder={locale(paths.channelName, "Channel Name")} value={query} oninput={(event) => changeQuery(event.currentTarget.value)} />
+    placeholder={locale(paths.channelName, "Channel Name")} value={query} disabled={membershipBusy} oninput={(event) => changeQuery(event.currentTarget.value)} />
   <button type="submit" disabled={!query.trim() || searching || membershipBusy || $conversations.busy}>{locale(paths.join, "Join")}</button>
+  <button type="button" disabled={!query.trim() || searching || membershipBusy || $conversations.busy} onclick={() => actOnName(true)}>{locale(paths.create, "Create")}</button>
   <button type="button" disabled={!query.trim() || searching || membershipBusy} onclick={findChannel}>Find Channel</button>
 </form>
 {#if error}

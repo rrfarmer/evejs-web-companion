@@ -1229,6 +1229,13 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       return res.status(400).json({ ok: false, error: "INVALID_HACKING_ACTION", message: "Choose a node or utility on the active hacking board." });
     }
   }
+  if (body.service === "XmppChatMgr" && body.method === "CreatePlayerOwnedChannel") {
+    const [name] = Array.isArray(body.args) ? body.args : [];
+    if (body.args?.length !== 1 || body.kwargs != null || body.of != null || typeof name !== "string" ||
+        !name || name !== name.trim() || name.length > 60 || /<[^>]*>|[\r\n]/.test(name)) {
+      return res.status(400).json({ ok: false, error: "INVALID_CHAT_CHANNEL_NAME", message: "Enter a channel name of 1 to 60 characters." });
+    }
+  }
   if (body.service === "repackagingSvc" && body.method === "RepackageItems" &&
       (body.of != null || personalRepackageLocation(body.args, body.kwargs) === null)) {
     res.status(400).json({ ok: false, error: "INVALID_REPACKAGE_ITEMS", message: "Select items in a single personal hangar." });

@@ -5684,6 +5684,7 @@ export interface AppFlow {
   /** R7 — switch the active chat tab (Local <-> Corp). */
   setChatChannel(channel: ChatChannel): void;
   readChatChannelDirectory(name: string | null): Promise<readonly api.ChatDirectoryChannel[]>;
+  createChatDirectoryChannel(name: string): Promise<string>;
   readChatChannelMembers(rooms: readonly string[]): Promise<ReadonlyMap<string, number>>;
   /**
    * R7c — request display names for a set of `{kind, id}` refs (names-everywhere).
@@ -41206,6 +41207,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       const rows = await api.readChatChannelDirectory(name, scope.options);
       scope.current();
       return rows;
+    },
+    async createChatDirectoryChannel(name) {
+      const scope = captureMemberOperation();
+      const room = await api.bridgeDo(scope.options)("XmppChatMgr", "CreatePlayerOwnedChannel", [name]);
+      scope.current();
+      if (typeof room !== "string" || !/^player_\d+$/.test(room)) throw new Error("The channel could not be created.");
+      return room;
     },
     async readChatChannelMembers(rooms) {
       const scope = captureMemberOperation();

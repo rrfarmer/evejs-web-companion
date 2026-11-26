@@ -733,7 +733,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // A server-returned direct-trade Moniker; the page binds it lazily with List.
   "trademgr.InitiateTrade", "trademgr.MachoBindObject", "trademgr.List", "trademgr.Abort", "trademgr.Add", "trademgr.MultiAdd", "trademgr.OfferMoney", "trademgr.MakeOffer",
   // xmppchatsvc.py 1197-1208 / 1257-1261: private allocation and elevated addition, both on the proxy.
-  "XmppChatMgr.CreatePrivateChannel", "XmppChatMgr.AddCharacterToChannel",
+  "XmppChatMgr.CreatePrivateChannel", "XmppChatMgr.CreatePlayerOwnedChannel", "XmppChatMgr.AddCharacterToChannel",
   "charMgr.GetPrivateInfo",
   "bannedwords.check_search_words_allowed",
   "facWarMgr.GetCorporationWarFactionID",
