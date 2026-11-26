@@ -24,7 +24,7 @@ export interface HangarGraphics {
   scene: number;
   swings: readonly DockSwing[];
   hangarType: number;
-  modular?: { dock: "small" | "medium" | "capital"; faction?: string };
+  modular?: { dock: "small" | "medium" | "capital"; faction?: string; shipGroupID?: number };
 }
 
 export interface HangarTypeFacts {
@@ -89,6 +89,7 @@ export function upwellHangarGraphics(structureTypeID: number | null, shipGroupID
     modular: {
       dock: capital ? "capital" : MEDIUM_SHIPS.has(shipGroupID ?? 0) ? "medium" : "small",
       faction: refinery ? "upwell_interior-refinery" : engineering ? "upwell_interior-indy" : undefined,
+      shipGroupID: shipGroupID ?? undefined,
     },
   };
 }

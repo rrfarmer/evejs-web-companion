@@ -39,6 +39,8 @@ const GENERATED = new Map([
   ["/starmap.json", ["--star-map", '"starMapBuild":5']],
 ]);
 const UPWELL_HANGAR_MODELS = new Set(["25235", "25568", "25605"]);
+// Modular hangar ship size class 3. Refresh only these cached hulls for the display_offset locator.
+const CAPITAL_HANGAR_GROUPS = new Set([30, 485, 513, 547, 659, 883, 902, 1538, 4594, 5120]);
 
 function fileExists(file) {
   return fs.statSync(file, { throwIfNoEntry: false })?.isFile() === true;
@@ -130,7 +132,8 @@ async function modelResponse(dir, info, args, ensure, canExtract, queueColors, r
   const { stem, sof } = modelPaths(info);
   const sofFile = path.join(dir, sof);
   await ensure(stem + ".glb", args, null, () => fileExists(path.join(dir, stem + ".json")) &&
-    (fileExists(sofFile) ? !canExtract() || containsVersion(sofFile, `"sofBuild":${SOF_BUILD}`) : !requireSof));
+    (fileExists(sofFile) ? !canExtract() || (containsVersion(sofFile, `"sofBuild":${SOF_BUILD}`) &&
+      (!CAPITAL_HANGAR_GROUPS.has(info.groupID) || containsVersion(sofFile, '"display_offset"'))) : !requireSof));
   const mesh = readJson(path.join(dir, stem + ".json"));
   const hasSof = fileExists(sofFile);
   const albedoVariants = modelAlbedoVariants(dir, stem, mesh.textures, hasSof ? sofFile : null, queueColors);

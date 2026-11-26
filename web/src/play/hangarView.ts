@@ -19,6 +19,7 @@ import { DynamicExposure, type DynamicExposureParams } from "../three/exposure.t
 import { FOV, MAX_PITCH, MIN_PITCH, ENTRY_SECONDS, IDLE_AFTER_SECONDS, DEFAULT_SWING, zoomLimits, entryAt, idleAt, bobAt, swingOf, type Swing } from "./hangarCamera.ts";
 import { pickDockSwing, type DockSwing, type HangarGraphics } from "./hangarRegistry.ts";
 import { modularDock, modularHangar } from "./modularHangar.ts";
+import { capitalHangarShot } from "./capitalHangarCamera.ts";
 import { buildTurrets, type HullTurretData, type TurretFit, type TurretSetState } from "../three/turretModel.ts";
 
 interface HangarScene {
@@ -99,6 +100,7 @@ export class HangarView {
   private exposure: DynamicExposure | null = null;
   /** The camera's zoom limits for the ship shown, and the ship's own measures for its bobbing. */
   private zoom = { near: 10, far: 2050 };
+  private capitalCamera = false;
   private swing: Swing = DEFAULT_SWING;
   private ship: { model: THREE.Object3D; restY: number; lookY: number; radius: number; since: number } | null = null;
   /** The hangar VFX for the ship shown (its "ship" parameter bound to the ship's EVE-space group). */
@@ -128,7 +130,10 @@ export class HangarView {
   private idle: { since: number; from: { yaw: number; pitch: number; distance: number } } | null = null;
   private lastInput = performance.now();
   private lastBob = 0;
-  private readonly onInput = () => { this.lastInput = performance.now(); this.entryFrom = null; this.idle = null; this.setFov(FOV); };
+  private readonly onInput = () => {
+    if (this.capitalCamera) return;
+    this.lastInput = performance.now(); this.entryFrom = null; this.idle = null; this.setFov(FOV);
+  };
   private readonly onResize = () => this.resize();
 
   constructor() {
@@ -217,6 +222,15 @@ export class HangarView {
     // DefaultHangarShipBehaviour.PlaceShip: turned half round about y, its bounding box's bottom on the hangar's anchor
     // point (SHIP_FLOATING_HEIGHT up where the hangar has none), moved by half its bounding sphere's centre.
     const dock = hangar && hangarGraphics?.modular ? modularDock(hangar, hangarGraphics.modular.dock) : undefined;
+    this.capitalCamera = hangarGraphics?.modular?.dock === "capital";
+    const capitalOffset = new THREE.Vector3();
+    if (this.capitalCamera && dock) {
+      // ModularCapitalHangarShipBehaviour.GetShipOffset uses the hull's local negative Z extent, excluding VFX.
+      const lod = model.getObjectByProperty("type", "LOD") as THREE.LOD | undefined;
+      const local = new THREE.Box3().setFromObject(lod?.levels[0]?.object ?? model);
+      const display = (model.userData.locatorSets as Record<string, number[][]> | undefined)?.display_offset?.[0];
+      capitalOffset.set(display?.[0] ?? 0, display?.[1] ?? 0, 2 * Math.abs(local.max.z) - (display?.[2] ?? 0));
+    }
     if (dock) dock.getWorldQuaternion(model.quaternion);
     else model.rotation.y = Math.PI;
     model.updateMatrixWorld(true);
@@ -224,7 +238,7 @@ export class HangarView {
     const centre = box.getCenter(new THREE.Vector3());
     const a = (hangar?.userData as { anchor?: number[] | null } | undefined)?.anchor ?? null;
     const anchor = hangar ? new THREE.Vector3(a?.[0] ?? 0, a?.[1] ?? SHIP_FLOATING_HEIGHT, -(a?.[2] ?? 0)) : new THREE.Vector3();
-    if (dock) dock.getWorldPosition(model.position);
+    if (dock) dock.getWorldPosition(model.position).add(capitalOffset.applyQuaternion(model.quaternion));
     else model.position.copy(anchor).add(new THREE.Vector3(0, hangar ? -box.min.y : 0, 0)).addScaledVector(centre, 0.5);
     this.turntable.clear();
     this.turntable.add(model);
@@ -242,8 +256,10 @@ export class HangarView {
     const maxCam = (hangar?.userData as { maxCameraDistance?: number[] | null } | undefined)?.maxCameraDistance ?? null;
     this.zoom = zoomLimits(sphere.radius, sphere.centre, maxCam ? Math.hypot(maxCam[0] ?? 0, maxCam[1] ?? 0, maxCam[2] ?? 0) : undefined);
     this.swing = hangarGraphics?.swings?.length ? swingOf(pickDockSwing(hangarGraphics.swings)) : DEFAULT_SWING;
-    this.controls.minDistance = this.zoom.near;
-    this.controls.maxDistance = this.zoom.far;
+    this.controls.enableZoom = !this.capitalCamera;
+    this.controls.minDistance = this.capitalCamera ? 0 : this.zoom.near;
+    this.controls.maxDistance = this.capitalCamera ? Infinity : this.zoom.far;
+    this.controls.maxPolarAngle = this.capitalCamera ? Math.PI : MAX_PITCH;
     this.camera.near = Math.max(0.5, radius / 50);
     this.camera.far = hangar ? 1e5 : radius * 400;
     this.ship = { model, restY: model.position.y, lookY: look.y, radius: sphere.radius, since: performance.now() };
@@ -258,13 +274,19 @@ export class HangarView {
     this.lastBob = 0;
     // the first ship shown is the docking: the camera swings in (AnimEnterHangar); a ship boarded after is placed
     // where that swing ends
-    const first = dynamicCamera && this.entryFrom === null && !this.shownBefore;
+    const first = !this.capitalCamera && dynamicCamera && this.entryFrom === null && !this.shownBefore;
     this.shownBefore = true;
     this.entryFrom = first ? performance.now() : null;
     this.idle = null;
     this.lastInput = performance.now();
-    this.place(entryAt(first ? 0 : 1, this.zoom.near, this.zoom.far, this.swing));
-    if (hangar) this.probe(look);
+    if (this.capitalCamera) {
+      const [eye, target, fov] = capitalHangarShot(hangarGraphics?.modular?.shipGroupID);
+      this.camera.position.set(eye[0], eye[1], -eye[2]);
+      this.controls.target.set(target[0], target[1], -target[2]);
+      this.camera.lookAt(this.controls.target);
+      this.setFov(fov);
+    } else this.place(entryAt(first ? 0 : 1, this.zoom.near, this.zoom.far, this.swing));
+    if (hangar) this.probe(this.capitalCamera ? model.position : look);
   }
   private shownBefore = false;
 
@@ -318,6 +340,7 @@ export class HangarView {
 
   /** One frame of the camera's own motion and the ship's bobbing. */
   private animate(now: number): void {
+    if (this.capitalCamera) return;
     if (this.ship) {
       // the ship bobs; the camera, looking at it, moves with it (HangarCamera.Update)
       const bob = bobAt((now - this.ship.since) / 1000, this.ship.radius);
