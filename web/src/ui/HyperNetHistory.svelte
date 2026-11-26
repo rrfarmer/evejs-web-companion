@@ -31,6 +31,15 @@
     active: ["UI/HyperNet/Active", "{amount} Active"],
     totalJoined: ["UI/HyperNet/Joined", "{amount} Joined"],
     won: ["UI/HyperNet/Won", "{amount} Won"],
+    sort: ["UI/Common/SortBy", "Sort By"],
+    sortDirection: ["UI/HyperNet/SortDirection", "Sort direction"],
+    default: ["UI/HyperNet/SortDefault", "Default"],
+    item_name: ["UI/HyperNet/SortItemName", "Item name"],
+    ticket_count: ["UI/HyperNet/TicketCountLabel", "HyperNode count"],
+    ticket_price: ["UI/HyperNet/TicketPrice", "HyperNode price"],
+    total_price: ["UI/HyperNet/TotalPrice", "Total price"],
+    end_time: ["UI/HyperNet/SortEndTime", "End time"],
+    reset: ["UI/HyperNet/Reset", "Reset"],
   } as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   const stat = (key: keyof typeof labels, amount: number) =>
@@ -44,15 +53,54 @@
   let loading = $state(true);
   let error = $state("");
   let refresh = $state(0);
+  const sortKeys = ["default", "item_name", "ticket_count", "ticket_price", "total_price", "end_time"] as const;
+  type SortKey = typeof sortKeys[number];
+  let sorting = $state<{ key: SortKey; descending: boolean }>({ key: "default", descending: false });
+  const sortStorage = (owner: number) => `evejs.hypernet.history-sort.${owner}`;
+  function isSortKey(value: unknown): value is SortKey {
+    return sortKeys.some(key => key === value);
+  }
+  function setSort(key: SortKey, descending = key !== "default" && key !== "item_name") {
+    sorting = { key, descending };
+    if (pilot) {
+      try { localStorage.setItem(sortStorage(pilot), JSON.stringify({ key, descending })); } catch { /* keep the window selection */ }
+    }
+  }
+  $effect(() => {
+    const owner = pilot;
+    let saved: { key?: unknown; descending?: unknown } | null = null;
+    if (owner) {
+      try { saved = JSON.parse(localStorage.getItem(sortStorage(owner)) ?? "null"); } catch { /* use default sorting */ }
+    }
+    sorting = saved && isSortKey(saved.key) && typeof saved.descending === "boolean"
+      ? { key: saved.key, descending: saved.key !== "default" && saved.descending }
+      : { key: "default", descending: false };
+  });
+
+  const nameOf = (record: HyperNetHistoryOffer) =>
+    resolvedName($names.resolved, "type", record.typeID, String(record.typeID));
+  const endTime = (record: HyperNetHistoryOffer) => record.ended ?? record.expires;
+  function compare<T extends string | bigint>(a: T, b: T): number {
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+  function compareBy(key: Exclude<SortKey, "default">, a: HyperNetHistoryOffer, b: HyperNetHistoryOffer): number {
+    switch (key) {
+      case "item_name": return compare(nameOf(a), nameOf(b));
+      case "ticket_count": return a.tickets - b.tickets;
+      case "ticket_price": return compare(a.price, b.price);
+      case "total_price": return compare(a.price * BigInt(a.tickets), b.price * BigInt(b.tickets));
+      case "end_time": return endTime(a) - endTime(b);
+    }
+  }
   const rank = (record: HyperNetHistoryOffer, owner: number | undefined) =>
     record.status === 7 && record.winnerID === owner ? 0 : record.status < 7 ? 1 : 2;
   const rows = $derived([...history].sort((a, b) => {
+    if (sorting.key !== "default") {
+      return compareBy(sorting.key, a, b) * (sorting.descending ? -1 : 1) || b.runningID - a.runningID;
+    }
     const group = rank(a, pilot);
     const order = group - rank(b, pilot);
-    return order || (group < 2
-      ? resolvedName($names.resolved, "type", a.typeID, String(a.typeID))
-        .localeCompare(resolvedName($names.resolved, "type", b.typeID, String(b.typeID)))
-      : (b.ended ?? b.expires) - (a.ended ?? a.expires)) || b.runningID - a.runningID;
+    return order || (group < 2 ? compare(nameOf(a), nameOf(b)) : endTime(b) - endTime(a)) || b.runningID - a.runningID;
   }));
 
   onMount(() => flow.requestWords(Object.values(labels).map(([path]) => path)));
@@ -114,6 +162,24 @@
       <button type="button" onclick={() => { refresh++; }}>{word("retry")}</button>
     </div>
   {/if}
+  <div class="sorting">
+    <label>{word("sort")}
+      <select data-history-sort value={sorting.key} onchange={event => {
+        const key = event.currentTarget.value;
+        if (isSortKey(key)) setSort(key);
+      }}>
+        {#each sortKeys as key (key)}
+          <option value={key}>{word(key)}</option>
+        {/each}
+      </select>
+    </label>
+    <button type="button" data-history-direction disabled={sorting.key === "default"} title={word("sortDirection")}
+      aria-label={`${word("sortDirection")}, ${sorting.descending ? "descending" : "ascending"}`}
+      onclick={() => setSort(sorting.key, !sorting.descending)}>
+      <img alt="" src={clientTexture(`res:/UI/Texture/classes/HyperNet/sort_${sorting.descending ? "descending" : "ascending"}.png`)} />
+    </button>
+    <button type="button" data-history-reset-sort disabled={sorting.key === "default"} onclick={() => setSort("default")}>{word("reset")}</button>
+  </div>
   {#if loading}
     <p role="status">Loading HyperNet history…</p>
   {:else if error}
@@ -141,8 +207,8 @@
             {:else if row.winnerID}{word("winner")} · {resolvedName($names.resolved, "character", row.winnerID, String(row.winnerID))}
             {:else}{word("expired")}{/if}
           </span>
-          <time datetime={new Date(row.ended ?? row.expires).toISOString()}>
-            {new Date(row.ended ?? row.expires).toLocaleString()}
+          <time datetime={new Date(endTime(row)).toISOString()}>
+            {new Date(endTime(row)).toLocaleString()}
           </time>
         </li>
       {/each}
@@ -155,6 +221,8 @@
   .participation { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; padding: 10px; background: #ffffff08; }
   .participation > div { display: grid; gap: 4px; min-width: 90px; }
   .participation p:first-child { font-weight: 600; }
+  .sorting, .sorting label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .sorting button img { width: 16px; height: 16px; }
   h2, ul, dl, dd, p { margin: 0; }
   ul { list-style: none; padding: 0; display: grid; gap: 6px; }
   li { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr)); align-items: center; gap: 8px; padding: 8px; background: #ffffff08; }
