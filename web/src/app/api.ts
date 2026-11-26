@@ -2111,6 +2111,19 @@ export async function readChatRoomInfo(roomName: string, options: ApiOptions = {
 }
 
 export type ChatChannelAccess = "allowed" | "moderated" | "blocked";
+export type ChatAccessOwnerKind = "character" | "corporation" | "alliance";
+export interface ChatAllowedChange {
+  readonly ownerID: number;
+  readonly kind: ChatAccessOwnerKind;
+  readonly allowed: boolean;
+}
+export async function chatChannelAllowed(roomName: string, change: ChatAllowedChange | null, options: ApiOptions = {}): Promise<readonly number[]> {
+  const path = `/api/bridge/chat/${encodeURIComponent(roomName)}/allowed`;
+  const data = change === null ? await getJson(path, options) : await postJson(path, change, options);
+  if (!Array.isArray(data.ownerIDs)) throw new Error("The channel allowed list could not be read.");
+  return data.ownerIDs.filter((id): id is number => typeof id === "number" && Number.isSafeInteger(id) && id > 0);
+}
+
 export interface ChatChannelSettings {
   readonly name: string;
   readonly motd: string;

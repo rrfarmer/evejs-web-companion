@@ -9835,6 +9835,23 @@ app.post("/api/bridge/chat/:roomName/settings", requireAuth, async (req, res, ne
   } catch (error) { next(error); }
 });
 
+app.all("/api/bridge/chat/:roomName/allowed", requireAuth, async (req, res, next) => {
+  if (req.method !== "GET" && req.method !== "POST") return res.sendStatus(405);
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  const session = heldChatSession(held);
+  if (!session) return chatUnavailable(res);
+  const change = req.method === "POST" ? req.body ?? {} : null;
+  if (change && (!Number.isSafeInteger(change.ownerID) || change.ownerID <= 0 ||
+      !["character", "corporation", "alliance"].includes(change.kind) || typeof change.allowed !== "boolean")) {
+    return res.status(400).json({ ok: false, error: "INVALID_CHAT_OWNER", message: "Choose a character, corporation, or alliance." });
+  }
+  try {
+    const ownerIDs = await session.channelAllowed(req.params.roomName, change, chatContext(held, req));
+    res.json({ ok: true, ownerIDs });
+  } catch (error) { next(error); }
+});
+
 app.post("/api/bridge/chat/:roomName/destroy", requireAuth, async (req, res, next) => {
   const held = requireHeldBridgeSession(req, res);
   if (!held) return;

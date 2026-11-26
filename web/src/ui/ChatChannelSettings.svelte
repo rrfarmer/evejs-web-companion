@@ -4,6 +4,7 @@
   import type { AppFlow } from "../app/flow.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
+  import ChatChannelAllowed from "./ChatChannelAllowed.svelte";
 
   let { store, flow, room, close, saved }: {
     store: ClientStore;
@@ -30,6 +31,9 @@
   let motd = $state("");
   let pending = $state(true);
   let error = $state("");
+  let tab = $state<"general" | "allowed">("general");
+  let changingAllowed = $state(false);
+  const generalForm = $props.id();
 
   onMount(() => {
     let mounted = true;
@@ -50,7 +54,7 @@
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (!current || pending) return;
+    if (!current || pending || changingAllowed) return;
     error = "";
     const trimmedName = name.trim();
     const changedPassword = password === unchangedPassword || (!current.passwordProtected && !password) ? undefined : password;
@@ -61,6 +65,10 @@
         error = "Use at least three characters for the password, with no leading or trailing spaces.";
         return;
       }
+    }
+    if (tab === "allowed" && trimmedName === current.name && (!current.owner || access === current.access && changedPassword === undefined) && motd === current.motd) {
+      close();
+      return;
     }
     pending = true;
     try {
@@ -80,9 +88,15 @@
 </script>
 
 <dialog bind:this={dialog} class="channel-configuration" aria-label={label("title", "Channel Configuration")}
-  oncancel={(event) => { event.preventDefault(); if (!current || !pending) close(); }}>
-  <form onsubmit={submit}>
-    <h2>{label("title", "Channel Configuration")}</h2>
+  oncancel={(event) => { event.preventDefault(); if (!changingAllowed && (!current || !pending)) close(); }}>
+  <h2>{label("title", "Channel Configuration")}</h2>
+  {#if current}
+    <nav class="channel-tabs" aria-label="Channel settings">
+      <button type="button" aria-pressed={tab === "general"} disabled={pending || changingAllowed} onclick={() => { tab = "general"; }}>{label("general", "General")}</button>
+      <button type="button" aria-pressed={tab === "allowed"} disabled={pending || changingAllowed} onclick={() => { tab = "allowed"; }}>{label("allowed", "Allowed")}</button>
+    </nav>
+  {/if}
+  <form id={generalForm} hidden={tab !== "general"} onsubmit={submit}>
     {#if current}
       <fieldset disabled={pending}>
         <legend>{label("general", "General")}</legend>
@@ -103,12 +117,13 @@
     {:else if pending}
       <p role="status">Reading channel settings…</p>
     {/if}
-    {#if error}<p class="error" role="alert">{error}</p>{/if}
-    <div class="actions">
-      <button type="submit" disabled={!current || pending}>{label("ok", "OK")}</button>
-      <button type="button" disabled={!!current && pending} onclick={close}>{label("cancel", "Cancel")}</button>
-    </div>
   </form>
+  {#if tab === "allowed"}<ChatChannelAllowed {store} {flow} {room} bind:mutating={changingAllowed} />{/if}
+  {#if error}<p class="error" role="alert">{error}</p>{/if}
+  <div class="actions">
+    <button type="submit" form={generalForm} disabled={!current || pending || changingAllowed}>{label("ok", "OK")}</button>
+    <button type="button" disabled={!!current && pending || changingAllowed} onclick={close}>{label("cancel", "Cancel")}</button>
+  </div>
 </dialog>
 
 <style>
@@ -119,5 +134,7 @@
   label { display: grid; grid-template-columns: 1fr minmax(0, 12rem); align-items: center; gap: 0.5rem; }
   label.message { grid-template-columns: minmax(0, 1fr); }
   textarea { resize: vertical; }
+  .channel-tabs { display: flex; gap: 0.5rem; margin-bottom: 0.65rem; }
+  .channel-tabs button[aria-pressed="true"] { border-color: var(--color-accent); }
   .actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; }
 </style>

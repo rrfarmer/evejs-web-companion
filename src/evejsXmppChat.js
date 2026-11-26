@@ -525,10 +525,10 @@ class XmppChatSession {
         const query = `<query xmlns='http://jabber.org/protocol/disco#items' node='${escapeXml(node)}'/>`;
         return { id, xml: `<iq id='${id}' type='get' from='${escapeXml(jid())}' to='${escapeXml(this.conferenceDomain)}'>${query}</iq>` };
       },
-      roomOwner: (roomName, type, payload = "") => {
+      roomIq: (roomName, namespace, type, payload = "") => {
         const id = requestID();
         const target = `${roomName}@${this.conferenceDomain}`;
-        const query = `<query xmlns='http://jabber.org/protocol/muc#owner'>${payload}</query>`;
+        const query = `<query xmlns='http://jabber.org/protocol/muc#${namespace}'>${payload}</query>`;
         return { id, xml: `<iq id='${id}' type='${type}' from='${escapeXml(jid())}' to='${escapeXml(target)}'>${query}</iq>` };
       },
       roomSubject: (roomName, subject) => {
@@ -1861,7 +1861,7 @@ class XmppChatSession {
     }
     await this.ensureReady();
     this.assertChatCurrent(context);
-    const response = await this.requestChatInformation(this.retailStanzas().roomOwner(roomName, "set", "<destroy/>"), "channel deletion");
+    const response = await this.requestChatInformation(this.retailStanzas().roomIq(roomName, "owner", "set", "<destroy/>"), "channel deletion");
     this.assertChatCurrent(context);
     if (attr(response.match(/^<iq\b[^>]*>/i)?.[0] || "", "type") !== "result") {
       throw new XmppChatError("The chat server refused to delete this channel.", { code: "CHAT_DELETE_REFUSED", statusCode: 403 });
@@ -1869,7 +1869,7 @@ class XmppChatSession {
     this.leaveRoom(this.rooms.get(roomName), false);
   }
 
-  async channelSettings(roomName, context = {}) {
+  async managedPlayerChannel(roomName, context) {
     if (typeof roomName !== "string" || !/^player_\d+$/.test(roomName)) {
       throw new XmppChatError("Choose a player chat channel.", { code: "INVALID_CHANNEL", statusCode: 400 });
     }
@@ -1879,10 +1879,15 @@ class XmppChatSession {
     if (!joined?.roomName || joined.pending || !["owner", "admin"].includes(channel?.affiliation)) {
       throw new XmppChatError("Join a channel you own or operate to open Settings.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
     }
+    return channel;
+  }
+
+  async channelSettings(roomName, context = {}) {
+    const channel = await this.managedPlayerChannel(roomName, context);
     const settings = { name: channel.name, motd: this.roomSubjects.get(roomName) || "", owner: channel.affiliation === "owner",
       access: null, passwordProtected: false };
     if (!settings.owner) return settings;
-    const response = await this.requestChatInformation(this.retailStanzas().roomOwner(roomName, "get"), "channel settings");
+    const response = await this.requestChatInformation(this.retailStanzas().roomIq(roomName, "owner", "get"), "channel settings");
     this.assertChatCurrent(context);
     if (attr(response.match(/^<iq\b[^>]*>/i)?.[0] || "", "type") !== "result") {
       throw new XmppChatError("The chat server refused to read channel settings.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
@@ -1921,7 +1926,7 @@ class XmppChatSession {
       fields.unshift(["FORM_TYPE", "http://jabber.org/protocol/muc#roomconfig"]);
       const values = fields.map(([key, value]) => `<field var='${key}'><value>${escapeXml(value)}</value></field>`).join("");
       this.assertChatCurrent(context);
-      const response = await this.requestChatInformation(stanzas.roomOwner(roomName, "set",
+      const response = await this.requestChatInformation(stanzas.roomIq(roomName, "owner", "set",
         `<x xmlns='jabber:x:data' type='submit'>${values}</x>`), "channel settings update");
       this.assertChatCurrent(context);
       if (attr(response.match(/^<iq\b[^>]*>/i)?.[0] || "", "type") !== "result") {
@@ -1934,6 +1939,33 @@ class XmppChatSession {
       this.assertChatCurrent(context);
     }
     return this.channelSettings(roomName, context);
+  }
+
+  async channelAllowed(roomName, change, context = {}) {
+    await this.managedPlayerChannel(roomName, context);
+    const stanzas = this.retailStanzas();
+    const request = async (type, payload) => {
+      this.assertChatCurrent(context);
+      const response = await this.requestChatInformation(stanzas.roomIq(roomName, "admin", type, payload), "channel allowed list");
+      this.assertChatCurrent(context);
+      if (attr(response.match(/^<iq\b[^>]*>/i)?.[0] || "", "type") !== "result") {
+        throw new XmppChatError("The chat server refused the allowed-list request.", { code: "CHAT_ACCESS_REFUSED", statusCode: 403 });
+      }
+      const ids = new Set();
+      for (const [item] of response.matchAll(/<item\b[^>]*>/gi)) {
+        if (attr(item, "affiliation") !== "member") continue;
+        const [id, domain] = attr(item, "jid").split("@");
+        if (domain === this.domain && Number.isSafeInteger(Number(id)) && Number(id) > 0) ids.add(Number(id));
+      }
+      return [...ids];
+    };
+    const read = () => request("get", "<item affiliation='member'/>");
+    const before = await read();
+    if (!change || before.includes(change.ownerID) === change.allowed) return before;
+    const affiliation = change.allowed ? "member" : "none";
+    const owner = `${change.ownerID}@${this.domain}`;
+    await request("set", `<item affiliation='${affiliation}' jid='${escapeXml(owner)}'><reason>${escapeXml(change.kind)}</reason></item>`);
+    return read();
   }
 
   async channelMembers(roomNames, context = {}) {
