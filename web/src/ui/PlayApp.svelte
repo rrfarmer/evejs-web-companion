@@ -4913,6 +4913,10 @@
   .fly-windows :global(.mkt-head-icon .type-icon), .fly-windows :global(.mkt-head-icon .type-icon img) { width: 64px; height: 64px; }
   .fly-windows :global(.mkt-head-text) { display: flex; align-items: center; gap: 8px; }
   .fly-windows :global(.mkt-head-name) { font-size: 20px; color: #fff; }
+  .fly-windows :global(.mkt-group-trace) { background: none; border: 0; padding: 0; color: var(--color-text-muted); font-size: 12px; text-align: left; }
+  .fly-windows :global(.mkt-find-type) { display: grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 0; background: none; }
+  .fly-windows :global(.mkt-find-type img) { width: 16px; height: 16px; }
+  .fly-windows :global(.market-picker .pick-row[aria-current="true"]) { background: rgba(88, 168, 196, 0.25); }
   .fly-windows :global(.mkt-info) { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.6); background: none; color: #fff;
     font: italic 700 10px/14px serif; padding: 0; cursor: pointer; }
   .fly-windows :global(.mkt-dtabs) { display: flex; border-bottom: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 6px; }

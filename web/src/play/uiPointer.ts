@@ -34,6 +34,7 @@ export const INDUSTRY_LOCATION_POINTERS = {
 
 export const MARKET_POINTERS = {
   details: "unique_UI_marketDetailsTab",
+  findInBrowse: "unique_UI_findTypeInBrowser",
   data: "unique_UI_marketDataTab",
   history: "unique_UI_marketPriceHistoryTab",
   duration: "unique_UI_orderDuration",

@@ -1478,6 +1478,16 @@ export interface MarketGroupNode {
   readonly iconFile?: string | null;
 }
 
+export interface MarketTypeLocation {
+  readonly groups: readonly Pick<MarketGroupNode, "marketGroupID" | "name">[];
+  readonly item: MarketTypeMatch;
+}
+
+export async function loadMarketTypeLocation(typeID: number, options: ApiOptions = {}): Promise<MarketTypeLocation | null> {
+  const data = await getJson(`/api/market/type-location?type=${typeID}`, options) as { location?: MarketTypeLocation | null };
+  return data.location?.item.typeID === typeID && data.location.groups.length > 0 ? data.location : null;
+}
+
 /**
  * Browse the market tree. `parentGroupID` of 0 (or absent) returns the roots.
  *

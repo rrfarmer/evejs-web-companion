@@ -551,6 +551,25 @@ function getMarketGroupPath(marketGroupID) {
   return pathEntries;
 }
 
+function marketBrowseItem(entry) {
+  const typeID = Number(entry.typeID) || 0;
+  return {
+    typeID,
+    name: String(entry.name || ""),
+    groupName: String(entry.groupName || "Unknown"),
+    variantGroup: marketVariantGroup(typeID, true),
+  };
+}
+
+function getMarketTypeLocation(typeID) {
+  const entry = getType(typeID);
+  if (!entry || entry.published !== true) return null;
+  const groups = getMarketGroupPath(entry.marketGroupID);
+  return groups.length && groups[0].parentGroupID === null
+    ? { groups, item: marketBrowseItem(entry) }
+    : null;
+}
+
 function normalizeIconRequest(typeID, size = 64, variation = "icon") {
   const numericTypeID = Number(typeID) || 0;
   const numericSize = VALID_ICON_SIZES.has(Number(size))
@@ -2046,19 +2065,13 @@ function getMarketGroupTypes(marketGroupID) {
     if ((Number(entry.marketGroupID) || 0) !== groupID) {
       continue;
     }
-    matches.push({
-      typeID: Number(entry.typeID) || 0,
-      name: String(entry.name || ""),
-      groupName: String(entry.groupName || "Unknown"),
-    });
+    matches.push(entry);
   }
-  matches.sort((a, b) => a.name.localeCompare(b.name) || a.typeID - b.typeID);
+  matches.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")) || a.typeID - b.typeID);
   const total = matches.length;
   const capped = total > MARKET_GROUP_TYPES_MAX;
   return {
-    types: (capped ? matches.slice(0, MARKET_GROUP_TYPES_MAX) : matches).map((entry) => ({
-      ...entry, variantGroup: marketVariantGroup(entry.typeID, true),
-    })),
+    types: (capped ? matches.slice(0, MARKET_GROUP_TYPES_MAX) : matches).map(marketBrowseItem),
     total,
     capped,
   };
@@ -2617,6 +2630,7 @@ module.exports = {
   getMarketGroup,
   getMarketGroupName,
   getMarketGroupPath,
+  getMarketTypeLocation,
   getPropulsionEffectName,
   getDefaultEffectName,
   getLauncherEffectName,

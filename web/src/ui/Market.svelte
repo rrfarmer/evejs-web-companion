@@ -80,7 +80,7 @@
   import { findInPersonalAssets } from "./assetsSearch.ts";
   import { compareType } from "./typeCompare.ts";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
-  import type { MarketGroupNode } from "../app/api.ts";
+  import type { MarketGroupNode, MarketTypeLocation } from "../app/api.ts";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { celestialRouteEntries, isDeprecatedStationType, isWaypointPlace } from "../nav/waypoints.ts";
   import { avoidanceItems } from "../nav/autopilotSettings.ts";
@@ -205,6 +205,7 @@
     "UI/PriceHistory/DonchianChannel": "Donchian Channel",
     "UI/PriceHistory/Volume": "Volume",
     "UI/Market/Marketbase/NoTypeSelected": "No Type Selected",
+    "UI/Market/Marketbase/FindInBrowseTab": "Find Group in Browse Tab",
     "UI/Market/Marketbase/NoTypeToBuy": "You cannot place a buy order when there is no type selected",
     "UI/Market/MarketData": "Market Data",
     "UI/Market/Marketbase/PriceHistory": "Price History",
@@ -736,6 +737,8 @@
   // --- Item search ---------------------------------------------------------
   let query = $state("");
   let matches = $state<readonly MarketTypeMatch[]>([]);
+  let focusedBrowseType = $state<number | null>(null);
+  let browseItems: HTMLElement;
   let chosenName = $state("");
   // The chosen item's book is drawn under the browse tree, and an order's draft under the whole book, out of sight in a
   // window of its first size: choosing an item or pressing Offer to buy looked like a click that did nothing, and what
@@ -907,6 +910,7 @@
   }
 
   function search(): void {
+    focusedBrowseType = null;
     void run(async () => {
       matches = await flow.findMarketTypes(query);
     });
@@ -1465,6 +1469,17 @@
   let groupTypesCapped = $state(false);
   let browsing = $state(false);
   let browseRevision = 0;
+  let detailLocation = $state.raw<MarketTypeLocation | null>(null);
+  $effect(() => {
+    const typeID = $market.typeID;
+    detailLocation = null;
+    if (ordersOnly || !retail || typeID === null) return;
+    let active = true;
+    void flow.loadMarketTypeLocation(typeID).then(location => {
+      if (active) detailLocation = location;
+    }).catch(() => {});
+    return () => { active = false; };
+  });
   let groupAsks = $state.raw<Awaited<ReturnType<AppFlow["marketGroupAsks"]>> | null>(null);
   let groupDistances = $state.raw<ReadonlyMap<number, number>>(new Map());
   const routeSettings = $derived(flow.routeSettings);
@@ -1679,7 +1694,7 @@
   /** Where in the tree we are — 0 is the root. */
   const currentGroupID = $derived(crumbs.length === 0 ? 0 : crumbs[crumbs.length - 1]!.marketGroupID);
 
-  async function openGroupID(groupID: number): Promise<void> {
+  async function openGroupID(groupID: number, preferred?: MarketTypeMatch): Promise<void> {
     const revision = ++browseRevision;
     browsing = true;
     try {
@@ -1689,7 +1704,10 @@
       ]);
       if (revision !== browseRevision) return;
       groups = branches;
-      groupTypes = items?.types ?? [];
+      const types = items?.types ?? [];
+      groupTypes = preferred && !types.some(item => item.typeID === preferred.typeID)
+        ? [...types, preferred]
+        : types;
       groupTypesCapped = items?.capped ?? false;
     } catch (cause) {
       // Browsing is reference data; failing it must not blank the prices that
@@ -1701,6 +1719,7 @@
   }
 
   function enterGroup(node: MarketGroupNode): void {
+    focusedBrowseType = null;
     crumbs = [...crumbs, { marketGroupID: node.marketGroupID, name: node.name }];
     if (retail && node.hasTypes) tab = "groups";
     void openGroupID(node.marketGroupID);
@@ -1708,8 +1727,28 @@
 
   /** Jump to a crumb; -1 is "All items". */
   function goToCrumb(index: number): void {
+    focusedBrowseType = null;
     crumbs = index < 0 ? [] : crumbs.slice(0, index + 1);
     void openGroupID(index < 0 ? 0 : crumbs[index]!.marketGroupID);
+  }
+
+  async function revealMarketGroup(groupsPage: boolean) {
+    const location = detailLocation;
+    if (!location || location.item.typeID !== $market.typeID) return;
+    query = "";
+    matches = [];
+    leftTab = "browse";
+    focusedBrowseType = groupsPage ? null : location.item.typeID;
+    crumbs = [...location.groups];
+    if (groupsPage) tab = "groups";
+    await openGroupID(location.groups[location.groups.length - 1]!.marketGroupID, location.item);
+    await tick();
+    if (focusedBrowseType === location.item.typeID) {
+      const row = browseItems?.querySelector('[aria-current="true"]');
+      const folder = row?.closest("details");
+      if (folder) folder.open = true;
+      row?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
   }
 
   onMount(() => {
@@ -1910,7 +1949,8 @@
   {:else}
   {#snippet marketItem(item: MarketTypeMatch)}
     <li>
-      <button type="button" class="pick-row" disabled={busy} onclick={() => chooseItem(item)} oncontextmenu={(event) => openQbMenu({ kind: "browse", typeID: item.typeID }, event)}
+      <button type="button" class="pick-row" aria-current={focusedBrowseType === item.typeID ? "true" : undefined}
+        disabled={busy} onclick={() => chooseItem(item)} oncontextmenu={(event) => openQbMenu({ kind: "browse", typeID: item.typeID }, event)}
         draggable="true" ondragstart={(event) => dragMarketType(event, item.typeID)}>
         <TypeIcon typeID={item.typeID} name={item.name} />
         <span class="pick-main">
@@ -1966,7 +2006,7 @@
     {#if groups.length === 0 && groupTypes.length === 0}
       <p class="empty">This part of the market holds nothing.</p>
     {/if}
-    <ul class="market-picker">
+    <ul class="market-picker" bind:this={browseItems}>
       {#each groups as node (node.marketGroupID)}
         <li>
           <button type="button" class="pick-row pick-group" disabled={busy} onclick={() => enterGroup(node)}>
@@ -2170,20 +2210,31 @@
 {#if $market.loaded && tab === "book"}
   <section class={retail ? `mkt-details detail-${detailTab}` : undefined}>
     {#if retail}
-      <!-- MarketBase.LoadDetails: the type's head (topDetailsCont, at least 64 high) - its 64 icon (MarketGroupItemImage,
-           8 before the text), its name (EveCaptionMedium; NoTypeSelected while none) with its info icon - then the
-           detail tabs, Market Data and Price History. The group trace, the find-in-browse button and the requirements
-           are not built (the page holds no type's market group path). -->
+      <!-- MarketBase.LoadDetails: the type's icon, group trace, caption and actions above the detail tabs. -->
       <div class="mkt-head">
         {#if $market.typeID !== null}
           <span class="mkt-head-icon"><TypeIcon typeID={$market.typeID} name={chosenName || typeName($market.typeID)} size="lg" /></span>
         {/if}
-        <div class="mkt-head-text">
-          <span class="mkt-head-name">{$market.typeID === null ? qbWord("UI/Market/Marketbase/NoTypeSelected") : chosenName || typeName($market.typeID)}</span>
-          {#if $market.typeID !== null}
-            {@const shownTypeID = $market.typeID}
-            <button type="button" class="mkt-info" aria-label={qbWord("UI/Commands/ShowInfo")} title={qbWord("UI/Commands/ShowInfo")} onclick={() => showInfo({ kind: "type", typeID: shownTypeID })}>i</button>
+        <div>
+          {#if detailLocation && detailLocation.item.typeID === $market.typeID}
+            <button type="button" class="mkt-group-trace" disabled={busy || browsing} onclick={() => void revealMarketGroup(true)}>
+              {detailLocation.groups.map(group => group.name).join(" / ")} /
+            </button>
           {/if}
+          <div class="mkt-head-text">
+            <span class="mkt-head-name">{$market.typeID === null ? qbWord("UI/Market/Marketbase/NoTypeSelected") : chosenName || typeName($market.typeID)}</span>
+            {#if $market.typeID !== null}
+              {@const shownTypeID = $market.typeID}
+              <button type="button" class="mkt-info" aria-label={qbWord("UI/Commands/ShowInfo")} title={qbWord("UI/Commands/ShowInfo")} onclick={() => showInfo({ kind: "type", typeID: shownTypeID })}>i</button>
+              {#if detailLocation?.item.typeID === shownTypeID}
+                {@const hint = qbWord("UI/Market/Marketbase/FindInBrowseTab")}
+                <button type="button" class="mkt-find-type" aria-label={hint} title={hint} data-ui-pointer={MARKET_POINTERS.findInBrowse}
+                  disabled={busy || browsing} onclick={() => void revealMarketGroup(false)}>
+                  <img src="/client-res/ui/texture/classes/mapview/focusicon.png" alt="" />
+                </button>
+              {/if}
+            {/if}
+          </div>
         </div>
       </div>
       <nav class="mkt-dtabs">

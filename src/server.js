@@ -14044,6 +14044,16 @@ app.get("/api/market/group-types", requireAuth, async (req, res, next) => {
   }
 });
 
+app.get("/api/market/type-location", requireAuth, (req, res, next) => {
+  try {
+    const typeID = Number(req.query.type);
+    const location = Number.isSafeInteger(typeID) && typeID > 0 ? staticData.getMarketTypeLocation(typeID) : null;
+    res.json({ ok: true, location });
+  } catch (error) {
+    next(error);
+  }
+});
+
 /**
  * R38 — PLAYER-STRUCTURE NAMES. The one runtime name read, shared by every
  * name path in this BFF.

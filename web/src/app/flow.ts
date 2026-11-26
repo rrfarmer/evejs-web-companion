@@ -2797,6 +2797,7 @@ export interface AppFlow {
    * what EXISTS before asking what it costs.
    */
   loadMarketGroups(parentGroupID: number): Promise<readonly api.MarketGroupNode[]>;
+  loadMarketTypeLocation(typeID: number): Promise<api.MarketTypeLocation | null>;
   loadMarketGroupTypes(
     marketGroupID: number,
   ): Promise<{ readonly types: readonly api.MarketTypeMatch[]; readonly total: number; readonly capped: boolean }>;
@@ -39755,6 +39756,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     findMarketTypes: (q: string, categoryID?: number) => api.findMarketTypes(q, callOptions, categoryID),
     listOreFamilies: () => api.listOreFamilies(callOptions),
     loadMarketGroups: (parentGroupID: number) => api.loadMarketGroups(parentGroupID, callOptions),
+    loadMarketTypeLocation: (typeID: number) => api.loadMarketTypeLocation(typeID, callOptions),
     loadMarketGroupTypes: (marketGroupID: number) =>
       api.loadMarketGroupTypes(marketGroupID, callOptions),
     async placeMarketOrder(request) {
