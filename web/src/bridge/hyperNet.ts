@@ -1,6 +1,9 @@
 import { filetimeToUnixMs } from "./activity.ts";
 import { isListValue, readKeyVal, unwrapLong } from "./wire.ts";
 
+export const hyperNetPriceBounds = [1_000_000, 10_000_000, 100_000_000] as const;
+export const hyperNetCountBounds = [8, 16, 48, 512] as const;
+
 export interface HyperNetOffer {
   readonly id: number;
   readonly typeID: number;
@@ -14,6 +17,7 @@ export interface HyperNetHistoryOffer extends HyperNetOffer {
   readonly runningID: number;
   readonly ownerID: number;
   readonly joined: boolean;
+  readonly private: boolean;
   readonly locationID: number;
   readonly systemID: number;
   readonly winnerID: number | null;
@@ -116,7 +120,8 @@ export function decodeHyperNetHistoryPage(payload: unknown, pilot: number): { ro
     }
     const sold = readKeyVal(row, "sold_tickets");
     const joined = isListValue(sold) && sold.items.some(ticket => Number(unwrapLong(readKeyVal(ticket, "owner_id"))) === pilot);
-    return { ...offer, runningID, ownerID, locationID, systemID, status, winnerID: winner > 0 ? winner : null, ended, joined };
+    const restricted = unwrapLong(readKeyVal(row, "restriction_id")) === 1n;
+    return { ...offer, runningID, ownerID, locationID, systemID, status, winnerID: winner > 0 ? winner : null, ended, joined, private: restricted };
   });
   return { rows, size };
 }

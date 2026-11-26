@@ -2,7 +2,7 @@
   import { onMount, tick } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import { isHyperNetItem, type HyperNetConstraints, type HyperNetItem, type HyperNetOffer } from "../bridge/hyperNet.ts";
+  import { hyperNetCountBounds as countBounds, hyperNetPriceBounds as priceBounds, isHyperNetItem, type HyperNetConstraints, type HyperNetItem, type HyperNetOffer } from "../bridge/hyperNet.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { formatDuration } from "../bridge/skills.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -58,8 +58,6 @@
     { remaining_ticket_count: offer.remaining, ticket_count: offer.tickets }, { nameOf: () => "" }));
   const pageSize = 12;
   let view = $state<"browse" | "history">("browse");
-  const priceBounds = [1_000_000, 10_000_000, 100_000_000] as const;
-  const countBounds = [8, 16, 48, 512] as const;
   const defaults = { minPrice: 0, maxPrice: 0, minCount: 8, maxCount: 512 };
   type Ranges = typeof defaults;
   type Option = { readonly id: number; readonly name: string };

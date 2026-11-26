@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import type { HyperNetHistoryOffer, HyperNetParticipation } from "../bridge/hyperNet.ts";
+  import { hyperNetCountBounds, hyperNetPriceBounds, type HyperNetHistoryOffer, type HyperNetParticipation } from "../bridge/hyperNet.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
@@ -40,6 +40,17 @@
     total_price: ["UI/HyperNet/TotalPrice", "Total price"],
     end_time: ["UI/HyperNet/SortEndTime", "End time"],
     reset: ["UI/HyperNet/Reset", "Reset"],
+    filters: ["UI/Calendar/CalendarWindow/Filters", "Filters"],
+    show_joined: ["UI/HyperNet/ShowJoined", "Joined"],
+    show_created: ["UI/HyperNet/ShowCreated", "Created"],
+    show_active: ["UI/HyperNet/ShowActive", "Active"],
+    show_finished: ["UI/HyperNet/ShowFinished", "Finished"],
+    show_public: ["UI/HyperNet/ShowPublic", "Public"],
+    show_private: ["UI/HyperNet/ShowPrivate", "Private"],
+    showing: ["UI/HyperNet/ShowingFiltered", "Showing {filtered_count}/{total_count}"],
+    minimum: ["UI/Common/Minimum", "Minimum"],
+    maximum: ["UI/Common/Maximum", "Maximum"],
+    any: ["UI/Common/Any", "Any"],
   } as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   const stat = (key: keyof typeof labels, amount: number) =>
@@ -53,6 +64,56 @@
   let loading = $state(true);
   let error = $state("");
   let refresh = $state(0);
+  const facetGroups = [
+    ["show_joined", "show_created"], ["show_active", "show_finished"], ["show_public", "show_private"],
+  ] as const;
+  const defaultFilters = {
+    show_joined: true, show_created: true, show_active: true, show_finished: true, show_public: true, show_private: true,
+    minPrice: 0, maxPrice: 0, minCount: 8, maxCount: 512,
+  };
+  type Filters = typeof defaultFilters;
+  const ranges = [
+    { label: "price", min: "minPrice", max: "maxPrice", price: true, bounds: [0, ...hyperNetPriceBounds] },
+    { label: "count", min: "minCount", max: "maxCount", price: false, bounds: hyperNetCountBounds },
+  ] as const;
+  let filters = $state.raw<Filters>(defaultFilters);
+  const filtersChanged = $derived(Object.keys(defaultFilters).some(key =>
+    filters[key as keyof Filters] !== defaultFilters[key as keyof Filters]));
+  const filterStorage = (owner: number) => `evejs.hypernet.history-filters.${owner}`;
+  function restoreFilters(owner: number): Filters {
+    const restored = { ...defaultFilters };
+    try {
+      const saved: Partial<Filters> | null = JSON.parse(localStorage.getItem(filterStorage(owner)) ?? "null");
+      if (!saved) return restored;
+      for (const key of facetGroups.flat()) {
+        if (typeof saved[key] === "boolean") restored[key] = saved[key];
+      }
+      for (const { min, max, bounds } of ranges) {
+        const low = saved[min], high = saved[max];
+        if (typeof low === "number" && typeof high === "number" &&
+            bounds.some(bound => bound === low) && bounds.some(bound => bound === high) && (!high || low <= high)) {
+          restored[min] = low;
+          restored[max] = high;
+        }
+      }
+    } catch { /* use default filters */ }
+    return restored;
+  }
+  function setFilters(next: Filters) {
+    filters = next;
+    if (pilot) {
+      try { localStorage.setItem(filterStorage(pilot), JSON.stringify(next)); } catch { /* keep the window selection */ }
+    }
+  }
+  function matchesFilters(record: HyperNetHistoryOffer, owner: number | undefined, criteria: Filters): boolean {
+    return (record.ownerID === owner ? criteria.show_created : criteria.show_joined) &&
+      (record.status < 7 ? criteria.show_active : criteria.show_finished) &&
+      (record.private ? criteria.show_private : criteria.show_public) &&
+      (!criteria.minPrice || record.price >= BigInt(criteria.minPrice)) &&
+      (!criteria.maxPrice || record.price <= BigInt(criteria.maxPrice)) &&
+      (criteria.minCount === defaultFilters.minCount || record.tickets >= criteria.minCount) &&
+      (criteria.maxCount === defaultFilters.maxCount || record.tickets <= criteria.maxCount);
+  }
   const sortKeys = ["default", "item_name", "ticket_count", "ticket_price", "total_price", "end_time"] as const;
   type SortKey = typeof sortKeys[number];
   let sorting = $state<{ key: SortKey; descending: boolean }>({ key: "default", descending: false });
@@ -68,6 +129,7 @@
   }
   $effect(() => {
     const owner = pilot;
+    filters = owner ? restoreFilters(owner) : defaultFilters;
     let saved: { key?: unknown; descending?: unknown } | null = null;
     if (owner) {
       try { saved = JSON.parse(localStorage.getItem(sortStorage(owner)) ?? "null"); } catch { /* use default sorting */ }
@@ -94,7 +156,7 @@
   }
   const rank = (record: HyperNetHistoryOffer, owner: number | undefined) =>
     record.status === 7 && record.winnerID === owner ? 0 : record.status < 7 ? 1 : 2;
-  const rows = $derived([...history].sort((a, b) => {
+  const rows = $derived(history.filter(row => matchesFilters(row, pilot, filters)).sort((a, b) => {
     if (sorting.key !== "default") {
       return compareBy(sorting.key, a, b) * (sorting.descending ? -1 : 1) || b.runningID - a.runningID;
     }
@@ -178,8 +240,51 @@
       onclick={() => setSort(sorting.key, !sorting.descending)}>
       <img alt="" src={clientTexture(`res:/UI/Texture/classes/HyperNet/sort_${sorting.descending ? "descending" : "ascending"}.png`)} />
     </button>
-    <button type="button" data-history-reset-sort disabled={sorting.key === "default"} onclick={() => setSort("default")}>{word("reset")}</button>
+    <button type="button" data-history-reset-sort disabled={sorting.key === "default" && !filtersChanged}
+      onclick={() => { setSort("default"); setFilters(defaultFilters); }}>{word("reset")}</button>
   </div>
+  <details class="history-filters">
+    <summary>{word("filters")}</summary>
+    {#each facetGroups as pair (pair[0])}
+      <div class="filter-pair">
+        {#each pair as key (key)}
+          <label><input type="checkbox" data-history-facet={key} checked={filters[key]}
+            onchange={event => setFilters({ ...filters, [key]: event.currentTarget.checked })} /> {word(key)}</label>
+        {/each}
+      </div>
+    {/each}
+    {#each ranges as range (range.min)}
+      <fieldset>
+        <legend>{word(range.label)}</legend>
+        <label>{word("minimum")}
+          <select data-history-range={range.min} value={filters[range.min]}
+            onchange={event => setFilters({ ...filters, [range.min]: Number(event.currentTarget.value) })}>
+            {#each range.bounds as bound (bound)}
+              <option value={bound} disabled={!!filters[range.max] && bound > filters[range.max]}>
+                {bound === 0 ? word("any") : range.price ? `${bound.toLocaleString()} ISK` : bound}
+              </option>
+            {/each}
+          </select>
+        </label>
+        <label>{word("maximum")}
+          <select data-history-range={range.max} value={filters[range.max]}
+            onchange={event => setFilters({ ...filters, [range.max]: Number(event.currentTarget.value) })}>
+            {#each range.bounds as bound (bound)}
+              <option value={bound} disabled={bound !== 0 && bound < filters[range.min]}>
+                {bound === 0 ? word("any") : range.price ? `${bound.toLocaleString()} ISK` : bound}
+              </option>
+            {/each}
+          </select>
+        </label>
+      </fieldset>
+    {/each}
+  </details>
+  {#if !loading && !error && rows.length < history.length}
+    <p role="status" data-history-filter-count>
+      {plainText(formatTemplate($words.templates[labels.showing[0]] ?? labels.showing[1],
+        { filtered_count: rows.length, total_count: history.length }, { nameOf: () => "" }))}
+    </p>
+  {/if}
   {#if loading}
     <p role="status">Loading HyperNet history…</p>
   {:else if error}
@@ -223,6 +328,9 @@
   .participation p:first-child { font-weight: 600; }
   .sorting, .sorting label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .sorting button img { width: 16px; height: 16px; }
+  .history-filters summary { cursor: pointer; }
+  .filter-pair, .history-filters fieldset { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 6px 0; }
+  .filter-pair label { min-width: 120px; }
   h2, ul, dl, dd, p { margin: 0; }
   ul { list-style: none; padding: 0; display: grid; gap: 6px; }
   li { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr)); align-items: center; gap: 8px; padding: 8px; background: #ffffff08; }
