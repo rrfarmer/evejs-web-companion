@@ -9,12 +9,14 @@
   import { coatingFits, shipSkinrCoatingID, shipSkinrCoatingSlot, shipSkinrCoatingMaterials, shipSkinrLayoutSlots, shipSkinrSlotID,
     type ShipSkinrCoating, type ShipSkinrCoatingCatalogue } from "../bridge/shipSkinrCoatings.ts";
   import { SKINR_HULL_RULES } from "../bridge/shipSkinrHullRules.ts";
-  import { isPatternSlot, isPatternMaterial, loadShipSkinrProjection, shipSkinrPatternID, shipSkinrPatternPreview, shipSkinrPatternSlot,
-    type ShipSkinrPattern, type ShipSkinrPatterns, type ShipSkinrProjection } from "../bridge/shipSkinrPatterns.ts";
+  import { DEFAULT_PATTERN_CONTROLS, isPatternSlot, isPatternMaterial, loadShipSkinrProjector, readShipSkinrPatternControls,
+    shipSkinrPatternID, shipSkinrPatternPreview, shipSkinrPatternSettings, shipSkinrPatternSlot, shipSkinrProjection, updateShipSkinrPattern,
+    type ShipSkinrPattern, type ShipSkinrPatterns, type ShipSkinrProjector, type ShipSkinrPatternControls } from "../bridge/shipSkinrPatterns.ts";
   import { shipTreeFaction, type ShipTreeCatalogue, type ShipTreeHull } from "../bridge/shipTree.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import ShipInfoPreview from "./ShipInfoPreview.svelte";
+  import ShipSkinrProjectorControls from "./ShipSkinrProjectorControls.svelte";
   import { typeIconUrl } from "./typeIcons.ts";
 
   let { store, flow, atSaveLimit, saveLimit, saved, onBack, onSaved, registerBeforeClose }: {
@@ -25,6 +27,7 @@
   } = $props();
   const original = untrack(() => saved);
   const initialSlots = shipSkinrLayoutSlots(original?.design.layout);
+  const initialEditor = new Map(original?.entry.editorConfigurations.map(row => [shipSkinrSlotID(row), row]));
   const { flight, station, names, words } = $derived(store);
   const prefix = "UI/Personalization/ShipSkins/SKINR/Studio/";
   const labels = {
@@ -49,7 +52,8 @@
   let catalogue = $state.raw<ShipTreeCatalogue | null>(null);
   let coatings = $state.raw<ShipSkinrCoatingCatalogue | null>(null);
   let patterns = $state.raw<ShipSkinrPatterns | null>(null);
-  let projection = $state.raw<ShipSkinrProjection | null>(null);
+  let projection = $state.raw<ShipSkinrProjector | null>(null);
+  let editedProjectors = $state.raw(new Map<number, ShipSkinrPatternControls>());
   let projectionFailed = $state(false);
   let layoutSlots = $state.raw(initialSlots);
   let selectedSlot = $state<number | null>(null);
@@ -79,7 +83,13 @@
   const slot = $derived(coatingSlots.find(row => row.id === selectedSlot));
   const coatingIndex = $derived(new Map(coatings?.components.map(coating => [coating.id, coating])));
   const patternIndex = $derived(new Map(patterns?.components.map(pattern => [pattern.id, pattern])));
-  const previewPatterns = $derived(shipSkinrPatternPreview(layoutSlots, patternIndex, coatingIndex));
+  const areaMap = $derived(coatings?.areas[selected?.factionID ?? 0] ?? coatings?.areas[500003] ?? []);
+  const previewPatterns = $derived(shipSkinrPatternPreview(layoutSlots, patternIndex, coatingIndex, areaMap));
+  const projectorSlot = $derived(slot && isPatternSlot(slot.id) ? slot.id : slot && isPatternMaterial(slot.id) ? slot.id - 1 : null);
+  const projectorRow = $derived(projectorSlot ? layoutSlots.get(projectorSlot) : undefined);
+  const projectorFlags = $derived(projectorRow ? shipSkinrPatternSettings(projectorRow) : null);
+  const projectorControls = $derived(projectorSlot && projectorRow && projection ? editedProjectors.get(projectorSlot) ??
+    readShipSkinrPatternControls(initialEditor.get(projectorSlot), projectorRow, projection) : null);
   const fitted = $derived.by(() => {
     const result = new Map<number, ShipSkinrCoating>();
     for (const [id, row] of layoutSlots) {
@@ -88,7 +98,7 @@
     }
     return result;
   });
-  const materialNames = $derived(shipSkinrCoatingMaterials(coatings?.areas[selected?.factionID ?? 0] ?? coatings?.areas[500003] ?? [], fitted));
+  const materialNames = $derived(shipSkinrCoatingMaterials(areaMap, fitted));
   const dirty = $derived(original ? selectedTypeID !== original.design.shipTypeID || layoutSlots.size !== initialSlots.size ||
     [...layoutSlots].some(([id, row]) => row !== initialSlots.get(id)) : layoutSlots.size > 0);
   const blend = original?.design.layout.pattern_blend_mode ?? 1;
@@ -134,9 +144,9 @@
     const typeID = selectedTypeID, scales = patterns?.scales;
     projection = null;
     projectionFailed = false;
-    if (!typeID || !scales || selectedSlot === null || !isPatternSlot(selectedSlot)) return;
+    if (!typeID || !scales || projectorSlot === null) return;
     let active = true;
-    void loadShipSkinrProjection(typeID, scales).catch(() => null).then(result => {
+    void loadShipSkinrProjector(typeID, scales).catch(() => null).then(result => {
       if (!active) return;
       projection = result;
       projectionFailed = !result;
@@ -178,20 +188,41 @@
     if (!slot || !isPatternSlot(slot.id) || naming) return;
     const id = slot.id;
     const next = new Map(layoutSlots);
+    const controls = new Map(editedProjectors);
     if (pattern) {
       if (!projection || shipSkinrPatternID(next.get(id)) === pattern.id) return;
       const initial = initialSlots.get(id);
-      next.set(id, initial && shipSkinrPatternID(initial) === pattern.id && selectedTypeID === original?.design.shipTypeID
-        ? initial : shipSkinrPatternSlot(id, pattern, projection));
+      if (initial && shipSkinrPatternID(initial) === pattern.id && selectedTypeID === original?.design.shipTypeID) {
+        next.set(id, initial);
+        controls.delete(id);
+      } else {
+        next.set(id, shipSkinrPatternSlot(id, pattern, projection));
+        controls.set(id, { ...DEFAULT_PATTERN_CONTROLS });
+      }
     } else {
       next.delete(id);
       next.delete(id + 1);
+      controls.delete(id);
       if (id === 5) {
         next.delete(7);
         next.delete(8);
+        controls.delete(7);
       }
     }
     layoutSlots = next;
+    editedProjectors = controls;
+  }
+
+  function adjustProjector(controls: ShipSkinrPatternControls) {
+    if (!projectorSlot || !projectorRow || !projection) return;
+    editedProjectors = new Map(editedProjectors).set(projectorSlot, controls);
+    updateProjectorFlags({ transform: shipSkinrProjection(projection, controls) });
+  }
+
+  function updateProjectorFlags(changes: Parameters<typeof updateShipSkinrPattern>[1]) {
+    if (projectorSlot && projectorRow) {
+      layoutSlots = new Map(layoutSlots).set(projectorSlot, updateShipSkinrPattern(projectorRow, changes));
+    }
   }
 
   function openName(mode: "save" | "copy") {
@@ -214,11 +245,16 @@
         pattern_blend_mode: blend,
         slots: [...layoutSlots.values()],
       };
-      const editor = original?.entry.editorConfigurations.filter(row => configuration.slots.includes(shipSkinrSlotID(row))) ??
-        configuration.slots.filter(id => id === 5 || id === 7).map(id => ({
-        id: { sequential: id }, config: { offset_u_ratio: 0, offset_v_ratio: 0, yaw: 0, pitch: 0, roll: 0, scaling: 0 },
-      }));
-      const entry = await flow.saveShipSkinrDraft(layout, editor, name, line, id);
+      const editor = new Map([...initialEditor].filter(([slotID]) => configuration.slots.includes(slotID)));
+      if (!original) {
+        for (const slotID of configuration.slots.filter(isPatternSlot)) {
+          editor.set(slotID, { id: { sequential: slotID }, config: { offset_u_ratio: 0, offset_v_ratio: 0, yaw: 0, pitch: 0, roll: 0, scaling: 0 } });
+        }
+      }
+      for (const [slotID, controls] of editedProjectors) {
+        if (layoutSlots.has(slotID)) editor.set(slotID, { id: { sequential: slotID }, config: { ...controls } });
+      }
+      const entry = await flow.saveShipSkinrDraft(layout, [...editor.values()], name, line, id);
       if (!destroyed) onSaved(entry);
     } catch (cause) {
       if (!destroyed) saveError = panelErrorWords(cause);
@@ -233,6 +269,9 @@
     if (!requestedPilot) return;
     let current = true;
     flow.requestWords(Object.values(labels).map(([path]) => path));
+    flow.requestWords(["ProjectionPresets", "PatternProjectionTop", "PatternProjectionFront", "PatternProjectionRight",
+      "OrbitalPanelButton", "OffsetPanelButton", "RotateScalePanelButton", "MirrorToggle"].map(key => prefix + "Gizmo/" + key)
+      .concat(["ResetPatternProjection", "PrimaryArea", "SecondaryArea", "DetailingArea", "TechArea"].map(key => prefix + key)));
     flow.requestNames(factions.map(({ id }) => ({ kind: "faction", id })));
     void Promise.all([getShipTreeCatalogue(flow.requestOptions()), import("../bridge/shipSkinrCoatingsData.ts"),
       import("../bridge/shipSkinrPatternsData.ts")]).then(([data, skinr, patternData]) => {
@@ -370,6 +409,11 @@
                   <button type="button" onclick={() => isPatternSlot(slot.id) ? fitPattern(null) : fit(null)}>{word("remove")}</button>
                 {/if}
               </header>
+              {#if projectorFlags}
+                <ShipSkinrProjectorControls labels={$words.templates} controls={projectorControls}
+                  areas={projectorFlags.areas} mirrored={projectorFlags.mirrored} onControls={adjustProjector}
+                  onAreas={areas => updateProjectorFlags({ areas })} onMirror={mirrored => updateProjectorFlags({ mirrored })} />
+              {/if}
               <input type="search" aria-label={word("search")} placeholder={word("search")} bind:value={coatingSearch} />
               {#if isPatternSlot(slot.id)}
                 {#if !projection}<p role="status">{projectionFailed ? "Projection unavailable for this hull." : "Loading projection…"}</p>{/if}

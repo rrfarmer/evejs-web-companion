@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { loadDds } from "../three/ddsTexture.ts";
 import { effectObject, startEffect, type SofChildNode } from "../three/hullChildren.ts";
-import { loadSofMaterials, paintedTypeModel, setControllerVariable, setDirtLevel, setThrust, typeModel, type SofArea } from "../three/hullModel.ts";
+import { loadSofMaterials, paintedTypeModel, setControllerVariable, setDirtLevel, setThrust, typeModel, updateSkinrProjection, type SofArea } from "../three/hullModel.ts";
 import type { ShipSkinrPatternPreview } from "../bridge/shipSkinrPatterns.ts";
 import { useHullTextureRenderer } from "../three/hullAlbedo";
 import { SHIP_INFO_FAR_CLIP, shipInfoZoomRange } from "./shipInfoCamera.ts";
@@ -39,6 +39,7 @@ export class ShipInfoScene {
   private lightRig: THREE.Object3D | null = null;
   private reflection: THREE.WebGLRenderTarget | null = null;
   private model: THREE.Object3D | null = null;
+  private variant = "";
   private serial = 0;
   private closed = false;
   private active = false;
@@ -115,6 +116,12 @@ export class ShipInfoScene {
   async show(typeID: number, factionID: number | null, coatings: readonly (string | null)[] = [],
     patterns: readonly ShipSkinrPatternPreview[] = []): Promise<boolean> {
     const request = ++this.serial;
+    const variant = JSON.stringify([typeID, factionID, coatings, patterns.map(({ layer, material }) =>
+      [layer.texture, layer.projectionU, layer.projectionV, material])]);
+    if (this.model && variant === this.variant) {
+      if (patterns.length) updateSkinrProjection(this.model, patterns.map(({ layer }) => layer));
+      return true;
+    }
     const custom = coatings.some(Boolean) || patterns.length > 0;
     const modelRead = custom ? loadSofMaterials().then(materials => {
       const overrides = coatings.map(name => name ? materials[name] ?? null : null);
@@ -149,6 +156,7 @@ export class ShipInfoScene {
     [this.near, this.far] = shipInfoZoomRange(radius, this.axes);
     this.camera.near = Math.max(1, radius * 0.01);
     this.model = model;
+    this.variant = variant;
     this.scene.add(model);
     if (this.lightRig) {
       model.add(this.lightRig);

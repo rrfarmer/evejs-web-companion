@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { ShipInfoScene } from "../play/shipInfoScene.ts";
   import type { ShipSkinrPatternPreview } from "../bridge/shipSkinrPatterns.ts";
 
@@ -30,7 +31,7 @@
     const view = scene;
     if (!view || faction === undefined) return;
     let current = true;
-    load = "waiting";
+    if (untrack(() => load) !== "shown") load = "waiting";
     void view.show(id, faction, coatings, patterns).then(shown => {
       if (current) load = shown ? "shown" : "unavailable";
     }).catch(() => { if (current) load = "unavailable"; });

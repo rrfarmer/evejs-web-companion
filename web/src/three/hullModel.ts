@@ -530,6 +530,16 @@ export function sofHullMaterial(maps: Record<string, THREE.Texture | undefined>,
       [`patGloss${i}`]: { value: param("Gloss")?.[0] ?? src?.gloss ?? 0.4 },
     };
   }));
+  if (studioPatterns) m.userData.updateSkinrProjection = (layers: readonly SofPatternLayer[]) => {
+    layers.forEach((layer, i) => {
+      patternUniforms[`patPos${i}`]?.value.fromArray(layer.position);
+      patternUniforms[`patScale${i}`]?.value.fromArray(layer.scaling);
+      patternUniforms[`patRot${i}`]?.value.fromArray(layer.rotation);
+      patternUniforms[`patTargets${i}`]?.value.fromArray(layer.targets);
+      const mirror = patternUniforms[`patMirror${i}`];
+      if (mirror) mirror.value = Number(layer.mirrored);
+    });
+  };
   const patternFragment = patterns.map((_, i) => `uniform sampler2D patMask${i}; uniform vec2 patModes${i}; uniform vec4 patTargets${i};
     uniform vec3 patDiffuse${i}; uniform vec3 patFresnel${i}; uniform float patGloss${i}; varying vec2 vPatUv${i};`).join("\n");
   const patternMix = patterns.map((_, i) => `{
@@ -867,6 +877,18 @@ export async function paintedTypeModel(typeID: number, materials: readonly (SofM
   appliesTo?: (area: SofArea) => boolean, patterns?: SofPattern): Promise<THREE.Object3D | null> {
   const info = (await (await fetch(`/client-assets/type/${typeID}`)).json()) as TypeModelInfo;
   return loadModel(info, typeID, materials, appliesTo, patterns);
+}
+
+export function updateSkinrProjection(model: THREE.Object3D, layers: readonly SofPatternLayer[]): void {
+  const applied = new Set<unknown>();
+  model.traverse(object => {
+    if (!(object instanceof THREE.Mesh) || Array.isArray(object.material)) return;
+    const update = object.material.userData.updateSkinrProjection;
+    if (typeof update === "function" && !applied.has(update)) {
+      update(layers);
+      applied.add(update);
+    }
+  });
 }
 
 /** A fresh instance of a SOF graphic's model that is no type's (a station hangar), or null when it has none. */
