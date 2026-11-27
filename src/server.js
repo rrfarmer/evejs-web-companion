@@ -1564,6 +1564,17 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_FLEET_PARTICIPATION", message: "Choose a fleet and a single true or false participation value." });
     return;
   }
+  if (objectKind === "fleetConfiguration") {
+    const [value] = Array.isArray(body.args) ? body.args : [];
+    const valid = body.method === "GetFleetMaxSize" ? body.args?.length === 0 :
+      body.args?.length === 1 && (body.method === "SetFleetMaxSize"
+        ? Number.isSafeInteger(value) && value >= 1 && value <= 256
+        : value && typeof value === "object" && Object.keys(value).length === 1 && typeof value.isFreeMove === "boolean");
+    if (!Array.isArray(body.args) || !valid || strictPositiveID(body.of) === null || body.kwargs != null) {
+      res.status(400).json({ ok: false, error: "INVALID_FLEET_CONFIGURATION", message: "Choose the current fleet and a valid size or free-move setting." });
+      return;
+    }
+  }
   if (objectKind === "corporationExpected" && strictPositiveID(body.of) === null) {
     res.status(400).json({ ok: false, error: "INVALID_CORPORATION", message: "A corporation action names the corporation it was opened for." });
     return;
@@ -1806,11 +1817,11 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       : objectKind === "fleetExpected"
       ? { ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => inviteToFleetCall(
         heldBridgeSession, req.webSessionID, inviteeOf(body.args), saysWhich ? strictPositiveID(body.of) : null, invitedPlaceOf(body.args))), service: body.service, method: body.method }
-      : objectKind === "fleetParticipation"
+      : objectKind === "fleetParticipation" || objectKind === "fleetConfiguration"
       ? { ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => {
         const fleetID = strictPositiveID(body.of);
         if (String(fleetID) !== heldBridgeSession.fleetID) {
-          throw Object.assign(new Error("Fleet membership changed before this setting was sent."), { code: "FLEET_CHANGED", statusCode: 409 });
+          throw Object.assign(new Error("Fleet membership changed before this setting was requested."), { code: "FLEET_CHANGED", statusCode: 409 });
         }
         return boundCall(heldBridgeSession, req.webSessionID, fleetIDBindSpec(fleetID), body.method, body.args, null);
       }), service: body.service, method: body.method }

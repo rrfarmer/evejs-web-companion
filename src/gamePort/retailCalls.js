@@ -891,6 +891,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "charMgr.GetCharacterSettings",
   "sharedSettingsMgr.StoreSettingLinkAndGetID", "sharedSettingsMgr.GetStoredSharedSetting",
   "fleetObjectHandler.SetTakesFleetWarp", "fleetObjectHandler.SetAcceptsConduitJumpsValue", "fleetObjectHandler.SetAcceptsRegroupValue",
+  "fleetObjectHandler.GetFleetMaxSize", "fleetObjectHandler.SetFleetMaxSize",
   // An overview profile's link stored as it is dropped into a chat, and read as it is followed (the gateway's list
   // has neither).
   "overviewPresetMgr.StoreLinkAndGetID", "overviewPresetMgr.GetStoredPreset",
@@ -2777,6 +2778,8 @@ const RETAIL_CALLS = Object.freeze({
   "fleetObjectHandler.GetMotd": same(`${FLEET_SVC}:1967`, "self.fleet.GetMotd(), no arguments"),
   "fleetObjectHandler.GetJoinRequests": same(`${FLEET_SVC}:461`, "self.fleet.GetJoinRequests(), no arguments"),
   "fleetObjectHandler.GetFleetComposition": same(`${FLEET_SVC}:900`, "self.fleet.GetFleetComposition(), no arguments"),
+  "fleetObjectHandler.GetFleetMaxSize": same(`${FLEET_SVC}:2300`, "self.fleet.GetFleetMaxSize(), before the size prompt"),
+  "fleetObjectHandler.SetFleetMaxSize": same(`${FLEET_SVC}:2307`, "self.fleet.SetFleetMaxSize(qty), after the size prompt"),
   // Forming one, joining one and leaving one.
   "fleetObjectHandler.CreateFleet": same(
     `${FLEET_SVC}:334`,

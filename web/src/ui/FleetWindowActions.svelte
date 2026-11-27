@@ -3,7 +3,7 @@
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { BROADCAST_ICONS, BROADCAST_NAME_LABELS, FLEET_BAR_BROADCASTS, type FleetBarBroadcast } from "../bridge/fleetBroadcasts.ts";
-  import { FLEET_CMDR_ROLES, isFleetCommander } from "../bridge/fleetCommand.ts";
+  import { FLEET_CMDR_ROLES, FLEET_JOB_CREATOR, isFleetCommander } from "../bridge/fleetCommand.ts";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { FLEET_POINTERS } from "../play/uiPointer.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -34,6 +34,7 @@
     ["acceptsFleetRegroups", F + "AcceptRegroup", "Accept Fleet Regroups"],
   ] as const;
   let participationBusy = $state(false);
+  let configurationBusy = $state(false);
   const labels = {
     more: "UI/Common/More",
     form: F + "FormFleet",
@@ -46,6 +47,8 @@
     flat: F + "ViewAsFlatList",
     composition: F + "ShowFleetComposition",
     watchlist: F + "OpenFleetWatchlist",
+    maxFleetSize: F + "SetFleetMaxSize",
+    freeMove: F + "SetFreeMove",
   };
   function word(label: string, fallback: string): string {
     const text = $words.templates[label];
@@ -56,6 +59,11 @@
   }
   function run(work: Promise<unknown>): void {
     void work.catch(error => noticeBoard.post({ kind: "warn", title: "Fleet", detail: error instanceof Error ? error.message : String(error) }));
+  }
+  function changeConfiguration(work: () => Promise<void>): void {
+    if (configurationBusy) return;
+    configurationBusy = true;
+    run(work().finally(() => { configurationBusy = false; }));
   }
   function show(event: MouseEvent): void {
     const flags = windowFlags("fleet");
@@ -96,6 +104,14 @@
             checkbox: true, checked, disabled: participationBusy ? "Updating fleet participation" : null,
           };
         }), null);
+      }
+      if (own && (own.job & FLEET_JOB_CREATOR) !== 0 && $fleet.availability === "ready") {
+        const checked = $fleet.fleet?.initState.value.options.isFreeMove === true;
+        const disabled = configurationBusy ? "Updating fleet settings" : null;
+        rows.push({ ...action(labels.maxFleetSize, "Set Max Fleet Size",
+          () => changeConfiguration(() => flow.editFleetMaxSize(fleetID))), disabled },
+        { ...action(labels.freeMove, "Allow Free-Move",
+          () => changeConfiguration(() => flow.setFleetFreeMove(fleetID, !checked))), checkbox: true, checked, disabled }, null);
       }
       if (own && isFleetCommander(own)) rows.push(action(labels.composition, "Show Fleet Composition", onComposition));
       rows.push(action(labels.watchlist, "Open Fleet Watch List", onWatchlist),

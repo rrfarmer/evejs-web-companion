@@ -3006,6 +3006,8 @@ export interface AppFlow {
   /** Give a member another place in the fleet, as the fleet's menu for a member does (Move Fleet Member); the fleet read again. */
   moveFleetMember(characterID: number, wingID: number | null, squadID: number | null, role: number): Promise<void>;
   setFleetParticipation(fleetID: number, option: keyof FleetMemberOptOuts, value: boolean): Promise<void>;
+  editFleetMaxSize(fleetID: number): Promise<void>;
+  setFleetFreeMove(fleetID: number, enabled: boolean): Promise<void>;
   /** Warp to a member of the pilot's fleet at a range, as the fleet's menu for a member does. */
   warpToFleetMember(characterID: number, range: number): Promise<void>;
   /** Warp the pilot's fleet, wing or squad to a member at a range, as the fleet's menu for a member does for a commander. */
@@ -19009,6 +19011,50 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await loadFleet(fleetDetailViews === 0);
     current();
     if (own()?.memberOptOuts[option] !== value) throw new Error("The fleet participation update could not be confirmed.");
+  }
+
+  function fleetBossOptions(fleetID: number) {
+    const state = store.fleet.get();
+    const pilot = onlineCharacterID();
+    const roster = state.fleet?.initState.value;
+    if (pilot === null || state.availability !== "ready" || state.authoritativeFleetID !== fleetID ||
+        !roster?.members.some(member => Number(member.charID) === pilot && (member.job & FLEET_JOB_CREATOR) !== 0)) {
+      throw new Error("The current fleet boss can change this setting.");
+    }
+    return roster.options;
+  }
+
+  async function editFleetMaxSize(fleetID: number): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    const max = 256; // evefleet.MAX_MEMBERS_IN_FLEET
+    const read = () => bridgeAsk("fleetObjectHandler", "GetFleetMaxSize", [], null, fleetID);
+    fleetBossOptions(fleetID);
+    const size = await read();
+    current();
+    if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 1 || size > max) {
+      throw new Error("The current fleet size limit could not be read.");
+    }
+    const next = await askQuantity({ min: 1, max, value: size, caption: "Set Max Fleet Size",
+      captionLabel: "UI/Fleet/FleetWindow/SetFleetMaxSize", hint: `Enter a number between 1 and ${max}.`,
+      hintLabel: "UI/Fleet/FleetWindow/SetFleetNumberBetween", hintArgs: { max: String(max) } });
+    if (next === null || next === size) return;
+    current();
+    fleetBossOptions(fleetID);
+    await bridgeDo("fleetObjectHandler", "SetFleetMaxSize", [next], null, fleetID);
+    current();
+    const updated = await read();
+    current();
+    if (updated !== next) throw new Error("The new fleet size limit could not be confirmed.");
+  }
+
+  async function setFleetFreeMove(fleetID: number, enabled: boolean): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    fleetBossOptions(fleetID);
+    await bridgeDo("fleetObjectHandler", "SetOptions", [{ isFreeMove: enabled }], null, fleetID);
+    current();
+    await loadFleet(fleetDetailViews === 0);
+    current();
+    if (fleetBossOptions(fleetID).isFreeMove !== enabled) throw new Error("The free-move update could not be confirmed.");
   }
 
   async function inviteFleetMember(characterID: number, assertCurrent?: () => void, expectedFleetID?: number, place?: { readonly wingID: number | null; readonly squadID: number | null; readonly role: number | null }): Promise<void> {
@@ -41676,6 +41722,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     fleetMenuAction,
     moveFleetMember,
     setFleetParticipation,
+    editFleetMaxSize,
+    setFleetFreeMove,
     warpToFleetMember,
     warpFleetToMember,
     warpDistance,
