@@ -22026,9 +22026,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
           scope.current();
           const refusal = error instanceof BridgeCallError ? error.refusal : null;
           if (!refusal?.key.startsWith("ConfirmGivingMedal")) throw error;
-          await wordsNow(["UI/Corporations/MedalsToUsers", "UI/Util/FmtIsk"]);scope.current();
-          const rawCost = readDictEntry(refusal.values, "cost"), cost = Number(unwrapLong(rawCost) ?? (typeof rawCost === "number" ? rawCost : 0));
-          const costText = iskWords(cost, 2, store.words.get().templates, () => "") ?? `${cost.toLocaleString("en-US", {minimumFractionDigits:2,maximumFractionDigits:2})} ISK`;
+          await wordsNow(["UI/Corporations/MedalsToUsers", "UI/Util/FmtIsk", "UI/Util/FmtIskNoDecimal"]);scope.current();
+          const cost = Number(decodeCashBalance(readDictEntry(refusal.values, "cost") ?? null) ?? 0);
+          const fractions = Number.isInteger(cost) ? 0 : 2;
+          const costText = iskWords(cost, fractions, store.words.get().templates, () => "")
+            ?? `${cost.toLocaleString("en-US", { minimumFractionDigits: fractions, maximumFractionDigits: fractions })} ISK`;
           const membersText = templateWords("UI/Corporations/MedalsToUsers", {numMembers: targets.length}, `${targets.length} members`);
           if (!await askDialog(refusal.key, { type: "dict", entries: [["amount",targets.length],["members",membersText],["cost",costText]] }, `Award decorations to ${membersText} for ${costText}?`, "yesno", { suppressAnswer: "yes" })) return;
           scope.current();await scope.write("corporationSvc", "GiveMedalToCharacters", [...args, true], null, scope.online.corporationID);scope.current();
