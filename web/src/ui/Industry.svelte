@@ -623,11 +623,19 @@
     if (!request || !initialLoadFinished || busy) return;
     let current = true;
     void (async () => {
-      const instance = request.kind === "trade"
+      let instance = request.kind === "trade"
         ? await flow.directTrades.readBlueprint(request.containerID, request.itemID, request.typeID)
         : null;
+      if (request.kind === "item") {
+        const find = () => industry.get().blueprints.find(row => row.itemID === request.itemID && row.typeID === request.typeID);
+        instance = find() ?? null;
+        if (!instance) {
+          await flow.loadIndustry();
+          instance = find() ?? null;
+        }
+      }
       if (!current) return;
-      if (request.kind === "trade" && instance === null) {
+      if (request.kind !== "type" && instance === null) {
         throw new Error(industryWord("UI/Industry/BlueprintNotFound") || "Blueprint details are unavailable.");
       }
       await flow.loadIndustryBlueprintDefinitions([request.typeID]);
@@ -636,7 +644,7 @@
       if (request.kind === "type" && startingBlueprint?.itemID === null && startingBlueprint.typeID === request.typeID && chosenActivity !== null) return;
       void flow.industryJobLetGo();
       if (instance !== null) {
-        startJobFor({ ...instance, offeredInTrade: true });
+        startJobFor(request.kind === "trade" ? { ...instance, offeredInTrade: true } : instance);
       } else if (request.kind === "type") startJobFor({
         itemID: null,
         typeID: request.typeID,

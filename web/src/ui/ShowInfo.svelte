@@ -19,6 +19,9 @@
   import InfoShipRequirements from "./InfoShipRequirements.svelte";
   import InfoJumpBridgeMechanics from "./InfoJumpBridgeMechanics.svelte";
   import InfoAttributeHint from "./InfoAttributeHint.svelte";
+  import { loadTypeListsHolding } from "../app/api.ts";
+  import { findInContracts } from "./contractsSearch.ts";
+  import { showMarketDetails } from "./marketDetails.ts";
   import EmploymentHistoryEntries from "./EmploymentHistoryEntries.svelte";
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import type { BookmarkPlace } from "../bridge/locationsList.ts";
@@ -62,10 +65,11 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { AgentRow, SpaceEntity } from "../store/types.ts";
 
-  let { store: pilotStore, flow: pilotFlow, subject: windowSubject, corporationResult: windowCorporationResult, shipLiveOnly = false, toggleShipSkinr }: {
+  let { store: pilotStore, flow: pilotFlow, subject: windowSubject, corporationResult: windowCorporationResult, shipLiveOnly = false, toggleShipSkinr, onOpenIndustry }: {
     store: ClientStore; flow: AppFlow; subject: ReadableSignal<InfoSubject | null>;
     corporationResult?: ReadableSignal<CorporationInfoRead | null | undefined> | null; shipLiveOnly?: boolean;
     toggleShipSkinr?: () => void;
+    onOpenIndustry?: () => void;
   } = $props();
   // A component belongs to one native window for its lifetime. Capture these
   // handles so chrome/focus changes cannot become dependencies of its reads.
@@ -145,7 +149,12 @@
   const typeID = $derived(subjectTypeID($subject));
   // infoContentBase.construct_layout: techicon (16 x 16, RELATIVE at 0, 0 of the main icon's parent) set by
   // uix.GetTechLevelIcon for a type's icon (and a blueprint's), hidden for the rest
-  let headFacts = $state<{ typeID: number; metaGroupID: number | null; groupID: number | null } | null>(null);
+  let headFacts = $state<{ typeID: number; metaGroupID: number | null; groupID: number | null;
+    categoryID: number | null; marketGroupID: number | null; published: boolean } | null>(null);
+  let footerLists = $state<{ typeID: number; held: readonly number[] } | null>(null);
+  const marketLabel = "UI/Inventory/ItemActions/ViewTypesMarketDetails";
+  const contractsLabel = "UI/Inventory/ItemActions/FindInContracts";
+  const industryLabel = "UI/Industry/ViewInIndustry";
   const openSkinrLabel = "UI/Personalization/ShipSkins/OpenSKINR";
   const showSkinrAction = $derived($subject?.kind === "type" && headFacts?.typeID === typeID &&
     (headFacts.groupID === 4725 || headFacts.groupID === 4726)); // Sequence Binders and Ship SKIN Design Components.
@@ -156,11 +165,39 @@
     void pilotFlow.typeFacts([t]).then((m) => {
       if (!live) return;
       const facts = m?.get(t);
-      headFacts = { typeID: t, metaGroupID: facts?.metaGroupID ?? null, groupID: facts?.groupID ?? null };
+      headFacts = { typeID: t, metaGroupID: facts?.metaGroupID ?? null, groupID: facts?.groupID ?? null,
+        categoryID: facts?.categoryID ?? null, marketGroupID: facts?.marketGroupID ?? null, published: facts?.published === true };
     }).catch(() => {});
     return () => { live = false; };
   });
   $effect(() => { if (showSkinrAction && toggleShipSkinr) flow.requestWords([openSkinrLabel]); });
+  const isItemFooter = $derived(!shipLiveOnly && ($subject?.kind === "type" || $subject?.kind === "module" || $subject?.kind === "spaceObject"));
+  // inventoryrestrictions: non-tradable, soulbound, and non-contractable typelists.
+  const NON_TRADABLE = 36, SOULBOUND = 142, NON_CONTRACTABLE = 337;
+  $effect(() => {
+    const t = typeID;
+    if (!isItemFooter || t === null) return;
+    let live = true;
+    flow.requestWords([marketLabel, contractsLabel, industryLabel]);
+    void loadTypeListsHolding([t], [NON_TRADABLE, SOULBOUND, NON_CONTRACTABLE], flow.requestOptions()).then(lists => {
+      if (live && lists[t]) footerLists = { typeID: t, held: lists[t] };
+    }).catch(() => {});
+    return () => { live = false; };
+  });
+  const footerFacts = $derived(isItemFooter && headFacts?.typeID === typeID ? headFacts : null);
+  const restrictions = $derived(footerLists?.typeID === typeID ? footerLists.held : null);
+  const showMarketAction = $derived(!!footerFacts?.marketGroupID && !!restrictions &&
+    !restrictions.includes(NON_TRADABLE) && !restrictions.includes(SOULBOUND));
+  const showContractsAction = $derived(!showMarketAction && !!footerFacts?.published && !!restrictions &&
+    !restrictions.includes(NON_CONTRACTABLE) && !restrictions.includes(SOULBOUND));
+  const showIndustryAction = $derived(!!onOpenIndustry && (footerFacts?.categoryID === 9 || footerFacts?.categoryID === 34));
+
+  function openIndustry(typeID: number) {
+    const current = $subject;
+    if (current?.kind === "type" && current.itemID) flow.requestItemIndustryBlueprint(current.itemID, typeID);
+    else flow.requestIndustryBlueprintPreview(typeID, footerFacts?.categoryID !== 34);
+    onOpenIndustry?.();
+  }
   const headTech = $derived(headFacts !== null && headFacts.typeID === typeID ? techLevelIcon(headFacts.metaGroupID) : null);
   // 3698585 type group 1408: Custom gate 1 (unpublished) and Ansiblex Jump Bridge.
   const jumpBridge = $derived(typeID === 35837 || typeID === 35841);
@@ -1779,15 +1816,25 @@
       <InfoShipRequirements {store} {flow} {typeID} />
     {/if}
   {/if}
-  {#if showSkinrAction && toggleShipSkinr}
+  {#if typeID !== null && (showMarketAction || showContractsAction || showIndustryAction || (showSkinrAction && toggleShipSkinr))}
     <footer class="info-actions">
-      <button type="button" onclick={toggleShipSkinr}>{plainText(word(openSkinrLabel)) || "Open SKINR"}</button>
+      {#if showMarketAction}
+        <button type="button" onclick={() => showMarketDetails(typeID)}>{plainText(word(marketLabel)) || "View Market Details"}</button>
+      {:else if showContractsAction}
+        <button type="button" onclick={() => findInContracts(typeID)}>{plainText(word(contractsLabel)) || "Find in Contracts"}</button>
+      {/if}
+      {#if showIndustryAction}
+        <button type="button" onclick={() => openIndustry(typeID)}>{plainText(word(industryLabel)) || "View In Industry"}</button>
+      {/if}
+      {#if showSkinrAction && toggleShipSkinr}
+        <button type="button" onclick={toggleShipSkinr}>{plainText(word(openSkinrLabel)) || "Open SKINR"}</button>
+      {/if}
     </footer>
   {/if}
 </section>
 
 <style>
-  .info-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+  .info-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-top: 8px; }
   /* infoContentBase techicon: 16 x 16 at the main icon's top left */
   .info-head-icon { position: relative; display: inline-block; flex: none; }
   .info-head-tech { position: absolute; left: 0; top: 0; width: 16px; height: 16px; max-width: none; z-index: 1; pointer-events: auto; }

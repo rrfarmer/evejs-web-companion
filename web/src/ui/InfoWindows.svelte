@@ -14,7 +14,9 @@
   import { infoShiftPressed } from "./showInfo.ts";
   import { notify } from "./notices.ts";
 
-  let { session, inFront, host }: { session: Session; inFront: boolean; host: InfoWindowHost | null } = $props();
+  let { session, inFront, host, onOpenIndustry }: {
+    session: Session; inFront: boolean; host: InfoWindowHost | null; onOpenIndustry?: () => void;
+  } = $props();
   // svelte-ignore state_referenced_locally
   const windows = session.flow.infoWindows.state;
   // svelte-ignore state_referenced_locally
@@ -86,7 +88,8 @@
         {@const expanded = w.w >= 640 && !host?.mobile}
         <ShipInfoContent store={session.store} flow={session.flow} subject={w.subject} typeID={w.entry.identity.typeID} {expanded} height={w.h - 46} requirementsRequest={w.requirementsRequest} skinsRequest={w.skinsRequest}
           active={visible && !w.minimized && (!host?.mobile || w.modal || w.id === mobileID)} openParagonHub={host?.openParagonHub} />
-      {:else}<ShowInfo store={session.store} flow={session.flow} subject={w.subject} corporationResult={w.visibleCorporationResult} toggleShipSkinr={host?.toggleShipSkinr} />{/if}
+      {:else}<ShowInfo store={session.store} flow={session.flow} subject={w.subject} corporationResult={w.visibleCorporationResult}
+        toggleShipSkinr={host?.toggleShipSkinr} {onOpenIndustry} />{/if}
     </ErrorBoundary>{/if}</div>
   {/key}
 {/snippet}

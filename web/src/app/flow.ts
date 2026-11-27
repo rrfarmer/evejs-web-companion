@@ -2312,6 +2312,7 @@ interface WalletLpChange {
 
 type IndustryBlueprintPreview =
   | { readonly kind: "type"; readonly typeID: number; readonly original: boolean }
+  | { readonly kind: "item"; readonly itemID: number; readonly typeID: number }
   | { readonly kind: "trade"; readonly containerID: number; readonly itemID: number; readonly typeID: number };
 
 export interface AppFlow {
@@ -2765,6 +2766,7 @@ export interface AppFlow {
   loadIndustryBlueprintDefinitions(typeIDs: readonly number[]): Promise<void>;
   readonly industryBlueprintPreview: ReadableSignal<IndustryBlueprintPreview | null>;
   requestIndustryBlueprintPreview(typeID: number, original: boolean): void;
+  requestItemIndustryBlueprint(itemID: number, typeID: number): void;
   requestTradeBlueprintPreview(containerID: number, itemID: number, typeID: number): void;
   clearIndustryBlueprintPreview(request: IndustryBlueprintPreview): void;
   /**
@@ -41358,6 +41360,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     requestIndustryBlueprintPreview(typeID, original) {
       requestNames([{ kind: "type", id: typeID }]);
       industryBlueprintPreview.set({ kind: "type", typeID, original });
+    },
+    requestItemIndustryBlueprint(itemID, typeID) {
+      requestNames([{ kind: "type", id: typeID }]);
+      industryBlueprintPreview.set({ kind: "item", itemID, typeID });
     },
     requestTradeBlueprintPreview(containerID, itemID, typeID) {
       requestNames([{ kind: "type", id: typeID }]);

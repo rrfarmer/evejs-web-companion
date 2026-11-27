@@ -762,7 +762,8 @@
   </ErrorBoundary>
   <ErrorBoundary name="Information windows">
     {#each sessions as session (session.id)}
-      <InfoWindows {session} inFront={session.id === activeId} host={infoHost?.sessionID === session.id ? infoHost.host : null} />
+      <InfoWindows {session} inFront={session.id === activeId} host={infoHost?.sessionID === session.id ? infoHost.host : null}
+        onOpenIndustry={() => requestOpenInWorkspace("industry", session.id)} />
       <AccessGroupInfoWindows {session} inFront={session.id === activeId} host={infoHost?.sessionID === session.id ? infoHost.host : null} />
     {/each}
   </ErrorBoundary>

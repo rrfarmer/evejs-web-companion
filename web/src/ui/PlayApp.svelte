@@ -5076,7 +5076,7 @@
     </ErrorBoundary>
   {/key}
   <ErrorBoundary name="Scanner results"><ScannerWindows {session} inFront={true} /></ErrorBoundary>
-  <ErrorBoundary name="Info windows"><InfoWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
+  <ErrorBoundary name="Info windows"><InfoWindows {session} inFront={true} host={windowsEl ? infoHost : null} onOpenIndustry={() => open("industry")} /></ErrorBoundary>
   <ErrorBoundary name="Access List information"><AccessGroupInfoWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
   <ErrorBoundary name="Calendar windows"><CalendarWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
   <ErrorBoundary name="Ship restrictions"><ShipRestrictionsWindow {session} inFront={true} /></ErrorBoundary>

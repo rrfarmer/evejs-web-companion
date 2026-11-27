@@ -2585,7 +2585,7 @@
           {@const reprocessIDs = reprocessingSelection(menu.row, menu.place)}
           {@const place = menu.place}
           <button type="button" class="stn-menu-item"
-            onclick={() => contextAction(row => showInfo({ kind: "type", typeID: row.typeID }))}>Show Info</button>
+            onclick={() => contextAction(row => showInfo({ kind: "type", typeID: row.typeID, itemID: row.itemID }))}>Show Info</button>
           {#if place.kind === "corp" && !menu.row.singleton && menu.row.quantity > 1 &&
             menu.row.ownerID === $station.online?.corporationID &&
             (!isPicked(menu.row, place) || selection.length === 1) &&
