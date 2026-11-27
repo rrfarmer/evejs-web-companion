@@ -91,7 +91,7 @@
   import HomeStationPanel from "./HomeStationPanel.svelte";
   import { fittedColumnWidth } from "./scrollColumnFit.ts";
 
-  let { store, flow, ordersOnly = false, onOpenOrders, onToggleStore, onOpenIndustry, onBuyPlex, onShowSystem }: {
+  let { store, flow, ordersOnly = false, onOpenOrders, onToggleStore, onOpenIndustry, onBuyPlex, onShowSystem, onShowMapBrowser }: {
     store: ClientStore;
     flow: AppFlow;
     ordersOnly?: boolean;
@@ -100,6 +100,7 @@
     onOpenIndustry?: () => void;
     onBuyPlex?: () => void;
     onShowSystem?: (systemID: number) => void;
+    onShowMapBrowser?: (systemID: number) => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -591,6 +592,7 @@
     remove: ["UI/Inflight/RemoveWaypoint", "Remove Waypoint"],
     bookmark: ["UI/Inflight/BookmarkLocation", "Save Location…"],
     map: ["UI/Commands/ShowLocationOnMap", "Show on Map"],
+    mapBrowser: ["UI/Inflight/ShowInMapBrowser", "Show in Mapbrowser (Solar System)"],
     home: ["UI/Menusvc/SetHomeStation", "Set Home Station"],
   } as const;
   const orderExportWords = [
@@ -673,6 +675,11 @@
     }));
     if (place.kind === "system" && isWaypointPlace(id)) {
       if (systemID !== null && onShowSystem) answer.push(orderMenuEntry("map", () => onShowSystem?.(systemID)));
+      if (systemID !== null && onShowMapBrowser) {
+        const [path, fallback] = orderMenuWords.mapBrowser;
+        const locationType = qbWord("UI/Common/LocationTypes/SolarSystem") || "Solar System";
+        answer.push({ path, label: qbWord(path, { locationType }) || fallback, run: () => onShowMapBrowser?.(systemID) });
+      }
       const avoided = avoidanceItems(flow.autopilotSettings()).includes(id);
       answer.push({
         path: avoided ? AVOID_WORDS.stopAvoiding : AVOID_WORDS.avoid,

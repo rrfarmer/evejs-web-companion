@@ -115,6 +115,7 @@
     onGoToPilot,
     onShowConvoys,
     onShowSystem,
+    onShowMapBrowser,
     onViewPlanet,
     onAccessCustoms,
     viewingPlanetID,
@@ -187,6 +188,7 @@
     onGoToPilot?: (sessionID: string) => void;
     onShowConvoys?: () => void;
     onShowSystem?: (systemID: number) => void;
+    onShowMapBrowser?: (systemID: number) => void;
     onViewPlanet?: (planetID: number) => void;
     onAccessCustoms?: (planetID: number) => void;
     viewingPlanetID?: number | null;
@@ -268,7 +270,7 @@
     onOpenIndustry={onOpen ? () => onOpen?.("industry") : undefined}
     onBuyPlex={onBuyPlex ?? (onOpen ? () => onOpen?.("plexCheckout") : undefined)} />
 {:else if tab === "marketOrders"}
-  <Market {store} {flow} ordersOnly {onShowSystem} onOpenIndustry={onOpen ? () => onOpen?.("industry") : undefined} />
+  <Market {store} {flow} ordersOnly {onShowSystem} {onShowMapBrowser} onOpenIndustry={onOpen ? () => onOpen?.("industry") : undefined} />
 {:else if tab === "activity"}
   <Activity {store} {flow} showMail={() => onOpen?.("mail")} openApplications={() => { flow.requestCorporationApplications(); onOpen?.("corporation"); }} />
 {:else if tab === "fleet"}

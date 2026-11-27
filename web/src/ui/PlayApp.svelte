@@ -5319,7 +5319,8 @@
               onBuyPlex={togglePlexCheckout} onShowPlexOffers={showPlexOffers}
               onReprocess={reprocessingAvailable ? reprocessSelection : undefined}
               {reprocessingInput} onReprocessingInputTaken={() => (reprocessingInput = null)}
-              onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} {moonRefinery} {autoMoonMiner}
+              onShowConvoys={() => toggleStarMap(true, "convoys")} onShowSystem={showSystemOnMap} onShowMapBrowser={showSystemInMapBrowser}
+              {moonRefinery} {autoMoonMiner}
               {schedulableRefineryID} onOpenRefinerySchedule={openRefinerySchedule}
               onViewPlanet={showPlanetInMode} viewingPlanetID={planetModeID} onAccessCustoms={openCustoms}
               {moonMaterialBay} {metenoxTransfer} {metenoxControl} onLeaveMetenox={leaveMetenox} />
