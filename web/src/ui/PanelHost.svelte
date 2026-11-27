@@ -217,6 +217,8 @@
    * and an industry plan spans every signed-in pilot's blueprints.
    */
   const GlobalView = $derived(globalWindowView(tab));
+  const vaultStoreActions = $derived({ omega: onShowOmegaOffers, training: onShowMultipleTraining,
+    store: onToggleStore, buy: onOpen && (() => onOpen?.("plexCheckout")) });
 
   async function openInventoryFilterLink(url: string) {
     if (await flow.followInventoryFilterLink(url)) onOpen?.("inventory");
@@ -231,8 +233,7 @@
   <GlobalView {sessions} onOpen={(id, sid) => onOpen?.(id, sid)} {onGoToPilot} />
 {:else if tab === "inventory"}
   <StationPanel {store} {flow} {isDocked} {onClose} {onReprocess} {inventoryVaultRequested}
-    vaultStoreActions={{ omega: onShowOmegaOffers, training: onShowMultipleTraining, store: onToggleStore,
-      buy: onOpen && (() => onOpen?.("plexCheckout")) }} />
+    {vaultStoreActions} />
 {:else if tab === "fitting"}
   <Fitting {store} {flow} showInventory={() => onOpen?.("inventory")} />
 {:else if tab === "fittingManagement"}
@@ -387,7 +388,8 @@
 {:else if tab === "loginRewards"}
   <LoginRewards {store} {flow} />
 {:else if tab === "characterSheet"}
-  <CharacterSheet {store} {flow} expanded={characterSheetExpanded} onExpansionChange={onCharacterSheetExpansionChange} />
+  <CharacterSheet {store} {flow} expanded={characterSheetExpanded} onExpansionChange={onCharacterSheetExpansionChange}
+    {vaultStoreActions} />
 {:else if tab === "corporation"}
   <CorporationWindow {store} {flow} openMail={() => onOpen?.("mail")} openWatchlist={() => onOpen?.("watchlist")} openPaintTool={() => onOpen?.("paintTool")} />
 {:else if tab === "memberDetails"}

@@ -46,22 +46,27 @@
   import SecurityStatusHistory from "./SecurityStatusHistory.svelte";
   import CombatLog from "./CombatLog.svelte";
   import KillRightsPanel from "./KillRightsPanel.svelte";
+  import PilotServicesPanel from "./PilotServicesPanel.svelte";
+  import type { PlexVaultStoreActions } from "./PlexVaultBalance.svelte";
   import { CHARACTER_SHEET_POINTERS as pointers } from "../play/uiPointer.ts";
   import Standings from "./Standings.svelte";
   import JumpClonesPanel from "./JumpClonesPanel.svelte";
   import HomeStationPanel from "./HomeStationPanel.svelte";
   import { sheetPanelRequest, type SheetPanel } from "./characterSheetPanels.ts";
 
-  // The client's Character Sheet's tabs (characterSheetWindow.GetMainTabData; charsheet GetPanelName): Character,
-  // Interactions, PLEX, Personalization and History, of which the page has Character (characterPanel: Home Station,
-  // Implants & Boosters, Bio, Expert Systems of its tabs), Interactions (interactionsPanel: Standings, the pilot's
-  // standings panel, of its tabs) and History (historyPanel: Employment History and Skill History).
-  type SheetTab = "character" | "interactions" | "history";
+  const sheetTabs = [
+    { id: "character", label: "Tooltips/CharacterSheet/Character", pointer: pointers.character },
+    { id: "interactions", label: "Tooltips/CharacterSheet/Interactions", pointer: pointers.interactions },
+    { id: "pilotServices", label: "Tooltips/CharacterSheet/PilotLicense", pointer: pointers.pilotServices },
+    { id: "history", label: "Tooltips/CharacterSheet/History", pointer: undefined },
+  ] as const;
+  type SheetTab = typeof sheetTabs[number]["id"];
 
   /** The tabs' names, with the page's own words where the install's are not had. */
   const TAB_WORDS: Readonly<Record<string, string>> = {
     "Tooltips/CharacterSheet/Character": "Character",
     "Tooltips/CharacterSheet/Interactions": "Dealings",
+    "Tooltips/CharacterSheet/PilotLicense": "Pilot's Services",
     "Tooltips/CharacterSheet/History": "Past",
     "Tooltips/CharacterSheet/HomeStation": "Home",
     "Tooltips/CharacterSheet/Memberships": "Memberships",
@@ -83,9 +88,10 @@
     return typeof template === "string" ? template : TAB_WORDS[label] ?? "";
   };
 
-  let { store, flow, panel = null, expanded = true, onExpansionChange }: {
+  let { store, flow, panel = null, expanded = true, onExpansionChange, vaultStoreActions }: {
     store: ClientStore; flow: AppFlow; panel?: SheetPanel | null; expanded?: boolean;
     onExpansionChange?: (expanded: boolean) => void;
+    vaultStoreActions?: PlexVaultStoreActions;
   } = $props();
   // svelte-ignore state_referenced_locally
   const opening = panel;
@@ -282,11 +288,14 @@
 
   <!-- The window's tabs, then the tab's own. -->
   <nav class="sheet-tabs" aria-label="Character Sheet">
-    {#each [["character", "Tooltips/CharacterSheet/Character"], ["interactions", "Tooltips/CharacterSheet/Interactions"], ["history", "Tooltips/CharacterSheet/History"]] as [id, label] (id)}
-      <button type="button" data-ui-pointer={id === "character" ? pointers.character : id === "interactions" ? pointers.interactions : undefined}
-        class:active={sheetTab === id} aria-pressed={sheetTab === id} onclick={() => (sheetTab = id as SheetTab)}>{tabWord(label!)}</button>
+    {#each sheetTabs as { id, label, pointer } (id)}
+      <button type="button" data-ui-pointer={pointer}
+        class:active={sheetTab === id} aria-pressed={sheetTab === id} onclick={() => (sheetTab = id)}>{tabWord(label)}</button>
     {/each}
   </nav>
+  {#if sheetTab === "pilotServices"}
+    {#key $activeCharacter.selectedCharacterID}<PilotServicesPanel {store} {flow} {vaultStoreActions} />{/key}
+  {/if}
   {#if sheetTab === "character"}
   <nav class="sheet-tabs sub" aria-label="Character">
     {#each [["home", "Tooltips/CharacterSheet/HomeStation"], ["memberships", "Tooltips/CharacterSheet/Memberships"], ["implants", "Tooltips/CharacterSheet/Augmentations"], ["jumpClones", "Tooltips/CharacterSheet/JumpClones"], ["attributes", "Tooltips/CharacterSheet/Attributes"], ["bio", "Tooltips/CharacterSheet/Bio"], ["decorations", "Tooltips/CharacterSheet/Decorations"], ["expert", "Tooltips/CharacterSheet/ExpertSystems"]] as [id, label] (id)}

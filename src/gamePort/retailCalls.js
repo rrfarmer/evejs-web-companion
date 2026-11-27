@@ -759,8 +759,8 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // The lobby's buttons, on the station's own office object. (The BFF's list of writes names the renting; the
   // gateway's list of what it will carry has none of these.)
   "officeManager.GetPriceQuote", "officeManager.HasCorpImpoundedItems", "officeManager.PrimeOfficeItem", "officeManager.RentOffice", "officeManager.UnrentOffice",
-  // The account's clone grade, which the client asks as it logs in. The gateway's list has nothing of the subscription manager's.
-  "subscriptionMgr.GetCloneGrade",
+  // The account's clone grade at login and subscription end in Pilot Services.
+  "subscriptionMgr.GetCloneGrade", "subscriptionMgr.GetSubscriptionTime",
   // The epic arcs' service (epicArcSvc.ReconstructController, epicArcController._GetMissionMessageID): the pilot's arc
   // missions' statuses and the arcs' journal messages. The gateway's list has neither.
   "agentMgr.GetMyEpicArcStatus", "agentMgr.GetMessagesForEpicArcMissions",
@@ -3041,6 +3041,8 @@ const RETAIL_CALLS = Object.freeze({
   "dungeonInstanceCacheMgr.GetIceBeltsCount": same("evedungeons/client/anomalyTracker.py:249", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetIceBeltsCount(), no arguments: by solar system its ice belts' count, as GetCombatAnomaliesCount."),
   "dungeonInstanceCacheMgr.GetCombatAnomalyInstances": same("evedungeons/client/anomalyTracker.py:235", "sm.RemoteSvc('dungeonInstanceCacheMgr').GetCombatAnomalyInstances(), no arguments: by solar system, each combat anomaly's KeyVal (dungeonID, instanceID, siteID, archetypeID, factionID, difficulty, entryObjectTypeID, dungeonNameID, position). Recorded on Tranquility so (AIR Oportunities - Amarr, 10/30/2026)."),
   "subscriptionMgr.GetCloneGrade": same("omega/client/clone_grade_svc.py:125", "sm.RemoteSvc('subscriptionMgr').GetCloneGrade(), no arguments: asked as the account comes onto the session (gameui.py 450) and kept; then what OnSubscriptionChangedServer says. In this server's log of a retail client's login it is the call before the character selection's."),
+  "subscriptionMgr.GetSubscriptionTime": judged("eve/client/script/ui/shared/neocom/charsheet/plexPanel.py:146", sentWithNothing,
+    "Pilot Services requests the account's Omega expiry with no arguments. The reply is a FILETIME or None."),
   "userSvc.GetMultiCharactersTrainingSlots": judged("eve/client/script/ui/services/skillQueueSvc.py:851", sentWithNothing,
     "sm.RemoteSvc('userSvc').GetMultiCharactersTrainingSlots(), no arguments: the account's extra training slots, a dict. The queue service reckons from it whether every slot is used (IsAllCharacterTrainingSlotsUsed, 859) and keeps that until OnMultipleCharactersTrainingUpdated. Recorded on Tranquility at every login, answering {}."),
   "skillMgr2.GetMySkillHandler": same(`${SKILL_SVC}:130`, "session.ConnectToRemoteService('skillMgr2').GetMySkillHandler(), no arguments: asked once and the moniker it answers kept."),

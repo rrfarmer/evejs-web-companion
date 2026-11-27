@@ -27,6 +27,7 @@ export const CHARACTER_SHEET_POINTERS = {
   expand: "unique_UI_expandCharacterSheet",
   character: "unique_UI_charactersheetCharacterTab",
   interactions: "unique_UI_charactersheetInteractionTab",
+  pilotServices: "unique_UI_pilotServicesTab",
   home: "unique_UI_homeTab",
   implants: "unique_UI_augmentationsTab",
   jumpClones: "unique_UI_jumpClonesTab",
