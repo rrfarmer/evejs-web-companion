@@ -19,6 +19,7 @@
   const captionLabel = "UI/InfoWindow/PortraitCaption";
   const captureLabel = "UI/Commands/CapturePortrait";
   const closeLabel = "/Carbon/UI/Common/Close";
+  const fullBodyLabel = "UI/Preview/ViewFullBody";
   const names = $derived(store.names), words = $derived(store.words), imageServer = $derived(flow.imageServer);
   const name = $derived(resolvedName($names.resolved, "owner", characterID, ""));
   const title = $derived($words.templates[captionLabel]
@@ -26,17 +27,39 @@
     : name ? "Character: " + name : "Portrait");
   const picture = $derived(portraitUrl($imageServer, characterID, 512));
   const pictures = $derived([...(picture ? [picture] : []), clientTexture(portraitDefaultPath(512))]);
-  const side = $derived(Math.max(1, Math.min(512, rect.w - 8, rect.h - 54)));
+  const side = $derived(Math.max(1, Math.min(512, rect.w - 8, rect.h - 84)));
   const menu = new ContextMenu();
   let capturing = $state(false);
   let captureStatus = $state("");
-  onDestroy(() => menu.close());
+  let previewing = $state(false);
+  let previewStatus = $state("");
+  let active = true;
+  onDestroy(() => { active = false; menu.close(); });
 
   $effect(() => {
     flow.loadImageServer();
     flow.requestNames([{ kind: "owner", id: characterID }]);
-    flow.requestWords([captionLabel, captureLabel, closeLabel]);
+    flow.requestWords([captionLabel, captureLabel, closeLabel, fullBodyLabel]);
   });
+
+  async function viewFullBody(): Promise<void> {
+    if (previewing) return;
+    previewing = true;
+    previewStatus = "";
+    try {
+      const appearance = await flow.readCharacterPreviewAppearance(characterID);
+      if (!active) return;
+      if (appearance === null) {
+        flow.sayDialog("CharacterHasNoDNA", { type: "dict", entries: [["charID", characterID]] }, "No appearance data is available for this character.");
+      } else {
+        previewStatus = "Full-body preview is unavailable in the browser.";
+      }
+    } catch (error) {
+      if (active) previewStatus = panelErrorWords(error);
+    } finally {
+      if (active) previewing = false;
+    }
+  }
 
   async function capture(): Promise<void> {
     if (capturing) return;
@@ -82,6 +105,10 @@
     <div role="img" aria-label={title} oncontextmenu={options}>
       <OwnerPicture {name} urls={pictures} size={side} />
     </div>
+    <button type="button" class="minor portrait-full-body" disabled={previewing} onclick={viewFullBody}>
+      {plainText($words.templates[fullBodyLabel] || "View Full Body")}
+    </button>
+    {#if previewStatus}<span class="portrait-preview-status" role="status">{previewStatus}</span>{/if}
     {#if captureStatus}<span role="status">{captureStatus}</span>{/if}
   </div>
 </DesktopWindow>

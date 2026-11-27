@@ -106,7 +106,7 @@
     if (!host) return;
     const size = host.element;
     const width = size.clientWidth || innerWidth, height = size.clientHeight || innerHeight;
-    const w = Math.min(width, 520), h = Math.min(height, 566);
+    const w = Math.min(width, 520), h = Math.min(height, 596);
     portrait = { characterID, rect: { w, h, x: Math.round((width - w) / 2), y: Math.round((height - h) / 2) },
       z: host.topZ() + 1, opening: ++portraitOpening };
   }
