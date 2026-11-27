@@ -1232,6 +1232,7 @@ import { decodeAccessGroupAudit, type AccessGroupAuditRow } from "../bridge/acce
 import { agentsAtStation, readAgentsTable } from "../bridge/agentReads.ts";
 import { authoritativeFleetMemberCharacterIDs, decodeFleetCenter, decodeFleetInviteAnswerNotification, decodeFleetInviteNotification, fleetInviteAnswerWords, memberWhereabouts, type FleetInviteAnswer } from "../bridge/fleetCenter.ts";
 import { decodeJoinRequest, type FleetMemberOptOuts } from "../bridge/boundFleet.ts";
+import { FLEET_MAX_SIZE, FLEET_SETUP_NAME_LENGTH, FLEET_SETUPS_KEY, fleetSetupHierarchy, writeFleetSetup, type FleetSetupOptions, type FleetSetupSource } from "../bridge/fleetSetups.ts";
 import { FLEET_JOB_CREATOR, canTagInFleet } from "../bridge/fleetCommand.ts";
 import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
 import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert, parseFleetAdvertUrl, type FleetAdvert } from "../bridge/fleetAds.ts";
@@ -2969,6 +2970,9 @@ export interface AppFlow {
   inviteFleetMember(characterID: number, assertCurrent?: () => void, expectedFleetID?: number, place?: { readonly wingID: number | null; readonly squadID: number | null; readonly role: number | null }): Promise<void>;
   decideFleetJoinRequest(fleetID: number, characterID: number, accept: boolean): Promise<void>;
   disbandFleet(fleetID: number): Promise<void>;
+  readFleetSetupSource(fleetID: number): Promise<FleetSetupSource | null>;
+  storeFleetSetup(fleetID: number, name: string, options: FleetSetupOptions): Promise<boolean>;
+  updateFleetHierarchy(fleetID: number, action: "wingName" | "squadName" | "defaultSquad", id: number, value?: string): Promise<void>;
   /**
    * An owner's menu's Form Fleet With (menusvc.py 637 to 638; fleetSvc.Invite, 351 to 363): a fleet formed where the
    * pilot is in none, then the character invited; the pilot's own character is invited to nothing.
@@ -19093,6 +19097,58 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await loadFleet(fleetDetailViews === 0);
     current();
     if (fleetBossOptions(fleetID).isFreeMove !== enabled) throw new Error("The free-move update could not be confirmed.");
+  }
+
+  async function readFleetSetupSource(fleetID: number): Promise<FleetSetupSource | null> {
+    const current = callOptions.captureRequestGuard!();
+    await loadFleet();
+    current();
+    const state = store.fleet.get();
+    const snapshot = state.fleet;
+    if (state.availability !== "ready" || state.authoritativeFleetID !== fleetID || !snapshot) return null;
+    if (snapshot.wings.error !== null || snapshot.motd.error !== null) throw new Error("The current fleet setup could not be read.");
+    const { options } = snapshot.initState.value;
+    const hierarchy = fleetSetupHierarchy(snapshot.wings.value, fleetNameID(options.autoJoinSquadID));
+    if (hierarchy === null) {
+      sayDialog("GiveWingsUniqueNames", null, "Give each wing a unique name before storing the fleet setup.");
+      return null;
+    }
+    const size = await bridgeAsk("fleetObjectHandler", "GetFleetMaxSize", [], null, fleetID);
+    current();
+    if (store.fleet.get().authoritativeFleetID !== fleetID) return null;
+    if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 1 || size > FLEET_MAX_SIZE) {
+      throw new Error("The current fleet size limit could not be read.");
+    }
+    return { fleetID, motd: snapshot.motd.value, freeMove: options.isFreeMove, maxSize: size, ...hierarchy };
+  }
+
+  async function storeFleetSetup(fleetID: number, name: string, include: FleetSetupOptions): Promise<boolean> {
+    if (!name.trim() || name.length > FLEET_SETUP_NAME_LENGTH) return false;
+    const current = callOptions.captureRequestGuard!();
+    const source = await readFleetSetupSource(fleetID);
+    current();
+    if (source === null) return false;
+    const previous = await readCharacterSetting(FLEET_SETUPS_KEY);
+    current();
+    if (store.fleet.get().authoritativeFleetID !== fleetID) return false;
+    const next = writeFleetSetup(previous, name, source, include);
+    await saveCharacterSetting(FLEET_SETUPS_KEY, next);
+    current();
+    return true;
+  }
+
+  async function updateFleetHierarchy(fleetID: number, action: "wingName" | "squadName" | "defaultSquad", id: number, value?: string): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    const options = fleetBossOptions(fleetID);
+    const wings = store.fleet.get().fleet?.wings.value ?? [];
+    const exists = action === "wingName" ? wings.some(wing => Number(wing.wingID) === id)
+      : wings.some(wing => wing.squads.some(squad => Number(squad.squadID) === id));
+    if (!exists) return;
+    const method = action === "wingName" ? "ChangeWingName" : action === "squadName" ? "ChangeSquadName" : "SetAutoJoinSquadID";
+    const args = action === "defaultSquad" ? [Number(options.autoJoinSquadID) === id ? null : id] : [id, value ?? ""];
+    await bridgeDo("fleetObjectHandler", method, args, null, fleetID);
+    current();
+    await loadFleet();
   }
 
   async function inviteFleetMember(characterID: number, assertCurrent?: () => void, expectedFleetID?: number, place?: { readonly wingID: number | null; readonly squadID: number | null; readonly role: number | null }): Promise<void> {
@@ -41855,6 +41911,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     inviteFleetMember,
     decideFleetJoinRequest,
     disbandFleet,
+    readFleetSetupSource,
+    storeFleetSetup,
+    updateFleetHierarchy,
     formFleetWith,
     inviteFleetSelection,
     acceptFleetInvite,

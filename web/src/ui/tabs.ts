@@ -59,6 +59,7 @@ export type CoreTabID =
   | "fleetBroadcastSettings"
   | "fleetAdvertEditor"
   | "fleetJoinRequests"
+  | "fleetSetupSave"
   | "watchlist"
   | "scanner"
   | "miningScan"
@@ -281,6 +282,7 @@ export const TABS: readonly CoreTabDef[] = [
   { id: "fleetBroadcastSettings", label: "Broadcast Settings", where: "both", launchable: false },
   { id: "fleetAdvertEditor", label: "Create Advert", where: "both", launchable: false },
   { id: "fleetJoinRequests", label: "Join requests", where: "both", launchable: false },
+  { id: "fleetSetupSave", label: "Store Fleet Setup", where: "both", launchable: false },
   // The fleet's watch list opens from a fleet action or the fleet window.
   { id: "watchlist", label: "Watch List", where: "both", launchable: false },
   { id: "mail", label: "Mail", where: "both" },

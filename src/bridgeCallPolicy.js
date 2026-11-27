@@ -42,7 +42,7 @@ const PLUMBING_SWEEP_WRITE_METHODS = freezeMethodMap({
   structureVulnerability: ["UpdateReinforceTimesFromClient"],
   structureProfiles: ["ChangeProfiles", "CreateProfile", "UpdateProfile", "DuplicateProfile", "DeleteProfile", "SetDefaultProfile", "SaveProfileSettings"],
   structureAssetSafety: ["MovePersonalAssetsToSafety", "MoveCorpAssetsToSafety", "MoveSafetyWrapToStructure"],
-  fleetObjectHandler: ["CreateFleet", "CreateWing", "CreateSquad", "MoveMember", "KickMember", "MakeLeader", "LeaveFleet", "DisbandFleet", "SetOptions", "SetFleetMaxSize", "SetMotdEx", "UpdateMemberInfo", "SetTakesFleetWarp", "SetAcceptsConduitJumpsValue", "SetAcceptsRegroupValue", "SendBroadcast", "Invite", "MassInvite", "AcceptInvite", "RejectInvite", "RejectJoinRequest", "Reconnect"],
+  fleetObjectHandler: ["CreateFleet", "CreateWing", "CreateSquad", "MoveMember", "KickMember", "MakeLeader", "LeaveFleet", "DisbandFleet", "SetOptions", "SetFleetMaxSize", "SetMotdEx", "UpdateMemberInfo", "SetTakesFleetWarp", "SetAcceptsConduitJumpsValue", "SetAcceptsRegroupValue", "SendBroadcast", "Invite", "MassInvite", "AcceptInvite", "RejectInvite", "RejectJoinRequest", "ChangeWingName", "ChangeSquadName", "SetAutoJoinSquadID", "Reconnect"],
   fleetProxy: ["ApplyToJoinFleet", "AddFleetFinderAdvert", "RemoveFleetFinderAdvert", "UpdateAdvertInfo"],
   fleetMgr: ["ForceLeaveFleet", "AddToWatchlist", "RemoveFromWatchlist", "RegisterForDamageUpdates", "BroadcastToBubble", "BroadcastToSystem"],
   entity: ["CmdReturnHome", "CmdSalvage", "CmdAbandonDrone", "CmdReconnectToDrones"],
@@ -961,10 +961,12 @@ const FLEET_PARTICIPATION_CALLS = ["SetTakesFleetWarp", "SetAcceptsConduitJumpsV
   .map(method => `fleetObjectHandler.${method}`);
 const FLEET_CONFIGURATION_WRITES = ["fleetObjectHandler.SetFleetMaxSize", "fleetObjectHandler.SetOptions"];
 const FLEET_BOSS_WRITES = ["fleetObjectHandler.RejectJoinRequest", "fleetObjectHandler.DisbandFleet"];
+const FLEET_HIERARCHY_WRITES = ["ChangeWingName", "ChangeSquadName", "SetAutoJoinSquadID"].map(method => `fleetObjectHandler.${method}`);
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
   ...FLEET_PARTICIPATION_CALLS,
   ...FLEET_CONFIGURATION_WRITES,
   ...FLEET_BOSS_WRITES,
+  ...FLEET_HIERARCHY_WRITES,
   "shipCosmeticsMgr.ActivateSkinLicense",
   "bountyProxy.SellKillRight", "bountyProxy.CancelSellKillRight",
   "skillHandler.RespecCharacter",
@@ -1383,7 +1385,7 @@ const PAGE_OBJECT_CALLS = Object.freeze({ "invbroker.DepositPlexToVault": "inven
  * names its originating corporation too, so an old pending action cannot affect a new corporation.
  */
 // (An office's object: Moniker('officeManager', stationID), a station the call names - officeManager.TrashImpoundAtStation.)
-const OBJECTS_THE_PAGE_NAMES = Object.freeze(new Set(["planet", "orbitalSystem", "fleetByNumber", "fleetParticipation", "fleetConfiguration", "fleetBossAction", "agent", "inventory", "corporationExpected", "trade", "war", "officeAt", "stationHeadquarters"]));
+const OBJECTS_THE_PAGE_NAMES = Object.freeze(new Set(["planet", "orbitalSystem", "fleetByNumber", "fleetParticipation", "fleetConfiguration", "fleetBossAction", "fleetHierarchy", "agent", "inventory", "corporationExpected", "trade", "war", "officeAt", "stationHeadquarters"]));
 /**
  * The objects the session has one of that a call may say the number of all the same, to be held to it: the
  * pilot's own fleet, where the invitation is to that fleet and no other. With no `of` it is the session's own.
@@ -1399,6 +1401,7 @@ function objectOfPageCall(service, method) {
   // (A pair has a full stop in it, and nothing an object has of itself is named so.)
   const pair = `${service}.${method}`;
   if (FLEET_BOSS_WRITES.includes(pair)) return "fleetBossAction";
+  if (FLEET_HIERARCHY_WRITES.includes(pair)) return "fleetHierarchy";
   if (pair === "fleetObjectHandler.GetFleetMaxSize" || FLEET_CONFIGURATION_WRITES.includes(pair)) return "fleetConfiguration";
   return FLEET_PARTICIPATION_CALLS.includes(pair) ? "fleetParticipation" : PAGE_OBJECT_CALLS[pair] ?? null;
 }

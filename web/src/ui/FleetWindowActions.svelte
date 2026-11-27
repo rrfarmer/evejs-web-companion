@@ -12,7 +12,7 @@
   import { clientTexture } from "./skillGroupIcons.ts";
   import { applyWindowFlags, setWindowFlag, windowFlags, WINDOW_ACTION_WORDS, type WindowFlag } from "./windowFlags.ts";
 
-  let { store, flow, flat, onFlat, docked, onBroadcast, onBroadcastSettings, onWatchlist, onComposition, onAdvert, onJoinRequests }: {
+  let { store, flow, flat, onFlat, docked, onBroadcast, onBroadcastSettings, onWatchlist, onComposition, onAdvert, onJoinRequests, onStoreSetup }: {
     store: ClientStore;
     flow: AppFlow;
     flat: boolean;
@@ -24,6 +24,7 @@
     onComposition: () => void;
     onAdvert: () => void;
     onJoinRequests: () => void;
+    onStoreSetup: () => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -59,6 +60,7 @@
     removeAdvert: F + "RemoveAdvert",
     joinRequests: F + "OpenJoinRequest",
     externalLink: F + "GetFleetID",
+    storeSetup: F + "StoreFleetSetup",
   };
   function word(label: string, fallback: string): string {
     const text = $words.templates[label];
@@ -114,6 +116,7 @@
         action(labels.broadcastSettings, "Broadcast Settings", onBroadcastSettings),
         flat ? action(labels.hierarchy, "View as Hierarchy", () => onFlat(false)) :
           action(labels.flat, "View as Flat List", () => onFlat(true)), null);
+      if ($fleet.availability === "ready") rows.push(action(labels.storeSetup, "Store Fleet Setup", onStoreSetup), null);
       if (own && $fleet.availability === "ready") {
         rows.push(...participation.map(([key, label, fallback]) => {
           const checked = own.memberOptOuts[key];

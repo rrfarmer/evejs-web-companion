@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { getContext, onMount } from "svelte";
+  import { getContext, onDestroy, onMount } from "svelte";
   import { isSessionLost } from "../app/flow.ts";
   import { nameKey, resolvedName } from "../store/names.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { memberWhereabouts } from "../bridge/fleetCenter.ts";
-  import { isFleetCommander } from "../bridge/fleetCommand.ts";
+  import { FLEET_JOB_CREATOR, isFleetCommander } from "../bridge/fleetCommand.ts";
+  import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
+  import { noticeBoard } from "./notices.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { CONTACT_STANDING } from "../bridge/contacts.ts";
   import { FLEET_POINTERS } from "../play/uiPointer.ts";
@@ -27,8 +29,43 @@
   } = $props();
 
   // svelte-ignore state_referenced_locally
-  const fleet = store.fleet;
-  const words = store.words;
+  const { fleet, words } = store;
+  const hierarchyMenu = new ContextMenu();
+  const hierarchyWords = "UI/Fleet/FleetWindow/";
+  const nameWord = hierarchyWords + "ChangeName";
+  const setDefaultWord = hierarchyWords + "SetSquadAsAutoJoin";
+  const removeDefaultWord = hierarchyWords + "RemoveSquadAsAutoJoin";
+  let changingName = $state<{ fleetID: number; id: number; action: "wingName" | "squadName" } | null>(null);
+  let hierarchyName = $state("");
+
+  function hierarchyAction(work: Promise<void>): void {
+    void work.catch(error => noticeBoard.post({ kind: "warn", title: "Fleet", detail: error instanceof Error ? error.message : String(error) }));
+  }
+  function showHierarchyMenu(event: MouseEvent, action: "wingName" | "squadName", id: number): void {
+    event.preventDefault();
+    const fleetID = $fleet.authoritativeFleetID;
+    if (!hierarchyBoss || fleetID === null) return;
+    const current = Number($fleet.fleet?.initState.value.options.autoJoinSquadID) === id;
+    const rows: ContextEntry[] = [{ label: fleetWord(nameWord) || "Change Name", run: () => {
+      changingName = { fleetID, id, action };
+      hierarchyName = "";
+    } }];
+    if (action === "squadName") rows.push({
+      label: current ? fleetWord(removeDefaultWord) || "Remove as Default Squad" : fleetWord(setDefaultWord) || "Set as Default Squad",
+      run: () => hierarchyAction(flow.updateFleetHierarchy(fleetID, "defaultSquad", id)),
+    });
+    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    hierarchyMenu.open(event.type === "contextmenu" ? event.clientX : bounds.left, event.type === "contextmenu" ? event.clientY : bounds.bottom, rows);
+  }
+  function renameHierarchy(event: SubmitEvent): void {
+    event.preventDefault();
+    if (!changingName) return;
+    const { fleetID, action, id } = changingName;
+    changingName = null;
+    hierarchyAction(flow.updateFleetHierarchy(fleetID, action, id, hierarchyName));
+  }
+  onMount(() => flow.requestWords([nameWord, setDefaultWord, removeDefaultWord]));
+  onDestroy(() => hierarchyMenu.close());
   /**
    * fleetwindow.FleetWindow on the play page (500 x 400, the tabs in the header - TabNavigationWindowHeader): in a
    * fleet Fleet, Broadcasts, Respawn, Formations, Advert, Find Fleets (UI/Fleet/Fleet, UI/Fleet/FleetWindow/Broadcasts,
@@ -200,6 +237,7 @@
   const rosterCountWords = $derived(`${roster.length} ${roster.length === 1 ? "member" : "members"}`);
   const wings = $derived($fleet.fleet?.initState.value.wings ?? []);
   const joinRequests = $derived($fleet.fleet?.joinRequests.value ?? []);
+  const hierarchyBoss = $derived($fleet.availability === "ready" && ownMember && (ownMember.job & FLEET_JOB_CREATOR) !== 0);
   // What each member flies and where: the composition's word, as the client's own window for these has it.
   const composition = $derived($fleet.fleet?.composition.value ?? []);
   const inviteeID = $derived(parseCharacterID(inviteeText));
@@ -618,7 +656,7 @@
         {#each wings as wing, wingIndex (positiveID(wing.wingID) ?? `wing-${wingIndex}`)}
           {@const staff = roster.filter((member) => wingStaff(member, wing))}
           <section class="wing-group">
-            <h4>{wing.name || "Wing"}</h4>
+            <h4>{@render hierarchyHeading("wingName", positiveID(wing.wingID), wing.name || "Wing")}</h4>
             {#if staff.length > 0}
               <ul>{#each staff as member, index (positiveID(member.charID) ?? `staff-${index}`)}{@render memberRow(member)}{/each}</ul>
             {/if}
@@ -626,7 +664,7 @@
               {#each wing.squads as squad, squadIndex (positiveID(squad.squadID) ?? `squad-${squadIndex}`)}
                 {@const members = roster.filter((member) => memberInSquad(member, squad))}
                 <section class="squad-group">
-                  <h5>{squad.name || "Squad"}</h5>
+                  <h5>{@render hierarchyHeading("squadName", positiveID(squad.squadID), squad.name || "Squad")}</h5>
                   {#if members.length === 0}
                     <p class="empty">No members assigned.</p>
                   {:else}
@@ -664,7 +702,25 @@
   {/if}
 </section>
 
+{#snippet hierarchyHeading(action: "wingName" | "squadName", id: number | null, name: string)}
+  {#if id !== null && retail && hierarchyBoss}
+    {#if changingName?.id === id && changingName.action === action && changingName.fleetID === $fleet.authoritativeFleetID}
+      <form class="hierarchy-rename" onsubmit={renameHierarchy}>
+        <input aria-label={fleetWord(nameWord) || "Change Name"} maxlength="10" bind:value={hierarchyName} />
+        <button type="submit">OK</button>
+        <button type="button" onclick={() => { changingName = null; }}>Cancel</button>
+      </form>
+    {:else}
+      <button type="button" class="hierarchy-heading" aria-haspopup="menu" onclick={event => showHierarchyMenu(event, action, id)}
+        oncontextmenu={event => showHierarchyMenu(event, action, id)}>{name}</button>
+    {/if}
+  {:else}{name}{/if}
+{/snippet}
+
 <style>
+  .hierarchy-heading { padding: 0; border: 0; background: none; font: inherit; color: inherit; min-height: 0; }
+  .hierarchy-rename { display: flex; align-items: center; gap: .2rem; }
+  .hierarchy-rename input { width: 8rem; }
   /* ⚠ `.panel-head > div` and `.subtitle` used to style the title+blurb
      wrapper this strip no longer has (see the panel-head comment above) -
      removed rather than left to style nothing. Do not add them back for a

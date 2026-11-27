@@ -1586,6 +1586,16 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       return;
     }
   }
+  if (objectKind === "fleetHierarchy") {
+    const [id, name] = Array.isArray(body.args) ? body.args : [];
+    const target = Number.isSafeInteger(id) && id > 0;
+    const valid = body.method === "SetAutoJoinSquadID" ? body.args?.length === 1 && (id === null || target)
+      : body.args?.length === 2 && target && typeof name === "string" && name.length <= 10;
+    if (!Array.isArray(body.args) || !valid || strictPositiveID(body.of) === null || body.kwargs != null) {
+      res.status(400).json({ ok: false, error: "INVALID_FLEET_HIERARCHY", message: "Choose a current wing or squad and a valid name." });
+      return;
+    }
+  }
   if (objectKind === "corporationExpected" && strictPositiveID(body.of) === null) {
     res.status(400).json({ ok: false, error: "INVALID_CORPORATION", message: "A corporation action names the corporation it was opened for." });
     return;
@@ -1828,7 +1838,7 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       : objectKind === "fleetExpected"
       ? { ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => inviteToFleetCall(
         heldBridgeSession, req.webSessionID, inviteeOf(body.args), saysWhich ? strictPositiveID(body.of) : null, invitedPlaceOf(body.args))), service: body.service, method: body.method }
-      : objectKind === "fleetParticipation" || objectKind === "fleetConfiguration" || objectKind === "fleetBossAction"
+      : objectKind === "fleetParticipation" || objectKind === "fleetConfiguration" || objectKind === "fleetBossAction" || objectKind === "fleetHierarchy"
       ? { ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => {
         const fleetID = strictPositiveID(body.of);
         if (String(fleetID) !== heldBridgeSession.fleetID) {

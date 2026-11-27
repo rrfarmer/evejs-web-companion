@@ -1931,7 +1931,7 @@
     mercenaryDens: { w: 900, h: 572 },
     shipSkinr: { w: 1024, h: 700 },
     hyperNet: { w: 1024, h: 720 },
-    fleetComposition: { w: 680, h: 420 }, fleetBroadcastSettings: { w: 480, h: 380 }, fleetAdvertEditor: { w: 600, h: 460 }, fleetJoinRequests: { w: 310, h: 145 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 570, h: 550 },
+    fleetComposition: { w: 680, h: 420 }, fleetBroadcastSettings: { w: 480, h: 380 }, fleetAdvertEditor: { w: 600, h: 460 }, fleetJoinRequests: { w: 310, h: 145 }, fleetSetupSave: { w: 396, h: 276 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 570, h: 550 },
     structureBrowser: { w: 800, h: 600 }, accessGroups: { w: 800, h: 600 }, autoMoonMiner: { w: 700, h: 515 },
     metenoxTransfer: { w: 400, h: 340 }, metenoxFuel: { w: 435, h: 285 },
     moonMaterialBay: { w: 490, h: 355 },
@@ -2112,7 +2112,7 @@
     lastFleetID = fleetID;
     untrack(() => {
       if (leaving) {
-        for (const id of ["watchlist", "fleetComposition", "fleetBroadcastSettings", "fleetAdvertEditor"] as const) {
+        for (const id of ["watchlist", "fleetComposition", "fleetBroadcastSettings", "fleetAdvertEditor", "fleetSetupSave"] as const) {
           wins = closeWindow(wins, id);
         }
       }
@@ -2176,6 +2176,7 @@
     fleetBroadcastSettings: "UI/Fleet/FleetBroadcast/BroadcastSettings",
     fleetAdvertEditor: "UI/Fleet/CreateAdvert",
     fleetJoinRequests: "UI/Fleet/FleetWindow/JoinRequests",
+    fleetSetupSave: "UI/Fleet/FleetWindow/StoreFleetSetup",
     memberDetails: "UI/Corporations/EditMemberDialog/EditMemberCaption",
     structureBrowser: "UI/Structures/Browser/StructureBrowser",
     accessGroups: "UI/Structures/AccessGroups/GroupWndName",
@@ -5071,6 +5072,7 @@
               onBroadcastSettings={() => open("fleetBroadcastSettings")}
               onAdvert={() => open("fleetAdvertEditor")}
               onJoinRequests={() => open("fleetJoinRequests")}
+              onStoreSetup={() => open("fleetSetupSave")}
               onWatchlist={() => open("watchlist")} onComposition={() => open("fleetComposition")} />{/if}
             {#if win.id === "drones"}<DronesWindowActions store={session.store} flow={session.flow} />{/if}
             {#if win.id === "inventory" && !docked}<InventoryWindowActions store={session.store} flow={session.flow} />{/if}
