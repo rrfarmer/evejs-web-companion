@@ -4643,6 +4643,9 @@ export interface AppFlow {
   buyHyperNetNode(id: number, node: number): Promise<HyperNetOfferDetails>;
   buyHyperNetNodes(id: number, quantity: number): Promise<HyperNetOfferDetails>;
   claimHyperNetReward(id: number): Promise<HyperNetOfferDetails>;
+  readonly hyperNetWinnerState: ReadableSignal<{ pilot: number; unseen: ReadonlySet<number> } | null>;
+  loadHyperNetWinnerState(): void;
+  markHyperNetWinnerSeen(id: number): void;
   loadHyperNetHistory(): Promise<readonly HyperNetHistoryOffer[]>;
   readonly hyperNetHistoryChanged: ReadableSignal<number>;
   loadHyperNetParticipation(): Promise<HyperNetParticipation>;
@@ -29351,6 +29354,33 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return details;
   }
 
+  const hyperNetWinnerState = createSignal<{ pilot: number; unseen: ReadonlySet<number> } | null>(null);
+  const hyperNetWinnerStorageKey = (pilot: number) => `evejs-hypernet-winners:${pilot}`;
+
+  function loadHyperNetWinnerState() {
+    const pilot = onlineCharacterID();
+    if (pilot === null) {
+      hyperNetWinnerState.set(null);
+      return;
+    }
+    if (hyperNetWinnerState.get()?.pilot === pilot) return;
+    let ids: unknown;
+    try { ids = JSON.parse(localStorage.getItem(hyperNetWinnerStorageKey(pilot)) ?? "[]"); } catch {}
+    const unseen = new Set<number>(Array.isArray(ids) ? ids.filter(id => Number.isSafeInteger(id) && id > 0) : []);
+    hyperNetWinnerState.set({ pilot, unseen });
+  }
+
+  function setHyperNetWinnerUnseen(id: number, unseen: boolean) {
+    loadHyperNetWinnerState();
+    const state = hyperNetWinnerState.get();
+    if (!state || state.unseen.has(id) === unseen) return;
+    const next = new Set(state.unseen);
+    if (unseen) next.add(id);
+    else next.delete(id);
+    hyperNetWinnerState.set({ pilot: state.pilot, unseen: next });
+    try { localStorage.setItem(hyperNetWinnerStorageKey(state.pilot), JSON.stringify([...next])); } catch {}
+  }
+
   async function buyHyperNetNode(id: number, node: number): Promise<HyperNetOfferDetails> {
     const current = callOptions.captureRequestGuard!();
     const owner = onlineCharacterID();
@@ -29364,12 +29394,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (details.id !== id || details.ticketOwners.get(node) !== owner) {
       throw new Error("HyperNet did not confirm this HyperNode.");
     }
+    setHyperNetWinnerUnseen(id, true);
     return details;
   }
 
   async function buyHyperNetNodes(id: number, quantity: number): Promise<HyperNetOfferDetails> {
     const current = callOptions.captureRequestGuard!();
-    if (onlineCharacterID() === null || !Number.isSafeInteger(id) || id <= 0 ||
+    const pilot = onlineCharacterID();
+    if (pilot === null || !Number.isSafeInteger(id) || id <= 0 ||
         !Number.isSafeInteger(quantity) || quantity < 1 || quantity > hyperNetCountBounds[3]) {
       throw new Error("Choose how many HyperNodes to buy.");
     }
@@ -29377,6 +29409,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     current();
     const details = decodeHyperNetOfferDetails(reply);
     if (details.id !== id) throw new Error("HyperNet returned a different offer.");
+    if ([...details.ticketOwners.values()].includes(pilot)) setHyperNetWinnerUnseen(id, true);
     return details;
   }
 
@@ -41991,6 +42024,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     buyHyperNetNode,
     buyHyperNetNodes,
     claimHyperNetReward,
+    hyperNetWinnerState: readonlySignal(hyperNetWinnerState),
+    loadHyperNetWinnerState,
+    markHyperNetWinnerSeen: id => setHyperNetWinnerUnseen(id, false),
     loadHyperNetHistory,
     hyperNetHistoryChanged: readonlySignal(hyperNetHistoryChanged),
     loadHyperNetParticipation,

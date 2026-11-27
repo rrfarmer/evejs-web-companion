@@ -22,6 +22,7 @@
   const words = $derived(store.words);
   const names = $derived(store.names);
   const imageServer = $derived(flow.imageServer);
+  const winnerState = $derived(flow.hyperNetWinnerState);
   const labels = {
     details: ["UI/HyperNet/PageTitleDetails", "Offer details"],
     heading: ["UI/HyperNet/PageTitleHistory", "Your HyperNet Relay participation history"],
@@ -29,6 +30,7 @@
     expired: ["UI/HyperNet/CardExpired", "Expired"],
     winner: ["UI/HyperNet/CardWinner", "Winner"],
     claim: ["UI/HyperNet/CardClaimPrize", "Claim Prize"],
+    showWinner: ["UI/HyperNet/CardShowWinner", "Show winner"],
     created: ["UI/HyperNet/CreatedByPlayerHint", "Created by you"],
     joined: ["UI/HyperNet/FilterJoined", "Joined"],
     price: ["UI/HyperNet/TicketPrice", "HyperNode price"],
@@ -443,7 +445,8 @@
   {:else}
     <ul>
       {#each rows as row (row.id)}
-        {@const claimable = row.status === 7 && pilot !== undefined && row.winnerID === pilot}
+        {@const unseen = row.winnerID !== null && $winnerState?.pilot === pilot && $winnerState?.unseen.has(row.id)}
+        {@const claimable = !unseen && row.status === 7 && pilot !== undefined && row.winnerID === pilot}
         <li data-history-id={row.id} data-history-status={row.status} draggable="true"
           ondragstart={event => startHyperNetOfferDrag(event, row.id,
             resolvedName($names.resolved, "type", row.typeID, String(row.typeID)), $words.templates[hyperNetLinkLabel])}>
@@ -460,6 +463,7 @@
           </dl>
           <span>
             {#if row.status < 7}Active
+            {:else if unseen}{word("showWinner")}
             {:else if row.winnerID}{word("winner")} · {resolvedName($names.resolved, "character", row.winnerID, String(row.winnerID))}
             {:else}{word("expired")}{/if}
           </span>
@@ -468,7 +472,8 @@
           </time>
           <div class="offer-actions">
             <button type="button" data-open-offer data-hypernet-claim-offer={claimable ? "" : undefined}
-              class:claimable onclick={() => openDetails(row.id)}>{word(claimable ? "claim" : "details")}</button>
+              data-hypernet-reveal-offer={unseen ? "" : undefined}
+              class:claimable class:unseen onclick={() => openDetails(row.id)}>{word(unseen ? "showWinner" : claimable ? "claim" : "details")}</button>
             {#if row.status === 6 && row.expires > now}
               <HyperNetQuickBuy {store} {flow} {pilot} offer={row} owned={row.owned} enabled={visible} onUpdate={updateHistoryOffer} />
             {/if}
@@ -493,6 +498,7 @@
   h2, ul, dl, dd, p { margin: 0; }
   ul { list-style: none; padding: 0; display: grid; gap: 6px; }
   li { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr)); align-items: center; gap: 8px; padding: 8px; background: #ffffff08; }
+  .unseen { border-color: #66cddd; }
   .claimable { border-color: #e0be70; }
   .offer-actions { display: flex; align-items: center; gap: 6px; }
   .item { display: flex; align-items: center; gap: 6px; text-align: start; }

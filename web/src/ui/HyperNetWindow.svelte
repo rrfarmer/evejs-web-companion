@@ -16,6 +16,9 @@
   const words = $derived(store.words);
   const station = $derived(store.station);
   const pilot = $derived($station.online?.characterID);
+  $effect(() => {
+    if (pilot !== undefined) flow.loadHyperNetWinnerState();
+  });
   const labels = {
     browse: ["UI/HyperNet/TabNameBrowse", "Browse"],
     history: ["UI/HyperNet/TabNameMyRaffles", "History"],

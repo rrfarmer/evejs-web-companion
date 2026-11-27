@@ -9,6 +9,7 @@
   import { resolvedName } from "../store/names.ts";
   import HyperNetOfferCard from "./HyperNetOfferCard.svelte";
   import HyperNetShare from "./HyperNetShare.svelte";
+  import HyperNetWinnerReveal from "./HyperNetWinnerReveal.svelte";
   import { showInfo } from "./showInfo.ts";
   import { typeIconUrl } from "./typeIcons.ts";
 
@@ -57,7 +58,11 @@
   let details = $state.raw<HyperNetOfferDetails | null>(null);
   let similarOffers = $state.raw<readonly HyperNetOffer[]>([]);
   let similarLoading = $state(false);
-  const winnerType = $derived(details?.winnerID ? details.typeID : null);
+  const winnerState = $derived(flow.hyperNetWinnerState);
+  const revealing = $derived(details?.winnerID !== null && details?.winningNumber != null &&
+    $winnerState?.pilot === pilot && $winnerState?.unseen.has(id));
+  const winnerType = $derived(details?.winnerID && !revealing ? details.typeID : null);
+  const ownedNumbers = $derived(details ? [...details.ticketOwners].filter(([, owner]) => owner === pilot).map(([number]) => number) : []);
 
   $effect(() => {
     const typeID = winnerType;
@@ -301,6 +306,9 @@
   </header>
   {#if failed}
     <p role="alert">{word("unavailable")}</p>
+  {:else if revealing && details?.winningNumber != null}
+    <HyperNetWinnerReveal {store} {flow} typeID={details.typeID} winningNumber={details.winningNumber}
+      {ownedNumbers} onFinish={() => flow.markHyperNetWinnerSeen(id)} />
   {:else if details}
     {@const offer = details}
     <div class="offer-facts">
