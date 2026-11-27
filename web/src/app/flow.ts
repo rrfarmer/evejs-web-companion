@@ -1234,7 +1234,7 @@ import { authoritativeFleetMemberCharacterIDs, decodeFleetCenter, decodeFleetInv
 import type { FleetMemberOptOuts } from "../bridge/boundFleet.ts";
 import { FLEET_JOB_CREATOR, canTagInFleet } from "../bridge/fleetCommand.ts";
 import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
-import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert, type FleetAdvert } from "../bridge/fleetAds.ts";
+import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert, parseFleetAdvertUrl, type FleetAdvert } from "../bridge/fleetAds.ts";
 import { readAvailableFleetAds, readFleetFinder as readFleetFinderCalls } from "../bridge/fleetFinderReads.ts";
 import { readMyLaunches } from "../bridge/launchReads.ts";
 import { commandLaunchRemaining, quoteCommandLaunch, type CommandLaunchFacts, type PlanetLaunchesRead } from "../bridge/planetLaunches.ts";
@@ -5220,6 +5220,7 @@ export interface AppFlow {
   followInventoryFilterLink(url: string): Promise<boolean>;
   shareFleetBroadcastSettings(rows: readonly BroadcastSettingRow[]): Promise<string | null>;
   followFleetBroadcastSettings(url: string, text: string): Promise<void>;
+  followFleetAdvertLink(url: string): Promise<void>;
   /** preset_link.handle_link: an overviewPreset link followed (LoadSharedOverviewProfile). */
   followOverviewPresetLink(url: string, text: string | null): Promise<void>;
   takeInventoryFilterLink(): InventoryFilter | null;
@@ -14758,6 +14759,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         text = labelEscaped(text);
       }
       if (parseFleetBroadcastSettingsUrl(url)) text = labelEscaped(text);
+      if (/^fleet:/i.test(url)) {
+        if (parseFleetAdvertUrl(url) === null) return null;
+        text = labelEscaped(text);
+      }
     }
     // AddLink: StripTags(text, stripOnly=['localized']).
     const markup = `<a href="${url}">${text.replace(/<\/?localized\b[^>]*>/gi, "")}</a>`;
@@ -20449,6 +20454,44 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   /** fleetSvc.ApplyToJoinFleet (1906): the fleet applied to, whose invitation the pilot's setting does not turn away. */
   let expectingInvite: number | null = null;
+
+  async function followFleetAdvertLink(url: string): Promise<void> {
+    const fleetID = parseFleetAdvertUrl(url);
+    if (fleetID === null) return;
+    const current = callOptions.captureRequestGuard!();
+    const ads = decodeAvailableFleetAds(await readAvailableFleetAds(bridgeAsk));
+    current();
+    if (!ads.some(ad => ad.fleetID === fleetID)) {
+      sayDialog("FleetJoinFleetFromLinkError", null, "This fleet advert is no longer available to you.");
+      return;
+    }
+    await loadFleet(fleetDetailViews === 0);
+    current();
+    const membership = store.fleet.get();
+    if (membership.availability === "ready") {
+      if (membership.authoritativeFleetID === fleetID) {
+        sayDialog("FleetYouAreAlreadyInFleet", null, "You are already in this fleet.");
+        return;
+      }
+      if (!(await askDialog("AskChangeFleet", null, "Leave your current fleet and apply to this fleet?"))) return;
+      current();
+      if (store.fleet.get().authoritativeFleetID !== membership.authoritativeFleetID) return;
+      await leaveFleet();
+      current();
+    }
+    if (store.fleet.get().availability !== "not-in-fleet") return;
+    expectingInvite = fleetID;
+    try {
+      const outcome = await applyToJoinFleetCall(bridgeDo, fleetID, false);
+      current();
+      if (outcome === "needs-approval") sayDialog("FleetApplicationReceived", null, "Your fleet application was received.");
+    } catch (error) {
+      if (expectingInvite === fleetID) expectingInvite = null;
+      throwIfRequestRetired(error);
+      current();
+      if (!sayRefusalDialog(error, errorWords(error))) throw error;
+    }
+  }
 
   // --- R17 Mail -------------------------------------------------------------
 
@@ -40084,6 +40127,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     followInventoryFilterLink,
     shareFleetBroadcastSettings,
     followFleetBroadcastSettings,
+    followFleetAdvertLink,
     followOverviewPresetLink,
     takeInventoryFilterLink,
     followWebLink,

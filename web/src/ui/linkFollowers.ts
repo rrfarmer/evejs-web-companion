@@ -18,6 +18,7 @@ import type { AppFlow } from "../app/flow.ts";
 import { LINK_DRAG_TYPE, parseSkillPlanUrl } from "../bridge/skillPlanLink.ts";
 import { parseInventoryFilterLink } from "../bridge/inventoryFilters.ts";
 import { parseFleetBroadcastSettingsUrl } from "../bridge/fleetBroadcastSettingsLink.ts";
+import { parseFleetAdvertUrl } from "../bridge/fleetAds.ts";
 import { parseOverviewPresetUrl } from "../bridge/overviewProfileLink.ts";
 import { parseHelpPointerUrl } from "../bridge/helpPointerLink.ts";
 import { parseShipSkinrDesignUrl, parseShipSkinrListingUrl } from "../bridge/shipSkinrListingLink.ts";
@@ -76,6 +77,7 @@ export const LINK_WORDS: Readonly<Record<string, string>> = {
   "UI/Fitting/ShowFitting": "Look at the fitting",
   "UI/Inventory/Filters/SharedItemFilter": "Shared Item Filter",
   "UI/Fleet/FleetBroadcast/LoadSharedBroadcastSettings": "Load Shared Fleet Broadcast Settings",
+  "UI/Fleet/ClickToJoinFleet": "Click to join this fleet",
   "UI/Overview/ProfileLinkHint": "Overview Profile",
   "UI/Help/HelpPointersTooltip": "Show User Interface Pointer",
   "UI/Personalization/ShipSkins/ShipSkinListingLinkHint": "View SKIN listing in the Paragon Hub",
@@ -86,7 +88,7 @@ export const LINK_WORDS: Readonly<Record<string, string>> = {
 
 export interface LinkFollower {
   /** Its registry's kind, for its colour (styles.css .evelink.skillPlan, .showInfo, .web, .fitting). */
-  readonly kind: "skillPlan" | "showInfo" | "web" | "fitting" | "sharedSetting" | "helpPointer" | "shipSkinListing" | "shipSkinDesign" | "hyperNet" | "killReport";
+  readonly kind: "skillPlan" | "showInfo" | "web" | "fitting" | "sharedSetting" | "helpPointer" | "shipSkinListing" | "shipSkinDesign" | "hyperNet" | "killReport" | "fleetAdvert";
   readonly hint: string;
   readonly follow: (event?: MouseEvent) => void;
 }
@@ -100,13 +102,17 @@ export function linkFollowerOf(
   url: string,
   flow: Pick<AppFlow, "followWebLink" | "followFittingLink"> & Partial<Pick<AppFlow,
     "followOverviewPresetLink" | "followShipSkinrListingLink" | "followShipSkinrDesignLink" | "followHyperNetOfferLink" |
-    "followCombatReportLink" | "followFleetBroadcastSettings">>,
+    "followCombatReportLink" | "followFleetBroadcastSettings" | "followFleetAdvertLink">>,
   openSkillPlanLink: ((url: string) => void) | null,
   word: (label: string) => string,
   text: string | null = null,
   openInventoryFilterLink: ((url: string) => void) | null = null,
 ): LinkFollower | null {
   const scheme = linkScheme(url);
+  if (scheme === "fleet" && flow.followFleetAdvertLink && parseFleetAdvertUrl(url) !== null) {
+    const follow = flow.followFleetAdvertLink;
+    return { kind: "fleetAdvert", hint: word("UI/Fleet/ClickToJoinFleet"), follow: () => void follow(url).catch(() => {}) };
+  }
   if (scheme === "sharedsetting" && flow.followFleetBroadcastSettings && parseFleetBroadcastSettingsUrl(url)) {
     const follow = flow.followFleetBroadcastSettings;
     return { kind: "sharedSetting", hint: word("UI/Fleet/FleetBroadcast/LoadSharedBroadcastSettings"),

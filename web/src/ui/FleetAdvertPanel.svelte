@@ -1,14 +1,16 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import type { FleetAdvert } from "../bridge/fleetAds.ts";
+  import { fleetAdvertUrl, type FleetAdvert } from "../bridge/fleetAds.ts";
   import { FLEET_JOB_CREATOR } from "../bridge/fleetCommand.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import { resolvedName } from "../store/names.ts";
+  import FleetAdvertDetails from "./FleetAdvertDetails.svelte";
+  import { startLinkDrag } from "./linkFollowers.ts";
+  import { clientTexture } from "./skillGroupIcons.ts";
 
   let { store, flow, onEdit }: { store: ClientStore; flow: AppFlow; onEdit: () => void } = $props();
   // svelte-ignore state_referenced_locally
-  const { fleet, station, names, words } = store;
+  const { fleet, station, words } = store;
   // svelte-ignore state_referenced_locally
   const revision = flow.fleetAdvertRevision;
   const fleetID = $derived($fleet.availability === "ready" ? $fleet.authoritativeFleetID : null);
@@ -34,15 +36,10 @@
     return () => { current = false; };
   });
   $effect(() => {
-    const leader = advert?.leader.charID, system = advert?.solarSystemID;
-    flow.requestNames([...(leader ? [{ kind: "character" as const, id: leader }] : []),
-      ...(system ? [{ kind: "system" as const, id: system }] : [])]);
-  });
-  $effect(() => {
     flow.requestWords([
-      ...["DoNotHaveAnAdvert", "DoNotHaveAnAdvertDetailed", "UnnamedFleet", "MemberCount"].map(label => R + label),
+      ...["DoNotHaveAnAdvert", "DoNotHaveAnAdvertDetailed", "UnnamedFleet", "DragToShareAdvertHint"].map(label => R + label),
       ...["CreateAdvert", "EditAdvert", "RemoveAdvert"].map(label => W + label),
-      "UI/Fleet/Ranks/Boss", "UI/Common/Location", "UI/Common/Description",
+      "UI/Common/Unknown",
     ]);
   });
   function word(label: string, fallback: string): string {
@@ -65,18 +62,13 @@
 
 <div class="fleet-advert" data-fleet-advert={registered ? "registered" : "empty"}>
   {#if registered}
-    {#if advert && advert.fleetID === fleetID}
-      <h3>{advert.fleetName || word(R + "UnnamedFleet", "Unnamed Fleet")}</h3>
-      <dl>
-        <dt>{word("UI/Fleet/Ranks/Boss", "Boss")}</dt>
-        <dd>{resolvedName($names.resolved, "character", advert.leader.charID, "")}</dd>
-        {#if !advert.hideInfo}
-          <dt>{word("UI/Common/Location", "Location")}</dt>
-          <dd>{resolvedName($names.resolved, "system", advert.solarSystemID, "Unknown")}</dd>
-          <dt>{word(R + "MemberCount", "Member Count")}</dt><dd>{advert.numMembers}</dd>
-        {/if}
-      </dl>
-      {#if advert.description}<p class="description">{advert.description}</p>{/if}
+    {#if advert && fleetID !== null && advert.fleetID === fleetID}
+      {@const url = fleetAdvertUrl(fleetID)}
+      {@const linkText = advert.fleetName || word("UI/Common/Unknown", "Unknown")}
+      <h3 draggable="true" data-fleet-advert-share title={word(R + "DragToShareAdvertHint", "Drag to share fleet advert")}
+        ondragstart={event => startLinkDrag(event, url, linkText)}><img
+          src={clientTexture("res:/UI/Texture/WindowIcons/fleet.png")} alt="" draggable="false" />{advert.fleetName || word(R + "UnnamedFleet", "Unnamed Fleet")}</h3>
+      <FleetAdvertDetails {advert} {store} {flow} />
     {:else if loading}
       <p aria-live="polite">Reading fleet advert…</p>
     {:else if readFailed}
@@ -96,9 +88,7 @@
 <style>
   .fleet-advert { padding: .5rem; }
   h3 { margin: 0 0 .5rem; }
-  dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .25rem .75rem; margin: 0; }
-  dt { color: var(--color-muted); }
-  dd { margin: 0; }
-  .description { white-space: pre-wrap; overflow-wrap: anywhere; }
+  h3[draggable] { display: flex; align-items: center; gap: .35rem; width: fit-content; cursor: grab; }
+  h3 img { width: 24px; height: 24px; }
   .advert-actions { display: flex; justify-content: flex-end; gap: .35rem; margin-top: .8rem; }
 </style>

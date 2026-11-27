@@ -149,6 +149,16 @@ export interface FleetAdvert {
   readonly advertJoinLimit: number | null;
 }
 
+export function fleetAdvertUrl(fleetID: number): string {
+  return `fleet:${fleetID}`;
+}
+
+export function parseFleetAdvertUrl(url: string): number | null {
+  const id = /^fleet:([1-9]\d*)$/i.exec(url)?.[1];
+  const fleetID = Number(id);
+  return Number.isSafeInteger(fleetID) ? fleetID : null;
+}
+
 /** The leader is a util.KeyVal nested inside the advert's bare dict. */
 function decodeLeader(value: JsonValue | undefined): FleetAdvertLeader {
   return {

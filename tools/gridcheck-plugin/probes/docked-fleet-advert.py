@@ -26,7 +26,8 @@ def observe():
         result = dict(build=3698585, station=session.stationid, menu=entries, empty=panel.myAdvertCaption.text,
                       editor=dict(caption=editor.GetCaption(), size=list(editor.GetAbsolute())[2:], name=editor.sr.fleetName.GetValue()))
         editor.Close()
-        advert = FleetAdvertCreationObject(fleetName='Codex Fleet Advert', description='Native reference advert')
+        advert = FleetAdvertCreationObject(fleetName='Codex Fleet Advert', description='Native reference advert',
+                                          joinNeedsApproval=True, public_minStanding=5, public_minSecurity=0.0)
         advert.AddToInviteScopeMask(evefleet.INVITE_PUBLIC_OPEN)
         fleet.RegisterFleet(advert)
         for _ in range(25):
@@ -34,8 +35,10 @@ def observe():
                 break
             blue.pyos.synchro.SleepWallclock(120)
         panel.LoadPanel()
+        link = panel.dragIcon.GetDragData()[0].get_link()
         result['registered'] = dict(caption=panel.myAdvertCaption.text,
-                                    menu=[entry.GetText() for entry in window.GetFleetMenuTop() if entry is not None and 'Advert' in entry.GetText()])
+                                    menu=[entry.GetText() for entry in window.GetFleetMenuTop() if entry is not None and 'Advert' in entry.GetText()],
+                                    details=panel.myAdvertText.text, link=[link.url, link.text])
         fleet.RemoveFleetFinderAdvert()
         fleet.currentFleetAd = None
         for _ in range(25):

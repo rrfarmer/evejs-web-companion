@@ -16,6 +16,7 @@
 // to no visible end.
 
 import { parseCombatReportUrl } from "./combatLog.ts";
+import { parseFleetAdvertUrl } from "./fleetAds.ts";
 import { parseFleetBroadcastSettingsUrl } from "./fleetBroadcastSettingsLink.ts";
 import { parseHelpPointerUrl } from "./helpPointerLink.ts";
 import { parseHyperNetOfferUrl } from "./hyperNetOfferLink.ts";
@@ -77,7 +78,7 @@ export function isMailItemLink(url: string): boolean {
 export function isMailDraftLink(url: string): boolean {
   return isMailItemLink(url) || parseHelpPointerUrl(url) !== null || parseShipSkinrListingUrl(url) !== null ||
     parseShipSkinrDesignUrl(url) !== null || parseHyperNetOfferUrl(url) !== null || parseCombatReportUrl(url) !== null ||
-    parseFleetBroadcastSettingsUrl(url) !== null;
+    parseFleetBroadcastSettingsUrl(url) !== null || parseFleetAdvertUrl(url) !== null;
 }
 
 /** Retain complete links on either side of one textarea edit. Editing inside a label makes it plain text. */

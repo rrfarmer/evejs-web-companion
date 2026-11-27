@@ -12,9 +12,11 @@
   import FleetBroadcastBar from "./FleetBroadcastBar.svelte";
   import FleetHistory from "./FleetHistory.svelte";
   import FleetAdvertPanel from "./FleetAdvertPanel.svelte";
+  import FleetAdvertDetails from "./FleetAdvertDetails.svelte";
+  import { startLinkDrag } from "./linkFollowers.ts";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import type { FleetMember, FleetSquad, FleetWing } from "../bridge/boundFleet.ts";
-  import type { FleetAdvert } from "../bridge/fleetAds.ts";
+  import { fleetAdvertUrl, type FleetAdvert } from "../bridge/fleetAds.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
   let { store, flow, openWatchlist, openComposition, onFleetBroadcast, fleetRosterFlat = false, openAdvert }: {
@@ -451,7 +453,10 @@
             <tbody>
               {#each shownAds as ad (ad.fleetID)}
                 {@const priv = fleetWord("UI/Generic/Private") || "Private"}
-                <tr class:sel={finderSelected === ad.fleetID} onclick={() => (finderSelected = finderSelected === ad.fleetID ? null : ad.fleetID)}>
+                <tr class:sel={finderSelected === ad.fleetID} onclick={() => (finderSelected = finderSelected === ad.fleetID ? null : ad.fleetID)}
+                  draggable={ad.fleetID !== null} ondragstart={event => {
+                    if (ad.fleetID !== null) startLinkDrag(event, fleetAdvertUrl(ad.fleetID), ad.fleetName || fleetWord("UI/Common/Unknown") || "Unknown");
+                  }}>
                   <td>{resolvedName($names.resolved, "character", ad.leader.charID, "")}</td>
                   <td>{#if ad.hideInfo}<span class="priv">{priv}</span>{:else}{ad.solarSystemID ? resolvedName($names.resolved, "system", ad.solarSystemID, "") : ""}{/if}</td>
                   <td>{ad.fleetName}</td>
@@ -469,7 +474,7 @@
             <div class="top"><b>{selectedAd.fleetName || fleetWord("UI/Fleet/FleetRegistry/UnnamedFleet") || "Unnamed fleet"}</b>
               <button type="button" disabled={busy || selectedAd.fleetID === null} onclick={() => { if (selectedAd?.fleetID) void flow.applyToJoinFleet(selectedAd.fleetID); }}>
                 {selectedAd.joinNeedsApproval ? fleetWord("UI/Fleet/FleetRegistry/RequestJoinFleet") || "Request to Join" : fleetWord("UI/Fleet/FleetRegistry/JoinFleet") || "Join Fleet"}</button></div>
-            {#if selectedAd.description}<p>{selectedAd.description}</p>{/if}
+            <FleetAdvertDetails advert={selectedAd} {store} {flow} />
           </div>
         {/if}
       </div>
