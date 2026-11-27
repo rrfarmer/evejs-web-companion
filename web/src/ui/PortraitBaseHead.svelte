@@ -6,8 +6,9 @@
   import type { PortraitFrame, PortraitSkinTone } from "../app/api.ts";
   import { compressedSupport, loadDds } from "../three/ddsTexture";
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
+  import { capturePointer } from "./pointerCapture.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, outfit }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
@@ -17,13 +18,20 @@
     hasSkinTones?: boolean;
     skinColors?: PortraitSkinTone["colors"];
     hairstyle?: string;
+    outfit?: string;
   } = $props();
   let canvas: HTMLCanvasElement;
   let renderer = $state.raw<THREE.WebGLRenderer | null>(null);
   let display = $state<"loading" | "ready" | "unavailable">("loading");
   let backdropDisplay = $state<"loading" | "ready" | "unavailable">("loading");
   let hairDisplay = $state<"loading" | "ready" | "unavailable">("loading");
+  let outfitDisplay = $state<"loading" | "ready" | "unavailable">("loading");
   let headBounds = $state.raw<THREE.Box3 | null>(null);
+  let outfitBounds = $state.raw<THREE.Box3 | null>(null);
+  let hairBounds = $state.raw<THREE.Box3 | null>(null);
+  let viewportAspect = $state(1);
+  let yaw = $state(0), pitch = $state(0), zoom = $state(1), pan = $state(0);
+  let drag: { id: number; x: number; y: number; pan: boolean } | null = null;
   type SkinUniforms = {
     portraitSkinDetail: { value: THREE.Texture };
     portraitSkinZone: { value: THREE.Texture };
@@ -110,14 +118,30 @@
   }
 
   onMount(() => {
+    let viewport: ResizeObserver | undefined;
     try {
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
       renderer.setSize(384, 384, false);
       renderer.setClearColor(0x171e1e);
+      if (outfit) {
+        canvas.addEventListener("wheel", wheel, { passive: false });
+        viewport = new ResizeObserver(([entry]) => {
+          if (!entry || !renderer) return;
+          const { width, height } = entry.contentRect;
+          if (width < 1 || height < 1) return;
+          const scale = Math.min(1, 768 / Math.max(width, height));
+          renderer.setSize(Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)), false);
+          viewportAspect = width / height;
+          if (outfitDisplay === "ready" && display === "ready") renderer.render(scene, camera);
+        });
+        viewport.observe(canvas);
+      }
     } catch {
       display = "unavailable";
     }
     return () => {
+      viewport?.disconnect();
+      canvas.removeEventListener("wheel", wheel);
       renderer?.dispose();
       renderer?.forceContextLoss();
     };
@@ -127,6 +151,7 @@
     const active = renderer;
     const gender = model;
     const style = hairstyle;
+    const fullBody = Boolean(outfit);
     if (!active) return;
     if (!style) {
       active.render(scene, camera);
@@ -156,6 +181,10 @@
       });
       applySurface(hair, surface, new Set(), new Set(), null, surface);
       scene.add(hair);
+      if (fullBody) {
+        hair.updateMatrixWorld(true);
+        hairBounds = new THREE.Box3().setFromObject(hair, true);
+      }
       active.render(scene, camera);
       hairDisplay = "ready";
     })().catch(() => { if (!retired) hairDisplay = "unavailable"; });
@@ -165,9 +194,126 @@
         scene.remove(hair);
         release(hair);
       }
+      hairBounds = null;
       texture?.dispose();
     };
   });
+
+  $effect(() => {
+    const active = renderer;
+    const source = outfit;
+    const gender = model;
+    if (!active || !source) return;
+    let retired = false;
+    let body: THREE.Group | null = null;
+    const maps: Awaited<ReturnType<typeof loadMap>>[] = [];
+    const texture = async (url: string | null, color: boolean): Promise<THREE.Texture | null> => {
+      if (!url) return null;
+      const map = await loadMap(url, color);
+      if (retired) {
+        map.bitmap.close();
+        map.texture.dispose();
+        return null;
+      }
+      maps.push(map);
+      return map.texture;
+    };
+    outfitDisplay = "loading";
+    outfitBounds = null;
+    void (async () => {
+      const response = await fetch(source);
+      if (!response.ok) throw new Error("Outfit unavailable");
+      const data = await response.json() as {
+        model: string; diffuse: string | null; zones: string | null; normal: string | null;
+        colors: [number, number, number, number][]; occludes: string[];
+      };
+      // Only covered outer garments can use the body meshes without separate apparel.
+      if (!["topouter", "bottomouter", "feet"].every(location => data.occludes.includes(location))) {
+        throw new Error("This outfit requires additional apparel layers");
+      }
+      const diffuse = await texture(data.diffuse, true);
+      const zones = data.colors.length === 3 ? await texture(data.zones, false) : null;
+      const normal = await texture(data.normal, false);
+      const skinDetail = await texture(`/client-assets/graphics/character/${gender}/paperdoll/skintone/basic/colorize_body_l_512.png`, true).catch(() => null);
+      if (retired) return;
+      const { scene: object } = await loader.loadAsync(data.model);
+      if (retired) { release(object); return; }
+      body = object;
+      const garment = new THREE.MeshStandardMaterial({ map: diffuse, normalMap: normal, roughness: 0.68, side: THREE.DoubleSide });
+      const skin = new THREE.MeshStandardMaterial({ map: skinDetail, color: skinDetail ? 0xffffff : 0xb59280, roughness: 0.78 });
+      garment.onBeforeCompile = shader => {
+        if (zones && diffuse) {
+          shader.uniforms.outfitZones = { value: zones };
+          shader.uniforms.outfitColors = { value: data.colors.map(([r, g, b]) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace)) };
+          shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
+            #include <map_pars_fragment>
+            uniform sampler2D outfitZones;
+            uniform vec3 outfitColors[3];
+          `).replace("#include <map_fragment>", `
+            #include <map_fragment>
+            vec3 zones = texture2D(outfitZones, vMapUv).rgb;
+            float coverage = dot(zones, vec3(1.0));
+            vec3 tint = zones.r * outfitColors[0] + zones.g * outfitColors[1] + zones.b * outfitColors[2];
+            diffuseColor.rgb *= mix(vec3(1.0), tint / max(coverage, 0.001), clamp(coverage, 0.0, 1.0));
+          `);
+        }
+        if (normal) shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>",
+          THREE.ShaderChunk.normal_fragment_maps.replace(
+            "vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;",
+            "vec2 xy = texture2D( normalMap, vNormalMapUv ).ag * 2.0 - 1.0; vec3 mapN = vec3(xy, sqrt(max(0.0, 1.0 - dot(xy, xy))));"));
+      };
+      garment.customProgramCacheKey = () => `outfit:${Boolean(zones && diffuse)}:${Boolean(normal)}`;
+      const original = new Set<THREE.Material>();
+      let hasSkinMesh = false;
+      body.traverse(node => {
+        if (!(node instanceof THREE.Mesh)) return;
+        for (const material of Array.isArray(node.material) ? node.material : [node.material]) original.add(material);
+        const bareSkin = /^skin/i.test(node.name);
+        hasSkinMesh ||= bareSkin;
+        node.material = bareSkin ? skin : garment;
+      });
+      original.forEach(material => material.dispose());
+      if (!hasSkinMesh) skin.dispose();
+      body.updateMatrixWorld(true);
+      outfitBounds = new THREE.Box3().setFromObject(body, true);
+      scene.add(body);
+      outfitDisplay = "ready";
+    })().catch(() => { if (!retired) outfitDisplay = "unavailable"; });
+    return () => {
+      retired = true;
+      if (body) { scene.remove(body); release(body); }
+      for (const map of maps) { map.texture.dispose(); map.bitmap.close(); }
+    };
+  });
+
+  function startDrag(event: PointerEvent): void {
+    if (!outfit || (event.button !== 0 && event.button !== 2)) return;
+    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, pan: event.button === 2 };
+    capturePointer(canvas, event.pointerId);
+  }
+
+  function moveDrag(event: PointerEvent): void {
+    if (drag?.id !== event.pointerId) return;
+    const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+    drag.x = event.clientX;
+    drag.y = event.clientY;
+    if (drag.pan) pan = THREE.MathUtils.clamp(pan + dy / Math.max(1, canvas.clientHeight), -0.5, 0.5);
+    else {
+      yaw = (yaw - dx * 0.012) % (2 * Math.PI);
+      pitch = THREE.MathUtils.clamp(pitch + dy * 0.009, 0, Math.PI / 2 - 0.02);
+    }
+  }
+
+  function endDrag(event: PointerEvent): void {
+    if (drag?.id === event.pointerId) drag = null;
+  }
+
+  function wheel(event: WheelEvent): void {
+    if (!outfit) return;
+    event.preventDefault();
+    const amount = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientHeight : 1);
+    zoom = THREE.MathUtils.clamp(zoom * Math.exp(Math.sign(amount) * Math.min(Math.abs(amount), 250) * 0.0015), 0.42, 2.5);
+  }
 
   $effect(() => {
     const active = renderer;
@@ -182,6 +328,28 @@
       colors?.forEach((rgb, index) => tint.portraitSkinColors.value[index]!.setRGB(...rgb, THREE.SRGBColorSpace));
     }
     const center = bounds.getCenter(new THREE.Vector3());
+    if (outfit) {
+      if (!outfitBounds) {
+        display = "ready";
+        return;
+      }
+      const whole = bounds.clone().union(outfitBounds);
+      if (hairBounds) whole.union(hairBounds);
+      const size = whole.getSize(new THREE.Vector3());
+      whole.getCenter(cameraTarget);
+      cameraTarget.y += size.y * pan;
+      camera.fov = 32;
+      camera.aspect = viewportAspect;
+      const distance = Math.max(size.y, Math.max(size.x, size.z) / camera.aspect) /
+        (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.17 * zoom + size.z * 0.5;
+      camera.position.set(cameraTarget.x + Math.sin(yaw) * Math.cos(pitch) * distance,
+        cameraTarget.y + Math.sin(pitch) * distance, cameraTarget.z - Math.cos(yaw) * Math.cos(pitch) * distance);
+      camera.lookAt(cameraTarget);
+      camera.updateProjectionMatrix();
+      active.render(scene, camera);
+      display = "ready";
+      return;
+    }
     let usable = false;
     if (saved) {
       // The extracted model mirrors the native Z axis. Apply the same transform to the saved camera.
@@ -393,11 +561,16 @@
   });
 </script>
 
-<canvas bind:this={canvas} data-portrait-head={display} data-backdrop-state={backdropUrl ? backdropDisplay : undefined}
+<canvas bind:this={canvas} class:full-body={Boolean(outfit)} data-portrait-head={display} data-backdrop-state={backdropUrl ? backdropDisplay : undefined}
   data-portrait-hair={hairstyle ? hairDisplay : undefined}
-  hidden={display !== "ready" || (Boolean(backdropUrl) && backdropDisplay === "loading")} role="img"
-  aria-label={(model === "female" ? "Female base head" : "Male base head") + (backdropUrl ? " with selected backdrop" : "")}></canvas>
-{#if display !== "ready"}
+  data-portrait-outfit={outfit ? outfitDisplay : undefined}
+  onpointerdown={startDrag} onpointermove={moveDrag} onpointerup={endDrag} onlostpointercapture={endDrag}
+  oncontextmenu={event => { if (outfit) event.preventDefault(); }}
+  hidden={display !== "ready" || (Boolean(outfit) && outfitDisplay !== "ready") || (Boolean(backdropUrl) && backdropDisplay === "loading")} role="img"
+  aria-label={outfit ? "Full-body character preview" : (model === "female" ? "Female base head" : "Male base head") + (backdropUrl ? " with selected backdrop" : "")}></canvas>
+{#if outfit && (display !== "ready" || outfitDisplay !== "ready")}
+  <p role="status">{display === "unavailable" || outfitDisplay === "unavailable" ? "This character preview could not be displayed." : "Loading character preview…"}</p>
+{:else if display !== "ready"}
   <p role="status">{display === "loading" ? "Loading base head…" : "This base head could not be displayed."}</p>
 {:else if backdropUrl && backdropDisplay !== "ready"}
   <p role="status">{backdropDisplay === "loading" ? "Loading backdrop…" : "This backdrop could not be displayed."}</p>
@@ -407,5 +580,7 @@
 
 <style>
   canvas { width: 100%; aspect-ratio: 1; object-fit: contain; }
+  canvas.full-body { height: 100%; aspect-ratio: auto; cursor: grab; touch-action: none; }
+  canvas.full-body:active { cursor: grabbing; }
   p { margin: auto; color: #a8bbb6; }
 </style>

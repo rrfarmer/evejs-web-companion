@@ -1025,6 +1025,7 @@
     mobile: false,
     topZ: () => topZ(),
     reveal: () => {},
+    closeTab: closePlayWindow,
   };
   // Show Info asked anywhere on the page (a link in a panel, the radial menu) opens in the pilot's info windows, as the
   // app's own does (App.svelte).

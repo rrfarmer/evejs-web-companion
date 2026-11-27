@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
+  import type { CharacterPreviewAppearance } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { KILL_REPORT_BREAKDOWN_WORDS } from "../bridge/combatReportBreakdown.ts";
   import { COMBAT_REPORT_LABEL, combatReportHash, combatReportUrl, externalCombatReportUrl, type CombatReportWindow } from "../bridge/combatLog.ts";
@@ -10,6 +11,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import CombatReportBreakdown from "./CombatReportBreakdown.svelte";
   import CharacterPortraitWindow from "./CharacterPortraitWindow.svelte";
+  import CharacterPreviewWindow from "./CharacterPreviewWindow.svelte";
   import TypePreviewWindow from "./TypePreviewWindow.svelte";
   import DesktopWindow from "./DesktopWindow.svelte";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
@@ -35,6 +37,7 @@
   let hashes = $state.raw<ReadonlyMap<number, string>>(new Map());
   let layerOrder = $state.raw<Readonly<Record<string, number>>>({});
   let portrait = $state.raw<{ characterID: number; rect: WindowRect; z: number; opening: number } | null>(null);
+  let characterPreview = $state.raw<{ characterID: number; appearance: CharacterPreviewAppearance; rect: WindowRect; z: number } | null>(null);
   let typePreview = $state.raw<{ typeID: number; rect: WindowRect; z: number } | null>(null);
   let portraitOpening = 0;
   let previousHost: InfoWindowHost | null = null;
@@ -107,8 +110,25 @@
     const size = host.element;
     const width = size.clientWidth || innerWidth, height = size.clientHeight || innerHeight;
     const w = Math.min(width, 520), h = Math.min(height, 596);
+    characterPreview = null;
     portrait = { characterID, rect: { w, h, x: Math.round((width - w) / 2), y: Math.round((height - h) / 2) },
       z: host.topZ() + 1, opening: ++portraitOpening };
+  }
+
+  function showCharacterPreview(characterID: number, appearance: CharacterPreviewAppearance): void {
+    if (!host) return;
+    const width = host.element.clientWidth || innerWidth, height = host.element.clientHeight || innerHeight;
+    const w = Math.min(width, 540), h = Math.min(height, 560);
+    const rect = { w, h, x: Math.round((width - w) / 2), y: Math.round((height - h) / 2) };
+    characterPreview = { characterID, appearance, rect, z: host.topZ() + 1 };
+    portrait = null;
+    host.closeTab?.("characterSheet");
+  }
+
+  function focusCharacterPreview(): void {
+    if (!host || !characterPreview) return;
+    const top = host.topZ();
+    if (top > characterPreview.z) characterPreview = { ...characterPreview, z: top + 1 };
   }
 
   function focusPortrait(): void {
@@ -153,7 +173,7 @@
   }
 </script>
 
-{#if inFront && host && ($windows.length || portrait || typePreview)}
+{#if inFront && host && ($windows.length || portrait || characterPreview || typePreview)}
   <div class="combat-report-layer" use:portal={host.element}>
     {#each $windows as view (view.id)}
       {@const rect = rectangle(view)}
@@ -179,7 +199,19 @@
       {#key portrait.opening}
         <CharacterPortraitWindow {store} {flow} characterID={portrait.characterID} rect={portrait.rect} z={portrait.z}
           focused={portrait.z >= host.topZ()} onFocus={focusPortrait} onClose={() => portrait = null}
+          onFullBody={appearance => { if (portrait) showCharacterPreview(portrait.characterID, appearance); }}
           onMove={(x, y) => { if (portrait) portrait = { ...portrait, rect: { ...portrait.rect, x, y } }; }} />
+      {/key}
+    {/if}
+    {#if characterPreview}
+      {#key characterPreview.characterID}
+        <CharacterPreviewWindow {store} {flow} characterID={characterPreview.characterID} appearance={characterPreview.appearance}
+          rect={characterPreview.rect} z={characterPreview.z}
+          minWidth={Math.min(host.element.clientWidth || innerWidth, 420)} minHeight={Math.min(host.element.clientHeight || innerHeight, 320)}
+          focused={characterPreview.z >= host.topZ()} onFocus={focusCharacterPreview} onClose={() => characterPreview = null}
+          onPortrait={() => { if (characterPreview) showPortrait(characterPreview.characterID); }}
+          onMove={(x, y) => { if (characterPreview) characterPreview = { ...characterPreview, rect: { ...characterPreview.rect, x, y } }; }}
+          onResize={rect => { if (characterPreview) characterPreview = { ...characterPreview, rect }; }} />
       {/key}
     {/if}
     {#if typePreview}

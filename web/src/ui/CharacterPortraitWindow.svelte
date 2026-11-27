@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
+  import type { CharacterPreviewAppearance } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
@@ -12,9 +13,10 @@
   import { clientTexture } from "./skillGroupIcons.ts";
   import type { WindowRect } from "./windowResize.ts";
 
-  let { store, flow, characterID, rect, z, focused, onFocus, onMove, onClose }: {
+  let { store, flow, characterID, rect, z, focused, onFocus, onMove, onClose, onFullBody }: {
     store: ClientStore; flow: AppFlow; characterID: number; rect: WindowRect;
     z: number; focused: boolean; onFocus: () => void; onMove: (x: number, y: number) => void; onClose: () => void;
+    onFullBody: (appearance: CharacterPreviewAppearance) => void;
   } = $props();
   const captionLabel = "UI/InfoWindow/PortraitCaption";
   const captureLabel = "UI/Commands/CapturePortrait";
@@ -52,7 +54,7 @@
       if (appearance === null) {
         flow.sayDialog("CharacterHasNoDNA", { type: "dict", entries: [["charID", characterID]] }, "No appearance data is available for this character.");
       } else {
-        previewStatus = "Full-body preview is unavailable in the browser.";
+        onFullBody(appearance);
       }
     } catch (error) {
       if (active) previewStatus = panelErrorWords(error);

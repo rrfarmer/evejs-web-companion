@@ -111,7 +111,7 @@
     if (!deskEl) return;
     onInfoHost?.({ element: deskEl, mobile: false,
       topZ: () => Math.max(calendar.topZ(), ...wins.map(w => w.z), ...flow.infoWindows.state.get().map(w => w.z)),
-      reveal: () => onRevealInfo?.() });
+      reveal: () => onRevealInfo?.(), closeTab: id => onClose(id) });
     return () => onInfoHost?.(null);
   });
   /** The desktop's size now, in whole pixels, or null before it is laid out (a window's place is registered with it). */
