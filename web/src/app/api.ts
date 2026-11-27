@@ -2424,6 +2424,7 @@ export async function getFlightStatus(options: ApiOptions = {}): Promise<FlightS
 export interface HealthResult {
   /** The BFF answered AND the EveJS gateway RUNTIME is up, so a login can land. */
   readonly ready: boolean;
+  readonly jobBoardMode?: import("../bridge/jobBoardMode.ts").JobBoardMode;
 }
 
 function asObject(value: JsonValue | undefined): Record<string, JsonValue> | null {
@@ -2455,7 +2456,11 @@ export async function getHealth(options: ApiOptions = {}): Promise<HealthResult>
     }
     const gateway = asObject(data.gateway);
     const runtime = asObject(gateway?.runtime);
-    return { ready: runtime?.ready === true || gateway?.ready === true };
+    const mode = data.jobBoardMode;
+    return {
+      ready: runtime?.ready === true || gateway?.ready === true,
+      ...(mode === "full" || mode === "without-missions" || mode === "disabled" ? { jobBoardMode: mode } : {}),
+    };
   } catch {
     return { ready: false };
   }

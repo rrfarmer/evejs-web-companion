@@ -888,6 +888,7 @@ app.get("/api/health", async (req, res) => {
       ok: true,
       eveRoot: config.eveRoot,
       webUsersConfigured: auth.countConfiguredUsers(),
+      jobBoardMode: config.jobBoardMode,
       gateway: storeStatus,
     });
   } catch (error) {

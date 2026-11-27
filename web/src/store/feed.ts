@@ -132,7 +132,7 @@ export type FeedStatus = "idle" | "connecting" | "connected" | "disconnected";
 export type HealthStatus = "unknown" | "online" | "offline";
 
 export type FeedEvent =
-  | { readonly type: "health/status"; readonly status: HealthStatus }
+  | { readonly type: "health/status"; readonly status: HealthStatus; readonly jobBoardMode?: import("../bridge/jobBoardMode.ts").JobBoardMode }
   // `accountCreated` (R2): true when this login auto-created the account on
   // the server, so the UI can say so. Optional — absent means an ordinary
   // sign-in to an existing account.

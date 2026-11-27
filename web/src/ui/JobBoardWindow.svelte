@@ -82,6 +82,8 @@
   const epicArcsChanged = flow.epicArcsChanged;
   // svelte-ignore state_referenced_locally
   const waypoints = flow.waypoints;
+  const health = $derived(store.health);
+  const missionsAvailable = $derived(($health.jobBoardMode ?? "full") === "full");
   const militia = $derived.by(() => { void $trackedJobsChanged; return $station.online?.warFactionID ? null : trackedMilitiaJob($station.online?.characterID ?? null); });
   const O = "UI/Opportunities/", N = "UI/Corporations/FreelanceProjects/NoJobs/";
   const REWARDS_COUNT = "UI/Achievements/Window/Rewards/RewardsCount";
@@ -205,7 +207,7 @@
   }
   async function load(): Promise<void> {
     void flow.agencySeason().then(s => { seasonVisible = s !== null; }, () => { seasonVisible = false; });
-    void flow.loadJournal().catch(() => {});
+    if (missionsAvailable) void flow.loadJournal().catch(() => {});
     void flow.corporationGoals(null).then((g) => { goals = g; }, () => { goals = null; });
     void refreshDaily();
     board = await flow.freelanceBoard();
@@ -225,7 +227,7 @@
   const missionExpired = (m: JournalMission) => !!m.expirationTime && /^\d+$/.test(m.expirationTime) && BigInt(m.expirationTime) <= BigInt(Date.now()) * 10_000n + 116_444_736_000_000_000n;
   const missions = $derived.by(() => {
     const j = $agentsStore.journal;
-    if (!j) return { browse: [] as JournalMission[], active: [] as JournalMission[] };
+    if (!missionsAvailable || !j) return { browse: [] as JournalMission[], active: [] as JournalMission[] };
     const all = [...j.active, ...j.offered].filter((m) => m.agentID !== null);
     return { browse: all.filter((m) => (m.missionState === 1 || m.missionState === 2) && !missionExpired(m)), active: j.active.filter((m) => m.missionState === 2 && m.agentID !== null) };
   });

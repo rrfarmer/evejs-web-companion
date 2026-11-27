@@ -9,6 +9,7 @@ import { hideLabelShortcutTooltip, showLabelShortcutTooltip, tooltipDue, showSki
 import { playUiEvent } from "./uiAudio.ts";
 import { WalletBalancePopup, type WalletBalanceUpdate } from "./walletBalancePopup.ts";
 import type { SkillsState } from "../store/types.ts";
+import type { JobBoardMode } from "../bridge/jobBoardMode.ts";
 
 /**
  * ButtonSkills' state: the level in training's progress (SkillController.GetTrainingProgressForCurrLevel - the points
@@ -46,6 +47,7 @@ const NEOCOM_TOOLTIPS: Readonly<Record<string, { cmd: string | null; name: strin
   achievements: { cmd: "OpenAchievementsWindow", name: "Achievements", description: "View your achievements, claim rewards, and discover what else there is to accomplish." },
   agency: { cmd: "OpenAgencyNew", name: "The Agency", description: "Find activities to suit your interests" },
   jobboard: { cmd: "OpenJobBoardWindow", name: "Opportunities", description: "Discover new opportunities and track your ongoing activities" },
+  journal: { cmd: "OpenJournal", name: "Journal", description: "Read mission information" },
   mail: { cmd: "OpenMail", name: "Mail", description: "Send and receive mail" },
   inventory: { cmd: "OpenInventory", name: "Inventory", description: "Access your cargo hold, hangars, and other local inventories" },
   assets: { cmd: "OpenAssets", name: "Personal Assets", description: "Locate your personal assets across New Eden" },
@@ -131,6 +133,7 @@ export const EVE_MENU: readonly EveMenuGroup[] = [
     { id: "jobboard", label: "Opportunities", icon: icon("opportunities") },
     { id: "agency", label: "Agency", icon: icon("theAgency") },
     { id: "map", label: "Map", icon: icon("map") },
+    { id: "journal", label: "Journal", icon: icon("journal") },
     { id: "projectDiscovery", label: "Project Discovery", icon: icon("projectdiscovery") },
     { id: "theatersOfWar", label: "Theaters of War", icon: clientTexture("res:/UI/Texture/eveicon/product_icons/theaters_of_war_product_64px.png") },
     { id: "bountyOffice", label: "Bounty Office", icon: icon("bountyoffice") },
@@ -487,7 +490,7 @@ export class Neocom {
     }
   }
 
-  constructor(open: (id: string) => void, chatEntries?: () => readonly ChatRailEntry[]) {
+  constructor(open: (id: string) => void, chatEntries?: () => readonly ChatRailEntry[], jobBoardMode: JobBoardMode = "full") {
     const { signal } = this.listeners;
     this.root.className = "neocom";
     this.root.innerHTML = `<div class="eve" title="EVE Menu"></div><div class="nc-buttons"></div><div class="nc-fill"></div>`;
@@ -512,6 +515,7 @@ export class Neocom {
       el.querySelector("span")!.textContent = label;
       return el;
     };
+    const boardAvailable = jobBoardMode !== "disabled";
     for (const g of EVE_MENU) {
       const el = entry(g.label, g.icon, true);
       this.menuEntries.push({ el, ids: g.items.flatMap((i) => (i.id ? [i.id] : [])), sub: false });
@@ -519,6 +523,7 @@ export class Neocom {
         sub.replaceChildren();
         this.menuEntries = this.menuEntries.filter((m) => !m.sub);
         for (const item of g.items) {
+          if (item.id === "jobboard" && !boardAvailable || item.id === "journal" && jobBoardMode !== "without-missions") continue;
           const c = entry(item.label, item.icon, false);
           if (item.id) {
             const id = item.id;
@@ -691,6 +696,7 @@ export class Neocom {
     skills.addEventListener("mouseleave", neocomTipOff);
     list.appendChild(skills);
     for (const b of NEOCOM_DEFAULT) {
+      if (b.id === "jobboard" && !boardAvailable) continue;
       const el = document.createElement("button");
       el.className = "nc-btn";
       el.dataset.uiPointer = neocomPointerName(b.id);

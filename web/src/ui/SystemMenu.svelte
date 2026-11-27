@@ -12,7 +12,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { gfx, setGfx, resetGfx, onGfx, type GfxSettings } from "../play/gfxSettings.ts";
   import { CLIENT_SHORTCUTS } from "../play/clientShortcuts.ts";
-  import { commandWithShortcut, onShortcutsChanged, remapShortcut, restoreDefaultShortcuts, shortcutFromKey, shortcutOf } from "../play/shortcutKeys.ts";
+  import { commandWithShortcut, onShortcutsChanged, remapShortcut, restoreDefaultShortcuts, shortcutCommandAvailable, shortcutFromKey, shortcutOf } from "../play/shortcutKeys.ts";
   import { onDestroy } from "svelte";
   import { COLOR_THEMES } from "../play/colorThemes.ts";
   import { playUiEvent } from "../play/uiAudio.ts";
@@ -222,7 +222,7 @@
     void shortcutVersion;
     if (shortcutKey === null) return [];
     const filterText = shortcutFilter.trim().toLowerCase();
-    return CLIENT_SHORTCUTS.filter((c) => (c.cmd !== "OpenRaffleWindow" || hyperNetAvailable) &&
+    return CLIENT_SHORTCUTS.filter((c) => shortcutCommandAvailable(c.cmd) && (c.cmd !== "OpenRaffleWindow" || hyperNetAvailable) &&
       (filterText !== "" || c.category === shortcutKey))
       .map((c) => ({ cmd: c.cmd, description: c.label ? word(c.label, c.cmd) : c.cmd, keys: shortcutOf(c.cmd), locked: c.locked === true }))
       .filter((c) => filterText === "" || c.description.toLowerCase().includes(filterText));

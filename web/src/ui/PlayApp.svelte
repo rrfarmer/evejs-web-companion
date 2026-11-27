@@ -125,7 +125,7 @@
   import HackingWindow from "./HackingWindow.svelte";
   import PlayLobbyTabs from "./PlayLobbyTabs.svelte";
   import SystemMenu from "./SystemMenu.svelte";
-  import { commandForKey, COMBAT_WORDS, mouseButtonsAsKeys, onShortcutsChanged } from "../play/shortcutKeys.ts";
+  import { commandForKey, COMBAT_WORDS, mouseButtonsAsKeys, onShortcutsChanged, setJobBoardMode } from "../play/shortcutKeys.ts";
   import { TARGET_LOCKED_LABEL } from "../play/targetLock.ts";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { showInfoRequests } from "./showInfo.ts";
@@ -232,7 +232,7 @@
   // The Neocom's buttons (play/neocom.ts) and the app panel each opens.
   const NEOCOM_TABS: Record<string, TabID> = {
     theatersOfWar: "theatersOfWar",
-    achievements: "achievements", agency: "finder", jobboard: "jobBoard", mail: "mail", inventory: "inventory", assets: "assets", wallet: "wallet", market: "market",
+    achievements: "achievements", agency: "finder", jobboard: "jobBoard", journal: "journal", mail: "mail", inventory: "inventory", assets: "assets", wallet: "wallet", market: "market",
     fitting: "fitting", map: "travel", charactersheet: "characterSheet", skills: "skills", loginRewards: "loginRewards", chat: "chat", channels: "channels", shipTree: "shipTree",
     // the EVE menu's commands (play/neocom.ts EVE_MENU)
     marketorders: "marketOrders", contracts: "contracts", industry: "industry", miningScan: "miningScan", miningLedger: "miningLedger", planets: "planets", locations: "locations",
@@ -250,6 +250,9 @@
   };
 
   let session = $state<Session | null>(null);
+  const health = $derived(session?.store.health);
+  const jobBoardMode = $derived($health?.jobBoardMode ?? "full");
+  $effect(() => setJobBoardMode(jobBoardMode));
   // the Pilot submenu's Add Contact / Edit Contact: the address book's contactmanagement window
   let pilotContact = $state.raw<ContactAction | null>(null);
   type GuestContactScope = Exclude<ContactScope, "contact">;
@@ -1295,7 +1298,7 @@
   });
   $effect(() => {
     if (!neocomHost) return;
-    const neocom = new Neocom(neocomOpen, chatRailEntries);
+    const neocom = new Neocom(neocomOpen, chatRailEntries, jobBoardMode);
     neocomHost.appendChild(neocom.root);
     neocomInst = neocom;
     return () => { neocomInst = null; neocom.root.remove(); neocom.dispose(); };
@@ -1927,7 +1930,7 @@
     channels: { w: 440, h: 560 },
     characterSheet: { w: 1235, h: 768 }, assets: { w: 550, h: 450 }, locations: { w: 450, h: 450 }, contacts: { w: 600, h: 500 },
     mail: { w: 800, h: 600 }, finder: { w: 1188, h: 694 }, wallet: { w: 900, h: 600 }, planets: { w: 500, h: 500 }, log: { w: 400, h: 200 },
-    notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, paintTool: { w: 1030, h: 650 }, locationSearch: { w: 420, h: 480 }, achievements: { w: 1040, h: 825 },
+    notepad: { w: 400, h: 300 }, calendar: { w: 580, h: 400 }, jobBoard: { w: 720, h: 960 }, journal: { w: 525, h: 300 }, paintTool: { w: 1030, h: 650 }, locationSearch: { w: 420, h: 480 }, achievements: { w: 1040, h: 825 },
     mercenaryDens: { w: 900, h: 572 },
     shipSkinr: { w: 1024, h: 700 },
     hyperNet: { w: 1024, h: 720 },
@@ -1944,6 +1947,7 @@
     characterRecustomization: { w: 610, h: 442 },
   };
   const FLIGHT_MINIMUMS: Partial<Record<TabID, { w: number; h: number }>> = {
+    journal: { w: 465, h: 300 },
     mercenaryDens: { w: 650, h: 572 },
     projectDiscovery: { w: 1268, h: 726 },
     pointerWindow: { w: 300, h: 300 },
@@ -2036,6 +2040,7 @@
     return { x: 16, y: Math.max(0, H - h - 16), w: Math.min(w, W), h };
   }
   function open(tab: TabID) {
+    if (tab === "journal" && jobBoardMode === "full" || tab === "jobBoard" && jobBoardMode === "disabled") return;
     if (tab === "hyperNet" && !hyperNetAvailable) return;
     if (tab === "newEdenStore") storeCategoryRequest = null;
     if (tab === "reprocessing" && (!docked || !reprocessingAvailable)) return;
@@ -2157,6 +2162,7 @@
    * the Log. The page's own tab label stands until the words are had.
    */
   const CAPTION_LABELS: Partial<Record<TabID, string>> = {
+    journal: "UI/Journal/JournalWindow/Caption",
     auraGuidance: "UI/Accessories/AuraGuidance/WindowTitle",
     newEdenStore: "UI/VirtualGoodsStore/VgsName",
     projectDiscovery: "UI/ProjectDiscovery/ProjectName",
@@ -2340,7 +2346,7 @@
   const WINDOW_COMMANDS: Record<string, TabID> = {
     ToggleProbeScanner: "scanner", OpenInventory: "inventory", OpenFitting: "fitting", OpenMail: "mail", OpenMarket: "market", OpenMarketOrders: "marketOrders",
     OpenWallet: "wallet", OpenCharactersheet: "characterSheet", OpenSkillsWindow: "skills", OpenPeopleAndPlaces: "contacts",
-    OpenLocations: "locations", OpenAgencyNew: "finder", OpenJobBoardWindow: "jobBoard", OpenMyMercenaryDens: "mercenaryDens", OpenAssets: "assets", OpenIndustry: "industry", OpenLedger: "miningLedger",
+    OpenLocations: "locations", OpenAgencyNew: "finder", OpenJobBoardWindow: "jobBoard", OpenJournal: "journal", OpenMyMercenaryDens: "mercenaryDens", OpenAssets: "assets", OpenIndustry: "industry", OpenLedger: "miningLedger",
     OpenAchievementsWindow: "achievements", OpenFleetWatchlist: "watchlist", OpenStructureBrowser: "structureBrowser",
     OpenAccessGroupsWindow: "accessGroups", OpenChannels: "channels",
     OpenHelp: "help",
@@ -5062,7 +5068,7 @@
           win={sheetCollapsed ? { ...win, w: collapsedWidth } : win}
           title={win.id === "drones" ? ($dronesCompact ? "" : dronesTitle) : win.id === "scanner" && !docked && $scannerCompact ? "" : win.id === "inventory" && !docked ? (inventoryPrimary ? captions[win.id] ?? tabLabel(win.id) : activeShipCaption) : captions[win.id] ?? tabLabel(win.id)}
           caption={win.id === "drones" ? dronesTitle : win.id === "scanner" ? captions[win.id] ?? tabLabel(win.id) : null}
-          icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : win.id === "log" ? clientTexture("res:/ui/Texture/WindowIcons/log.png") : win.id === "help" ? clientTexture("res:/ui/Texture/WindowIcons/help.png") : win.id === "auraGuidance" ? clientTexture("res:/UI/Texture/classes/careerPortal/aura/aura_icon_32x32.png") : null}
+          icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : win.id === "log" ? clientTexture("res:/ui/Texture/WindowIcons/log.png") : win.id === "journal" ? clientTexture("res:/ui/Texture/WindowIcons/journal.png") : win.id === "help" ? clientTexture("res:/ui/Texture/WindowIcons/help.png") : win.id === "auraGuidance" ? clientTexture("res:/UI/Texture/classes/careerPortal/aura/aura_icon_32x32.png") : null}
           killable={win.id !== "drones"}
           resizable={win.id !== "fitting" && win.id !== "medalDesigner" && win.id !== "securityOffice" && win.id !== "calculator" && win.id !== "help"}
           resizeWidth={!sheetCollapsed}

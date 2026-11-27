@@ -168,6 +168,7 @@ export interface FeedSlice {
 /** Server reachability from the boot health ping — gates the login screen. */
 export interface HealthSlice {
   readonly status: HealthStatus;
+  readonly jobBoardMode?: import("../bridge/jobBoardMode.ts").JobBoardMode;
 }
 
 export interface ClientState {
@@ -1042,7 +1043,7 @@ export function createClientStore(): ClientStore {
   const reduce = (event: FeedEvent): void => {
     switch (event.type) {
       case "health/status":
-        health.set({ status: event.status });
+        health.set({ ...health.get(), status: event.status, ...(event.jobBoardMode ? { jobBoardMode: event.jobBoardMode } : {}) });
         break;
       case "session/logged-in":
         session.set({

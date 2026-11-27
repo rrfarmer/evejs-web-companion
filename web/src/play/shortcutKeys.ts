@@ -3,6 +3,21 @@
 // service's GetCommandByShortcut does), so what the Shortcuts panel lists is what the page does.
 
 import { CLIENT_SHORTCUTS } from "./clientShortcuts.ts";
+import type { JobBoardMode } from "../bridge/jobBoardMode.ts";
+
+let jobBoardMode: JobBoardMode = "full";
+export function setJobBoardMode(mode: JobBoardMode): void {
+  if (jobBoardMode === mode) return;
+  jobBoardMode = mode;
+  table = null;
+  for (const listener of listeners) listener();
+}
+
+export function shortcutCommandAvailable(cmd: string): boolean {
+  if (cmd === "OpenJobBoardWindow") return jobBoardMode !== "disabled";
+  if (cmd === "OpenJournal") return jobBoardMode !== "full";
+  return true;
+}
 
 /** The client's key names (GetKeyName) as KeyboardEvent.code. */
 const CODE_BY_NAME: Record<string, string> = {
@@ -167,6 +182,8 @@ export function labelOf(cmd: string): string | null {
 
 /** A command's shortcut as the client writes it ("Alt-C"): the pilot's own where mapped, else the default; "" for none. */
 export function shortcutOf(cmd: string): string {
+  if (!shortcutCommandAvailable(cmd)) return "";
   if (cmd in custom) return custom[cmd]!;
+  if (cmd === "OpenJournal" && jobBoardMode === "disabled") return "Alt-J";
   return CLIENT_SHORTCUTS.find((c) => c.cmd === cmd)?.keys ?? "";
 }

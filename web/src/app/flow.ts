@@ -40474,8 +40474,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     async checkHealth() {
       // One shot, called at boot (main.ts) — never a poll. Any failure resolves
       // to offline inside api.getHealth, so this never throws.
-      const { ready } = await api.getHealth(callOptions);
-      store.apply({ type: "health/status", status: ready ? "online" : "offline" });
+      const { ready, jobBoardMode } = await api.getHealth(callOptions);
+      store.apply({ type: "health/status", status: ready ? "online" : "offline", jobBoardMode });
     },
 
     sessionToken() {

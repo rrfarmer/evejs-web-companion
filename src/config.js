@@ -40,6 +40,9 @@ module.exports = {
   dataDir,
   // Optional local client-derived seasonal rewards. Generated data stays in ignored operator storage.
   seasonalCampaignsPath: path.resolve(process.env.EVEJS_SEASONAL_CAMPAIGNS_FILE || path.join(dataDir, "seasonal-campaigns.json")),
+  // Build 3698585 ships both the full Opportunities board and two Journal variants.
+  jobBoardMode: ["without-missions", "disabled"].includes(process.env.EVEJS_JOB_BOARD_MODE)
+    ? process.env.EVEJS_JOB_BOARD_MODE : "full",
   iconCacheDir: path.resolve(process.env.EVEJS_ICON_CACHE_DIR || path.join(dataDir, "icon-cache")),
   iconCacheUrlPath: "/icon-cache",
   eveRoot,

@@ -302,6 +302,7 @@ export const CLIENT_SHORTCUTS: readonly ClientShortcut[] = [
   {"cmd": "ToggleCurrentSystemLocationWnd", "label": "UI/AclBookmarks/OpenBookmarkStandaloneWindow", "keys": "", "category": "window"},
   {"cmd": "OpenRaffleWindow", "label": "UI/HyperNet/WindowTitle", "keys": "", "category": "window"},
   {"cmd": "OpenJobBoardWindow", "label": "UI/Opportunities/WindowTitle", "keys": "Alt-J", "category": "window"},
+  {"cmd": "OpenJournal", "label": "UI/Journal/JournalWindow/Caption", "keys": "", "category": "window"},
   {"cmd": "OpenAuraGuidance", "label": null, "keys": "", "category": "window"},
   {"cmd": "OpenPointerWnd", "label": "UI/Help/PointerWndName", "keys": "", "category": "window"},
   {"cmd": "OpenBountyOffice", "label": "UI/Station/BountyOffice/BountyOffice", "keys": "", "category": "window"},

@@ -45,6 +45,7 @@
   import Contracts from "./Contracts.svelte";
   import PersonalAssets from "./PersonalAssets.svelte";
   import AgentsMissions from "./AgentsMissions.svelte";
+  import AgentJournal from "./AgentJournal.svelte";
   import AgencyWindow from "./AgencyWindow.svelte";
   import ProjectDiscoveryWindow from "./ProjectDiscoveryWindow.svelte";
   import PvpFilamentEvents from "./PvpFilamentEvents.svelte";
@@ -350,6 +351,8 @@
   <LocationSearchWindow {store} {flow} />
 {:else if tab === "jobBoard"}
   <JobBoardWindow {store} {flow} {onShowSystem} openCorporation={() => onOpen?.("corporation")} showAgents={() => onOpen?.("agents")} />
+{:else if tab === "journal"}
+  <AgentJournal {store} {flow} openAgents={() => onOpen?.("agents")} />
 {:else if tab === "mercenaryDens"}
   <MyMercenaryDens {store} {flow} {onShowSystem} />
 {:else if tab === "finder"}
