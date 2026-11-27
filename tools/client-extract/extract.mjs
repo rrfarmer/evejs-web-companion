@@ -952,7 +952,7 @@ function portraitPngRect(buffer) {
 async function extractPortraitOutfit(rf, outfit, outRoot) {
   const parts = outfit.split("/");
   const gender = parts[0], variant = parts.at(-1), style = parts.at(-2);
-  const slot = parts.length === 4 ? parts[1] : "outer";
+  const slot = parts.slice(1, -2).join("/") || "outer";
   const stem = slot === "outer" ? `${gender}/${style}` : `${gender}/${slot}/${style}`;
   const folder = `res:/graphics/character/${gender}/paperdoll/${slot}/${style}`;
   const typePath = `${folder}/types/${variant}.type`;
@@ -994,6 +994,9 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const occludes = Array.isArray(occlusions) ? occlusions.filter(value => typeof value === "string") : [];
   const skinMeshes = meshes.filter(mesh => mesh.geometryResPath?.toLowerCase() === source &&
     mesh.opaqueAreas?.some(area => /^c_skin/i.test(area.effect?.name ?? ""))).map(mesh => mesh.name);
+  const surface = slot.startsWith("accessories/") ? meshes.flatMap(mesh => mesh.opaqueAreas ?? [])
+    .map(area => area.effect?.parameters?.find(parameter => parameter.name === "MaterialDiffuseColor")?.value)
+    .find(value => Array.isArray(value) && value.length >= 3 && value.slice(0, 3).every(Number.isFinite))?.slice(0, 3) : null;
   const dir = path.join(outRoot, "portrait-outfit", stem);
   let model = `${stem}/model.glb`;
   let skinBase = null;
@@ -1030,6 +1033,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     diffuse: diffuse ? copyRes(rf, diffuse, outRoot) : null,
     zones: zones ? copyRes(rf, zones, outRoot) : null,
     normal: normal ? copyRes(rf, normal, outRoot) : null,
+    ...(surface ? { surface } : {}),
     ...(skinBase ? { skinBase, bodyParts, diffuseRect: rect(diffuse), zonesRect: rect(zones), normalRect: rect(normal) } : {}),
   }));
 }
@@ -1041,7 +1045,7 @@ function parseArgs(argv) {
     if (a === "--client") out.client = argv[++i];
     else if (a === "--portrait-outfit") {
       out.portraitOutfit = argv[++i];
-      if (!/^(?:female|male)\/(?:(?:topmiddle|bottomouter|feet)\/)?[a-z0-9_]+\/[a-z0-9_]+$/.test(out.portraitOutfit ?? "")) {
+      if (!/^(?:female|male)\/(?:(?:topmiddle|bottomouter|feet|accessories\/(?:nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+$/.test(out.portraitOutfit ?? "")) {
         throw new Error("--portrait-outfit needs gender/[slot/]style/variant");
       }
     }

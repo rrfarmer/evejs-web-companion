@@ -6298,6 +6298,7 @@ export interface CharacterPreviewAppearance {
   readonly outfit: string | null;
   readonly apparel: PortraitApparel;
   readonly morphs: readonly PortraitMorph[];
+  readonly piercings: readonly string[];
   readonly hairstyle: string | null;
 }
 
@@ -6309,6 +6310,9 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
   const model = appearance?.model === "female" || appearance?.model === "male" ? appearance.model : null;
   const outfit = appearance?.outfit;
   const hairstyle = appearance?.hairstyle;
+  const piercings = (Array.isArray(appearance?.piercings) ? appearance.piercings : []).filter((url): url is string =>
+    typeof url === "string" &&
+    /^\/client-assets\/portrait-outfit\/(female|male)\/accessories\/(?:nose|lips|brow|earslow|earshigh)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(url)?.[1] === model);
   const morphs = (Array.isArray(appearance?.morphs) ? appearance.morphs : []).flatMap((value: JsonValue) => {
     const morph = asObject(value);
     const name = morph?.name, weight = morph?.weight;
@@ -6329,6 +6333,7 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
     outfit: typeof outfit === "string" && /^\/client-assets\/portrait-outfit\/(female|male)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(outfit)?.[1] === model ? outfit : null,
     apparel: layers,
     morphs,
+    piercings,
     hairstyle: typeof hairstyle === "string" && /^hair_[a-z0-9_]+$/.test(hairstyle) ? hairstyle : null,
   };
 }

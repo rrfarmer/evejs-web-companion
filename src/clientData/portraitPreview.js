@@ -36,6 +36,7 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
   let outfit = null;
   let hairstyle = null;
   const apparel = {};
+  const piercings = {};
   for (const row of readModifiers(appearance)?.rows ?? []) {
     const fields = modifierValues(row);
     if (!fields) continue;
@@ -44,6 +45,11 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
     if (!location || resource?.resGender !== nativeGender || typeof resource.resPath !== "string") continue;
     const resourcePath = resource.resPath.toLowerCase()
       .replace(/^res:\/.*\/(?:modular\/(?:female|male)|(?:female|male)\/paperdoll)\//, "");
+    const piercing = /^(accessories\/(?:nose|lips|brow|earslow|earshigh))\/([a-z0-9_]+)\/types\/([a-z0-9_]+)\.type$/.exec(resourcePath);
+    if (piercing && piercing[1] === location.modifierKey) {
+      const [, slot, style, variant] = piercing;
+      piercings[slot] = `/client-assets/portrait-outfit/${gender}/${slot}/${style}/${variant}.json`;
+    }
     const garment = /^(outer|topmiddle|bottomouter|feet)\/([a-z0-9_]+)\/types\/([a-z0-9_]+)\.type$/.exec(resourcePath);
     if (garment && garment[1] === location.modifierKey) {
       const [, slot, style, variant] = garment;
@@ -55,7 +61,7 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
       if (style && portraitHairStyle(gender, style)) hairstyle = style;
     }
   }
-  return { outfit, apparel, hairstyle };
+  return { outfit, apparel, hairstyle, piercings: Object.values(piercings) };
 }
 
 module.exports = { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows };

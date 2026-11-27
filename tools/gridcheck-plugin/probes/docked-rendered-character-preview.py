@@ -46,6 +46,8 @@ def observe(gender, outfit, hair, apparel=(), sculpts=()):
             paths = {}
             for modifier in doll.buildDataManager.GetModifiersAsList():
                 paths.update(modifier.meshGeometryResPaths)
+            result['piercings'] = sorted(set(path.lower() for path in paths.values()
+                                             if '/accessories/nose/' in path.lower() or '/accessories/earslow/' in path.lower()))
             result['meshTargets'] = [dict(name=name, file=paths.get(name, ''),
                                          names=sorted(set(names).intersection(result['morphs'])))
                                      for name, (raw, geometry, names) in doll.blendShapeMeshCache.iteritems()
@@ -66,4 +68,6 @@ result = dict(female=observe(0, 15525, 407), male=observe(1, 15555, 127),
               shirt=observe(0, None, 407, ((26, 3529), (25, 236), (22, 298))),
               sculpted=observe(0, 8649, 407, sculpts=((18, -0.75, 0.0, 0.0), (27, 0.0, 0.0, 0.4))),
               bodySculpt=observe(0, None, 407, ((26, 3529), (25, 236), (22, 298)),
-                                 sculpts=((5, 0.5, 0.0, 0.0),)))
+                                 sculpts=((5, 0.5, 0.0, 0.0),)),
+              pierced=observe(0, None, 407, ((26, 3529), (25, 236), (22, 298), (12, 824), (4, 614)),
+                              sculpts=((18, -0.75, 0.0, 0.0), (27, 0.0, 0.0, 0.4), (5, 0.5, 0.0, 0.0))))

@@ -19600,7 +19600,7 @@ app.get("/api/bridge/character/:characterID/preview-appearance", requireAuth, as
     return res.json({ ok: true, appearance: {
       model, bloodlineID: strictPositiveID(bloodlineID),
       morphs: portraitPreviewMorphs(sculpts, sculptLocations),
-      ...(model ? portraitPreviewModifiers(appearance, model, locations, resources) : { outfit: null, apparel: {}, hairstyle: null }),
+      ...(model ? portraitPreviewModifiers(appearance, model, locations, resources) : { outfit: null, apparel: {}, hairstyle: null, piercings: [] }),
     } });
   } catch (error) { next(error); }
 });

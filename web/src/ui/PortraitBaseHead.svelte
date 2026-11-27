@@ -9,7 +9,7 @@
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
   import { capturePointer } from "./pointerCapture.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, outfit, apparel, morphs }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, outfit, apparel, morphs, piercings }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
@@ -22,6 +22,7 @@
     outfit?: string;
     apparel?: PortraitApparel;
     morphs?: readonly PortraitMorph[];
+    piercings?: readonly string[];
   } = $props();
   let canvas: HTMLCanvasElement;
   let renderer = $state.raw<THREE.WebGLRenderer | null>(null);
@@ -495,6 +496,7 @@
     const bloodline = bloodlineID;
     const withSkin = hasSkinTones;
     const sculpts = morphs;
+    const jewelry = piercings;
     if (!active) return;
     let retired = false;
     let head: THREE.Group | null = null;
@@ -627,6 +629,23 @@
       configure(surface, null);
       if (tint) configure(skin, tint);
       applySurface(avatar, surface, new Set(transparent), new Set(eyelashMeshes), eyelashes, skin);
+      for (const url of jewelry ?? []) {
+        if (retired) return;
+        try {
+          const response = await fetch(url);
+          if (!response.ok) continue;
+          const data = await response.json() as { model: string; surface?: [number, number, number] };
+          const { scene: piece } = await loader.loadAsync(data.model);
+          if (!retired && sculpts?.length) await applyPortraitMorphs(piece, data.model.replace(/\.glb$/, ""), sculpts, () => retired);
+          if (retired) { release(piece); return; }
+          const color = data.surface ? new THREE.Color().setRGB(...data.surface) : 0xc6c4bd;
+          const finish = new THREE.MeshStandardMaterial({ color, metalness: 0.55, roughness: 0.28 });
+          applySurface(piece, finish, new Set(), new Set(), null, finish);
+          avatar.add(piece);
+        } catch {
+          // A saved piece may have no single skinned model in this installation.
+        }
+      }
       scene.add(avatar);
       avatar.updateMatrixWorld(true);
       headBounds = new THREE.Box3().setFromObject(avatar, true);

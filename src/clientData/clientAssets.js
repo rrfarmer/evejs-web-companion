@@ -172,7 +172,7 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   if (hair && portraitHairStyle(hair[1], hair[2])) {
     return { file: await ensure(rel.slice(1), ["--portrait-head", hair[1], "--portrait-hair", hair[2]]) };
   }
-  const outfit = /^\/portrait-outfit\/((?:female|male)\/(?:(?:topmiddle|bottomouter|feet)\/)?[a-z0-9_]+\/[a-z0-9_]+)\.json$/.exec(rel);
+  const outfit = /^\/portrait-outfit\/((?:female|male)\/(?:(?:topmiddle|bottomouter|feet|accessories\/(?:nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+)\.json$/.exec(rel);
   if (outfit) return { file: await ensure(rel.slice(1), ["--portrait-outfit", outfit[1]], '"outfitBuild":4') };
   const hands = /^\/portrait-outfit\/(female|male)\/hands\.glb$/.exec(rel);
   if (hands) return { file: await ensure(rel.slice(1), ["--portrait-hands", hands[1]]) };
