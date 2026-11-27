@@ -10,6 +10,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { formatTemplate, plainText, templateNameRefs } from "../bridge/clientWords.ts";
   import { broadcastHistoryLabel, fleetTravelDestination, type FleetBroadcast } from "../bridge/fleetBroadcasts.ts";
+  import { FLEET_POINTERS } from "../play/uiPointer.ts";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import { resolvedName, type NameKind } from "../store/names.ts";
   import type { JsonValue } from "../bridge/wire.ts";
@@ -117,7 +118,8 @@
 
 <section class="fleet-history" aria-label="Fleet history">
   <div class="history-top">
-    <select value={filter} onchange={(event) => choose((event.currentTarget as HTMLSelectElement).value as Filter)}>
+    <select value={filter} data-ui-pointer={FLEET_POINTERS.historyFilter}
+      onchange={(event) => choose((event.currentTarget as HTMLSelectElement).value as Filter)}>
       <option value="all">{word(WORDS.all, "Everything")}</option>
       <option value="broadcasthistory">{word(WORDS.broadcasts, "Broadcasts")}</option>
       <option value="memberhistory">{word(WORDS.members, "Members")}</option>

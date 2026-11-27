@@ -7,6 +7,7 @@
   import { isFleetCommander } from "../bridge/fleetCommand.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { CONTACT_STANDING } from "../bridge/contacts.ts";
+  import { FLEET_POINTERS } from "../play/uiPointer.ts";
   import FleetHistory from "./FleetHistory.svelte";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import type { FleetMember, FleetSquad, FleetWing } from "../bridge/boundFleet.ts";
@@ -29,6 +30,13 @@
    */
   const retail = getContext("retailChrome") === true;
   type FleetTab = "fleet" | "broadcasts" | "respawn" | "formations" | "advert" | "find" | "form" | "finder";
+  const fleetTabPointers: Partial<Record<FleetTab, string>> = {
+    fleet: FLEET_POINTERS.roster,
+    broadcasts: FLEET_POINTERS.history,
+    respawn: FLEET_POINTERS.respawn,
+    find: FLEET_POINTERS.finder,
+    finder: FLEET_POINTERS.finder,
+  };
   let chosenFleetTab = $state<FleetTab | null>(null);
   const inFleet = $derived($fleet.loaded && $fleet.availability !== "not-in-fleet" && $fleet.availability !== "unavailable" && $fleet.fleet !== null);
   const fleetTabs = $derived<readonly { id: FleetTab; label: string; own: string }[]>(inFleet
@@ -401,12 +409,13 @@
   {#if retail && $fleet.loaded}
     <nav class="tabs fl-tabs">
       {#each fleetTabs as t (t.id)}
-        <button type="button" class:active={fleetTab === t.id} onclick={() => (chosenFleetTab = t.id)}>{fleetWord(t.label) || t.own}</button>
+        <button type="button" class:active={fleetTab === t.id} data-ui-pointer={fleetTabPointers[t.id]}
+          onclick={() => (chosenFleetTab = t.id)}>{fleetWord(t.label) || t.own}</button>
       {/each}
     </nav>
     {#if fleetTab === "finder" || fleetTab === "find"}
       <div class="fl-finder">
-        <div class="fl-finder-filters">
+        <div class="fl-finder-filters" data-ui-pointer={FLEET_POINTERS.finderSettings}>
           <select bind:value={finderScope}>
             <option value={null}>{fleetWord("UI/Fleet/FleetRegistry/MyAvailableFleets") || "My Available Fleets"}</option>
             <option value={INVITE_CORP}>{fleetWord("UI/Fleet/FleetRegistry/MyCorpFleets") || "My Corp Fleets"}</option>

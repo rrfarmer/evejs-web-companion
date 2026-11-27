@@ -23,6 +23,21 @@ export const CONTRACT_POINTERS = {
   availability: "unique_UI_contractAvailabilitySetting",
 } as const;
 
+export const FLEET_POINTERS = {
+  finder: "unique_UI_fleetFinderTab",
+  finderSettings: "unique_UI_fleetFinderSettings",
+  roster: "unique_UI_myFleetTab",
+  history: "unique_UI_fleetHistoryTab",
+  historyFilter: "unique_UI_fleetHistoryFilter",
+  respawn: "unique_UI_activeReclonersTab",
+  settings: "unique_UI_fleetSettings",
+  broadcastToggle: "unique_UI_showHideBroadcasts",
+  broadcastIcons: "unique_UI_fleetBroadcastIcons",
+  broadcastScope: "unique_UI_fleetBroadcastScope",
+  needArmor: "unique_UI_broadcastNeedArmor",
+  needShield: "unique_UI_broadcastNeedShield",
+} as const;
+
 export const CHAT_POINTERS = {
   local: "unique_UI_localChat",
   corp: "unique_UI_corpChannelWnd",
