@@ -3,12 +3,13 @@
   import * as THREE from "three";
   import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
   import type { PortraitFraming } from "../app/flow.ts";
-  import type { PortraitApparel, PortraitFrame, PortraitSkinTone } from "../app/api.ts";
+  import type { PortraitApparel, PortraitFrame, PortraitMorph, PortraitSkinTone } from "../app/api.ts";
+  import { applyPortraitMorphs } from "../three/portraitMorphs.ts";
   import { compressedSupport, loadDds } from "../three/ddsTexture";
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
   import { capturePointer } from "./pointerCapture.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, outfit, apparel }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, outfit, apparel, morphs }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
@@ -20,6 +21,7 @@
     hairstyle?: string;
     outfit?: string;
     apparel?: PortraitApparel;
+    morphs?: readonly PortraitMorph[];
   } = $props();
   let canvas: HTMLCanvasElement;
   let renderer = $state.raw<THREE.WebGLRenderer | null>(null);
@@ -482,6 +484,7 @@
     const name = model;
     const bloodline = bloodlineID;
     const withSkin = hasSkinTones;
+    const sculpts = morphs;
     if (!active) return;
     let retired = false;
     let head: THREE.Group | null = null;
@@ -555,6 +558,7 @@
         }
       }
       const { scene: avatar } = await loader.loadAsync(stem + ".glb");
+      if (!retired && sculpts?.length) await applyPortraitMorphs(avatar, stem, sculpts, () => retired);
       if (retired) { release(avatar); return; }
       head = avatar;
       const surface = new THREE.MeshStandardMaterial({ map: maps[0]!.texture, normalMap: maps[1]!.texture, roughness: 0.76 });

@@ -1,6 +1,34 @@
 "use strict";
 
 const { readModifiers, modifierValues, portraitHairStyle } = require("./portraitHair");
+const sculptingRowType = "eve.common.script.paperDoll.paperDollDefinitions.SculptingRow";
+const sculptAxes = [["down", "up"], ["right", "left"], ["back", "forward"]];
+
+function previewSculptRows(appearance) {
+  const fields = appearance?.type === "object" && appearance.args?.type === "dict" ? appearance.args.entries : null;
+  const sculpts = Array.isArray(fields) ? fields.find(([key]) => (key?.value ?? key) === "sculpts")?.[1] : null;
+  return sculpts?.type === "list" && Array.isArray(sculpts.items) ? sculpts.items : [];
+}
+
+function portraitPreviewMorphs(rows, locations) {
+  const morphs = new Map();
+  for (const row of rows) {
+    const fields = row?.type === "objectex2" ? row.header?.[0] : null;
+    if (fields?.[0]?.value !== sculptingRowType || !Number.isSafeInteger(fields[1])) continue;
+    const location = locations?.[fields[1]];
+    const prefix = location?.weightKeyPrefix?.toLowerCase();
+    if (!prefix || !/^[a-z0-9_]+$/.test(prefix)) continue;
+    sculptAxes.forEach(([negative, positive], index) => {
+      const field = fields[index + 2];
+      const weight = field?.type === "real" ? field.value : field;
+      if (!Number.isFinite(weight) || !weight) return;
+      const name = /^(thin|fat|muscular)$/.test(prefix) ? `${prefix}shape`
+        : `${prefix}_${weight < 0 ? negative : positive}shape`;
+      morphs.set(name, Math.min(Math.abs(weight), 1));
+    });
+  }
+  return Array.from(morphs, ([name, weight]) => ({ name, weight }));
+}
 
 function portraitPreviewModifiers(appearance, gender, locations, resources) {
   const nativeGender = gender === "female" ? 0 : 1;
@@ -29,4 +57,4 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
   return { outfit, apparel, hairstyle };
 }
 
-module.exports = { portraitPreviewModifiers };
+module.exports = { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows };

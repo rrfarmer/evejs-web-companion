@@ -3,10 +3,10 @@ import utillib
 from characterdata.npccharacters import iter_npc_characters
 from eve.client.script.ui.shared.portraitWindow.portraitWindow import PortraitWindow
 from eve.client.script.ui.shared.preview import PreviewCharacterWnd
-from eve.common.script.paperDoll.paperDollDefinitions import ModifierRow
+from eve.common.script.paperDoll.paperDollDefinitions import ModifierRow, SculptingRow
 
 
-def observe(gender, outfit, hair, apparel=()):
+def observe(gender, outfit, hair, apparel=(), sculpts=()):
     if PortraitWindow.GetIfOpen() or PreviewCharacterWnd.GetIfOpen():
         raise RuntimeError('A character preview is already open')
     candidate = next((char_id for char_id, info in iter_npc_characters()
@@ -14,7 +14,8 @@ def observe(gender, outfit, hair, apparel=()):
     if candidate is None:
         raise RuntimeError('No reference character has the selected paper-doll gender')
     modifiers = ([(10, outfit)] if outfit is not None else []) + [(5, hair)] + list(apparel)
-    dna = utillib.KeyVal(sculpts=[], colors=[], modifiers=[ModifierRow(slot, resource, 0) for slot, resource in modifiers])
+    dna = utillib.KeyVal(sculpts=[SculptingRow(*row) for row in sculpts], colors=[],
+                        modifiers=[ModifierRow(slot, resource, 0) for slot, resource in modifiers])
     try:
         wnd = PreviewCharacterWnd.Open(charID=candidate, dna=dna)
         preview = wnd.previewContainer
@@ -36,6 +37,19 @@ def observe(gender, outfit, hair, apparel=()):
                                for slot, resource in apparel],
                       minSize=wnd.default_minSize, bounds=bounds, target=list(camera.atPosition),
                       verticalPan=scene.verticalPanEnabled)
+        if sculpts:
+            doll = preview.context.character.doll
+            result['sculpts'] = [dict(location=row[0], prefix=cfg.paperdollSculptingLocations.Get(row[0]).weightKeyPrefix,
+                                      upDown=row[1], leftRight=row[2], forwardBack=row[3]) for row in sculpts]
+            result['morphs'] = dict((key, value) for key, value in doll.buildDataManager.GetMorphTargets().iteritems()
+                                    if value and ('jaw' in key.lower() or 'nose' in key.lower()))
+            paths = {}
+            for modifier in doll.buildDataManager.GetModifiersAsList():
+                paths.update(modifier.meshGeometryResPaths)
+            result['meshTargets'] = [dict(name=name, file=paths.get(name, ''),
+                                         names=sorted(set(names).intersection(result['morphs'])))
+                                     for name, (raw, geometry, names) in doll.blendShapeMeshCache.iteritems()
+                                     if names and set(names).intersection(result['morphs'])]
         wnd.SwitchToPortrait(candidate)
         portrait = PortraitWindow.GetIfOpen()
         result.update(viewPortraitClosedPreview=PreviewCharacterWnd.GetIfOpen() is None,
@@ -49,4 +63,5 @@ def observe(gender, outfit, hair, apparel=()):
 
 result = dict(female=observe(0, 15525, 407), male=observe(1, 15555, 127),
               layered=observe(0, 2225, 407, ((25, 236), (22, 298))),
-              shirt=observe(0, None, 407, ((26, 3529), (25, 236), (22, 298))))
+              shirt=observe(0, None, 407, ((26, 3529), (25, 236), (22, 298))),
+              sculpted=observe(0, 8649, 407, sculpts=((18, -0.75, 0.0, 0.0), (27, 0.0, 0.0, 0.4))))

@@ -21,7 +21,7 @@ const { createClientTextures } = require("./clientData/clientTextures");
 const { appearanceWithSkinTone, skinToneCatalog, skinToneID } = require("./clientData/portraitSkinTones");
 const { portraitSnapshotBytes } = require("./clientData/portraitSnapshot");
 const { appearanceWithHair, portraitHairChoices, portraitHairID } = require("./clientData/portraitHair");
-const { portraitPreviewModifiers } = require("./clientData/portraitPreview");
+const { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows } = require("./clientData/portraitPreview");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
 const { createSkillplanImport } = require("./clientData/importSkillplan");
 const { createClientBuiltData } = require("./clientData/clientBuiltData");
@@ -19587,16 +19587,19 @@ app.get("/api/bridge/character/:characterID/preview-appearance", requireAuth, as
   try {
     const { result: appearance } = await call("paperDollServer", "GetPaperDollData");
     if (appearance === null) return res.json({ ok: true, appearance: null });
-    const [{ result: publicInfo }, locations, resources] = await Promise.all([
+    const sculpts = previewSculptRows(appearance);
+    const [{ result: publicInfo }, locations, resources, sculptLocations] = await Promise.all([
       call("charMgr", "GetPublicInfo"),
       clientBuiltData.table("paperDollModifierLocations"),
       clientBuiltData.table("paperDollResources"),
+      sculpts.length ? clientBuiltData.table("paperDollSculptingLocations") : null,
     ]);
     const gender = readMailKeyVal(publicInfo, "gender");
     const bloodlineID = readMailKeyVal(publicInfo, "bloodlineID");
     const model = gender === false || gender === 0 ? "female" : gender === true || gender === 1 ? "male" : null;
     return res.json({ ok: true, appearance: {
       model, bloodlineID: strictPositiveID(bloodlineID),
+      morphs: portraitPreviewMorphs(sculpts, sculptLocations),
       ...(model ? portraitPreviewModifiers(appearance, model, locations, resources) : { outfit: null, apparel: {}, hairstyle: null }),
     } });
   } catch (error) { next(error); }

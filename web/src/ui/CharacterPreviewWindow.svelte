@@ -34,7 +34,8 @@
     <div class="character-preview-stage">
       {#if appearance.model && (appearance.outfit || appearance.apparel.topmiddle)}
         <PortraitBaseHead model={appearance.model} bloodlineID={appearance.bloodlineID}
-          outfit={appearance.outfit ?? appearance.apparel.topmiddle} apparel={appearance.apparel} hairstyle={appearance.hairstyle ?? undefined} />
+          outfit={appearance.outfit ?? appearance.apparel.topmiddle} apparel={appearance.apparel}
+          hairstyle={appearance.hairstyle ?? undefined} morphs={appearance.morphs} />
       {:else}
         <p role="status">This character’s outfit could not be displayed.</p>
       {/if}

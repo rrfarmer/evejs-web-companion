@@ -166,6 +166,8 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
     portraitHead[2] === "materials.json" ? '"materialBuild":3' : undefined) };
   const archetype = /^\/portrait-head\/(female|male)-(1[1-4]|[1-8])\.archetype\.json$/.exec(rel);
   if (archetype) return { file: await ensure(rel.slice(1), ["--portrait-head", archetype[1], "--portrait-bloodline", archetype[2]]) };
+  const morph = /^\/portrait-head\/(female|male)\/morphs\/([a-z0-9_]+shape)\.json$/.exec(rel);
+  if (morph) return { file: await ensure(rel.slice(1), ["--portrait-head", morph[1], "--portrait-morph", morph[2]]) };
   const hair = /^\/portrait-hair\/(female|male)\/(hair_[a-z0-9_]+)\.(glb|json)$/.exec(rel);
   if (hair && portraitHairStyle(hair[1], hair[2])) {
     return { file: await ensure(rel.slice(1), ["--portrait-head", hair[1], "--portrait-hair", hair[2]]) };

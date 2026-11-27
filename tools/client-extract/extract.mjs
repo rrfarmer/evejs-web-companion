@@ -8,6 +8,7 @@
 //        [--turret <res path of a turret module's graphic> ...] [--gfx-turrets] [--ammo-colors] [--sof-materials] [--missile <missile typeID> ...]
 //        [--ship-info] (the Ship Info scene, faction backgrounds and light rig, needs --sde)
 //        [--portrait-head <female|male>] (the skinned character-creation base head)
+//        [--portrait-morph <name>] (one sparse morph from that head)
 //        [--portrait-outfit <gender/[slot/]style/variant>] (an installed paper-doll garment)
 //        [--portrait-hands <female|male>] (the skinned base hands)
 //        [--observatory-environment] (the anchor template and its postprocessing textures)
@@ -841,6 +842,35 @@ async function extractPortraitHead(rf, gender, outRoot) {
   console.log(`portrait-head/${gender}.glb: ${lods.length} meshes, ${bones.length} bones`);
 }
 
+async function extractPortraitMorph(rf, gender, name, outRoot) {
+  const source = `res:/graphics/character/${gender}/paperdoll/head/head_generic/head_generic.gr2`;
+  const { root } = await readGranny(rf.read(source), source);
+  const model = root.Models.find(entry => entry.Skeleton?.Bones?.length && entry.MeshBindings?.length);
+  const meshes = [];
+  for (const { Mesh } of model?.MeshBindings ?? []) {
+    const vertexData = Mesh.PrimaryVertexData;
+    const annotation = vertexData.VertexAnnotationSets?.find(set => set.Name?.toLowerCase().replace(/\d+$/, "") === name);
+    if (!annotation || annotation.IndicesMapFromVertexToAnnotation) continue;
+    const indices = annotation.VertexAnnotationIndices?.columns?.Int32?.data;
+    const offsets = annotation.VertexAnnotations?.columns?.Position;
+    const normals = annotation.VertexAnnotations?.columns?.Normal;
+    if (!indices?.length || offsets?.width !== 3 || indices.length !== annotation.VertexAnnotations.count) continue;
+    const deltas = [];
+    for (let at = 0; at < indices.length; at++) {
+      const index = indices[at], i = at * 3;
+      if (!Number.isSafeInteger(index) || index < 0 || index >= vertexData.Vertices.count) continue;
+      // GLB export reflects Z for both positions and normals.
+      const [x, y, z] = offsets.data.subarray(i, i + 3);
+      const [nx, ny, nz] = normals?.width === 3 ? normals.data.subarray(i, i + 3) : [0, 0, 0];
+      if ([x, y, z, nx, ny, nz].every(Number.isFinite)) deltas.push(index, x, y, -z, nx, ny, -nz);
+    }
+    if (deltas.length) meshes.push({ name: Mesh.Name, vertices: vertexData.Vertices.count, deltas });
+  }
+  const dir = path.join(outRoot, "portrait-head", gender, "morphs");
+  fs.mkdirSync(dir, { recursive: true });
+  writeExtracted(path.join(dir, name + ".json"), JSON.stringify({ name, source, meshes }));
+}
+
 // paperDollBloodLineAssets.bloodlineAssets in 3698585. The head metadata names its archetype dependency.
 const portraitBloodlineHead = new Map([
   [1, "caldari_deteis"], [2, "caldari_civire"], [3, "minmatar_sebiestor"], [4, "minmatar_brutor"],
@@ -1073,6 +1103,10 @@ function parseArgs(argv) {
     else if (a === "--portrait-head") {
       out.portraitHead = argv[++i];
       if (!["female", "male"].includes(out.portraitHead)) throw new Error("--portrait-head needs female or male");
+    }
+    else if (a === "--portrait-morph") {
+      out.portraitMorph = argv[++i];
+      if (!/^[a-z0-9_]+shape$/.test(out.portraitMorph ?? "")) throw new Error("--portrait-morph needs a morph name");
     }
     else if (a === "--drifter-collection-explosion") out.drifterCollectionExplosion = true;
     else if (a === "--observatory-environment") out.observatoryEnvironment = true;
@@ -1366,7 +1400,8 @@ async function main() {
       path.join(outRoot, "portrait-outfit", args.portraitHands, "hands.glb"), "hands");
   }
   if (args.portraitHead) {
-    if (args.portraitHair) await extractPortraitHair(rf, args.portraitHead, args.portraitHair, outRoot);
+    if (args.portraitMorph) await extractPortraitMorph(rf, args.portraitHead, args.portraitMorph, outRoot);
+    else if (args.portraitHair) await extractPortraitHair(rf, args.portraitHead, args.portraitHair, outRoot);
     else if (args.portraitBloodline !== undefined) extractPortraitArchetype(rf, args.portraitHead, args.portraitBloodline, outRoot);
     else await extractPortraitHead(rf, args.portraitHead, outRoot);
   }

@@ -6287,11 +6287,16 @@ export async function loadPortraitBackgrounds(options: ApiOptions = {}): Promise
 
 export type PortraitHead = "female" | "male";
 export type PortraitApparel = Readonly<Partial<Record<"topmiddle" | "bottomouter" | "feet", string>>>;
+export interface PortraitMorph {
+  readonly name: string;
+  readonly weight: number;
+}
 export interface CharacterPreviewAppearance {
   readonly model: PortraitHead | null;
   readonly bloodlineID: number | null;
   readonly outfit: string | null;
   readonly apparel: PortraitApparel;
+  readonly morphs: readonly PortraitMorph[];
   readonly hairstyle: string | null;
 }
 
@@ -6303,6 +6308,12 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
   const model = appearance?.model === "female" || appearance?.model === "male" ? appearance.model : null;
   const outfit = appearance?.outfit;
   const hairstyle = appearance?.hairstyle;
+  const morphs = (Array.isArray(appearance?.morphs) ? appearance.morphs : []).flatMap((value: JsonValue) => {
+    const morph = asObject(value);
+    const name = morph?.name, weight = morph?.weight;
+    return typeof name === "string" && /^[a-z0-9_]+shape$/.test(name) &&
+      typeof weight === "number" && weight > 0 && weight <= 1 ? [{ name, weight }] : [];
+  });
   const apparel = asObject(appearance?.apparel);
   const layers: Partial<Record<keyof PortraitApparel, string>> = {};
   for (const slot of ["topmiddle", "bottomouter", "feet"] as const) {
@@ -6315,6 +6326,7 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
     model, bloodlineID: asNumberOrNull(appearance?.bloodlineID),
     outfit: typeof outfit === "string" && /^\/client-assets\/portrait-outfit\/(female|male)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(outfit)?.[1] === model ? outfit : null,
     apparel: layers,
+    morphs,
     hairstyle: typeof hairstyle === "string" && /^hair_[a-z0-9_]+$/.test(hairstyle) ? hairstyle : null,
   };
 }
