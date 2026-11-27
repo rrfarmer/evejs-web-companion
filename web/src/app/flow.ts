@@ -11,7 +11,7 @@ import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, dec
 import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
-import { decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, hyperNetDetailNoticeIDs, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
+import { decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, hyperNetCountBounds, hyperNetDetailNoticeIDs, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
@@ -4634,6 +4634,7 @@ export interface AppFlow {
   loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null, scope?: HyperNetBrowseScope): Promise<readonly HyperNetOffer[]>;
   loadHyperNetOfferDetails(id: number): Promise<HyperNetOfferDetails>;
   watchHyperNetOffer(id: number, changed: () => void): () => void;
+  buyHyperNetNode(id: number, node: number): Promise<HyperNetOfferDetails>;
   loadHyperNetHistory(): Promise<readonly HyperNetHistoryOffer[]>;
   readonly hyperNetHistoryChanged: ReadableSignal<number>;
   loadHyperNetParticipation(): Promise<HyperNetParticipation>;
@@ -29306,6 +29307,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return details;
   }
 
+  async function buyHyperNetNode(id: number, node: number): Promise<HyperNetOfferDetails> {
+    const current = callOptions.captureRequestGuard!();
+    const owner = onlineCharacterID();
+    if (owner === null || !Number.isSafeInteger(id) || id <= 0 ||
+        !Number.isSafeInteger(node) || node < 0 || node >= hyperNetCountBounds[3]) {
+      throw new Error("Select an available HyperNode.");
+    }
+    const reply = await bridgeDo("raffleProxy", "BuyTicket", [id, node]);
+    current();
+    const details = decodeHyperNetOfferDetails(reply);
+    if (details.id !== id || details.ticketOwners.get(node) !== owner) {
+      throw new Error("HyperNet did not confirm this HyperNode.");
+    }
+    return details;
+  }
+
   async function loadHyperNetMetaGroups(): Promise<readonly { readonly id: number; readonly name: string }[]> {
     const data = await api.getTypeMeta([], callOptions);
     if (!data.available) throw new Error("Meta groups are unavailable.");
@@ -41896,6 +41913,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadHyperNetOffers,
     loadHyperNetOfferDetails,
     watchHyperNetOffer,
+    buyHyperNetNode,
     loadHyperNetHistory,
     hyperNetHistoryChanged: readonlySignal(hyperNetHistoryChanged),
     loadHyperNetParticipation,

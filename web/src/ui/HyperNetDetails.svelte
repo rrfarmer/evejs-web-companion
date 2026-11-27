@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
+  import { failureCode } from "../bridge/ask.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { HyperNetOfferDetails } from "../bridge/hyperNet.ts";
   import { formatDuration } from "../bridge/skills.ts";
@@ -30,6 +31,10 @@
     only: ["UI/HyperNet/ShowOnlyAvailable", "Show only available"],
     expired: ["UI/HyperNet/CardExpired", "Expired"],
     winner: ["UI/HyperNet/CardWinner", "Winner"],
+    confirm: ["UI/HyperNet/ConfirmPurchaseButtonLabel", "Confirm"],
+    unavailableNode: ["UI/HyperNet/TicketUnavailableError", "This HyperNode is unavailable."],
+    insufficientISK: ["UI/HyperNet/NotEnoughISKError", "You do not have enough ISK."],
+    purchaseError: ["UI/HyperNet/UnknownError", "HyperNet could not confirm the purchase."],
   } as const;
   const word = (key: keyof typeof labels, args: Record<string, string | number> = {}) =>
     plainText(formatTemplate($words.templates[labels[key][0]] ?? labels[key][1], args, { nameOf: () => "" }));
@@ -40,6 +45,14 @@
   let groupID = $state<number | null>(null);
   let failed = $state(false);
   let onlyAvailable = $state(false);
+  let armed = $state<number | null>(null);
+  let confirmationReady = $state(false);
+  let buying = $state<number | null>(null);
+  let purchaseError = $state<{ node: number; label: "unavailableNode" | "insufficientISK" | "purchaseError" } | null>(null);
+  let readyTimer: number | undefined;
+  let expiryTimer: number | undefined;
+  let offerGeneration = 0;
+  let refreshOffer: (() => void) | undefined;
   const bought = $derived(details ? [...details.ticketOwners.values()].filter(owner => owner === pilot).length : 0);
   const expired = $derived(details !== null && (details.status === 9 || (details.status < 7 && details.expires <= now)));
   const active = $derived(details?.status === 6 && !expired);
@@ -49,6 +62,59 @@
     : []);
   const pilotName = (characterID: number) => resolvedName($names.resolved, "character", characterID, String(characterID));
 
+  function clearConfirmation() {
+    window.clearTimeout(readyTimer);
+    window.clearTimeout(expiryTimer);
+    armed = null;
+    confirmationReady = false;
+  }
+
+  function updateOffer(row: HyperNetOfferDetails) {
+    // A detail read may have started before a purchase reply. Sold nodes never become available again.
+    if (details && (row.status < details.status || row.remaining > details.remaining)) return;
+    details = row;
+    if (armed !== null && (row.status !== 6 || row.ticketOwners.has(armed))) clearConfirmation();
+  }
+
+  async function chooseNode(node: number) {
+    if (!details || !active || details.ticketOwners.has(node) || buying !== null || !pilot) return;
+    const learnedKey = `evejs-hypernet-confirm:${pilot}`;
+    if (armed !== node) {
+      clearConfirmation();
+      purchaseError = null;
+      armed = node;
+      let learned = false;
+      try { learned = localStorage.getItem(learnedKey) === "1"; } catch {}
+      readyTimer = window.setTimeout(() => { confirmationReady = true; }, 400);
+      expiryTimer = window.setTimeout(clearConfirmation, learned ? 2900 : 9900);
+      return;
+    }
+    if (!confirmationReady) return;
+    clearConfirmation();
+    buying = node;
+    const generation = offerGeneration;
+    try { localStorage.setItem(learnedKey, "1"); } catch {}
+    try {
+      const row = await flow.buyHyperNetNode(id, node);
+      if (generation !== offerGeneration) return;
+      updateOffer(row);
+    } catch (cause) {
+      if (generation !== offerGeneration) return;
+      const reason = failureCode(cause) === "CALL_REFUSED" && cause instanceof Error ? cause.message : "";
+      purchaseError = { node, label: reason === "TicketUnavailableError" ? "unavailableNode" :
+        reason === "NotEnoughISKError" ? "insufficientISK" : "purchaseError" };
+    } finally {
+      if (generation === offerGeneration) {
+        buying = null;
+        refreshOffer?.();
+      }
+    }
+  }
+
+  $effect(() => {
+    if (!active) clearConfirmation();
+  });
+
   $effect(() => {
     const offerID = id;
     const app = flow;
@@ -57,6 +123,8 @@
     groupID = null;
     failed = false;
     onlyAvailable = false;
+    buying = null;
+    purchaseError = null;
     if (!pilot) return;
     let current = true;
     let dirty = false;
@@ -79,7 +147,7 @@
         const row = await app.loadHyperNetOfferDetails(offerID);
         if (!current) return;
         const first = details === null;
-        details = row;
+        updateOffer(row);
         requestOfferNames(row);
         if (first) {
           readTypeInfo(row);
@@ -110,9 +178,13 @@
         if (current) estimate = prices?.get(row.typeID) ?? null;
       }).catch(() => {});
     }
+    refreshOffer = scheduleRead;
     void read();
     return () => {
       current = false;
+      ++offerGeneration;
+      refreshOffer = undefined;
+      clearConfirmation();
       if (timer !== undefined) window.clearTimeout(timer);
       stopWatching?.();
     };
@@ -184,7 +256,14 @@
           {#if node.owner !== null}
             {@const owner = node.owner}
             <button type="button" onclick={() => showInfo({ kind: "character", characterID: owner })}>{pilotName(owner)}</button>
-          {:else}<span>{active ? word("available", { remaining_ticket_count: 1 }) : "—"}</span>{/if}
+          {:else if active}
+            <button type="button" class:confirm={armed === node.number} data-buy-node
+              aria-pressed={armed === node.number} aria-disabled={armed === node.number && !confirmationReady} disabled={buying !== null}
+              onclick={() => void chooseNode(node.number)}>
+              {buying === node.number ? "Purchasing…" : armed === node.number ? word("confirm") : `${offer.price.toLocaleString()} ISK`}
+            </button>
+          {:else}<span>—</span>{/if}
+          {#if purchaseError?.node === node.number}<p class="purchase-error" role="alert">{word(purchaseError.label)}</p>{/if}
         </li>
       {/each}
     </ul>
@@ -204,6 +283,8 @@
   .tickets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; padding: 0; margin: 0; list-style: none; }
   .tickets li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 5px; background: #ffffff10; }
   .tickets .sold { background: #ffffff06; }
+  .tickets .confirm { border-color: #66cddd; background: #00506666; }
+  .purchase-error { width: 100%; color: #ffbf68; }
   .tickets .own { background: #00506666; }
   .tickets .winning { outline: 1px solid #e0be70; }
   @media (max-width: 650px) { .tickets { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
