@@ -1301,6 +1301,8 @@
       "beyonce.CmdStop",
       "beyonce.CmdWarpToStuff",
       "beyonce.CmdWarpToStuffAutopilot",
+      "bountyProxy.CancelSellKillRight",
+      "bountyProxy.SellKillRight",
       "calendarMgr.CreateAllianceEvent",
       "calendarMgr.CreateCorporationEvent",
       "calendarMgr.CreatePersonalEvent",

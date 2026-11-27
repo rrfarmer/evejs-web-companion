@@ -34,6 +34,7 @@ export const CHARACTER_SHEET_POINTERS = {
   decorations: "unique_UI_decorationsTab",
   titles: "unique_UI_titlesTab",
   standings: "unique_UI_standingsTabInCharactersheet",
+  killRights: "unique_UI_killRightsTab",
   securityStatus: "unique_UI_securityStatusTab",
   combatLog: "unique_UI_combatLogTab",
   combatFilter: "unique_UI_showKillsLosses",

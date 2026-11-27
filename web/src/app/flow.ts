@@ -514,7 +514,7 @@ import { BridgeCallError } from "../bridge/callMethod.ts";
 import { argumentsOf, createBotPresses, decodeQuestion, dialogOfKey, keptQuestionAnswer, questionKeeping, iskWords } from "../bridge/questions.ts";
 import { classifyDistributionAgentConversation, selectDistributionAgent } from "../nav/distributionAgentSelection.ts";
 import { refusalWords as sayRefusalWords } from "../bridge/refusals.ts";
-import { decodeKillRights } from "../bridge/killRights.ts";
+import { decodeKillRights, type KillRight } from "../bridge/killRights.ts";
 import { isListValue, readDictEntry, readDictPairs, readKeyVal, readRowField, readRowsetRows, unwrapBool, unwrapLong, unwrapReal, type CallKwargs, type JsonValue } from "../bridge/wire.ts";
 import { canManageMoonPull, decodeCorporationMoonPulls, decodeMoonResources, decodeMoonSchedule, hasMoonStationManagerRole, moonRefineryYieldMultiplier,
   MOON_FRACTURE_MS, moonMiningID, moonPullDuration,
@@ -3394,6 +3394,10 @@ export interface AppFlow {
    * (QuickHasKillRight: GetKillRightsFromCache), with GetMyKillRights' own rights on them (fromID me, toID them).
    */
   bountiesAndKillRights(ownerIDs: readonly number[], characterIDs: readonly number[]): Promise<{ wanted: Set<number>; killRights: Set<number> }>;
+  myKillRights(): Promise<readonly KillRight[]>;
+  listKillRight(id: number, price: number, restrictedTo: number | null): Promise<void>;
+  withdrawKillRight(id: number, target: number): Promise<void>;
+  readonly killRightsChanged: ReadableSignal<number>;
   /** menuFunctions.SetName for a thing in space: SetLabel(itemID, name) with its line breaks made spaces. */
   renameSpaceItem(itemID: number, name: string): Promise<void>;
   /** menusvc.Scoop: flown to within reach (GetCloseAndTryCommand), then ship.Scoop(itemID); the holds read again. */
@@ -6394,6 +6398,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const logonSkillsTrainedSignal = createSignal<{ readonly n: number; readonly args: readonly unknown[] } | null>(null);
   const moonExtractionChanged = createSignal(0);
   const characterAttributesChanged = createSignal(0);
+  const killRightsChanged = createSignal(0);
   const accessGroupsChanged = createSignal(0);
   const moonFuelChanged = createSignal(0);
   const moonFracturing = createSignal<{ structureID: number; extractionID: number; endsAtMs: number } | null>(null);
@@ -7977,6 +7982,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       for (const listener of plexTransferListeners) listener(method, args);
     }
     if (method === "OnMoonExtractionUpdate") moonExtractionChanged.update(revision => revision + 1);
+    if (method === "OnKillRightForYouSold" || method === "OnKillRightCreated" || method === "OnKillRightUsed" ||
+        method === "OnKillRightExpired" || method === "OnKillRightSellCancel") killRightsChanged.update(revision => revision + 1);
     if (method === "OnRespecInfoChanged" || method === "OnServerImplantsChanged" || method === "OnServerBoostersChanged" ||
         method === "OnJumpCloneTransitionCompleted" || method === "OnCloneDestruction") {
       characterAttributesChanged.update(revision => revision + 1);
@@ -41696,6 +41703,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     warLandingInfo,
     ownerWars,
     bountiesAndKillRights,
+    myKillRights: async () => {
+      const rows = decodeKillRights(await bridgeAsk("bountyProxy", "GetMyKillRights", []));
+      requestNames(rows.flatMap(row => [row.fromID, row.toID, row.restrictedTo].flatMap(id => id ? [{ kind: "owner" as const, id }] : [])));
+      return rows;
+    },
+    async listKillRight(id, price, restrictedTo) {
+      await bridgeDo("bountyProxy", "SellKillRight", [id, price, restrictedTo]);
+      killRightsChanged.update(revision => revision + 1);
+    },
+    async withdrawKillRight(id, target) {
+      await bridgeDo("bountyProxy", "CancelSellKillRight", [id, target]);
+      killRightsChanged.update(revision => revision + 1);
+    },
+    killRightsChanged: readonlySignal(killRightsChanged),
     bountyAmounts,
     broadcastOnItem,
     broadcastEnemySpotted,

@@ -45,6 +45,7 @@
   import CharacterAttributes from "./CharacterAttributes.svelte";
   import SecurityStatusHistory from "./SecurityStatusHistory.svelte";
   import CombatLog from "./CombatLog.svelte";
+  import KillRightsPanel from "./KillRightsPanel.svelte";
   import { CHARACTER_SHEET_POINTERS as pointers } from "../play/uiPointer.ts";
   import Standings from "./Standings.svelte";
   import JumpClonesPanel from "./JumpClonesPanel.svelte";
@@ -74,6 +75,7 @@
     "Tooltips/CharacterSheet/Skills": "Skills trained",
     "Tooltips/CharacterSheet/Standings": "Standing",
     "Tooltips/CharacterSheet/SecurityStatus": "Security Status",
+    "Tooltips/CharacterSheet/KillRights": "Kill Rights",
     "Tooltips/CharacterSheet/CombatLog": "Combat Log",
   };
   const tabWord = (label: string): string => {
@@ -93,7 +95,7 @@
   let characterTab = $state<CharacterTab>(opening && opening !== "standings" && opening !== "employment" && opening !== "skills" ? opening : "home");
   const activeCharacter = $derived(store.character);
   let historyTab = $state<"employment" | "skills">(opening === "skills" ? "skills" : "employment");
-  let interactionTab = $state<"standings" | "securityStatus" | "combatLog">("standings");
+  let interactionTab = $state<"standings" | "killRights" | "securityStatus" | "combatLog">("standings");
   /** _StartLoadingPanel: a panel asked for while the window is open, or as it opens (characterSheetPanels.ts). */
   function loadPanel(panel: SheetPanel): void {
     if (panel === "standings") {
@@ -402,6 +404,8 @@
   <nav class="sheet-tabs sub" aria-label="Interactions">
     <button type="button" data-ui-pointer={pointers.standings} class:active={interactionTab === "standings"}
       aria-pressed={interactionTab === "standings"} onclick={() => interactionTab = "standings"}>{tabWord("Tooltips/CharacterSheet/Standings")}</button>
+    <button type="button" data-ui-pointer={pointers.killRights} class:active={interactionTab === "killRights"}
+      aria-pressed={interactionTab === "killRights"} onclick={() => interactionTab = "killRights"}>{tabWord("Tooltips/CharacterSheet/KillRights")}</button>
     <button type="button" data-ui-pointer={pointers.securityStatus} class:active={interactionTab === "securityStatus"}
       aria-pressed={interactionTab === "securityStatus"} onclick={() => interactionTab = "securityStatus"}>{tabWord("Tooltips/CharacterSheet/SecurityStatus")}</button>
     <button type="button" data-ui-pointer={pointers.combatLog} class:active={interactionTab === "combatLog"}
@@ -409,6 +413,8 @@
   </nav>
   {#if interactionTab === "standings"}
     <Standings {store} {flow} scopes={["char"]} />
+  {:else if interactionTab === "killRights"}
+    {#key $activeCharacter.selectedCharacterID}<KillRightsPanel {store} {flow} />{/key}
   {:else if interactionTab === "securityStatus"}
     {#key $activeCharacter.selectedCharacterID}<SecurityStatusHistory {store} {flow} />{/key}
   {:else}

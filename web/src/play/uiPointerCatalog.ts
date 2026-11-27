@@ -27,6 +27,7 @@ const characterSheetTabs: readonly UiPointerTarget[] = ([
   [sheet.decorations, "Decorations", sheet.character],
   [sheet.titles, "Titles", sheet.decorations],
   [sheet.standings, "Standings", sheet.interactions],
+  [sheet.killRights, "Kill Rights", sheet.interactions],
   [sheet.securityStatus, "Security Status", sheet.interactions],
   [sheet.combatLog, "Combat Log", sheet.interactions],
   [sheet.combatFilter, "Show Kills/Losses", sheet.combatLog],
