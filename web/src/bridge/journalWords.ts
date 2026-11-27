@@ -141,6 +141,19 @@ export interface JournalRowText {
   readonly expiration: string;
 }
 
+/** Scroll falls back to the chosen cell plus the cells after it, then the whole row. */
+export function sortJournalRows<T>(rows: readonly T[], column: number, reversed: boolean,
+    cellsOf: (row: T) => readonly string[]): T[] {
+  const ordered = rows.map(row => {
+    const cells = cellsOf(row);
+    return { row, key: (cells[column] ?? "").toLowerCase() + cells.slice(column + 1).join(""), full: cells.join("<t>").toLowerCase() };
+  });
+  const compare = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
+  ordered.sort((a, b) => compare(a.key, b.key) || compare(a.full, b.full));
+  if (reversed) ordered.reverse();
+  return ordered.map(({ row }) => row);
+}
+
 /**
  * A journal line's four texts. `say` turns words into text (the page's
  * questionText); `has` says whether the page holds the client's text for a
