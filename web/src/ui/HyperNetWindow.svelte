@@ -8,6 +8,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { showInfo } from "./showInfo.ts";
+  import HyperNetDetails from "./HyperNetDetails.svelte";
   import HyperNetHistory from "./HyperNetHistory.svelte";
   import HyperNetSavedFilters from "./HyperNetSavedFilters.svelte";
   import { typeIconUrl } from "./typeIcons.ts";
@@ -20,6 +21,9 @@
   const labels = {
     browse: ["UI/HyperNet/TabNameBrowse", "Browse"],
     history: ["UI/HyperNet/TabNameMyRaffles", "History"],
+    details: ["UI/HyperNet/PageTitleDetails", "Offer details"],
+    back: ["UI/Common/Previous", "Back"],
+    forward: ["UI/Common/Next", "Forward"],
     refresh: ["UI/HyperNet/Refresh", "Refresh"],
     empty: ["UI/HyperNet/NoRafflesFoundError", "No HyperNet offers found"],
     price: ["UI/HyperNet/TicketPrice", "HyperNode price"],
@@ -48,6 +52,23 @@
     { remaining_ticket_count: offer.remaining, ticket_count: offer.tickets }, { nameOf: () => "" }));
   const pageSize = 12;
   let view = $state<"browse" | "history">("browse");
+  let detailsID = $state<number | null>(null);
+  let nextDetailsID = $state<number | null>(null);
+  let navigation = $state<HTMLElement>();
+  function changeView(next: typeof view) {
+    detailsID = null;
+    nextDetailsID = null;
+    view = next;
+  }
+  function openDetails(id: number) {
+    detailsID = id;
+    nextDetailsID = null;
+    navigation?.scrollIntoView({ block: "nearest" });
+  }
+  function goBack() {
+    nextDetailsID = detailsID;
+    detailsID = null;
+  }
   const defaults = { minPrice: 0, maxPrice: 0, minCount: 8, maxCount: 512 };
   type Ranges = typeof defaults;
   type Option = { readonly id: number; readonly name: string };
@@ -268,12 +289,24 @@
 </script>
 
 <section class="hypernet">
-  <nav aria-label="HyperNet Relay">
-    <button type="button" aria-pressed={view === "browse"} onclick={() => { view = "browse"; }}>{word("browse")}</button>
-    <button type="button" aria-pressed={view === "history"} onclick={() => { view = "history"; }}>{word("history")}</button>
+  <nav aria-label="HyperNet Relay" bind:this={navigation}>
+    <button type="button" aria-pressed={detailsID === null && view === "browse"} onclick={() => changeView("browse")}>{word("browse")}</button>
+    <button type="button" aria-pressed={detailsID === null && view === "history"} onclick={() => changeView("history")}>{word("history")}</button>
+    {#if detailsID !== null}
+      <button type="button" data-hypernet-back onclick={goBack}>{word("back")}</button>
+    {:else if nextDetailsID !== null}
+      {@const offerID = nextDetailsID}
+      <button type="button" data-hypernet-forward onclick={() => openDetails(offerID)}>{word("forward")}</button>
+    {/if}
   </nav>
+  {#if detailsID !== null}
+    {#key detailsID}
+      <HyperNetDetails {store} {flow} {pilot} id={detailsID} {now} />
+    {/key}
+  {/if}
+  <div class="catalogue" hidden={detailsID !== null}>
   {#if view === "history"}
-    <HyperNetHistory {store} {flow} {pilot} />
+    <HyperNetHistory {store} {flow} {pilot} {openDetails} />
   {:else}
   <header>
     <details class="range-filters">
@@ -416,15 +449,18 @@
           </dl>
           <p data-ticket-count>{ticketCount(offer)}</p>
           <time datetime={new Date(offer.expires).toISOString()}>{formatDuration(offer.expires - now)}</time>
+          <button type="button" data-open-offer onclick={() => openDetails(offer.id)}>{word("details")}</button>
         </li>
       {/each}
     </ul>
   {/if}
   {/if}
+  </div>
 </section>
 
 <style>
   .hypernet { display: grid; gap: 12px; padding: 14px; }
+  .catalogue:not([hidden]) { display: grid; gap: 12px; }
   nav { display: flex; gap: 6px; }
   nav button[aria-pressed="true"] { border-color: currentColor; }
   header { display: flex; justify-content: space-between; align-items: start; gap: 8px; }

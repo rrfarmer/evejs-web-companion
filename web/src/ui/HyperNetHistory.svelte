@@ -14,11 +14,13 @@
   import { clientTexture } from "./skillGroupIcons.ts";
   import { typeIconUrl } from "./typeIcons.ts";
 
-  let { store, flow, pilot }: { store: ClientStore; flow: AppFlow; pilot: number | undefined } = $props();
+  let { store, flow, pilot, openDetails }: { store: ClientStore; flow: AppFlow; pilot: number | undefined;
+    openDetails: (id: number) => void } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
   const imageServer = $derived(flow.imageServer);
   const labels = {
+    details: ["UI/HyperNet/PageTitleDetails", "Offer details"],
     heading: ["UI/HyperNet/PageTitleHistory", "Your HyperNet Relay participation history"],
     empty: ["UI/Common/NoDataAvailable", "No Data Available"],
     expired: ["UI/HyperNet/CardExpired", "Expired"],
@@ -449,6 +451,7 @@
           <time datetime={new Date(endTime(row)).toISOString()}>
             {new Date(endTime(row)).toLocaleString()}
           </time>
+          <button type="button" data-open-offer onclick={() => openDetails(row.id)}>{word("details")}</button>
         </li>
       {/each}
     </ul>

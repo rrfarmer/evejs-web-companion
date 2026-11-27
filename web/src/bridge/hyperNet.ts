@@ -29,6 +29,60 @@ export interface HyperNetHistoryOffer extends HyperNetOffer {
   readonly ended: number | null;
 }
 
+export interface HyperNetOfferDetails extends HyperNetOffer {
+  readonly ownerID: number;
+  readonly itemID: number | null;
+  readonly locationID: number;
+  readonly systemID: number;
+  readonly status: number;
+  readonly copy: boolean;
+  readonly ticketOwners: ReadonlyMap<number, number>;
+  readonly winnerID: number | null;
+  readonly winningNumber: number | null;
+  readonly ended: number | null;
+}
+
+export function decodeHyperNetOfferDetails(payload: unknown): HyperNetOfferDetails {
+  const offer = decodeHyperNetOffer(payload);
+  const number = (key: string, source = payload) => {
+    const value = unwrapLong(readKeyVal(source, key));
+    return value === null ? NaN : Number(value);
+  };
+  const valid = (id: number) => Number.isSafeInteger(id) && id > 0;
+  const ownerID = number("owner_id");
+  const itemID = number("item_id");
+  const locationID = number("location_id");
+  const systemID = number("solar_system_id");
+  const status = number("raffle_status");
+  const sold = readKeyVal(payload, "sold_tickets");
+  if (![ownerID, locationID, systemID, status].every(valid) || status > 9 ||
+      offer.tickets > hyperNetCountBounds[3] || !isListValue(sold)) {
+    throw new Error("HyperNet returned unreadable offer details.");
+  }
+  const ticketNumber = (ticket: unknown) => {
+    const index = number("number", ticket);
+    return Number.isInteger(index) && index >= 0 && index < offer.tickets ? index : null;
+  };
+  const ticketOwners = new Map<number, number>();
+  for (const ticket of sold.items) {
+    const index = ticketNumber(ticket);
+    const owner = number("owner_id", ticket);
+    if (index === null || !valid(owner) || ticketOwners.has(index)) {
+      throw new Error("HyperNet returned an unreadable HyperNode.");
+    }
+    ticketOwners.set(index, owner);
+  }
+  if (ticketOwners.size !== offer.tickets - offer.remaining) {
+    throw new Error("HyperNet returned an incomplete HyperNode list.");
+  }
+  const winner = readKeyVal(payload, "winning_ticket") ?? null;
+  const winnerID = number("owner_id", winner);
+  const copy = readDictEntry(readKeyVal(payload, "meta_data"), "is_copy");
+  return { ...offer, ownerID, itemID: valid(itemID) ? itemID : null, locationID, systemID, status,
+    copy: copy === true || unwrapLong(copy) === 1n, ticketOwners, winnerID: valid(winnerID) ? winnerID : null,
+    winningNumber: ticketNumber(winner), ended: filetimeToUnixMs(unwrapLong(readKeyVal(payload, "end_date"))) };
+}
+
 export interface HyperNetParticipation {
   readonly created: number;
   readonly completed: number;
