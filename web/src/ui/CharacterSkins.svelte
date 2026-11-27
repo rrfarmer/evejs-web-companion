@@ -12,6 +12,8 @@
   import ShipInfoPreview from "./ShipInfoPreview.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { showInfo } from "./showInfo.ts";
+  import { ASSET_ITEM_DRAG_MIME, DRAG_MIME, decodeAssetItemDrag, decodeDrag } from "./dragDrop.ts";
+  import { rowsIn } from "./inventoryModel.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const names = $derived(store.names);
@@ -36,6 +38,8 @@
   let licenses = $state.raw<ReadonlyMap<number, CharacterSkinLicense>>(new Map());
   let loading = $state(true);
   let error = $state("");
+  let activationError = $state("");
+  let activating = $state(false);
   let expanded = $state<number | null>(null);
   let preview = $state<{ typeID: number; skin: CharacterSkin } | null>(null);
   let readSequence = 0;
@@ -126,6 +130,32 @@
     localStorage.setItem(key(), mode);
   }
 
+  function overCollection(event: DragEvent) {
+    const data = event.dataTransfer;
+    if (activating || !data?.types.some(type => type === DRAG_MIME || type === ASSET_ITEM_DRAG_MIME)) return;
+    event.preventDefault();
+    data.dropEffect = data.types.includes(ASSET_ITEM_DRAG_MIME) ? "copy" : "move";
+  }
+
+  async function dropLicenses(event: DragEvent) {
+    if (activating || !event.dataTransfer) return;
+    const drag = decodeDrag(event.dataTransfer.getData(DRAG_MIME));
+    const items = drag?.kind === "inventoryItem"
+      ? rowsIn(store.inventory.get(), drag.from).filter(row => row.categoryID === 91 && (drag.itemIDs ?? [drag.itemID]).includes(row.itemID))
+      : decodeAssetItemDrag(event.dataTransfer.getData(ASSET_ITEM_DRAG_MIME));
+    if (!items.length) return;
+    event.preventDefault();
+    activating = true;
+    activationError = "";
+    try {
+      await flow.activateDroppedSkinLicenses(items);
+    } catch (cause) {
+      if (!isSessionLost(cause)) activationError = panelErrorWords(cause);
+    } finally {
+      activating = false;
+    }
+  }
+
   onMount(() => {
     const saved = localStorage.getItem(key());
     mode = options.find(option => option.id === saved)?.id ?? "all";
@@ -143,7 +173,7 @@
   });
 </script>
 
-<section class="collection" aria-label="SKINs" data-character-skins>
+<section class="collection" role="region" aria-label="SKINs" data-character-skins ondragover={overCollection} ondrop={dropLicenses}>
   <div class="controls">
     <label>Show SKINs <select value={mode} onchange={changeMode}>
       {#each options as option (option.id)}<option value={option.id}>{word(option.key, option.text)}</option>{/each}
@@ -151,6 +181,7 @@
     {#if !loading && !error}<span data-skin-counter={owned}>{word(labels.counter, `You have {[numeric]numSkins} ship SKIN${owned === 1 ? "" : "s"}`, { numSkins: owned })}</span>{/if}
     <input type="search" aria-label={word(labels.filter, "Filter")} placeholder={word(labels.filter, "Filter")} bind:value={filter} />
   </div>
+  {#if activationError}<p role="alert">{activationError}</p>{/if}
   {#if loading}
     <p role="status">Loading SKINs…</p>
   {:else if error}

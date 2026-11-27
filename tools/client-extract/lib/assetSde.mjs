@@ -70,6 +70,19 @@ export function buildShipEmblemLicenses(sdeDir) {
     .map(row => [row.shipTypeID, row.cosmeticType, row.slotGroup * 64 + row.cosmeticType - 1]);
 }
 
+export function buildFirstPartySkinLicenseTypes(sdeDir) {
+  const skins = new Map(readRows(clientTable(sdeDir, ["skins.jsonl"], true)).map(skin => [skin.skinID ?? skin._key, skin]));
+  const materials = new Map(readRows(clientTable(sdeDir, ["skinmaterials.jsonl", "skinMaterials.jsonl"], true))
+    .map(row => [row.skinMaterialID ?? row._key, row]));
+  return readRows(clientTable(sdeDir, ["skinlicenses.jsonl", "skinLicenses.jsonl"], true)).flatMap(license => {
+    const skin = skins.get(license.skinID);
+    const material = skin && materials.get(skin.skinMaterialID);
+    if (!material || skin.isStructureSkin === true) return [];
+    return [{ typeID: license.licenseTypeID ?? license._key, days: license.duration, singleUse: license.isSingleUse === true,
+      nameID: material.displayNameID, hulls: skin.types ?? [] }];
+  });
+}
+
 /** The stock recipe belongs to the graphic, which may be shared by several type IDs. */
 export function buildGraphicSofDefaults(sdeDir) {
   const file = graphicsFile(sdeDir, false);

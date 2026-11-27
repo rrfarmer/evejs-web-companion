@@ -17,6 +17,27 @@ export interface CharacterSkinLicense {
   readonly singleUse: boolean;
 }
 
+interface SkinLicenseType {
+  readonly typeID: number;
+  readonly days: number;
+  readonly singleUse: boolean;
+  readonly nameID: number;
+  readonly hulls: readonly number[];
+}
+
+let licenseTypes: Promise<ReadonlyMap<number, SkinLicenseType>> | undefined;
+
+export function loadSkinLicenseTypes(): Promise<ReadonlyMap<number, SkinLicenseType>> {
+  return licenseTypes ??= fetch("/client-assets/firstPartySkins/licenses.json").then(async response => {
+    if (!response.ok) throw new Error("The SKIN license types could not be loaded.");
+    const rows = await response.json() as SkinLicenseType[];
+    return new Map(rows.map(row => [row.typeID, row]));
+  }).catch(error => {
+    licenseTypes = undefined;
+    throw error;
+  });
+}
+
 let collection: Promise<readonly CharacterSkin[]> | undefined;
 
 export function loadCharacterSkinCatalog(): Promise<readonly CharacterSkin[]> {

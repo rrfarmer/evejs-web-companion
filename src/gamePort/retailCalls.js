@@ -679,7 +679,7 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
  */
 const GAME_PORT_ONLY_CALLS = Object.freeze([
   "shipCosmeticsMgr.GetEnabledCosmetics",
-  "shipCosmeticsMgr.GetLicencedSkins", "shipCosmeticsMgr.GetLicencedSkinsForShipType", "shipCosmeticsMgr.ApplySkinToShip",
+  "shipCosmeticsMgr.GetLicencedSkins", "shipCosmeticsMgr.GetLicencedSkinsForShipType", "shipCosmeticsMgr.ApplySkinToShip", "shipCosmeticsMgr.ActivateSkinLicense",
   "invbroker.WithdrawPlexFromVault", "invbroker.DepositPlexToVault", "marketProxy.GetPlexOrders", "marketProxy.PlacePlexSellOrder",
   "raffleProxy.Grab", "raffleProxy.FilteredGrab", "raffleProxy.GetMyRaffleHistory",
   "raffleProxy.GetCreatedParticipated", "raffleProxy.GetActiveHistoricPrices", "raffleProxy.GetRaffle", "raffleProxy.GetMyActiveTickets",
@@ -2253,6 +2253,7 @@ const RETAIL_CALLS = Object.freeze({
   "shipCosmeticsMgr.GetLicencedSkins": judged("cosmetics/client/cosmeticsSvc.py:117", sentWithNothing,
     "The Character Sheet asks for the selected pilot's complete SKIN license list without arguments."),
   "shipCosmeticsMgr.ApplySkinToShip": same("cosmetics/client/cosmeticsSvc.py:163", "ApplySkinToShip(itemID, skinID or None)"),
+  "shipCosmeticsMgr.ActivateSkinLicense": same("cosmetics/client/cosmeticsSvc.py:92", "ActivateSkinLicense(itemIDs): one list of owned inventory item IDs."),
   "hackingMgr.ClickedOnTile": same("eve/client/script/ui/hacking/hackingUISvc.py:249", "ClickedOnTile((x, y))"),
   "hackingMgr.UsedUtilityElement": same("eve/client/script/ui/hacking/hackingUISvc.py:249", "UsedUtilityElement(slot, (x, y))"),
   "hackingMgr.UsedUtilityElementOnVirus": same("eve/client/script/ui/hacking/hackingUISvc.py:261", "UsedUtilityElementOnVirus(slot)"),

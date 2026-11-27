@@ -12,7 +12,7 @@ import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequ
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
 import { decodeHyperNetActiveTickets, decodeHyperNetCreationNotice, decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, decodeHyperNetTypeStatistics, hyperNetCountBounds, hyperNetCreationQuote, hyperNetDetailNoticeIDs, hyperNetRestrictedTypeLists, hyperNetSingletonTypeList, type HyperNetCreationDraft, type HyperNetCreationNotice, type HyperNetPrizeRules, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
-import { decodeFirstPartySkinLicenses } from "../bridge/firstPartySkins.ts";
+import { decodeFirstPartySkinLicenses, loadSkinLicenseTypes } from "../bridge/firstPartySkins.ts";
 import { decodeEnabledShipEmblems, decodeShipEmblems, SHIP_EMBLEM_GATEWAY, SHIP_ENTITLEMENT_GATEWAY, type ShipEmblemImages, type ShipEmblemKind, type ShipEmblemState } from "../bridge/shipEmblems.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipDefaultSkin, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
@@ -1552,6 +1552,8 @@ export interface PersonalAssetSelection {
   readonly typeID: number;
   readonly stationID: number;
 }
+
+type DroppedSkinLicense = Pick<InventoryItemRow, "itemID" | "typeID"> & { readonly stationID?: number };
 
 type PlexDepositRequest =
   | [source: "assets", items: readonly (PersonalAssetSelection & { quantity: number })[]]
@@ -4657,6 +4659,7 @@ export interface AppFlow {
   readonly shipSkinrApplied: ReadableSignal<ShipSkinrAppliedState | null>;
   loadShipSkinrApplied(shipID: number): Promise<void>;
   loadFirstPartySkinLicenses(shipTypeID: number): Promise<ReadonlySet<number>>;
+  activateDroppedSkinLicenses(items: readonly DroppedSkinLicense[]): Promise<void>;
   applyFirstPartySkin(shipID: number, skinID: number | null): Promise<void>;
   readonly shipDefaultSkinChanged: ReadableSignal<number>;
   shipDefaultSkin(typeID: number): ShipDefaultSkin | null;
@@ -29380,6 +29383,46 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return decodeFirstPartySkinLicenses(answer);
   }
 
+  async function activateDroppedSkinLicenses(items: readonly DroppedSkinLicense[]) {
+    const pilot = store.station.get().online?.characterID;
+    if (!pilot || !items.length) return;
+    const current = callOptions.captureRequestGuard!();
+    const types = await loadSkinLicenseTypes();
+    current();
+    const selected = [...new Map(items.filter(item => types.has(item.typeID)).map(item => [item.itemID, item])).values()];
+    const first = selected[0];
+    if (!first) return;
+
+    let dialog = "ActivateMultipleShipSkinLicense";
+    let values: JsonValue = { type: "dict", entries: [["ownerID", pilot], ["numSkins", selected.length]] };
+    let fallback = `Activate ${selected.length} SKIN licenses? This consumes one license from each selected stack.`;
+    if (selected.length === 1) {
+      const license = types.get(first.typeID)!;
+      const material = `#${license.nameID}`;
+      const [hulls] = await Promise.all([api.resolveNames(license.hulls.map(id => ({ kind: "type", id })), callOptions), wordsNow([material])]);
+      current();
+      const name = plainText(store.words.get().templates[material] ?? "this SKIN");
+      dialog = license.singleUse ? "ActivateSkinLicenseSingleUse" : license.days < 0 ? "ActivateSkinLicensePermanent" : "ActivateSkinLicenseLimited";
+      values = { type: "dict", entries: [["ownerID", pilot], ["type", first.typeID], ["materialName", name],
+        ["hullNames", license.hulls.map(id => resolvedName(hulls.names, "type", id, "")).filter(Boolean).join(", ")],
+        ["days", license.days > 0 ? license.days : null]] };
+      const term = license.singleUse ? " (single use)" : license.days > 0 ? ` for ${license.days} days` : " permanently";
+      fallback = `Activate ${name}${term}? This consumes one license.`;
+    }
+    if (!await askDialog(dialog, values, fallback, "yesno", { suppressAnswer: "yes" })) return;
+    current();
+    await bridgeDo("shipCosmeticsMgr", "ActivateSkinLicense", [{ type: "list", items: selected.map(item => item.itemID) }]);
+    current();
+    allAssetsKept = null;
+    const stations = new Set(selected.flatMap(item => item.stationID ? [item.stationID] : []));
+    await Promise.all([refreshOpenPlaces(), (async () => {
+      if (!stations.size) return;
+      await loadPersonalAssets();
+      current();
+      await Promise.all([...stations].map(loadAssetStation));
+    })()]);
+  }
+
   async function applyFirstPartySkin(shipID: number, skinID: number | null): Promise<void> {
     const current = callOptions.captureRequestGuard!();
     if (store.fitting.get().activeShipID !== shipID) throw new Error("Select the active ship to change its SKIN.");
@@ -42557,6 +42600,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     shipSkinrApplied: readonlySignal(shipSkinrAppliedSignal),
     loadShipSkinrApplied,
     loadFirstPartySkinLicenses,
+    activateDroppedSkinLicenses,
     applyFirstPartySkin,
     shipDefaultSkinChanged: readonlySignal(shipDefaultSkinChanged),
     shipDefaultSkin,

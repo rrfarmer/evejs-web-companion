@@ -1353,6 +1353,14 @@ function createGamePortPilots({
       throw fail("CALL_NOT_ALLOWED", `${service}.${method} is not on the web-call allowlist.`);
     }
     if (service === "shipCosmeticsMgr") {
+      if (method === "ActivateSkinLicense") {
+        const list = args?.[0];
+        if (!entry || !Array.isArray(args) || args.length !== 1 || kwargs !== null || list?.type !== "list" || !Array.isArray(list.items) ||
+            list.items.length === 0 || list.items.length > 1000 || !list.items.every(id => Number.isSafeInteger(id) && id > 0)) {
+          throw fail("CALL_INVALID", "SKIN activation requires a selected pilot and a list of inventory item IDs.");
+        }
+        return;
+      }
       if (method === "GetLicencedSkins") {
         if (!entry || !Array.isArray(args) || args.length !== 0 || kwargs !== null) {
           throw fail("CALL_INVALID", "The SKIN collection requires the selected pilot and no arguments.");

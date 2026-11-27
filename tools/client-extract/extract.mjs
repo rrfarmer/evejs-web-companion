@@ -47,7 +47,7 @@ import { meshArrays, meshSkinArrays } from "./lib/mesh.mjs";
 import { writeGlb, readGlbDocument, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
 import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials, buildGfxTurrets, indexedHullGeometry, CELESTIAL_BUILD } from "./lib/typeGraphics.mjs";
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
-import { buildFirstPartySkins, buildGraphicSofDefaults, buildShipEmblemLicenses, loadGraphicMaterialSets, graphicsFile, mapSdeDir, solarSystemContentFile } from "./lib/assetSde.mjs";
+import { buildFirstPartySkins, buildFirstPartySkinLicenseTypes, buildGraphicSofDefaults, buildShipEmblemLicenses, loadGraphicMaterialSets, graphicsFile, mapSdeDir, solarSystemContentFile } from "./lib/assetSde.mjs";
 import { SOF_BUILD, GRAPHIC_SOF_DEFAULTS, sofVariant, loadSof, buildHull, allMaterials, shipBannerLayout } from "./lib/sof.mjs";
 import { hangarLayout } from "./lib/hangarLayout.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
@@ -1122,9 +1122,9 @@ function parseArgs(argv) {
     }
     else if (a === "--first-party-skins") {
       const target = argv[++i];
-      out.firstPartySkins = target === "all" ? target : Number(target);
-      if (out.firstPartySkins !== "all" && (!Number.isSafeInteger(out.firstPartySkins) || out.firstPartySkins < 1)) {
-        throw new Error("--first-party-skins needs a hull type ID or all");
+      out.firstPartySkins = target === "all" || target === "licenses" ? target : Number(target);
+      if (typeof out.firstPartySkins === "number" && (!Number.isSafeInteger(out.firstPartySkins) || out.firstPartySkins < 1)) {
+        throw new Error("--first-party-skins needs a hull type ID, all or licenses");
       }
     }
     else if (a === "--sof-defaults") out.sofDefaults = true;
@@ -1233,7 +1233,8 @@ async function main() {
     if (!sde) throw new Error("--first-party-skins needs the matching client export");
     const file = path.join(outRoot, "firstPartySkins", `${args.firstPartySkins}.json`);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const rows = buildFirstPartySkins(sde, args.firstPartySkins === "all" ? null : args.firstPartySkins);
+    const rows = args.firstPartySkins === "licenses" ? buildFirstPartySkinLicenseTypes(sde) :
+      buildFirstPartySkins(sde, args.firstPartySkins === "all" ? null : args.firstPartySkins);
     writeExtracted(file, JSON.stringify(rows));
     console.log(`First-party SKINs for ${args.firstPartySkins}: ${rows.length}`);
   }

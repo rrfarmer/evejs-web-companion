@@ -1,6 +1,9 @@
 import blue
 from cosmetics.client.cosmeticsSvc import FirstPartySkin
+from carbonui import uiconst
 from carbonui.uicore import uicore
+from carbonui.util.bunch import Bunch
+from eve.client.script.ui.services.menuSvcExtras import menuFunctions
 from eve.client.script.ui.shared.neocom.characterSheetWindow import CharacterSheetWindow, charsheet_expanded_setting
 from eve.client.script.ui.shared.neocom.charsheet import PANEL_PERSONALIZATION, PANEL_SHIPSKINS, GetPanelName, GetPanelUniqueName
 from eve.client.script.ui.shared.pointerTool.pointerChains import FindChainForPointer
@@ -32,6 +35,39 @@ def observe_durations():
                        isSingleUse=single_use).GetExpiresLabel()) for name, expires, single_use in cases))
 
 
+def observe_license_drops(panel):
+    service = sm.GetService('cosmeticsSvc')
+    original_prompt = menuFunctions.prompt_player_fsd_dialog
+    original_activate = service.ActivateShipSkinLicense
+    calls, prompts = [], []
+    answer = [uiconst.ID_NO]
+
+    def prompt(key, values, *args, **kwargs):
+        prompts.append(dict(key=key, values=values, suppress=kwargs.get('suppress') == uiconst.ID_YES))
+        return answer[0]
+
+    def row(item_id, type_id, category=91, guid='listentry.InvItem'):
+        return Bunch(__guid__=guid, rec=Bunch(itemID=item_id, typeID=type_id, categoryID=category))
+
+    try:
+        menuFunctions.prompt_player_fsd_dialog = prompt
+        service.ActivateShipSkinLicense = lambda ids: calls.append(ids)
+        permanent = row(1, 42671)
+        limited = row(2, 34779, guid='listentry.InvAssetItem')
+        volatile = row(3, 46585)
+        mineral = row(4, 34, category=4)
+        panel.OnDropData(None, [mineral])
+        panel.OnDropData(None, [permanent])
+        answer[0] = uiconst.ID_YES
+        panel.OnDropData(None, [limited])
+        panel.OnDropData(None, [volatile])
+        panel.OnDropData(None, [permanent, mineral, limited])
+        return dict(prompts=prompts, calls=calls)
+    finally:
+        menuFunctions.prompt_player_fsd_dialog = original_prompt
+        service.ActivateShipSkinLicense = original_activate
+
+
 def observe():
     opened = CharacterSheetWindow.GetIfOpen()
     if not opened:
@@ -58,6 +94,7 @@ def observe():
         return dict(build=3698585, station=session.stationid, tabs=[GetPanelName(PANEL_PERSONALIZATION), GetPanelName(PANEL_SHIPSKINS)],
                     pointer=pointer, parent=parent_tab.uniqueUiName, chain=repr(FindChainForPointer(pointer)),
                     counter=panel.counterText.text, options=options.options, groupCount=len(groups), durations=observe_durations(),
+                    licenseDrops=observe_license_drops(panel),
                     sample=[dict(label=row.label, children=[child.label for child in panel._GetSkinsSubContent(row)][:4]) for row in groups[:6]])
     finally:
         if opened:

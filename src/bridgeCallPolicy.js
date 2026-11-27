@@ -113,6 +113,7 @@ const ORGANIZATION_ENLISTMENT_METHODS = Object.freeze([
   "WithdrawJoinFactionAsCorporation", "WithdrawJoinFactionAsAlliance", "WithdrawLeaveFactionAsCorporation", "WithdrawLeaveFactionAsAlliance",
 ]);
 const FEATURE_WRITE_METHODS = freezeMethodMap({
+  shipCosmeticsMgr: ["ActivateSkinLicense"],
   FastCheckoutService: ["BuyOffer"],
   ownerGroupManager: ["Create", "UpdateName", "UpdateDescription", "Delete", "AddMembers", "UpdateMembershipTypes", "DeleteMembers"],
   repackagingSvc: ["RepackageItems"],
@@ -957,6 +958,7 @@ function isBridgeWritePair(service, method) {
  *   charMgr.RemoveOwnerNote   RemoveOwnerNote(noteID): that note gone (a folder's notes deleted, a setting's spare part).
  */
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
+  "shipCosmeticsMgr.ActivateSkinLicense",
   "bountyProxy.SellKillRight", "bountyProxy.CancelSellKillRight",
   "skillHandler.RespecCharacter",
   "billMgr.PayCorporationBill", "billMgr.SendAutomaticPaySettings", "allianceRegistry.PayBill",

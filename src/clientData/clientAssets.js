@@ -289,7 +289,7 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
     return { json: { dna: name, ...await modelResponse(dir, g, args, ensure, canExtract, queueColors), hull, faction, race } };
   }
   const skin = /^\/type\/([1-9]\d{0,9})\/skin\/([1-9]\d{0,9})$/.exec(rel);
-  const skinCatalog = /^\/firstPartySkins\/(all|[1-9]\d{0,9})\.json$/.exec(rel);
+  const skinCatalog = /^\/firstPartySkins\/(all|licenses|[1-9]\d{0,9})\.json$/.exec(rel);
   if (skinCatalog) return { file: await ensure(rel.slice(1), ["--first-party-skins", skinCatalog[1]]) };
   if (skin) {
     const [, type, material] = skin;
