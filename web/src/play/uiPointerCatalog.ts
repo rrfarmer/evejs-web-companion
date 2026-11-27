@@ -3,12 +3,13 @@ import { helpPointerLinksFromDrop, helpPointerUrl, parseHelpPointerUrl } from ".
 import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
 import { clientTexture } from "../ui/skillGroupIcons.ts";
 import { EVE_MENU, NEOCOM_DEFAULT } from "./neocom.ts";
-import { CHARACTER_SHEET_POINTERS, CONTRACT_POINTERS, FITTING_POINTERS, INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, MARKET_POINTERS, neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
+import { CHARACTER_SHEET_POINTERS, CONTRACT_POINTERS, CORPORATION_POINTERS, FITTING_POINTERS, INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, MARKET_POINTERS, neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
 
 const industryParent = neocomPointerName("industry");
 const contractsParent = neocomPointerName("contracts");
+const corporationParent = neocomPointerName("corporation");
 const characterSheetParent = neocomPointerName("charactersheet");
-const menuOnlyPointers = new Set([industryParent, contractsParent]);
+const menuOnlyPointers = new Set([industryParent, contractsParent, corporationParent]);
 const extraNeocomPointers = new Set([...menuOnlyPointers, characterSheetParent]);
 const extraNeocomEntries = EVE_MENU.flatMap(group => group.items)
   .flatMap(({ id, label, icon }) => id !== null && extraNeocomPointers.has(neocomPointerName(id)) ? [{ id, label, icon }] : []);
@@ -16,6 +17,21 @@ export const NEOCOM_POINTERS: readonly UiPointerTarget[] = [...NEOCOM_DEFAULT, .
   name: neocomPointerName(item.id), label: item.label, icon: item.icon,
 }));
 const tabIcon = clientTexture("res:/UI/Texture/Classes/HelpPointer/tabFlat.png");
+const corp = CORPORATION_POINTERS;
+const corporationPointers: readonly UiPointerTarget[] = [
+  { name: corp.corporation, label: "Corporation Tab", icon: tabIcon, parent: corporationParent },
+  { name: corp.alliance, label: "Alliances", icon: tabIcon, parent: corporationParent },
+  { name: corp.admin, label: "Corporation Administration", icon: tabIcon, parent: corporationParent },
+  { name: corp.home, label: "My Corporation", parent: corp.corporation },
+  { name: corp.applications, label: "My Corp Applications", parent: corp.corporation },
+  { name: corp.bulletins, label: "Corporation Bulletins", parent: corp.corporation },
+  { name: corp.projects, label: "Corporation Projects", parent: corp.corporation },
+  { name: corp.recruitSearch, label: "Find New Corporation", parent: corp.corporation },
+  { name: corp.freelance, label: "Corporation - Freelance Jobs", parent: corp.corporation },
+  { name: corp.assets, label: "Corporation - Assets", parent: corp.admin },
+  { name: corp.recruitAds, label: "Corporation Ads", parent: corp.admin },
+  { name: corp.brand, label: "Brand Management ", parent: corp.admin },
+];
 const sheet = CHARACTER_SHEET_POINTERS;
 const characterSheetTabs: readonly UiPointerTarget[] = ([
   [sheet.character, "Character Sheet - Character", sheet.expand],
@@ -76,6 +92,7 @@ export const INTERFACE_POINTERS: readonly UiPointerTarget[] = [
   { name: CONTRACT_POINTERS.search, label: "Contract Search", icon: tabIcon, parent: contractsParent },
   { name: CONTRACT_POINTERS.options, label: "Show/Hide more contract search options", parent: CONTRACT_POINTERS.search },
   { name: CONTRACT_POINTERS.availability, label: "Contract Availability Setting", parent: CONTRACT_POINTERS.options },
+  ...corporationPointers,
   { name: sheet.expand, label: "Expand/Collapse Character Sheet", parent: characterSheetParent,
     icon: clientTexture("res:/UI/Texture/Shared/DarkStyle/forward.png") },
   ...characterSheetTabs,

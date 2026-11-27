@@ -51,10 +51,12 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { corporationPanelTarget } from "./corporationPanel.ts";
+  import { CORPORATION_POINTERS } from "../play/uiPointer.ts";
 
   let { store, flow, openMail, openWatchlist, openPaintTool }: { store: ClientStore; flow: AppFlow; openMail?: () => void; openWatchlist?: () => void; openPaintTool?: () => void } = $props();
 
   let panel = $state<"contacts" | "npc" | "members" | "decorations" | "allianceContacts" | "applications" | "find" | "home" | "kills" | "recruitSearch" | "wars" | "warInfo" | "bulletins" | "allianceGeneral" | "recruitAds" | "recruitApplications" | "warHistory" | "mutualWarInvites" | "allianceBulletins" | "allianceMembers" | "allianceApplications" | "allianceRankings" | "autoKicks" | "auditing" | "titles" | "roleManagement" | "assets" | "brand" | "votes" | "sanctionable" | "projects" | "freelance" | "directEnlistment" | "allianceSovereignty" | "allianceSystems" | "allianceSovHubs">("contacts");
+  const panelPointers: Partial<Record<typeof panel, string>> = CORPORATION_POINTERS;
   /**
    * On the play page the window as CorporationWindow lays it out (800 x 832, min 700 x 832): the header's tabs -
    * Corporation, Alliances, Administration (with an admin role or grantable roles) - and the SideNavigation 240 wide:
@@ -306,9 +308,9 @@
 <section class="panel" class:corp-retail={retail}>
   {#if retail}
     <nav class="corp-tabs">
-      <button type="button" class:active={corpTab === "corp"} onclick={() => pickTab("corp")}>{word("UI/Corporations/BaseCorporationUI/Corporation")}</button>
-      <button type="button" class:active={corpTab === "alliance"} onclick={() => pickTab("alliance")}>{word("UI/Corporations/CorporationWindow/Alliances/Alliances")}</button>
-      {#if administration.visible}<button type="button" class:active={corpTab === "admin"} onclick={() => pickTab("admin")}>{word("UI/Corporations/CorporationWindow/Administration")}</button>{/if}
+      <button type="button" data-ui-pointer={CORPORATION_POINTERS.corporation} class:active={corpTab === "corp"} onclick={() => pickTab("corp")}>{word("UI/Corporations/BaseCorporationUI/Corporation")}</button>
+      <button type="button" data-ui-pointer={CORPORATION_POINTERS.alliance} class:active={corpTab === "alliance"} onclick={() => pickTab("alliance")}>{word("UI/Corporations/CorporationWindow/Alliances/Alliances")}</button>
+      {#if administration.visible}<button type="button" data-ui-pointer={CORPORATION_POINTERS.admin} class:active={corpTab === "admin"} onclick={() => pickTab("admin")}>{word("UI/Corporations/CorporationWindow/Administration")}</button>{/if}
     </nav>
   {:else}
   <header class="panel-head">
@@ -322,7 +324,8 @@
       {#each corpNav as group (group.header)}
         <span class="corp-side-header">{word(group.header)}</span>
         {#each group.entries as entry (entry.id)}
-          <button type="button" class="corp-side-entry" class:active={panel === entry.id} onclick={() => { entry.open?.(); panel = entry.id; }}>{word(entry.label)}</button>
+          <button type="button" class="corp-side-entry" data-ui-pointer={panelPointers[entry.id]} class:active={panel === entry.id}
+            onclick={() => { entry.open?.(); panel = entry.id; }}>{word(entry.label)}</button>
         {/each}
       {/each}
     </nav>
@@ -330,7 +333,7 @@
     <!-- The Standings node has the corporation Contacts form and NPC Standings panel. -->
     <nav class="corp-tree" aria-label={word("UI/Corporations/BaseCorporationUI/Corporation")}>
       <span class="corp-tree-group">{word("UI/Corporations/BaseCorporationUI/Recruitment")}</span>
-      <button type="button" class="corp-tree-node" class:active={panel === "applications"} aria-current={panel === "applications" ? "page" : undefined} onclick={() => { applicationsOpened = true; panel = "applications"; }}>{word("UI/Corporations/CorpApplications/MyApplications")}</button>
+      <button type="button" class="corp-tree-node" data-ui-pointer={CORPORATION_POINTERS.applications} class:active={panel === "applications"} aria-current={panel === "applications" ? "page" : undefined} onclick={() => { applicationsOpened = true; panel = "applications"; }}>{word("UI/Corporations/CorpApplications/MyApplications")}</button>
       {#if playerCorporation}
       <span class="corp-tree-group">{word("UI/Corporations/BaseCorporationUI/Members")}</span>
       <button type="button" class="corp-tree-node" class:active={panel === "members"} aria-current={panel === "members" ? "page" : undefined} onclick={() => { membersOpened = true; panel = "members"; }}>{word("UI/Corporations/BaseCorporationUI/MemberList")}</button>

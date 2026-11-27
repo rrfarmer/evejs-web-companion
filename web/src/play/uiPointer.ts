@@ -23,6 +23,21 @@ export const CONTRACT_POINTERS = {
   availability: "unique_UI_contractAvailabilitySetting",
 } as const;
 
+export const CORPORATION_POINTERS = {
+  corporation: "unique_UI_corpCorporationTab",
+  admin: "unique_UI_corpAdminTab",
+  alliance: "unique_UI_corpAlliancesTab",
+  home: "unique_UI_corpHome",
+  applications: "unique_UI_myApplications",
+  bulletins: "unique_UI_corpBulletin",
+  projects: "unique_UI_corpProjects",
+  recruitSearch: "unique_UI_findNewCorp",
+  freelance: "unique_UI_freelanceProjects",
+  assets: "unique_UI_corpAssetsTab",
+  recruitAds: "unique_UI_corpAds",
+  brand: "unique_UI_brandMgmt",
+} as const;
+
 export const CHARACTER_SHEET_POINTERS = {
   expand: "unique_UI_expandCharacterSheet",
   character: "unique_UI_charactersheetCharacterTab",
