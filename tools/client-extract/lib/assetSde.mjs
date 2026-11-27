@@ -62,6 +62,12 @@ export function buildFirstPartySkins(sdeDir, typeID) {
   });
 }
 
+export function buildShipEmblemLicenses(sdeDir) {
+  return readRows(clientTable(sdeDir, ["shipcosmeticlicenses.jsonl", "shipCosmeticLicenses.jsonl"], true))
+    .filter(row => row.cosmeticType === 1 || row.cosmeticType === 2)
+    .map(row => [row.shipTypeID, row.cosmeticType, row.slotGroup * 64 + row.cosmeticType - 1]);
+}
+
 /** The stock recipe belongs to the graphic, which may be shared by several type IDs. */
 export function buildGraphicSofDefaults(sdeDir) {
   const file = graphicsFile(sdeDir, false);

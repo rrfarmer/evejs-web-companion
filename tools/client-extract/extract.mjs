@@ -39,7 +39,7 @@ import { meshArrays, meshSkinArrays } from "./lib/mesh.mjs";
 import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
 import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials, buildGfxTurrets, indexedHullGeometry, CELESTIAL_BUILD } from "./lib/typeGraphics.mjs";
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
-import { buildFirstPartySkins, buildGraphicSofDefaults, loadGraphicMaterialSets, graphicsFile, mapSdeDir, solarSystemContentFile } from "./lib/assetSde.mjs";
+import { buildFirstPartySkins, buildGraphicSofDefaults, buildShipEmblemLicenses, loadGraphicMaterialSets, graphicsFile, mapSdeDir, solarSystemContentFile } from "./lib/assetSde.mjs";
 import { SOF_BUILD, GRAPHIC_SOF_DEFAULTS, sofVariant, loadSof, buildHull, allMaterials } from "./lib/sof.mjs";
 import { hangarLayout } from "./lib/hangarLayout.mjs";
 import { readCelestial } from "./lib/celestial.mjs";
@@ -896,6 +896,7 @@ function parseArgs(argv) {
     else if (a === "--portrait-hair") out.portraitHair = argv[++i];
     else if (a === "--sde") out.sde = argv[++i];
     else if (a === "--type-graphics") out.typeGraphics = true;
+    else if (a === "--ship-emblems") out.shipEmblems = true;
     else if (a === "--first-party-skins") {
       out.firstPartySkins = Number(argv[++i]);
       if (!Number.isSafeInteger(out.firstPartySkins) || out.firstPartySkins < 1) throw new Error("--first-party-skins needs a hull type ID");
@@ -960,6 +961,11 @@ async function main() {
   writeExtracted(configFile, JSON.stringify({ ...old, ...Object.fromEntries(Object.entries(config).filter(([, v]) => v !== null)) }, null, 2));
 
   const sde = args.sde ?? old.sde ?? null;
+  if (args.shipEmblems) {
+    if (!sde) throw new Error("--ship-emblems needs the matching client export");
+    const rows = buildShipEmblemLicenses(sde);
+    writeExtracted(path.join(outRoot, "shipEmblemLicenses.json"), JSON.stringify(rows));
+  }
   if (args.firstPartySkins) {
     if (!sde) throw new Error("--first-party-skins needs the matching client export");
     const file = path.join(outRoot, "firstPartySkins", `${args.firstPartySkins}.json`);
@@ -1279,7 +1285,7 @@ async function main() {
     }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.firstPartySkins && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.wormholeTransit && !args.warpTunnel && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.asteroidRules && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.portraitHead && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
+  if (!done.length && !args.shipEmblems && !args.firstPartySkins && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.wormholeTransit && !args.warpTunnel && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.asteroidRules && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.portraitHead && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
   await compression.prepareAssets(writtenAssets, (file, error) => console.warn(`Brotli ${path.relative(outRoot, file)}: ${error.message}`));
   if (!process.env.EVEJS_DEFER_HULL_COLOR_ENCODING) {
     await hullColorCompression.prepareHullColors(writtenAssets, path.dirname(outRoot),

@@ -113,6 +113,7 @@
   import { mailBodyLines } from "../bridge/mailMarkup.ts";
   import ShipSkinrCollection from "./ShipSkinrCollection.svelte";
   import FittingFirstPartySkins from "./FittingFirstPartySkins.svelte";
+  import FittingEmblems from "./FittingEmblems.svelte";
   import { playUiEvent } from "../play/uiAudio.ts";
 
   let {
@@ -1431,12 +1432,14 @@
   const canPersonalize = $derived(activeShipTypeID !== null && $fitting.activeShipID !== null &&
     Boolean($station.online?.stationID || $station.online?.structureID));
   let personalization = $state(false);
+  let showEmblems = $state(false);
   let switchingMode = $state(false);
   const personalizationShown = $derived(personalization && canPersonalize && !simulation);
   const personalizationLabel = "UI/ShipCosmetics/Personalization";
   const skinsLabel = "UI/ShipCosmetics/Skins";
+  const emblemsLabel = "UI/ShipCosmetics/Emblems";
   const cleanShipLabel = "UI/Fitting/FittingWindow/CleanShip";
-  $effect(() => { flow.requestWords([personalizationLabel, skinsLabel, cleanShipLabel]); });
+  $effect(() => { flow.requestWords([personalizationLabel, skinsLabel, emblemsLabel, cleanShipLabel]); });
   $effect(() => {
     if (!canPersonalize || simulation) personalization = false;
   });
@@ -3599,11 +3602,16 @@
 </section>
 
 {#if personalizationShown && activeShipTypeID !== null && $fitting.activeShipID !== null}
-  <section class="panel" data-fitting-personalization aria-labelledby="fitting-personalization-skins">
+  <section class="panel" data-fitting-personalization aria-label={plainText($words.templates[personalizationLabel] ?? "Personalization")}>
     <header class="panel-head">
-      <h3 id="fitting-personalization-skins" data-ui-pointer={FITTING_POINTERS.skins}>
-        {plainText($words.templates[skinsLabel] ?? "SKINs")}
-      </h3>
+      <nav class="controls" aria-label={plainText($words.templates[personalizationLabel] ?? "Personalization")}>
+        <button type="button" class={showEmblems ? "minor" : "active"} aria-pressed={!showEmblems}
+          data-ui-pointer={FITTING_POINTERS.skins} onclick={() => showEmblems = false}>
+          {plainText($words.templates[skinsLabel] ?? "SKINs")}
+        </button>
+        <button type="button" class={showEmblems ? "active" : "minor"} aria-pressed={showEmblems}
+          onclick={() => showEmblems = true}>{plainText($words.templates[emblemsLabel] ?? "Emblems")}</button>
+      </nav>
       {#if $fitting.activeShipID !== $station.online?.structureID}
         {@const shipID = $fitting.activeShipID}
         <button type="button" class="minor" disabled={busy} onclick={() => {
@@ -3613,9 +3621,13 @@
       {/if}
     </header>
     {#key $fitting.activeShipID}
-      <FittingFirstPartySkins {store} {flow} shipID={$fitting.activeShipID} shipTypeID={activeShipTypeID} />
-      <header class="panel-head"><h3>Ship SKINR</h3></header>
-      <ShipSkinrCollection {store} {flow} fittingHull={activeShipTypeID} />
+      {#if showEmblems}
+        <FittingEmblems {store} {flow} shipID={$fitting.activeShipID} shipTypeID={activeShipTypeID} />
+      {:else}
+        <FittingFirstPartySkins {store} {flow} shipID={$fitting.activeShipID} shipTypeID={activeShipTypeID} />
+        <header class="panel-head"><h3>Ship SKINR</h3></header>
+        <ShipSkinrCollection {store} {flow} fittingHull={activeShipTypeID} />
+      {/if}
     {/key}
   </section>
 {:else if $fitting.activeShipID}

@@ -678,6 +678,7 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
  * (importExportUI.py 549), and the gateway never had it.
  */
 const GAME_PORT_ONLY_CALLS = Object.freeze([
+  "shipCosmeticsMgr.GetEnabledCosmetics",
   "shipCosmeticsMgr.GetLicencedSkinsForShipType", "shipCosmeticsMgr.ApplySkinToShip",
   "invbroker.WithdrawPlexFromVault", "invbroker.DepositPlexToVault", "marketProxy.GetPlexOrders", "marketProxy.PlacePlexSellOrder",
   "raffleProxy.Grab", "raffleProxy.FilteredGrab", "raffleProxy.GetMyRaffleHistory",
@@ -2246,6 +2247,7 @@ function scanProbes(given) {
 }
 
 const RETAIL_CALLS = Object.freeze({
+  "shipCosmeticsMgr.GetEnabledCosmetics": same("shipcosmetics/client/fittingsgateway/quasar.py:35", "GetEnabledCosmetics(shipID)"),
   "shipCosmeticsMgr.GetLicencedSkinsForShipType": same("cosmetics/client/cosmeticsSvc.py:128", "GetLicencedSkinsForShipType(characterID, typeID)"),
   "shipCosmeticsMgr.ApplySkinToShip": same("cosmetics/client/cosmeticsSvc.py:163", "ApplySkinToShip(itemID, skinID or None)"),
   "hackingMgr.ClickedOnTile": same("eve/client/script/ui/hacking/hackingUISvc.py:249", "ClickedOnTile((x, y))"),

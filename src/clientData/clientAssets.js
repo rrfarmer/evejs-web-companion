@@ -24,6 +24,7 @@ const MIME = new Map([
   [".ogg", "audio/ogg"], [".wav", "audio/wav"], [".vta", "application/octet-stream"],
 ]);
 const GENERATED = new Map([
+  ["/shipEmblemLicenses.json", ["--ship-emblems"]],
   ["/dscanCones.json", ["--dscan-cones", '"lineTexture"']],
   ["/dscanHologram.json", ["--dscan-hologram"]],
   ["/wormholeTransit.json", ["--wormhole-transit"]],

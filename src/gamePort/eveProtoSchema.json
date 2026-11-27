@@ -17330,6 +17330,212 @@
      "typeName": "eve_public.cosmetic.ship.skin.thirdparty.draft.Attributes"
     }
    ]
+  },
+  "eve_public.cosmetic.ship.logo.DisplayRequest": {
+   "fields": [
+    {
+     "name": "id",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.logo.Identifier"
+    },
+    {
+     "name": "attr",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.logo.Attributes"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.logo.Identifier": {
+   "fields": [
+    {
+     "name": "ship",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.ship.Identifier"
+    },
+    {
+     "name": "index",
+     "number": 2,
+     "type": 5,
+     "label": 1
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.logo.Attributes": {
+   "fields": [
+    {
+     "name": "alliance",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.logo.Alliance",
+     "oneof": "logo_type"
+    },
+    {
+     "name": "corporation",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.logo.Corporation",
+     "oneof": "logo_type"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.logo.Alliance": {
+   "fields": []
+  },
+  "eve_public.cosmetic.ship.logo.Corporation": {
+   "fields": []
+  },
+  "eve_public.cosmetic.ship.logo.DisplayResponse": {
+   "fields": []
+  },
+  "eve_public.cosmetic.ship.logo.ClearRequest": {
+   "fields": [
+    {
+     "name": "logo",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.cosmetic.ship.logo.Identifier"
+    }
+   ]
+  },
+  "eve_public.cosmetic.ship.logo.ClearResponse": {
+   "fields": []
+  },
+  "eve_public.entitlement.character.GetAllRequest": {
+   "fields": []
+  },
+  "eve_public.entitlement.character.GetAllResponse": {
+   "fields": [
+    {
+     "name": "entitlements",
+     "number": 1,
+     "type": 11,
+     "label": 3,
+     "typeName": "eve_public.entitlement.character.GetAllResponse.Entitlement"
+    }
+   ]
+  },
+  "eve_public.entitlement.character.GetAllResponse.Entitlement": {
+   "fields": [
+    {
+     "name": "corporation_logo",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.entitlement.character.ship.corplogo.Identifier",
+     "oneof": "entitlement_type"
+    },
+    {
+     "name": "alliance_logo",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.entitlement.character.ship.alliancelogo.Identifier",
+     "oneof": "entitlement_type"
+    }
+   ]
+  },
+  "eve_public.entitlement.character.ship.corplogo.Identifier": {
+   "fields": [
+    {
+     "name": "character",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "ship_type",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.shiptype.Identifier"
+    }
+   ]
+  },
+  "eve_public.entitlement.character.ship.alliancelogo.Identifier": {
+   "fields": [
+    {
+     "name": "character",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "ship_type",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.shiptype.Identifier"
+    }
+   ]
+  },
+  "eve_public.entitlement.character.ship.corplogo.GrantedNotice": {
+   "fields": [
+    {
+     "name": "entitlement",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.entitlement.character.ship.corplogo.Identifier"
+    }
+   ]
+  },
+  "eve_public.entitlement.character.ship.corplogo.RevokedNotice": {
+   "fields": [
+    {
+     "name": "revoker",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "entitlement",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.entitlement.character.ship.corplogo.Identifier"
+    }
+   ]
+  },
+  "eve_public.entitlement.character.ship.alliancelogo.GrantedNotice": {
+   "fields": [
+    {
+     "name": "entitlement",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.entitlement.character.ship.alliancelogo.Identifier"
+    }
+   ]
+  },
+  "eve_public.entitlement.character.ship.alliancelogo.RevokedNotice": {
+   "fields": [
+    {
+     "name": "revoker",
+     "number": 1,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.character.Identifier"
+    },
+    {
+     "name": "entitlement",
+     "number": 2,
+     "type": 11,
+     "label": 1,
+     "typeName": "eve_public.entitlement.character.ship.alliancelogo.Identifier"
+    }
+   ]
   }
  },
  "enums": {

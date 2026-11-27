@@ -1353,11 +1353,13 @@ function createGamePortPilots({
       throw fail("CALL_NOT_ALLOWED", `${service}.${method} is not on the web-call allowlist.`);
     }
     if (service === "shipCosmeticsMgr") {
-      if (!entry || !Array.isArray(args) || args.length !== 2 || kwargs !== null) {
-        throw fail("CALL_INVALID", "Ship SKINs require an active pilot and two positional arguments.");
+      const cosmeticRead = method === "GetEnabledCosmetics";
+      if (!entry || !Array.isArray(args) || args.length !== (cosmeticRead ? 1 : 2) || kwargs !== null) {
+        throw fail("CALL_INVALID", "Ship cosmetics require a pilot and positional arguments.");
       }
       const [id, value] = args;
-      const valid = method === "GetLicencedSkinsForShipType"
+      const valid = cosmeticRead ? Number.isSafeInteger(id) && id === attribute(entry, "shipid") :
+        method === "GetLicencedSkinsForShipType"
         ? id === entry.characterID && Number.isSafeInteger(value) && value > 0
         // The client also sends this for an assembled ship before boarding. EveJS checks the ship's owner.
         : Number.isSafeInteger(id) && id > 0 &&
