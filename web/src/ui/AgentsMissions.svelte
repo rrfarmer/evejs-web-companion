@@ -13,7 +13,7 @@
   import { isSessionLost } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
-  import type { AgentAction, AgentRow, JournalMission } from "../store/types.ts";
+  import type { AgentAction, AgentBriefingChoice, AgentRow, JournalMission } from "../store/types.ts";
   import { resolvedName, type NameRef } from "../store/names.ts";
   // R36 — the mission bot sits with the agents it works for.
   import MissionBot from "./MissionBot.svelte";
@@ -89,9 +89,18 @@
   // What the agent says, in the retail client's own words when the BFF has a
   // client to read. The client adds the agent's own IDs to every agent message
   // (agents.py GetAgentArgs) and the player to every message at all.
+  const agentWordArgs = $derived.by<NonNullable<ClientWording["extra"]>>(() => {
+    const agentID = conversationOwner;
+    const row = agentID === null ? null : $agents.agentRecords[agentID] ?? $agents.agents.find((agent) => agent.agentID === agentID);
+    return {
+      agentID: agentID ?? undefined,
+      agentCorpID: row?.corporationID ?? undefined,
+      agentStationID: row?.stationID ?? undefined,
+      agentLocation: row?.stationID ?? row?.solarSystemID ?? undefined,
+    };
+  });
   const saysClient = $derived.by<ClientWording>(() => {
     const agentID = conversationOwner;
-    const row = $agents.agents.find((agent) => agent.agentID === agentID) ?? null;
     const contentID = conversation?.contentID ?? null;
     return {
       templates: $words.templates,
@@ -99,10 +108,7 @@
       // The mission's keywords first, then the agent's own IDs over them, as the client orders them.
       extra: {
         ...((agentID !== null && contentID !== null ? $agents.missionKeywords[`${agentID}:${contentID}`] : null) ?? {}),
-        agentID: agentID ?? undefined,
-        agentCorpID: row?.corporationID ?? undefined,
-        agentStationID: row?.stationID ?? undefined,
-        agentLocation: row?.stationID ?? undefined,
+        ...agentWordArgs,
       },
     };
   });
@@ -131,6 +137,30 @@
     const refs = wordsNameRefs(said, saysClient);
     if (refs.length > 0) {
       flow.requestNames(refs);
+    }
+  });
+
+  const briefingChoices = $derived(conversation?.lastActionInfo.missionCantReplay ? [] : conversation?.briefingChoices ?? []);
+  function choiceWording(choice: AgentBriefingChoice): ClientWording {
+    const agentID = conversationOwner;
+    const cached = agentID !== null && choice.contentID !== null ? $agents.missionKeywords[`${agentID}:${choice.contentID}`] : null;
+    return {
+      templates: $words.templates,
+      playerID: $station.online?.characterID ?? null,
+      extra: { ...choice.keywords, ...cached, ...agentWordArgs },
+    };
+  }
+  $effect(() => {
+    const agentID = conversationOwner;
+    for (const choice of briefingChoices) {
+      if (agentID !== null && choice.contentID !== null && Object.keys(choice.keywords).length === 0) {
+        flow.requestMissionKeywords(agentID, choice.contentID);
+      }
+      const words = [choice.title, choice.briefing];
+      const labels = wordsLabels(words);
+      if (labels.length > 0) flow.requestWords(labels);
+      const refs = wordsNameRefs(words, choiceWording(choice));
+      if (refs.length > 0) flow.requestNames(refs);
     }
   });
 
@@ -623,8 +653,19 @@
     {#if missionTime}
       <p class="note mission-time">{missionTime}</p>
     {/if}
+    {#each briefingChoices as choice (choice.actionID)}
+      {@const client = choiceWording(choice)}
+      {@const title = plainText(questionText(choice.title, saysName, client))}
+      <div class="agent-briefing-choice">
+        <button type="button" class="link" disabled={busy} onclick={() => run(() => flow.chooseAction(conversationOwner as number, { actionID: choice.actionID, buttonType: 0, label: title }))}>{title}</button>
+        <span aria-hidden="true">&gt;&gt;</span>
+        {#if choice.briefing}
+          <p>{plainText(questionText(choice.briefing, saysName, client))}</p>
+        {/if}
+      </div>
+    {/each}
     {#if !standalone}<p class="controls">
-      {#each conversation.actions as action (action.actionID)}
+      {#each conversation.actions.filter(action => action.buttonType > 0) as action (action.actionID)}
         <button
           type="button"
           disabled={busy}
@@ -633,7 +674,7 @@
           {action.label}
         </button>
       {/each}
-      {#if conversation.actions.length === 0}
+      {#if briefingChoices.length === 0 && !conversation.actions.some(action => action.buttonType > 0)}
         <span class="note">No actions available.</span>
       {/if}
     </p>{/if}
@@ -844,6 +885,16 @@
 {/if}
 
 <style>
+  .agent-briefing-choice { margin: 0.75em 0; }
+  .agent-briefing-choice button {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-accent-bright, #a9d3f0);
+    text-decoration: underline;
+    text-align: left;
+  }
+  .agent-briefing-choice p { margin: 0.25em 0 0; white-space: pre-line; }
   .agent-conversation-frame { height: 100%; min-height: 0; display: flex; flex-direction: column; }
   .standalone-conversation { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-height: 0; }
   .standalone-conversation.double-pane { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }

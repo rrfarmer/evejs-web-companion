@@ -56,6 +56,26 @@ def observe():
         observed['offerButtons'] = buttons()
         observed['tracking'] = observe_tracking(agent_id)
         observed['footer'] = window.buttonGroup.align == uiconst.TOBOTTOM
+        special = [
+            (314, {'ContentID': 91000001, 'Mission Title ID': 'Gridcheck special choice',
+                   'Mission Briefing ID': 'Read this choice before selecting it.', 'Mission Keywords': {'sample': 1}}),
+            (315, {'ContentID': 91000002, 'Mission Title ID': 'Gridcheck corrupt choice',
+                   'Mission Briefing ID': 0, 'Mission Keywords': {'sample': 1}}),
+            (316, {'ContentID': 91000003, 'Mission Title ID': 'Gridcheck title only',
+                   'Mission Briefing ID': None, 'Mission Keywords': {'sample': 1}}),
+        ]
+        try:
+            special_actions = special + [(317, appConst.agentDialogueButtonAccept)]
+            window.ReconstructButtons(special_actions, {})
+            observed['specialInteractions'] = dict(
+                html=window.GetSpecialInteractionHTML(special), mixedButtons=buttons(),
+                extra=window.GetExtraMissionInfoHTML(special, agents.GetMissionBriefingInfo(agent_id)),
+                corrupt=localization.GetByLabel('UI/Agents/Dialogue/StandardMission/CorruptBriefing'))
+            window.ReconstructButtons(special, {})
+            observed['specialInteractions']['onlyButtons'] = buttons()
+        finally:
+            for _, data in special:
+                agents.missionArgs.pop((agent_id, data['ContentID']), None)
         window.ReconstructButtons([(1, appConst.agentDialogueButtonQuit)], {})
         observed['quitButtons'] = buttons()
         window.ReconstructButtons([(1, appConst.agentDialogueButtonAccept)], {'missionCantReplay': 10000000})

@@ -12,6 +12,7 @@
 import { unwrapLong, unwrapReal, type DictEntry, type JsonValue } from "./wire.ts";
 import type {
   AgentAction,
+  AgentBriefingChoice,
   AgentConversation,
   AgentLastActionInfo,
   CourierBriefing,
@@ -165,12 +166,22 @@ function toBoolOrNull(value: JsonValue | undefined): boolean | null {
 
 // --- conversation ----------------------------------------------------------
 
+export const CORRUPT_AGENT_BRIEFING = "UI/Agents/Dialogue/StandardMission/CorruptBriefing";
+
+function briefingChoiceWords(value: JsonValue | undefined): AgentBriefingChoice["title"] {
+  if (typeof value === "string") return { text: value, label: null, parameters: null };
+  const messageID = toNumber(value);
+  return messageID !== null && messageID > 0
+    ? { text: null, label: null, parameters: null, messageID }
+    : { text: null, label: CORRUPT_AGENT_BRIEFING, parameters: null };
+}
+
 /**
  * Decode a DoAction result:
  *   tuple( tuple(agentSays, availableActions), lastActionInfo )
  * where agentSays is tuple(message, contentID) — message being a string key, a
  * numeric briefing id, or a tuple(messageKey, substitutionDict) — and each
- * availableAction is tuple(actionID token, buttonType).
+ * availableAction is tuple(actionID token, button type or briefing data).
  */
 export function decodeConversation(result: JsonValue): AgentConversation {
   const outer = seqItems(result);
@@ -196,10 +207,23 @@ export function decodeConversation(result: JsonValue): AgentConversation {
       agentSaysWords = { label: nested[0], parameters: nested[1] ?? null, text: null };
     }
   }
+  const briefingChoices: AgentBriefingChoice[] = [];
   const actions: AgentAction[] = seqItems(inner[1]).map((entry) => {
     const items = seqItems(entry);
     const actionID = toNumber(items[0]) ?? 0;
-    const buttonType = toNumber(items[1]) ?? 0;
+    const data = items[1];
+    if (dictEntries(data).length > 0) {
+      const briefing = readDict(data, "Mission Briefing ID");
+      briefingChoices.push({
+        actionID,
+        contentID: toNumber(readDict(data, "ContentID")) ?? toNumber(readDict(data, "Mission ID")),
+        title: briefingChoiceWords(readDict(data, "Mission Title ID")),
+        briefing: briefing == null ? null : briefingChoiceWords(briefing),
+        keywords: Object.fromEntries(dictEntries(readDict(data, "Mission Keywords"))),
+      });
+    }
+    // Preserve wire order for openingAction, including slots that do not supply footer buttons.
+    const buttonType = typeof data === "string" ? 0 : toNumber(data) ?? 0;
     return { actionID, buttonType, label: agentButtonLabel(buttonType) };
   });
   const lastActionInfo = outer[1];
@@ -210,7 +234,8 @@ export function decodeConversation(result: JsonValue): AgentConversation {
     actions,
     // An action whose data is a dict is one of the agent's special interactions, not a button
     // (agentDialogueWindow.GetBriefingHTML: type(actionData) == dict).
-    specialInteractions: seqItems(inner[1]).some((entry) => dictEntries(seqItems(entry)[1]).length > 0),
+    specialInteractions: briefingChoices.length > 0,
+    ...(briefingChoices.length > 0 ? { briefingChoices } : {}),
     lastActionInfo: {
       missionCompleted: toBoolOrNull(readDict(lastActionInfo, "missionCompleted")),
       missionDeclined: toBoolOrNull(readDict(lastActionInfo, "missionDeclined")),

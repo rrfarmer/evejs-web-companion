@@ -11,6 +11,7 @@ import type { SkillNotification } from "../bridge/skillNotifications.ts";
 import type { MailLabel, MailingList } from "../bridge/mail.ts";
 import type { MissionTimes } from "../bridge/missionTime.ts";
 import type { MissionObjectives } from "../bridge/missionObjectives.ts";
+import type { JsonValue } from "../bridge/wire.ts";
 import type { MiningBurstServices, CompressionServiceObservation } from "../bridge/miningSupportServices.ts";
 import type { CoreMobilityFuelObservation } from "../bridge/miningSupportCore.ts";
 import type { ModuleReachObservation } from "../bridge/moduleReach.ts";
@@ -1372,6 +1373,14 @@ export interface AgentAction {
   readonly label: string;
 }
 
+export interface AgentBriefingChoice {
+  readonly actionID: number;
+  readonly contentID: number | null;
+  readonly title: QuestionWords;
+  readonly briefing: QuestionWords | null;
+  readonly keywords: Readonly<Record<string, JsonValue>>;
+}
+
 /** The last-action-info flags a DoAction result carries. */
 export interface AgentLastActionInfo {
   readonly missionCompleted: boolean | null;
@@ -1399,6 +1408,7 @@ export interface AgentConversation {
    * of the mission's time.
    */
   readonly specialInteractions?: boolean;
+  readonly briefingChoices?: readonly AgentBriefingChoice[];
   readonly lastActionInfo: AgentLastActionInfo;
 }
 
