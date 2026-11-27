@@ -51,6 +51,7 @@
   import { isShipRow } from "./inventoryModel.ts";
   import { changeQuickbar, marketQuickbar } from "./marketQuickbar.ts";
   import { addType } from "../bridge/marketQuickbar.ts";
+  import { PLEX_TYPE_ID } from "../bridge/plexVault.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
 
@@ -308,6 +309,7 @@
     buyAll: ["UI/Market/MarketQuote/BuyAll", "Buy All"],
     sell: ["UI/Inventory/ItemActions/SellThisItem", "Sell This Item"],
     multiSell: ["UI/Inventory/ItemActions/MultiSell", "Sell Items"],
+    moveToPlexVault: ["UI/Inventory/ItemActions/RedeemCurrency", "Move to PLEX Vault"],
     compare: ["UI/Compare/CompareButton", "Compare"],
     find: ["UI/Inventory/ItemActions/FindPersonalAssets", "Find in Personal Assets"],
     exact: ["UI/Inventory/AssetSearch/KeywordTypeExact", "typeExact"],
@@ -390,7 +392,7 @@
       const repackableTypes = assembled.length > 0 ? await flow.repackableAssetTypes(assembled).catch(() => undefined) : undefined;
       if (itemMenu === menu) itemMenu = { ...menu, types: facts, comparison: comparison?.types, repackableTypes };
     });
-    if (chosen.length === 1 && chosen[0]!.stationID === dockedAt && !localAsset(chosen[0]!)) {
+    if (chosen.some(row => row.stationID === dockedAt && (chosen.length === 1 || row.typeID === PLEX_TYPE_ID) && !localAsset(row))) {
       void flow.loadInventory().catch(() => {});
     }
   }
@@ -424,6 +426,14 @@
 
   function itemCommands(menu: AssetItemMenu): { readonly key: ItemCommand; readonly run: () => void }[] {
     const actions: { key: ItemCommand; run: () => void }[] = [];
+    const plexStacks = menu.rows.flatMap(row => {
+      if (row.typeID !== PLEX_TYPE_ID) return [];
+      const item = localAsset(row);
+      return item ? [{ itemID: item.itemID, quantity: item.quantity }] : [];
+    });
+    if (plexStacks.length) {
+      actions.push({ key: "moveToPlexVault", run: () => void run(() => flow.depositVaultPlex("hangar", plexStacks)) });
+    }
     const activeShip = $flight.status?.shipID ?? $inventory.activeShipID;
     const repackable = menu.rows.filter(row => row.assembledHangar && row.stationID === dockedAt &&
       row.itemID !== activeShip && menu.repackableTypes?.has(row.typeID));
