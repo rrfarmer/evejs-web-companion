@@ -3303,10 +3303,11 @@
     return {
       path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
       // Guests uses the native menuDataFactory order: Show Info, Fleet submenu, trade, changes, contacts, and social.
+      // OfferDuelMenuEntry checks solarsystemid, which is empty while docked and resolves to zero security.
       sub: inLobby
         ? [showInfoEntry, null, ...fleetSubmenu, null, moneyEntry, ...tradeEntries, ...(sameCorp && !director ? [memberDetailsEntry] : []), null,
           ...(blocked ? [blockEntry] : []), bountyEntry, null, ...contacts, ...(blocked ? [] : [blockEntry]), null,
-          ...socialEntries, ...formFleetEntry, null, ...invite, null, ...(sameCorp && director ? [memberDetailsEntry] : []), null, duelEntry]
+          ...socialEntries, ...formFleetEntry, null, ...invite, null, ...(sameCorp && director ? [memberDetailsEntry] : [])]
         : [showInfoEntry, null, moneyEntry, null, bountyEntry, null, ...contacts, blockEntry, null,
           ...socialEntries, ...invite, ...fleetSubmenu, ...formFleetEntry, null, duelEntry],
     };
