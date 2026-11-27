@@ -35,6 +35,7 @@
   // all (the read does not send it), so the m³ columns are empty in the bays
   // view. That is normal. Unknown renders as "—" / "not known", never 0.
   import { onMount, tick, untrack } from "svelte";
+  import { INVENTORY_POINTERS } from "../play/uiPointer.ts";
   import { inventoryWindowsOpen, markItemSeen, markPlaceSeen, unseenItems, type BadgePlace } from "../play/inventoryBadging.ts";
   import { shipHoldTarget } from "./shipHold.ts";
   import TypeIcon from "./TypeIcon.svelte";
@@ -305,6 +306,21 @@
   type View = "ship" | "ships" | "hangar" | "corp" | "safety" | "container" | "services" | "plexVault";
 
   let view = $state<View>(untrack(() => lobbyHangars ? "ships" : "ship"));
+  const groupedViews: readonly View[] = ["ship", "hangar", "corp", "container"];
+  const displayKey = "evejs.ui.inventory.dockedView";
+  let displayMode = $state<"icons" | "details" | "list">("details");
+  if (typeof localStorage !== "undefined") {
+    try {
+      const saved = localStorage.getItem(displayKey);
+      if (saved === "icons" || saved === "list") displayMode = saved;
+    } catch {}
+  }
+  const groupDisplay = $derived(!lobbyHangars && isDocked ? displayMode : "details");
+  $effect(() => {
+    if (!lobbyHangars && isDocked) {
+      try { localStorage.setItem(displayKey, displayMode); } catch {}
+    }
+  });
   $effect(() => {
     if (inventoryVaultRequested && !lobbyHangars) untrack(() => goTo("plexVault"));
   });
@@ -1699,7 +1715,7 @@
       {/if}
     </span>
     <span class="stn-cell-icon">
-      <TypeIcon typeID={row.typeID} name={nameOf(row)} size="sm" />
+      <TypeIcon typeID={row.typeID} name={nameOf(row)} size={groupDisplay === "icons" ? "lg" : "sm"} />
       <!-- InvItem.AddTag: an unseen item's newItemTagLine, 2 px over the top of its icon (important colour) -->
       {#if $unseenItems.some((u) => u.itemID === row.itemID)}<span class="stn-new-line" aria-hidden="true"></span>{/if}
     </span>
@@ -1789,11 +1805,12 @@
       <span class="stn-group-cap" class:unknown={!g.capacity}>
         {g.hasLimit ? capacityText(g.capacity) : roomUsedText(g.capacity)}
       </span>
-      {#if g.stackKey && g.rows && g.rows.length > 1}
+      {#if g.stackKey && (g.rows && g.rows.length > 1 || !lobbyHangars && isDocked)}
         <button
           type="button"
           class="stn-btn stn-stack"
-          disabled={busy}
+          data-ui-pointer={!lobbyHangars && isDocked ? INVENTORY_POINTERS.stackAll : undefined}
+          disabled={busy || !g.rows || g.rows.length < 2}
           onclick={() => run(() => flow.stackContainer(g.stackKey!))}
         >
           Stack all
@@ -1802,7 +1819,7 @@
     </div>
 
     {#if !g.collapsed}
-      <div class="stn-colhead">
+      {#if groupDisplay !== "icons"}<div class="stn-colhead">
         <span class="stn-cell-pick">
           {#if !g.readOnly && g.shown.length > 0}
             <input
@@ -1827,7 +1844,7 @@
         </button>
         <span class="stn-cell-state">State</span>
         <span class="stn-cell-move">Move</span>
-      </div>
+      </div>{/if}
 
       <!-- The list is the drop target for its own place: drag a row from one
            hangar onto another's list to move it. A read-only place (a bay on a
@@ -1835,6 +1852,7 @@
       <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
       <ul
         class="stn-rows"
+        data-display={groupDisplay}
         class:drop-target={dropPlaceKey === placeKey(g.place)}
         ondragover={(event) => !g.readOnly && overPlace(event, g.place)}
         ondragleave={() => (dropPlaceKey = null)}
@@ -2084,6 +2102,14 @@
         <option value={location.id}>{location.label}{location.badge ? ` (${location.badge})` : ""}</option>
       {/each}
     </select>
+    {#if !lobbyHangars && isDocked && groupedViews.includes(view)}
+      <select class="stn-view-mode" aria-label="Change Inventory View" title="Change Inventory View"
+        data-ui-pointer={INVENTORY_POINTERS.viewMode} bind:value={displayMode}>
+        <option value="icons">Icons</option>
+        <option value="details">Details</option>
+        <option value="list">List</option>
+      </select>
+    {/if}
     {#if view !== "plexVault"}<label class="stn-filter">
       <span class="stn-filter-glyph" aria-hidden="true">⌕</span>
       <input type="search" placeholder="Filter…" aria-label="Filter this location by name" bind:value={query} />
@@ -2678,6 +2704,33 @@
 
 
 <style>
+  .stn-view-mode {
+    color: inherit;
+    background: var(--stn-surface);
+    border: 1px solid var(--stn-line);
+    padding: 4px;
+  }
+  .stn-rows[data-display="icons"] {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+    gap: 5px;
+    padding: 5px;
+  }
+  .stn-rows[data-display="icons"] > .stn-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 3px;
+    position: relative;
+    padding: 5px;
+    border: 1px solid var(--stn-line);
+  }
+  .stn-rows[data-display="icons"] > .stn-row.picked { border-color: var(--stn-accent-strong); }
+  .stn-rows[data-display="icons"] .stn-cell-icon { grid-column: 1 / -1; justify-self: center; }
+  .stn-rows[data-display="icons"] :global(.type-icon) { width: 48px; height: 48px; }
+  .stn-rows[data-display="icons"] .stn-cell-pick { display: flex; position: absolute; top: 4px; left: 4px; }
+  .stn-rows[data-display="icons"] .stn-cell-move, .stn-rows[data-display="icons"] .stn-empty { grid-column: 1 / -1; }
+  .stn-rows[data-display="icons"] :is(.stn-cell-unit, .stn-cell-vol, .stn-cell-state, .stn-meta) { display: none; }
+  .stn-rows[data-display="list"] > .stn-row { min-height: 30px; }
+  .stn-rows[data-display="list"] .stn-cell-icon :global(.type-icon) { width: 18px; height: 18px; }
   .lobby-hangars .stn-tabs { display: flex; }
   .lobby-hangars .stn-locations { padding: 4px; }
   .lobby-hangars .stn-tab { height: 28px; padding: 0 6px; }

@@ -12,6 +12,11 @@ export interface UiPointerTarget {
 export const UI_POINTER_COMMAND = "CmdGetUiPointer";
 export const UI_POINTER_DRAG_TYPE = "application/x-evejs-ui-pointer";
 
+export const INVENTORY_POINTERS = {
+  stackAll: "unique_UI_inventoryStackAll",
+  viewMode: "unique_UI_inventoryListView",
+} as const;
+
 export const INDUSTRY_TAB_POINTERS = {
   blueprints: "unique_UI_industryBlueprintsTab",
   facilities: "unique_UI_industryFacilitiesTab",
