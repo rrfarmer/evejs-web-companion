@@ -27,9 +27,10 @@
   import { allianceLogoUrl, portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
-  let { report, flow, store, onOpenIndustry, canShare, onShare, shareHint }: {
+  let { report, flow, store, onOpenIndustry, canShare, onShare, shareHint, onPortrait }: {
     report: CombatLogReport; flow: AppFlow; store: ClientStore; onOpenIndustry: () => void;
     canShare: boolean; onShare: (event: DragEvent) => void; shareHint: string;
+    onPortrait: (characterID: number) => void;
   } = $props();
   const names = $derived(store.names), words = $derived(store.words);
   const imageServer = $derived(flow.imageServer), logos = $derived(flow.corpLogos), logoLibrary = $derived(flow.corpLogoLibrary);
@@ -80,7 +81,7 @@
   $effect(() => {
     const typeID = report.victimShipTypeID;
     hull = null;
-    if (!typeID || breakdown.sections.length === 0) return;
+    if (!typeID) return;
     let active = true;
     void flow.combatReportFittingKind(typeID).then(kind => { if (active) hull = kind; }).catch(() => {});
     return () => { active = false; };
@@ -244,9 +245,11 @@
   <div class="victim">
     <div class="victim-images">
       {#if report.victimCharacterID}
-        <div class="victim-picture" role="presentation" draggable={canShare} ondragstart={onShare} title={shareHint}>
+        {@const characterID = report.victimCharacterID}
+        <button type="button" class="report-image-link victim-picture" aria-label={victimName}
+          draggable={canShare} ondragstart={onShare} onclick={() => onPortrait(characterID)} title={victimName + " · " + shareHint}>
           <OwnerPicture name={victimName} urls={portrait(report.victimCharacterID, 128)} size={128} />
-        </div>
+        </button>
       {:else if report.victimCorporationID}
         {@const id = report.victimCorporationID}
         <button type="button" class="report-image-link victim-picture" aria-label={owner(id)} title={shareHint}
@@ -256,9 +259,18 @@
       {:else}
         {@render corpPicture(null, 128)}
       {/if}
-      <div class="ship-image" role="presentation" draggable={canShare} ondragstart={onShare} title={shareHint}>
-        <TypeIcon typeID={report.victimShipTypeID} name={shipName} size="lg" />
-      </div>
+      {#if hull && report.victimShipTypeID}
+        {@const typeID = report.victimShipTypeID}
+        <button type="button" class="report-image-link ship-image" aria-label={shipName}
+          draggable={canShare} ondragstart={onShare} title={shipName + " · " + shareHint}
+          onclick={event => showInfo({ kind: "type", typeID }, { shift: event.shiftKey, selectSkins: true })}>
+          <TypeIcon {typeID} name={shipName} size="lg" />
+        </button>
+      {:else}
+        <div class="ship-image" role="presentation" draggable={canShare} ondragstart={onShare} title={shareHint}>
+          <TypeIcon typeID={report.victimShipTypeID} name={shipName} size="lg" />
+        </div>
+      {/if}
     </div>
     <div class="victim-details">
       <h2>
@@ -372,7 +384,7 @@
           {/if}
         {/if}
       </div>
-      {#if hull}
+      {#if hull && breakdown.sections.length}
         <div class="fitting-actions" aria-busy={working}>
           {#if hull === "ship"}
             <button type="button" class="minor report-save-fit" disabled={working} onclick={() => fittingAction("save")}>{saveWord}</button>

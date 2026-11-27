@@ -9,6 +9,7 @@
   import { ContextMenu } from "../play/contextMenu.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import CombatReportBreakdown from "./CombatReportBreakdown.svelte";
+  import CharacterPortraitWindow from "./CharacterPortraitWindow.svelte";
   import DesktopWindow from "./DesktopWindow.svelte";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { startLinkDrag } from "./linkFollowers.ts";
@@ -32,6 +33,8 @@
   let layout = $state.raw<Readonly<Record<string, WindowRect>>>({});
   let hashes = $state.raw<ReadonlyMap<number, string>>(new Map());
   let layerOrder = $state.raw<Readonly<Record<string, number>>>({});
+  let portrait = $state.raw<{ characterID: number; rect: WindowRect; z: number; opening: number } | null>(null);
+  let portraitOpening = 0;
   let previousHost: InfoWindowHost | null = null;
   let displayed: readonly CombatReportWindow[] = [];
 
@@ -97,6 +100,21 @@
     if (hash) startLinkDrag(event, combatReportUrl(view.report.killID, hash), caption);
   }
 
+  function showPortrait(characterID: number): void {
+    if (!host) return;
+    const size = host.element;
+    const width = size.clientWidth || innerWidth, height = size.clientHeight || innerHeight;
+    const w = Math.min(width, 520), h = Math.min(height, 566);
+    portrait = { characterID, rect: { w, h, x: Math.round((width - w) / 2), y: Math.round((height - h) / 2) },
+      z: host.topZ() + 1, opening: ++portraitOpening };
+  }
+
+  function focusPortrait(): void {
+    if (!host || !portrait) return;
+    const top = host.topZ();
+    if (top > portrait.z) portrait = { ...portrait, z: top + 1 };
+  }
+
   async function copy(text: string | Promise<string>): Promise<void> {
     try {
       await navigator.clipboard.writeText(await text);
@@ -119,7 +137,7 @@
   }
 </script>
 
-{#if inFront && host && $windows.length}
+{#if inFront && host && ($windows.length || portrait)}
   <div class="combat-report-layer" use:portal={host.element}>
     {#each $windows as view (view.id)}
       {@const rect = rectangle(view)}
@@ -137,10 +155,17 @@
         {/snippet}
         {#key view.report.killID}
           <CombatReportBreakdown report={view.report} {store} {flow} {onOpenIndustry} canShare={hashes.has(view.report.killID)}
-            onShare={event => drag(event, view)} shareHint={dragHint} />
+            onShare={event => drag(event, view)} shareHint={dragHint} onPortrait={showPortrait} />
         {/key}
       </DesktopWindow>
     {/each}
+    {#if portrait}
+      {#key portrait.opening}
+        <CharacterPortraitWindow {store} {flow} characterID={portrait.characterID} rect={portrait.rect} z={portrait.z}
+          focused={portrait.z >= host.topZ()} onFocus={focusPortrait} onClose={() => portrait = null}
+          onMove={(x, y) => { if (portrait) portrait = { ...portrait, rect: { ...portrait.rect, x, y } }; }} />
+      {/key}
+    {/if}
   </div>
 {/if}
 

@@ -3,7 +3,12 @@ import type { InfoIdentity, InfoOpenOptions, InfoSubject } from "../bridge/infoW
 import { createInfoReadScope, type InfoReadScope } from "./infoReadScope.ts";
 import type { CorporationInfoRead, CorporationPublicInfo, CorporationShowInfo } from "../bridge/ownerInfo.ts";
 
-interface Entry { readonly request: InfoSubject; readonly subject: InfoSubject; readonly identity: InfoIdentity }
+interface Entry {
+  readonly request: InfoSubject;
+  readonly subject: InfoSubject;
+  readonly identity: InfoIdentity;
+  readonly skinPreview?: true;
+}
 /** Empty native dict while reconstructing; null is the recorded None identity tuple. */
 const pendingHistory = { pending: true } as const;
 type HistoryEntry = Entry | null | typeof pendingHistory;
@@ -22,6 +27,7 @@ export interface InfoWindowState {
   /** Ordinary content: ConstructLayout/ReconstructSubContainer flush old controls. */
   readonly reconstruction: number;
   readonly requirementsRequest?: number;
+  readonly skinsRequest?: number;
   readonly reads: InfoReadScope;
   readonly loading: boolean;
   /** BaseInfoWindow saves the latest busy request without starting it. */
@@ -48,7 +54,7 @@ export function createInfoWindows(deps: {
   const assignedEntries = new WeakMap<InfoReadScope, Entry | null>();
   const corporationResults = new WeakMap<InfoReadScope, ReturnType<typeof createSignal<CorporationResult>>>();
   const activeLoads = new Map<number, InfoReadScope>();
-  let serial = 0, raisedSerial = 0, generation = 0, requirementsSerial = 0;
+  let serial = 0, raisedSerial = 0, generation = 0, shipTabSerial = 0;
   let queue: Promise<unknown> = Promise.resolve();
   const update = (id: number, change: (w: InfoWindowState) => InfoWindowState): void => {
     state.update(windows => windows.map(w => w.id === id ? change(w) : w));
@@ -169,9 +175,10 @@ export function createInfoWindows(deps: {
           : identity.typeID === 16159 ? { kind: "alliance" as const, allianceID: identity.itemID }
             : identity.typeID === 30 ? { kind: "faction" as const, factionID: identity.itemID } : subject
         : subject;
-      const entry: Entry = { request: subject, subject: normalized, identity };
       const bucket = identity.content === "ship" ? "ship" : "ordinary";
-      const requirementsRequest = bucket === "ship" && options.selectRequirements ? ++requirementsSerial : undefined;
+      const requirementsRequest = bucket === "ship" && options.selectRequirements ? ++shipTabSerial : undefined;
+      const skinsRequest = bucket === "ship" && options.selectSkins ? ++shipTabSerial : undefined;
+      const entry: Entry = { request: subject, subject: normalized, identity, ...(skinsRequest !== undefined ? { skinPreview: true } : {}) };
       const windows = state.get();
       const modal = !!options.modal || !!options.progressModal || windows.some(w => w.modal && !w.minimized);
       const existing = windows.filter(w => (w.entry.identity.content === "ship" ? "ship" : "ordinary") === bucket).at(-1);
@@ -181,7 +188,7 @@ export function createInfoWindows(deps: {
         subjects.set(id, signal);
         const offset = (windows.length % 8) * 24;
         const reads = makeReads(id, entry, true), result = corporationResult(reads);
-        const w: InfoWindowState = { id, entry, captionEntry: entry, subject: readonlySignal(signal), history: [identity.content === "corporation" ? pendingHistory : entry], index: 0, reconstruction: 1, requirementsRequest,
+        const w: InfoWindowState = { id, entry, captionEntry: entry, subject: readonlySignal(signal), history: [identity.content === "corporation" ? pendingHistory : entry], index: 0, reconstruction: 1, requirementsRequest, skinsRequest,
           reads, loading: false, pendingLoadData: null, waitingForReconstruction: false, contentConstructed: identity.content !== "corporation", corporationResult: result, visibleCorporationResult: result,
           x: 16 + offset, y: 16 + offset, w: bucket === "ship" ? 960 : 500, h: bucket === "ship" ? 656 : 600,
           z: Math.max(0, ...windows.map(w => w.z)) + 1, minimized: false,
@@ -192,16 +199,19 @@ export function createInfoWindows(deps: {
       // type/item. Requested identity alone cannot decide a native duplicate.
       const applied = existing.reads.identity.get();
       const duplicate = applied !== null && applied.typeID === identity.typeID && applied.itemID === identity.itemID;
-      // A duplicate modern window does not reconstruct OR maximize here.
-      if (duplicate && identity.content !== "legacy") {
-        if (requirementsRequest !== undefined) {
-          update(existing.id, current => ({ ...current, requirementsRequest, minimized: false }));
+      // PreviewType passes SKIN params. Reopening that same preview raises it with the current tab intact.
+      if (duplicate && identity.content !== "legacy" && existing.entry.skinPreview === entry.skinPreview) {
+        if (requirementsRequest !== undefined || skinsRequest !== undefined) {
+          update(existing.id, current => ({ ...current, minimized: false,
+            ...(requirementsRequest !== undefined ? { requirementsRequest, skinsRequest: undefined } : {}) }));
           requestRaise(existing.id);
         }
         return existing.id;
       }
       reconstruct(existing, entry, !options.traversingHistory && !duplicate);
-      if (requirementsRequest !== undefined) update(existing.id, current => ({ ...current, requirementsRequest }));
+      if (requirementsRequest !== undefined || skinsRequest !== undefined) {
+        update(existing.id, current => ({ ...current, requirementsRequest, skinsRequest }));
+      }
       return existing.id;
     });
     queue = result.catch(() => {});

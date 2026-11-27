@@ -22,6 +22,7 @@ export interface InfoOpenOptions {
   readonly modal?: boolean;
   readonly progressModal?: boolean;
   readonly selectRequirements?: boolean;
+  readonly selectSkins?: boolean;
 }
 
 export interface InfoIdentity {

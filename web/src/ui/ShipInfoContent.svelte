@@ -3,6 +3,7 @@
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText, type TemplateArguments } from "../bridge/clientWords.ts";
   import type { InfoSubject } from "../bridge/infoWindow.ts";
+  import { loadFirstPartySkinCatalog, type FirstPartySkin } from "../bridge/firstPartySkins.ts";
   import { bracketIcon, loadBrackets } from "../play/brackets.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
@@ -18,9 +19,9 @@
   import ShowInfo from "./ShowInfo.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
 
-  let { store, flow, subject, typeID, expanded, active, height, requirementsRequest }: {
+  let { store, flow, subject, typeID, expanded, active, height, requirementsRequest, skinsRequest }: {
     store: ClientStore; flow: AppFlow; subject: ReadableSignal<InfoSubject | null>;
-    typeID: number; expanded: boolean; active: boolean; height: number; requirementsRequest?: number;
+    typeID: number; expanded: boolean; active: boolean; height: number; requirementsRequest?: number; skinsRequest?: number;
   } = $props();
   // svelte-ignore state_referenced_locally
   const { words, names, space } = store;
@@ -30,6 +31,7 @@
     { id: "overview", label: "UI/InfoWindow/TabNames/Overview", title: "Overview", icon: "info" },
     { id: "attributes", label: "UI/InfoWindow/TabNames/Attributes", title: "Attributes", icon: "attributes" },
     { id: "skills", label: "UI/InfoWindow/TabNames/Skills", title: "Skills", icon: "skill_book" },
+    { id: "skins", label: "UI/InfoWindow/TabNames/Skins", title: "SKINs", icon: "skins" },
   ] as const;
   const MARKET = "UI/Inventory/ItemActions/ViewTypesMarketDetails";
   const PRICE = "UI/Inventory/EstPrice";
@@ -40,7 +42,25 @@
     500003: "Ship Info Amarr", 500001: "Ship Info Caldari", 500004: "Ship Info Gallente", 500002: "Ship Info Minmatar",
   };
   let tab = $state<typeof NAV[number]["id"]>("overview");
-  $effect(() => { if (requirementsRequest !== undefined) tab = "skills"; });
+  let servedTabRequest = 0;
+  $effect(() => {
+    const request = skinsRequest ?? requirementsRequest;
+    if (request === undefined || request === servedTabRequest) return;
+    servedTabRequest = request;
+    tab = skinsRequest === request ? "skins" : "skills";
+  });
+  let skins = $state.raw<readonly FirstPartySkin[] | null>(null);
+  let ownedSkins = $state.raw<ReadonlySet<number>>(new Set());
+  let skinReadFailed = $state(false);
+  let skinSelection = $state<number | null>(null);
+  const availableSkins = $derived.by(() => {
+    const materials = new Map<number, FirstPartySkin>();
+    for (const skin of skins ?? []) {
+      if (ownedSkins.has(skin.skinID) || (skin.visible && !materials.has(skin.materialID))) materials.set(skin.materialID, skin);
+    }
+    return [...materials.values()].sort((a, b) => skinName(a).localeCompare(skinName(b)));
+  });
+  const skinPreview = $derived(availableSkins.find(skin => skin.skinID === skinSelection)?.materialSetID ?? null);
   let overview = $state<ShipInfoOverview | null | undefined>(undefined);
   let academy = $state(false);
   let bracketsReady = $state(false);
@@ -56,6 +76,24 @@
   const classIcon = $derived(bracketsReady && overview ? bracketIcon({ typeID, groupID: overview.groupID, categoryID: 6 }) : null);
   const shipTraits = $derived($traits.traits.get(typeID) ?? null);
   const visibleTabs = $derived(NAV.filter(item => item.id !== "skills" || overview?.groupID !== 29));
+  const skinName = (skin: FirstPartySkin) => plainText($words.templates[`#${skin.nameID}`] || "SKIN " + skin.skinID);
+  $effect(() => { void typeID; skinSelection = null; });
+  $effect(() => {
+    if (tab !== "skins") return;
+    const hull = typeID;
+    let current = true;
+    skins = null;
+    ownedSkins = new Set();
+    skinReadFailed = false;
+    void Promise.all([loadFirstPartySkinCatalog(hull), flow.loadFirstPartySkinLicenses(hull).catch(() => new Set<number>())])
+      .then(([catalog, licenses]) => {
+        if (!current) return;
+        skins = catalog;
+        ownedSkins = licenses;
+        flow.requestWords([...new Set(catalog.map(skin => `#${skin.nameID}`))]);
+      }).catch(() => { if (current) skinReadFailed = true; });
+    return () => { current = false; };
+  });
 
   $effect(() => {
     const id = typeID;
@@ -110,7 +148,8 @@
     {/if}
   </nav>
   <div class="scene">
-    <ShipInfoPreview {typeID} factionID={overview === undefined ? undefined : overview?.factionID ?? null} {expanded} {active} />
+    <ShipInfoPreview {typeID} factionID={overview === undefined ? undefined : overview?.factionID ?? null}
+      expanded={expanded || tab === "skins"} {active} skinMaterialSetID={tab === "skins" ? skinPreview : null} />
   </div>
   {#if tab === "overview"}
     <header class="basic">
@@ -136,6 +175,22 @@
       <ShipInfoAttributes {typeID} {itemID} {flow} {store} />
     {:else if tab === "skills"}
       <InfoShipRequirements {store} {flow} {typeID} includeNavigation={false} />
+    {:else if tab === "skins"}
+      <div class="ship-info-skins" data-preview-material={skinPreview}>
+        {#if skinReadFailed}
+          <p role="status">The ship’s SKIN catalog is unavailable.</p>
+        {:else if skins === null}
+          <p role="status">Loading SKINs…</p>
+        {:else if availableSkins.length === 0}
+          <p>No standard SKINs for this hull.</p>
+        {:else}
+          <button type="button" class="minor" aria-pressed={skinSelection === null} onclick={() => skinSelection = null}>Default appearance</button>
+          {#each availableSkins as skin (skin.materialID)}
+            <button type="button" class="minor" data-ship-info-skin={skin.skinID} aria-pressed={skinSelection === skin.skinID}
+              onclick={() => skinSelection = skin.skinID}>{skinName(skin)}{ownedSkins.has(skin.skinID) ? " · Licensed" : ""}</button>
+          {/each}
+        {/if}
+      </div>
     {:else}
       {#if overview === undefined}<p role="status">Reading ship information…</p>{/if}
       {#if message(overview?.quoteID)}
@@ -191,6 +246,8 @@
   .price { color: #b7c6d5; }
   .academy-free { color: #85d8a1; }
   .ship-details { min-width: 0; padding: 10px 12px; }
+  .ship-info-skins { display: grid; gap: 4px; }
+  .ship-info-skins button { text-align: start; }
   .expanded .ship-details { grid-row: 1; grid-column: 3; overflow-y: auto; background: linear-gradient(90deg, #121e2c, #0a1019 40%); }
   blockquote { margin: 6px 0; font-size: 17px; line-height: 1.28; }
   .quote-author { margin: 4px 0 8px 18px; color: #b7c6d5; }
