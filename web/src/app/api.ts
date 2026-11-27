@@ -6177,6 +6177,7 @@ export interface PublicGatewayAnswer {
 /** A dungeon as the client's built data has it (GetDungeon, its archetype, GetDungeonContentTags). */
 export interface DungeonData {
   readonly objectiveChainID: number | null;
+  readonly fittedModuleRestrictionListID?: number | null;
   readonly objectiveEntryRules?: readonly import("../bridge/dungeonTracking.ts").DungeonEntryRule[];
   readonly winterNexusObjectives?: import("../bridge/dungeonTracking.ts").WinterNexusObjectives;
   readonly nameID: number | null; readonly descriptionID: number | null; readonly gameplayDescriptionID: number | null;

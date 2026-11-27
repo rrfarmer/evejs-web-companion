@@ -15170,10 +15170,15 @@ app.get("/api/client-data/dungeons", requireAuth, async (req, res, next) => {
         ? winterNexusObjectiveRules(graphRows?.[WINTER_NEXUS_OBJECTIVE_GRAPH], id) : null;
       const tagIDs = [...(Array.isArray(d.contentTags) ? d.contentTags : []), ...(arche && Array.isArray(arche.contentTags) ? arche.contentTags : []),
         ...(d.entryTypeID === TYPE_DEADSPACE_SIGNATURE ? ["feature_cosmic_signatures"] : []), "feature_dungeons"];
+      // The Journal uses the first connection with a disallowed fitted-module list.
+      const fittedModuleRestrictionListID = Array.isArray(d.connections)
+        ? d.connections.find(connection => Number.isSafeInteger(connection?.disallowedFittedTypesList) &&
+          connection.disallowedFittedTypesList > 0)?.disallowedFittedTypesList ?? null : null;
       dungeons[id] = {
         nameID: d.dungeonNameID ?? null, descriptionID: d.descriptionID ?? null, gameplayDescriptionID: d.gameplayDescriptionID ?? null,
         archetypeID: d.archetypeID ?? null, archetypeTitleID: arche ? arche.titleID ?? null : null, archetypeDescriptionID: arche ? arche.descriptionID ?? null : null,
         factionID: d.factionID ?? null, difficulty: d.difficulty ?? null, entryTypeID: d.entryTypeID ?? null,
+        fittedModuleRestrictionListID,
         objectiveChainID: Number.isSafeInteger(chainID) && chainID > 0 ? chainID : null,
         ...(entryRules ? { objectiveEntryRules: entryRules } : {}),
         ...(winterNexus ? { winterNexusObjectives: winterNexus } : {}),
