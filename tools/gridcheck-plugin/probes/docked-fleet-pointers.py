@@ -31,6 +31,11 @@ def observe():
                     for name, element in GetScreenElementsByUniqueName(ids).iteritems()
                     if element and not element.destroyed and element.display)
 
+    def menu_entries(entries):
+        return [dict(label=entry.GetText(), enabled=entry.IsEnabled(),
+                     submenu=menu_entries(entry.GetSubMenuData()) if entry.HasSubMenuData() else [])
+                for entry in entries if entry is not None]
+
     if session.fleetid or FleetWindow.GetIfOpen():
         raise RuntimeError('A fresh docked pilot is required')
     fleet = sm.GetService('fleet')
@@ -39,6 +44,7 @@ def observe():
     try:
         window = FleetWindow.Open()
         finder_solo = sample(window, PANEL_FLEETFINDER)
+        solo_menu = menu_entries(window.GetMenuMoreOptions().GetEntries())
         window.Close()
         fleet.CreateFleet()
         for attempt in range(35):
@@ -51,6 +57,7 @@ def observe():
         FLEET_BROADCASTS_VISIBLE_SETTING.set(False)
         window.broadcastCont.UpdateBroadcastButtonState()
         roster = sample(window, PANEL_MYFLEET)
+        fleet_menu = menu_entries(window.GetMenuMoreOptions().GetEntries())
         bar = window.broadcastCont
         bar.ToggleBroadcasts()
         collapsed = sample(window, PANEL_MYFLEET)
@@ -70,6 +77,7 @@ def observe():
         return dict(build=3698585, station=session.stationid, catalogue=catalogue,
                     solo=finder_solo, roster=roster, collapsed=collapsed, expanded=expanded,
                     scopes=scopes, refusals=refusals,
+                    soloMenu=solo_menu, fleetMenu=fleet_menu,
                     finder=sample(window, PANEL_FLEETFINDER),
                     broadcasts=sample(window, PANEL_BROADCASTS),
                     respawn=sample(window, PANEL_RESPAWN))

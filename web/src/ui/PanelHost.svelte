@@ -135,6 +135,7 @@
     onCharacterSheetExpansionChange,
     upwellLpIssuer = null,
     onFleetBroadcast,
+    fleetRosterFlat,
   }: {
     store: ClientStore;
     flow: AppFlow;
@@ -144,6 +145,7 @@
     onCharacterSheetExpansionChange?: (expanded: boolean) => void;
     upwellLpIssuer?: number | null;
     onFleetBroadcast?: (name: FleetBarBroadcast) => void;
+    fleetRosterFlat?: boolean;
     /**
      * Lets a panel navigate to another tab (e.g. Agent Finder -> Travel).
      *
@@ -264,7 +266,7 @@
 {:else if tab === "activity"}
   <Activity {store} {flow} showMail={() => onOpen?.("mail")} openApplications={() => { flow.requestCorporationApplications(); onOpen?.("corporation"); }} />
 {:else if tab === "fleet"}
-  <FleetCenter {store} {flow} {onFleetBroadcast} openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined}
+  <FleetCenter {store} {flow} {onFleetBroadcast} {fleetRosterFlat} openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined}
     openComposition={onOpen ? () => onOpen?.("fleetComposition") : undefined} />
 {:else if tab === "fleetComposition"}
   <FleetComposition {store} {flow} openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined} />

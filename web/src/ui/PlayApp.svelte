@@ -29,6 +29,7 @@
   import { selectedSites as probeSitesSelected, selectSite as selectProbeSite } from "../app/probeSiteSelection.ts";
   import { addGameLogLine, beginGameLog } from "./gameLog.ts";
   import GameLogActions from "./GameLogActions.svelte";
+  import FleetWindowActions from "./FleetWindowActions.svelte";
   import DronesWindowActions from "./DronesWindowActions.svelte";
   import InventoryWindowActions from "./InventoryWindowActions.svelte";
   import ScannerWindowActions from "./ScannerWindowActions.svelte";
@@ -464,6 +465,17 @@
   function setCharacterSheetExpanded(expanded: boolean): void {
     characterSheetExpanded = expanded;
     try { if (characterSheetPreference) localStorage.setItem(characterSheetPreference, String(expanded)); }
+    catch { /* this visit only */ }
+  }
+  const fleetRosterPreference = $derived(session ? `evejs.user.${session.store.session.get().accountID ?? "local"}.flatFleetView` : null);
+  let fleetRosterFlat = $state(false);
+  $effect(() => {
+    try { fleetRosterFlat = fleetRosterPreference !== null && localStorage.getItem(fleetRosterPreference) === "true"; }
+    catch { fleetRosterFlat = false; }
+  });
+  function setFleetRosterFlat(flat: boolean): void {
+    fleetRosterFlat = flat;
+    try { if (fleetRosterPreference) localStorage.setItem(fleetRosterPreference, String(flat)); }
     catch { /* this visit only */ }
   }
   const planets = $derived(session?.store.planets);
@@ -5024,6 +5036,9 @@
         >
           {#snippet headerActions()}
             {#if win.id === "log"}<GameLogActions store={session.store} flow={session.flow} />{/if}
+            {#if win.id === "fleet"}<FleetWindowActions store={session.store} flow={session.flow} flat={fleetRosterFlat}
+              onFlat={setFleetRosterFlat} {docked} onBroadcast={sendFleetBarBroadcast}
+              onWatchlist={() => open("watchlist")} onComposition={() => open("fleetComposition")} />{/if}
             {#if win.id === "drones"}<DronesWindowActions store={session.store} flow={session.flow} />{/if}
             {#if win.id === "inventory" && !docked}<InventoryWindowActions store={session.store} flow={session.flow} />{/if}
             {#if win.id === "scanner" && !docked}<ScannerWindowActions store={session.store} flow={session.flow} />{/if}
@@ -5037,7 +5052,7 @@
             <FlyInventoryWindow store={session.store} flow={session.flow} />
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} chatUnread={win.id === "chat" ? chatUnread : undefined}
-              onFleetBroadcast={sendFleetBarBroadcast}
+              onFleetBroadcast={sendFleetBarBroadcast} {fleetRosterFlat}
               {characterSheetExpanded} onCharacterSheetExpansionChange={setCharacterSheetExpanded}
               onOpen={(t) => open(t)} onClose={() => closePlayWindow(win.id)}
               {openParagonHub} {paragonHubRequest} onParagonHubRequestTaken={() => (paragonHubRequest = null)}

@@ -16,9 +16,10 @@
   import type { FleetAdvert } from "../bridge/fleetAds.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
-  let { store, flow, openWatchlist, openComposition, onFleetBroadcast }: {
+  let { store, flow, openWatchlist, openComposition, onFleetBroadcast, fleetRosterFlat = false }: {
     store: ClientStore; flow: AppFlow; openWatchlist?: () => void; openComposition?: () => void;
     onFleetBroadcast?: (name: FleetBarBroadcast) => void;
+    fleetRosterFlat?: boolean;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -588,10 +589,14 @@
 
     <div class="fl-broadcasts"><FleetHistory {store} {flow} /></div>
 
-    <section class="hierarchy" aria-label="Fleet hierarchy">
-      <h3>Fleet hierarchy</h3>
+    <section class="hierarchy" aria-label={fleetRosterFlat ? "Fleet members" : "Fleet hierarchy"}
+      data-fleet-roster-layout={fleetRosterFlat ? "flat" : "hierarchy"}>
+      <h3>{fleetRosterFlat ? "Fleet members" : "Fleet hierarchy"}</h3>
       {#if roster.length === 0}
         <p class="empty">The fleet roster is empty.</p>
+      {:else if fleetRosterFlat}
+        {@const sorted = [...roster].sort((a, b) => memberName(a).localeCompare(memberName(b), undefined, { sensitivity: "base" }))}
+        <ul>{#each sorted as member, index (positiveID(member.charID) ?? index)}{@render memberRow(member)}{/each}</ul>
       {:else}
         {@const command = fleetCommand()}
         {#if command.length > 0}
