@@ -214,7 +214,7 @@ import { labelEscaped } from "../bridge/labelMarkup.ts";
 import { corporationTrackingOf, type CorporationTracking } from "../bridge/corporationTracking.ts";
 import { corporationMemberOf, memberDetailsSavedTab, memberField, memberInteger, memberTitleOf, MEMBER_ROLE_FIELDS, type CorporationMember, type CorporationMemberDetails, type MemberDetailsRequest, type MemberDetailsTabID } from "../bridge/corporationMemberDetails.ts";
 import { memberRoleGroups, myGrantableRoles, memberTitlesOf, changeMemberTitles, roleGroupings, type RoleMasks, type CorporationTitle, type RoleGrouping, type GrantMasks } from "../bridge/corporationRoles.ts";
-import { addressBookOf, corporateAddressBookOf, type ContactScope, agentFoldersOf, contactLabelsOf, createdLabelOf, labelBitsSent, onlineStatesOf, type AgentFolders, type ContactLabel, type ContactWrite, type NamedAddressBook } from "../bridge/contacts.ts";
+import { addressBookOf, corporateAddressBookOf, type AddressBook, type ContactScope, agentFoldersOf, contactLabelsOf, createdLabelOf, labelBitsSent, onlineStatesOf, type AgentFolders, type ContactLabel, type ContactWrite, type NamedAddressBook } from "../bridge/contacts.ts";
 import { sendMail as sendMailCall, type MailToSend } from "../bridge/mailWrites.ts";
 import { mailMarkupOfTyped } from "../bridge/mailMarkup.ts";
 import { reprocess as reprocessCall } from "../bridge/reprocessWrites.ts";
@@ -3395,6 +3395,7 @@ export interface AppFlow {
    */
   bountiesAndKillRights(ownerIDs: readonly number[], characterIDs: readonly number[]): Promise<{ wanted: Set<number>; killRights: Set<number> }>;
   myKillRights(): Promise<readonly KillRight[]>;
+  killRightContacts(): Promise<AddressBook>;
   listKillRight(id: number, price: number, restrictedTo: number | null): Promise<void>;
   withdrawKillRight(id: number, target: number): Promise<void>;
   readonly killRightsChanged: ReadableSignal<number>;
@@ -41708,6 +41709,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       requestNames(rows.flatMap(row => [row.fromID, row.toID, row.restrictedTo].flatMap(id => id ? [{ kind: "owner" as const, id }] : [])));
       return rows;
     },
+    killRightContacts: async () => addressBookOf(await bridgeAsk("charMgr", "GetContactList", [])),
     async listKillRight(id, price, restrictedTo) {
       await bridgeDo("bountyProxy", "SellKillRight", [id, price, restrictedTo]);
       killRightsChanged.update(revision => revision + 1);

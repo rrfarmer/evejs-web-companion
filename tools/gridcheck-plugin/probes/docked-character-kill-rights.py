@@ -59,11 +59,21 @@ def observe():
             rows.append(dict(id=node.killRight.killRightID, mine=node.isMine, price=node.killRight.price,
                              actions=controls.labels, available=node.panel.availableLabel.text,
                              sale=node.panel.saleLabel.text, menuVisible=node.panel.utilMenuCont.display))
+        entry_panel = next(node.panel for node in nodes if node.Get('killRight', None) and node.killRight.killRightID == 9101)
+        badges = []
+        for watched, online in ((False, True), (True, True), (True, False), (True, None)):
+            entry_panel.inWatchlist = watched
+            entry_panel.SetOnline(online)
+            badges.append(dict(watched=watched, online=online, visible=entry_panel.statusIcon.display,
+                                hint=entry_panel.statusIcon.hint if entry_panel.statusIcon.display else None))
+        owner_menu = [each.GetText() if hasattr(each, 'GetText') else unicode(each[0])
+                      for each in entry_panel.GetMenu() if hasattr(each, 'GetText') or isinstance(each, tuple)]
         pointer = GetPanelUniqueName(PANEL_KILLRIGHTS)
         entry = sm.GetService('helpPointer').GetHighlightByElementName()[pointer]
         return dict(station=session.stationid, caption=GetPanelName(PANEL_KILLRIGHTS), originalCount=original_count,
                     pointer=dict(id=pointer, chain=FindChainForPointer(pointer), label=entry.label, texture=entry.texturePath),
-                    headings=[node.label for node in nodes if not node.Get('killRight', None)], rows=rows, projected=True)
+                    headings=[node.label for node in nodes if not node.Get('killRight', None)], rows=rows,
+                    badges=badges, ownerMenu=owner_menu, projected=True)
     finally:
         bounty.myKillRights = original
         if opened:

@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { getContext, onMount, tick } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { unixMsToFiletime } from "../bridge/activity.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { KillRight } from "../bridge/killRights.ts";
+  import type { AddressBook } from "../bridge/contacts.ts";
   import { isAllianceOwner, isCorporationOwner } from "../bridge/mail.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { resolvedName } from "../store/names.ts";
@@ -16,6 +17,8 @@
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const station = $derived(store.station), names = $derived(store.names), words = $derived(store.words), image = $derived(flow.imageServer);
   const pilot = $derived($station.online);
+  const addressBook = $derived(store.addressBook);
+  const openOwnerMenu = getContext<((event: MouseEvent | KeyboardEvent, characterID: number) => void) | undefined>("killRightOwnerMenu");
   const root = "UI/CharacterSheet/CharacterSheetWindow/";
   const labels = {
     outgoing: "UI/InfoWindow/CanKill", incoming: "UI/InfoWindow/CanBeKilledBy",
@@ -25,6 +28,7 @@
     sell: root + "SellKillRight", apply: root + "SellKillRightBtn", available: root + "Availability", everyone: root + "Everyone",
     unlist: root + "MakeUnavailable", unlistPublic: root + "MakeUnavailableQuestionAll", unlistLimited: root + "MakeUnavailableQuestion",
     search: "UI/Station/BountyOffice/SearchForUser", noOwner: "UI/Station/BountyOffice/NoOneFound",
+    online: "UI/Common/Online", offline: "UI/Common/Offline", blocked: "UI/PeopleAndPlaces/Blocked",
   } as const;
   function word(label: keyof typeof labels, fallback: string, values: Record<string, string> = {}): string {
     const template = $words.templates[labels[label]];
@@ -44,6 +48,8 @@
   let menu = $state<number | null>(null);
   let now = $state(Date.now());
   let revision = 0;
+  let contacts = $state.raw<AddressBook | null>(null);
+  let contactRead = 0;
   const active = $derived((rows ?? []).filter(right => right.expiryTime !== null && right.expiryTime > unixMsToFiletime(now)));
   let draft = $state<Draft | null>(null);
   let withdrawal = $state<KillRight | null>(null);
@@ -60,16 +66,54 @@
     const request = ++revision;
     try {
       const next = await flow.myKillRights();
-      if (request === revision) { rows = next; error = ""; }
+      if (request === revision) {
+        rows = next;
+        error = "";
+        if (next.length && contacts === null && contactRead === 0) void refreshContacts();
+      }
     } catch (cause) { if (request === revision) error = panelErrorWords(cause); }
+  }
+
+  async function refreshContacts(): Promise<void> {
+    const request = ++contactRead;
+    try {
+      const book = await flow.killRightContacts();
+      if (request !== contactRead) return;
+      contacts = book;
+      if (book.contacts.some(contact => contact.inWatchlist)) await flow.primeContactsOnline();
+    } catch {
+      // Rights are still readable while the address book is unavailable.
+    }
+  }
+
+  function status(id: number): "online" | "offline" | "blocked" | null {
+    if (contacts?.blocked.includes(id)) return "blocked";
+    if (!contacts?.contacts.some(contact => contact.contactID === id && contact.inWatchlist)) return null;
+    const online = $addressBook.online?.[id];
+    return typeof online === "boolean" ? online ? "online" : "offline" : null;
+  }
+
+  function keyboardMenu(event: KeyboardEvent, id: number): void {
+    if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) openOwnerMenu?.(event, id);
   }
 
   onMount(() => {
     flow.requestWords(Object.values(labels));
     flow.loadImageServer();
     const unsub = flow.killRightsChanged.subscribe(() => { void refresh(); });
+    const uncontact = flow.contactStandingsChanged.subscribe(() => { if (rows?.length) void refreshContacts(); });
+    const seen = new WeakSet<object>(store.live.get().notifications);
+    const unlive = store.live.subscribe(state => {
+      let changed = false;
+      for (const notice of state.notifications) {
+        if (seen.has(notice)) continue;
+        seen.add(notice);
+        if (notice.method === "OnBlockContacts" || notice.method === "OnUnblockContacts") changed = true;
+      }
+      if (changed && rows?.length) void refreshContacts();
+    });
     const timer = setInterval(() => { now = Date.now(); }, 15_000);
-    return () => { ++revision; unsub(); clearInterval(timer); };
+    return () => { ++revision; ++contactRead; unsub(); uncontact(); unlive(); clearInterval(timer); };
   });
 
   function timeLeft(expiry: bigint | null): string {
@@ -152,12 +196,19 @@
       <h3>{word(group.word, group.fallback)}</h3>
       {#each rights as right (right.killRightID)}
         {@const other = group.mine ? right.toID : right.fromID}
-        <article data-kill-right={right.killRightID} data-mine={group.mine}>
-          <button type="button" class="portrait" aria-label={"Show info for " + owner(other)} onclick={() => info(other)}>
+        {@const badge = status(other)}
+        <article data-kill-right={right.killRightID} data-mine={group.mine} oncontextmenu={(event) => openOwnerMenu?.(event, other)}>
+          <button type="button" class="portrait" aria-label={"Show info for " + owner(other)} onclick={() => info(other)} onkeydown={event => keyboardMenu(event, other)}>
             <img width="64" height="64" alt="" src={portraitUrl($image, other, 64) ?? clientTexture(portraitDefaultPath(64))} />
+            {#if badge}
+              {@const caption = word(badge, badge[0]!.toUpperCase() + badge.slice(1))}
+              <span class="presence" class:online={badge === "online"} class:offline={badge === "offline"}
+                class:blocked={badge === "blocked"} data-kill-right-presence={badge} title={caption} aria-label={caption}
+                style:--presence-icon={"url(" + clientTexture("res:/UI/Texture/classes/Chat/" + (badge === "blocked" ? "Blocked.png" : "Status.png")) + ")"}></span>
+            {/if}
           </button>
           <div class="description">
-            <button type="button" class="link" onclick={() => info(other)}>{owner(other)}</button>
+            <button type="button" class="link" onclick={() => info(other)} onkeydown={event => keyboardMenu(event, other)}>{owner(other)}</button>
             <span class="time">{word("time", "Time remaining " + timeLeft(right.expiryTime), { timeRemaining: timeLeft(right.expiryTime) })}</span>
             {#if right.price !== null}
               {#if Number(right.price) > 0}<div data-kill-right-price>{word("price", "For sale " + formatWholeIsk(right.price, "round"), { amount: formatWholeIsk(right.price, "round") })}</div>{/if}
@@ -234,8 +285,12 @@
   h3 { padding: 6px 8px; margin: 0; background: var(--color-panel); }
   article { min-height: 68px; display: flex; align-items: center; padding: 2px 8px; gap: 8px; border-bottom: 1px solid var(--color-line); }
   .description { flex: 1; min-width: 0; }
-  .portrait { padding: 0; border: 0; background: none; flex-shrink: 0; }
+  .portrait { position: relative; padding: 0; border: 0; background: none; flex-shrink: 0; }
   .portrait img { display: block; }
+  .presence { position: absolute; left: 2px; top: 3px; width: 10px; height: 10px; mask: var(--presence-icon) center / contain no-repeat; }
+  .presence.online { background: #00bf00; }
+  .presence.offline { background: #bf0000; }
+  .presence.blocked { background: white; }
   .link { padding: 0; border: 0; background: none; text-decoration: underline; color: var(--color-accent); }
   .time { margin-left: 6px; }
   .actions { position: relative; }

@@ -3436,6 +3436,20 @@
   setContext("flightSpaceView", () => view);
   setContext("flightMiningSurvey", flightMiningSurvey);
   setContext("flightSimNow", () => live?.simNow() || null);
+  setContext("killRightOwnerMenu", async (event: MouseEvent | KeyboardEvent, characterID: number) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const s = session, current = s?.store.station.get().online;
+    if (!s || !current) return;
+    const anchor = (event.currentTarget as Element | null)?.getBoundingClientRect();
+    const x = event instanceof MouseEvent && event.clientX ? event.clientX : anchor?.left ?? 0;
+    const y = event instanceof MouseEvent && event.clientY ? event.clientY : anchor?.bottom ?? 0;
+    const guest = s.store.station.get().guests.find(row => row.characterID === characterID);
+    const entries = await lobbyGuestMenu(s, [guest ?? { characterID, corporationID: null, allianceID: null }]).catch(() => []);
+    if (entries.length && session === s && s.store.station.get().online?.characterID === current.characterID) {
+      moduleContextMenu.open(x, y, entries);
+    }
+  });
   $effect(() => {
     if (stage !== "game" || docked || !spaceHost || !session || !live) return;
     // the view depends on these alone: what its setup reads (the opened container, the windows, the HUD settings)
