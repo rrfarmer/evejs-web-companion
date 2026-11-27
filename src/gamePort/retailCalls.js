@@ -892,7 +892,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "sharedSettingsMgr.StoreSettingLinkAndGetID", "sharedSettingsMgr.GetStoredSharedSetting",
   "fleetObjectHandler.SetTakesFleetWarp", "fleetObjectHandler.SetAcceptsConduitJumpsValue", "fleetObjectHandler.SetAcceptsRegroupValue",
   "fleetObjectHandler.GetFleetMaxSize", "fleetObjectHandler.SetFleetMaxSize",
-  "fleetObjectHandler.RejectJoinRequest",
+  "fleetObjectHandler.RejectJoinRequest", "fleetObjectHandler.DisbandFleet",
   // An overview profile's link stored as it is dropped into a chat, and read as it is followed (the gateway's list
   // has neither).
   "overviewPresetMgr.StoreLinkAndGetID", "overviewPresetMgr.GetStoredPreset",

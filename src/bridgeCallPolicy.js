@@ -960,10 +960,11 @@ function isBridgeWritePair(service, method) {
 const FLEET_PARTICIPATION_CALLS = ["SetTakesFleetWarp", "SetAcceptsConduitJumpsValue", "SetAcceptsRegroupValue"]
   .map(method => `fleetObjectHandler.${method}`);
 const FLEET_CONFIGURATION_WRITES = ["fleetObjectHandler.SetFleetMaxSize", "fleetObjectHandler.SetOptions"];
+const FLEET_BOSS_WRITES = ["fleetObjectHandler.RejectJoinRequest", "fleetObjectHandler.DisbandFleet"];
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
   ...FLEET_PARTICIPATION_CALLS,
   ...FLEET_CONFIGURATION_WRITES,
-  "fleetObjectHandler.RejectJoinRequest",
+  ...FLEET_BOSS_WRITES,
   "shipCosmeticsMgr.ActivateSkinLicense",
   "bountyProxy.SellKillRight", "bountyProxy.CancelSellKillRight",
   "skillHandler.RespecCharacter",
@@ -1382,7 +1383,7 @@ const PAGE_OBJECT_CALLS = Object.freeze({ "invbroker.DepositPlexToVault": "inven
  * names its originating corporation too, so an old pending action cannot affect a new corporation.
  */
 // (An office's object: Moniker('officeManager', stationID), a station the call names - officeManager.TrashImpoundAtStation.)
-const OBJECTS_THE_PAGE_NAMES = Object.freeze(new Set(["planet", "orbitalSystem", "fleetByNumber", "fleetParticipation", "fleetConfiguration", "fleetJoinRequest", "agent", "inventory", "corporationExpected", "trade", "war", "officeAt", "stationHeadquarters"]));
+const OBJECTS_THE_PAGE_NAMES = Object.freeze(new Set(["planet", "orbitalSystem", "fleetByNumber", "fleetParticipation", "fleetConfiguration", "fleetBossAction", "agent", "inventory", "corporationExpected", "trade", "war", "officeAt", "stationHeadquarters"]));
 /**
  * The objects the session has one of that a call may say the number of all the same, to be held to it: the
  * pilot's own fleet, where the invitation is to that fleet and no other. With no `of` it is the session's own.
@@ -1397,7 +1398,7 @@ function objectOfPageCall(service, method) {
   if (typeof service !== "string" || typeof method !== "string") return null;
   // (A pair has a full stop in it, and nothing an object has of itself is named so.)
   const pair = `${service}.${method}`;
-  if (pair === "fleetObjectHandler.RejectJoinRequest") return "fleetJoinRequest";
+  if (FLEET_BOSS_WRITES.includes(pair)) return "fleetBossAction";
   if (pair === "fleetObjectHandler.GetFleetMaxSize" || FLEET_CONFIGURATION_WRITES.includes(pair)) return "fleetConfiguration";
   return FLEET_PARTICIPATION_CALLS.includes(pair) ? "fleetParticipation" : PAGE_OBJECT_CALLS[pair] ?? null;
 }

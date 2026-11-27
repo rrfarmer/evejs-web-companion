@@ -2111,7 +2111,11 @@
     const leaving = lastFleetID !== null;
     lastFleetID = fleetID;
     untrack(() => {
-      if (leaving) wins = closeWindow(closeWindow(wins, "watchlist"), "fleetComposition");
+      if (leaving) {
+        for (const id of ["watchlist", "fleetComposition", "fleetBroadcastSettings", "fleetAdvertEditor"] as const) {
+          wins = closeWindow(wins, id);
+        }
+      }
       if (fleetID !== null && autoOpenWatchlist(characterID)) open("watchlist");
     });
   });

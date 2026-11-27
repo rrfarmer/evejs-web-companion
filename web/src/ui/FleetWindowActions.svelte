@@ -41,6 +41,7 @@
     more: "UI/Common/More",
     form: F + "FormFleet",
     leave: "UI/Fleet/LeaveMyFleet",
+    disband: "UI/Fleet/DisbandFleet",
     regroup: F + "Regroup",
     broadcasts: F + "Broadcasts",
     broadcastSettings: "UI/Fleet/FleetBroadcast/BroadcastSettings",
@@ -87,6 +88,7 @@
     } else if ($fleet.authoritativeFleetID !== null) {
       const fleetID = $fleet.authoritativeFleetID;
       const own = $fleet.fleet?.initState.value.members.find(member => Number(member.charID) === $station.online?.characterID);
+      const boss = own && (own.job & FLEET_JOB_CREATOR) !== 0 && $fleet.availability === "ready";
       const commandRole = own && FLEET_CMDR_ROLES.includes(own.role);
       const broadcast = FLEET_BAR_BROADCASTS.map(name => action(
         BROADCAST_NAME_LABELS[name], name, () => onBroadcast(name), `res:/UI/Texture/${BROADCAST_ICONS[name]}`));
@@ -111,7 +113,7 @@
           };
         }), null);
       }
-      if (own && (own.job & FLEET_JOB_CREATOR) !== 0 && $fleet.availability === "ready") {
+      if (boss) {
         const checked = $fleet.fleet?.initState.value.options.isFreeMove === true;
         const disabled = configurationBusy ? "Updating fleet settings" : null;
         rows.push({ ...action(labels.maxFleetSize, "Set Max Fleet Size",
@@ -120,7 +122,7 @@
           () => changeConfiguration(() => flow.setFleetFreeMove(fleetID, !checked))), checkbox: true, checked, disabled }, null);
       }
       if (own && isFleetCommander(own)) rows.push(action(labels.composition, "Show Fleet Composition", onComposition));
-      if (own && (own.job & FLEET_JOB_CREATOR) !== 0 && $fleet.availability === "ready") {
+      if (boss) {
         if ($fleet.fleet?.initState.value.options.isRegistered) {
           rows.push(action(labels.editAdvert, "Edit Advert", onAdvert),
             action(labels.removeAdvert, "Remove Advert", () => run(flow.removeFleetAdvert(fleetID))));
@@ -129,6 +131,7 @@
       }
       rows.push(action(labels.watchlist, "Open Fleet Watch List", onWatchlist),
         null, action(labels.leave, "Leave Fleet", () => run(flow.fleetMenuAction({ kind: "leave" }))));
+      if (boss) rows.push(action(labels.disband, "Disband Fleet", () => changeConfiguration(() => flow.disbandFleet(fleetID))));
     }
     const rect = (event.currentTarget as HTMLButtonElement).getBoundingClientRect();
     menu.open(rect.left, rect.bottom, rows);

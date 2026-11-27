@@ -1575,10 +1575,16 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       return;
     }
   }
-  if (objectKind === "fleetJoinRequest" && (strictPositiveID(body.of) === null ||
-      !Array.isArray(body.args) || body.args.length !== 1 || !Number.isSafeInteger(body.args[0]) || body.args[0] <= 0 || body.kwargs != null)) {
-    res.status(400).json({ ok: false, error: "INVALID_FLEET_JOIN_REQUEST", message: "Choose the current fleet and one applicant." });
-    return;
+  if (objectKind === "fleetBossAction") {
+    const disband = body.method === "DisbandFleet";
+    const valid = Array.isArray(body.args) && (disband ? body.args.length === 0 :
+      body.args.length === 1 && Number.isSafeInteger(body.args[0]) && body.args[0] > 0);
+    if (strictPositiveID(body.of) === null || !valid || body.kwargs != null) {
+      const error = disband ? "INVALID_FLEET_DISBAND" : "INVALID_FLEET_JOIN_REQUEST";
+      const message = disband ? "Choose the current fleet to disband." : "Choose the current fleet and one applicant.";
+      res.status(400).json({ ok: false, error, message });
+      return;
+    }
   }
   if (objectKind === "corporationExpected" && strictPositiveID(body.of) === null) {
     res.status(400).json({ ok: false, error: "INVALID_CORPORATION", message: "A corporation action names the corporation it was opened for." });
@@ -1822,7 +1828,7 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       : objectKind === "fleetExpected"
       ? { ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => inviteToFleetCall(
         heldBridgeSession, req.webSessionID, inviteeOf(body.args), saysWhich ? strictPositiveID(body.of) : null, invitedPlaceOf(body.args))), service: body.service, method: body.method }
-      : objectKind === "fleetParticipation" || objectKind === "fleetConfiguration" || objectKind === "fleetJoinRequest"
+      : objectKind === "fleetParticipation" || objectKind === "fleetConfiguration" || objectKind === "fleetBossAction"
       ? { ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => {
         const fleetID = strictPositiveID(body.of);
         if (String(fleetID) !== heldBridgeSession.fleetID) {

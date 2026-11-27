@@ -2968,6 +2968,7 @@ export interface AppFlow {
    */
   inviteFleetMember(characterID: number, assertCurrent?: () => void, expectedFleetID?: number, place?: { readonly wingID: number | null; readonly squadID: number | null; readonly role: number | null }): Promise<void>;
   decideFleetJoinRequest(fleetID: number, characterID: number, accept: boolean): Promise<void>;
+  disbandFleet(fleetID: number): Promise<void>;
   /**
    * An owner's menu's Form Fleet With (menusvc.py 637 to 638; fleetSvc.Invite, 351 to 363): a fleet formed where the
    * pilot is in none, then the character invited; the pilot's own character is invited to nothing.
@@ -14416,6 +14417,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         return "Joining the fleet could not be confirmed by the follow-up roster read.";
       case "leave":
         return "Leaving the fleet could not be confirmed by the follow-up membership read.";
+      case "disband":
+        return "Disbanding the fleet could not be confirmed by the follow-up membership read.";
       case "invite":
         return "The fleet could not be re-read after the invitation was sent.";
       case "kick":
@@ -19269,6 +19272,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function leaveFleet(): Promise<void> {
     // The page's own call, on the fleet's object (bridge/fleetWrites.ts).
     await runFleetAction("leave", () => leaveFleetCall(bridgeDo), "not-in-fleet");
+  }
+
+  async function disbandFleet(fleetID: number): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    const mayDisband = () => {
+      const standing = fleetStanding();
+      return standing.fleetID === fleetID && standing.isBoss;
+    };
+    if (!mayDisband()) return;
+    if (!(await askDialog("DisbandFleet", null, "Are you sure you want to disband this fleet?", "yesno"))) return;
+    current();
+    await loadFleet(fleetDetailViews === 0);
+    current();
+    if (!mayDisband()) return;
+    await runFleetAction("disband", async () => {
+      await bridgeDo("fleetObjectHandler", "DisbandFleet", [], null, fleetID);
+    }, "not-in-fleet");
   }
 
   // fleetSvc.KickMember (607 to 612): another member kicked on the fleet's object, the pilot's own leaving instead.
@@ -41834,6 +41854,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     formFleet,
     inviteFleetMember,
     decideFleetJoinRequest,
+    disbandFleet,
     formFleetWith,
     inviteFleetSelection,
     acceptFleetInvite,
