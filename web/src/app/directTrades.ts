@@ -8,6 +8,7 @@ import { isListValue, readRowField, type JsonValue } from "../bridge/wire.ts";
 import { createSignal, readonlySignal } from "../store/signals.ts";
 import type { InventoryItemRow, InventoryPlace } from "../store/types.ts";
 import { intSetOf } from "../bridge/py27DictOrder.ts";
+import { decodeBlueprint } from "../bridge/industry.ts";
 
 export interface DirectTradeWindow {
   readonly moniker: TradeMoniker;
@@ -194,6 +195,19 @@ export function createDirectTrades(deps: Dependencies) {
     } }));
     return true;
   }
+  async function readBlueprint(containerID: number, itemID: number, typeID: number) {
+    const captured = generation;
+    const isOffered = () => {
+      const trade = get(containerID);
+      return generation === captured && trade?.abortOnClose && trade.state.items.some(row =>
+        Number(readRowField(row, "itemID")) === itemID && Number(readRowField(row, "typeID")) === typeID);
+    };
+    if (!isOffered()) return null;
+    const blueprint = decodeBlueprint(await deps.ask("blueprintManager", "GetBlueprintData", [itemID]));
+    if (!isOffered() || blueprint?.itemID !== itemID || blueprint.typeID !== typeID ||
+        blueprint.locationID !== containerID) return null;
+    return blueprint;
+  }
   async function offerItems(id: number, itemID: number, place: InventoryPlace, shift: boolean): Promise<void> {
     const w = get(id); if (!w?.abortOnClose) return;
     const { rows, sourceID } = await deps.source(itemID, place);
@@ -252,6 +266,6 @@ export function createDirectTrades(deps: Dependencies) {
     const old = windows.get(); generation++; windows.set([]); opening.clear();
     if (abort) for (const w of old) if (w.abortOnClose) void abortDirectTrade(deps.act, w.moniker).catch(deps.report);
   }
-  return { windows: readonlySignal(windows), start, receive, cancel, accept, offerMoney, refreshPane, offerItems, offerFitted, reset, report: deps.report };
+  return { windows: readonlySignal(windows), start, receive, cancel, accept, offerMoney, refreshPane, readBlueprint, offerItems, offerFitted, reset, report: deps.report };
 }
 export type DirectTrades = ReturnType<typeof createDirectTrades>;

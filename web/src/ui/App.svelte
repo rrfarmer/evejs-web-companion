@@ -753,7 +753,7 @@
        front, as the invitations are. -->
   <ErrorBoundary name="Chat invitations"><div class="chat-invitation-stack">{#each sessions as session (session.id)}<ChatInvitations {session} inFront={session.id === activeId} />{/each}</div></ErrorBoundary>
   <ErrorBoundary name="Duel invitations"><div class="duel-invitation-stack">{#each sessions as session (session.id)}<DuelInvitations {session} inFront={session.id === activeId} />{/each}</div></ErrorBoundary>
-  <ErrorBoundary name="Direct trades"><div class="trade-window-layer">{#each sessions as session (session.id)}<DirectTradeWindows {session} inFront={session.id === activeId} />{/each}</div></ErrorBoundary>
+  <ErrorBoundary name="Direct trades"><div class="trade-window-layer">{#each sessions as session (session.id)}<DirectTradeWindows {session} inFront={session.id === activeId} onOpenIndustry={() => requestOpenInWorkspace("industry", session.id)} />{/each}</div></ErrorBoundary>
   <ErrorBoundary name="Client dialogs">
     {#each sessions as session (session.id)}
       <ClientDialogs {session} inFront={session.id === activeId} />

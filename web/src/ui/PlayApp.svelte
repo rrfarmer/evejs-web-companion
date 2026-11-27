@@ -5009,7 +5009,7 @@
   {#key session.id}
     <ErrorBoundary name="Chat invitations"><ChatInvitations {session} inFront={true} /></ErrorBoundary>
     <ErrorBoundary name="Direct trades">
-      <div class="trade-window-layer fly-trades"><DirectTradeWindows {session} inFront={true} /></div>
+      <div class="trade-window-layer fly-trades"><DirectTradeWindows {session} inFront={true} onOpenIndustry={() => open("industry")} /></div>
     </ErrorBoundary>
   {/key}
   <ErrorBoundary name="Scanner results"><ScannerWindows {session} inFront={true} /></ErrorBoundary>

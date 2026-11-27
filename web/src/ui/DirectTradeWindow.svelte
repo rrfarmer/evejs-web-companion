@@ -31,7 +31,9 @@
   import { isComparable } from "../bridge/typeComparison.ts";
   import { ROLE_GML, ROLE_WORLDMOD, sessionHasRole } from "../bridge/gmWrites.ts";
   import { typeCompareTarget } from "./typeCompare.ts";
-  let { session, trade, inFront }: { session: Session; trade: DirectTradeWindow; inFront: boolean } = $props();
+  let { session, trade, inFront, onOpenIndustry }: {
+    session: Session; trade: DirectTradeWindow; inFront: boolean; onOpenIndustry: () => void;
+  } = $props();
   // svelte-ignore state_referenced_locally
   const words = session.store.words, names = session.store.names, station = session.store.station, images = session.flow.imageServer;
   // svelte-ignore state_referenced_locally
@@ -105,6 +107,7 @@
     quickbar: ["UI/Inventory/ItemActions/AddTypeToMarketQuickbar", "Add to Market Quickbar"],
     info: ["UI/Commands/ShowInfo", "Show Info"],
     compare: ["UI/Compare/CompareButton", "Compare"],
+    useBlueprint: ["UI/Industry/UseBlueprint", "Use Blueprint"],
     selectAll: ["UI/Common/SelectAll", "Select All"],
     invert: ["UI/Inventory/InvertSelection", "Invert Selection"],
     refresh: ["UI/Commands/Refresh", "Refresh"],
@@ -172,7 +175,7 @@
       const held = restrictions?.[id];
       return (types?.get(id)?.marketGroupID ?? 0) > 0 && held && !held.includes(36) && !held.includes(142);
     });
-    const infoEntries: ContextEntry[] = [], marketEntries: ContextEntry[] = [], compareEntries: ContextEntry[] = [];
+    const infoEntries: ContextEntry[] = [], marketEntries: ContextEntry[] = [], otherEntries: ContextEntry[] = [];
     if (subjects.length === 1) {
       infoEntries.push(itemEntry("info", () => showInfo({ kind: "type", typeID, itemID })));
       if (marketable.length) {
@@ -188,14 +191,21 @@
       if (marketable.length && contractable && type?.groupID !== 29) {
         marketEntries.push(itemEntry("quickbar", () => { changeQuickbar(bar => addType(bar, typeID)); }));
       }
+      const category = type?.categoryID;
+      if (category === 9 || category === 34) {
+        otherEntries.push(itemEntry("useBlueprint", () => {
+          flow.requestTradeBlueprintPreview(trade.state.containerID, itemID, typeID);
+          onOpenIndustry();
+        }));
+      }
     } else if (marketable.length) {
       marketEntries.push(itemEntry("market", () => showMarketDetails(marketable[0])),
         itemEntry("buyAll", () => void run(() => flow.openMultiBuy(new Map(typeIDs.map(id => [id, 1])))), subjects.length));
     }
     if (typeIDs.some(id => isComparable(comparison?.types.get(id) ?? null))) {
-      compareEntries.push(itemEntry("compare", () => typeCompareTarget.ask(subjects), subjects.length > 1 ? subjects.length : undefined));
+      otherEntries.push(itemEntry("compare", () => typeCompareTarget.ask(subjects), subjects.length > 1 ? subjects.length : undefined));
     }
-    itemMenu.open(x, y, [infoEntries, marketEntries, compareEntries, paneEntries(owner)]
+    itemMenu.open(x, y, [infoEntries, marketEntries, otherEntries, paneEntries(owner)]
       .filter(group => group.length).flatMap((group, i) => i ? [null, ...group] : group));
   }
   $effect(() => {

@@ -2301,6 +2301,10 @@ interface WalletLpChange {
   readonly after: number | null;
 }
 
+type IndustryBlueprintPreview =
+  | { readonly kind: "type"; readonly typeID: number; readonly original: boolean }
+  | { readonly kind: "trade"; readonly containerID: number; readonly itemID: number; readonly typeID: number };
+
 export interface AppFlow {
   infoUsedWith(typeID: number): Promise<readonly TypeUsedWithGroup[]>;
   /** What a plugin's loop flies this pilot with. */
@@ -2750,9 +2754,10 @@ export interface AppFlow {
   industryFacilitySystems(origin: number, systems: readonly number[]): Promise<ReadonlyMap<number, { readonly jumps: number | null; readonly sameRegion: boolean }>>;
   systemRangeFacts(origin: number, systems: readonly number[]): ReturnType<AppFlow["industryFacilitySystems"]>;
   loadIndustryBlueprintDefinitions(typeIDs: readonly number[]): Promise<void>;
-  readonly industryBlueprintPreview: ReadableSignal<{ readonly typeID: number; readonly original: boolean } | null>;
+  readonly industryBlueprintPreview: ReadableSignal<IndustryBlueprintPreview | null>;
   requestIndustryBlueprintPreview(typeID: number, original: boolean): void;
-  clearIndustryBlueprintPreview(request: { readonly typeID: number; readonly original: boolean }): void;
+  requestTradeBlueprintPreview(containerID: number, itemID: number, typeID: number): void;
+  clearIndustryBlueprintPreview(request: IndustryBlueprintPreview): void;
   /**
    * What the player HAS of each material an install would consume, read from
    * the SERVER, and the time the job will take where that was reckoned. Feeds
@@ -12305,7 +12310,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await loadIndustryBlueprintDefinitions([...typeIDs]);
   }
 
-  const industryBlueprintPreview = createSignal<{ readonly typeID: number; readonly original: boolean } | null>(null);
+  const industryBlueprintPreview = createSignal<IndustryBlueprintPreview | null>(null);
 
   async function systemRangeFacts(origin: number, systems: readonly number[]): ReturnType<AppFlow["systemRangeFacts"]> {
     const graph = await loadRouteGraph();
@@ -41130,7 +41135,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     industryBlueprintPreview: readonlySignal(industryBlueprintPreview),
     requestIndustryBlueprintPreview(typeID, original) {
       requestNames([{ kind: "type", id: typeID }]);
-      industryBlueprintPreview.set({ typeID, original });
+      industryBlueprintPreview.set({ kind: "type", typeID, original });
+    },
+    requestTradeBlueprintPreview(containerID, itemID, typeID) {
+      requestNames([{ kind: "type", id: typeID }]);
+      industryBlueprintPreview.set({ kind: "trade", containerID, itemID, typeID });
     },
     clearIndustryBlueprintPreview(request) {
       if (industryBlueprintPreview.get() === request) industryBlueprintPreview.set(null);

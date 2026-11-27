@@ -289,6 +289,28 @@ function dictEntries(value: JsonValue | undefined): readonly (readonly JsonValue
 
 // --- Blueprints ------------------------------------------------------------
 
+/** Decode the instance returned by blueprintManager.GetBlueprintData. */
+export function decodeBlueprint(row: JsonValue): IndustryBlueprintRow | null {
+  const itemID = toNumber(readKeyVal(row, "itemID"));
+  const typeID = toNumber(readKeyVal(row, "typeID"));
+  if (itemID <= 0 || typeID <= 0) return null;
+  const jobID = toNumberOrNull(readKeyVal(row, "jobID"));
+  const facilityID = toNumberOrNull(readKeyVal(row, "facilityID"));
+  const systemID = toNumber(readKeyVal(row, "solarSystemID"));
+  return {
+    itemID,
+    typeID,
+    materialEfficiency: toNumber(readKeyVal(row, "materialEfficiency")),
+    timeEfficiency: toNumber(readKeyVal(row, "timeEfficiency")),
+    runs: toNumber(readKeyVal(row, "runs")),
+    original: readKeyVal(row, "original") === true,
+    locationID: toNumber(readKeyVal(row, "locationID")),
+    facilityID: facilityID && facilityID > 0 ? facilityID : null,
+    solarSystemID: systemID > 0 ? systemID : null,
+    jobID: jobID && jobID > 0 ? jobID : null,
+  };
+}
+
 /**
  * Decode blueprintManager.GetBlueprintDataByOwner.
  *
@@ -300,32 +322,7 @@ function dictEntries(value: JsonValue | undefined): readonly (readonly JsonValue
 export function decodeBlueprints(result: JsonValue): readonly IndustryBlueprintRow[] {
   const tuple = Array.isArray(result) ? (result as readonly JsonValue[]) : null;
   const rows = listItems(tuple ? tuple[0] : undefined);
-  const blueprints: IndustryBlueprintRow[] = [];
-  for (const row of rows) {
-    const itemID = toNumber(readKeyVal(row, "itemID"));
-    if (itemID <= 0) {
-      continue;
-    }
-    const jobID = toNumberOrNull(readKeyVal(row, "jobID"));
-    const facilityID = toNumberOrNull(readKeyVal(row, "facilityID"));
-    blueprints.push({
-      itemID,
-      typeID: toNumber(readKeyVal(row, "typeID")),
-      // Distinct fields with distinct meanings — do not transpose them. The
-      // gateway suite seeds them to different values so a swap fails a test.
-      materialEfficiency: toNumber(readKeyVal(row, "materialEfficiency")),
-      timeEfficiency: toNumber(readKeyVal(row, "timeEfficiency")),
-      runs: toNumber(readKeyVal(row, "runs")),
-      original: readKeyVal(row, "original") === true,
-      locationID: toNumber(readKeyVal(row, "locationID")),
-      facilityID: facilityID && facilityID > 0 ? facilityID : null,
-      solarSystemID: toNumber(readKeyVal(row, "solarSystemID")) > 0 ? toNumber(readKeyVal(row, "solarSystemID")) : null,
-      // Non-null means BUSY: the blueprint is locked into a running job and
-      // cannot be installed into another one.
-      jobID: jobID && jobID > 0 ? jobID : null,
-    });
-  }
-  return blueprints;
+  return rows.map(decodeBlueprint).filter(row => row !== null);
 }
 
 // --- Jobs ------------------------------------------------------------------
