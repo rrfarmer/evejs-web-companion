@@ -21,6 +21,46 @@ export interface FleetSetupSource {
   readonly defaultSquad: readonly [wing: string, index: number, squad: string] | null;
 }
 
+export interface SavedFleetSetup {
+  readonly name: string;
+  readonly wings: readonly { wing: string; squads: readonly string[] }[];
+  readonly motd?: string;
+  readonly freeMove?: boolean;
+  readonly maxSize?: number;
+  readonly defaultSquad?: string;
+}
+
+function parsedSetups(text: string | null): unknown[] {
+  const setups: unknown = text === null || !text.trim() ? [] : parse(text, { version: "1.1" });
+  if (!Array.isArray(setups)) throw new Error("Stored fleet setups could not be read.");
+  return setups;
+}
+
+function setupRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+export function readSavedFleetSetups(text: string | null): SavedFleetSetup[] {
+  const setups = new Map<string, SavedFleetSetup>();
+  for (const value of parsedSetups(text)) {
+    const record = setupRecord(value);
+    if (!record || typeof record.setupName !== "string" || !record.setupName.trim()) continue;
+    const wings = Object.values(setupRecord(record.wingsInfo) ?? {}).map(setupRecord)
+      .filter(wing => wing !== null).sort((a, b) => Number(a.wingIdx ?? 0) - Number(b.wingIdx ?? 0))
+      .map(wing => ({ wing: String(wing.wingName ?? ""), squads: Array.isArray(wing.squadNames) ? wing.squadNames.map(String) : [] }));
+    const defaultSquad = Array.isArray(record.defaultSquad) && typeof record.defaultSquad[2] === "string" ? record.defaultSquad[2] : undefined;
+    setups.set(record.setupName, { name: record.setupName, wings, defaultSquad,
+      motd: typeof record.motd === "string" ? record.motd : undefined,
+      freeMove: typeof record.isFreeMove === "boolean" ? record.isFreeMove : undefined,
+      maxSize: typeof record.maxFleetSize === "number" ? record.maxFleetSize : undefined });
+  }
+  return [...setups.values()];
+}
+
+export function removeSavedFleetSetup(text: string | null, name: string): string {
+  return JSON.stringify(parsedSetups(text).filter(value => setupRecord(value)?.setupName !== name));
+}
+
 /** fleetSvc.StoreFleetSetup orders wing and squad IDs and stores the default squad by its position. */
 export function fleetSetupHierarchy(wings: readonly FleetWing[], defaultSquadID: number | null): Pick<FleetSetupSource, "wingsInfo" | "defaultSquad"> | null {
   const names = new Set<string>();
@@ -40,10 +80,9 @@ export function fleetSetupHierarchy(wings: readonly FleetWing[], defaultSquadID:
 }
 
 export function writeFleetSetup(previous: string | null, name: string, source: FleetSetupSource, include: FleetSetupOptions): string {
-  const setups: unknown = previous === null ? [] : parse(previous, { schema: "core" });
-  if (!Array.isArray(setups)) throw new Error("Stored fleet setups could not be read.");
-  const index = setups.findIndex(setup => setup?.setupName === name);
-  const next = { ...(index < 0 ? {} : setups[index]), setupName: name, wingsInfo: source.wingsInfo };
+  const setups = parsedSetups(previous);
+  const index = setups.findIndex(setup => setupRecord(setup)?.setupName === name);
+  const next: Record<string, unknown> = { ...setupRecord(setups[index]), setupName: name, wingsInfo: source.wingsInfo };
   for (const key of ["motd", "isFreeMove", "maxFleetSize", "defaultSquad"]) delete next[key];
   if (include.motd) next.motd = source.motd;
   if (include.freeMove) next.isFreeMove = source.freeMove;

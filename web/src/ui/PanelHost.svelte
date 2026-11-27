@@ -86,6 +86,7 @@
   import FleetComposition from "./FleetComposition.svelte";
   import FleetJoinRequests from "./FleetJoinRequests.svelte";
   import FleetSetupSave from "./FleetSetupSave.svelte";
+  import FleetSetupList from "./FleetSetupList.svelte";
   import CorporationMedalDesigner from "./CorporationMedalDesigner.svelte";
   import Settings from "./Settings.svelte";
   import NoticeLog from "./NoticeLog.svelte";
@@ -283,6 +284,8 @@
   <FleetJoinRequests {store} {flow} />
 {:else if tab === "fleetSetupSave"}
   <FleetSetupSave {store} {flow} onClose={() => onClose?.()} />
+{:else if tab === "fleetSetupList"}
+  <FleetSetupList {store} {flow} />
 {:else if tab === "scanner"}
   <Scanner {store} {flow} />
 {:else if tab === "miningScan"}

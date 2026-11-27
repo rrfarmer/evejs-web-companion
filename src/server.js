@@ -1589,7 +1589,8 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
   if (objectKind === "fleetHierarchy") {
     const [id, name] = Array.isArray(body.args) ? body.args : [];
     const target = Number.isSafeInteger(id) && id > 0;
-    const valid = body.method === "SetAutoJoinSquadID" ? body.args?.length === 1 && (id === null || target)
+    const valid = body.method === "LoadFleetSetup" ? body.args?.length === 1 && typeof id === "string" && id.trim().length > 0
+      : body.method === "SetAutoJoinSquadID" ? body.args?.length === 1 && (id === null || target)
       : body.args?.length === 2 && target && typeof name === "string" && name.length <= 10;
     if (!Array.isArray(body.args) || !valid || strictPositiveID(body.of) === null || body.kwargs != null) {
       res.status(400).json({ ok: false, error: "INVALID_FLEET_HIERARCHY", message: "Choose a current wing or squad and a valid name." });

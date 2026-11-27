@@ -9,16 +9,18 @@
   // svelte-ignore state_referenced_locally
   const { fleet, words } = store;
   const F = "UI/Fleet/FleetWindow/";
-  const labels = ["StoreFleetSetupText", "IncludeMotd", "IncludeFreeMoveSetting", "IncludeMaxSize", "IncludeDefaultSquad", "UnnamedSquad"];
+  const labels = ["StoreFleetSetupText", "StoreFleetSetupTextWithLastLoaded", "IncludeMotd", "IncludeFreeMoveSetting", "IncludeMaxSize", "IncludeDefaultSquad", "UnnamedSquad"];
+  // svelte-ignore state_referenced_locally
+  const lastSetup = flow.lastFleetSetup;
   let source = $state<FleetSetupSource | null>(null);
   let name = $state("");
   let nameInput = $state<HTMLInputElement>();
   let motd = $state(false), freeMove = $state(false), maxSize = $state(false), defaultSquad = $state(false);
   let saving = $state(false), error = $state("");
 
-  function word(label: string, fallback: string): string {
+  function word(label: string, fallback: string, args: Record<string, string> = {}): string {
     const text = $words.templates[label];
-    return typeof text === "string" && text ? plainText(formatTemplate(text, {}, { nameOf: () => "" })) : fallback;
+    return typeof text === "string" && text ? plainText(formatTemplate(text, args, { nameOf: () => "" })) : fallback;
   }
 
   onMount(() => {
@@ -59,8 +61,10 @@
 
 <form class="fleet-setup-save" onsubmit={save}>
   {#if source}
+    {@const loaded = $lastSetup?.fleetID === source.fleetID ? $lastSetup.name : null}
     <label class="setup-name">
-      <span>{word(F + "StoreFleetSetupText", "Enter a name for this fleet setup")}</span>
+      <span>{loaded === null ? word(F + "StoreFleetSetupText", "Enter a name for this fleet setup") :
+        word(F + "StoreFleetSetupTextWithLastLoaded", `Last loaded setup: ${loaded}. Enter a name for this fleet setup.`, { oldFleetSetupName: loaded })}</span>
       <input type="text" bind:this={nameInput} bind:value={name} maxlength={FLEET_SETUP_NAME_LENGTH} disabled={saving}
         onkeydown={event => { if (event.key === "Escape" && !saving) onClose(); }} />
     </label>

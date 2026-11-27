@@ -5,6 +5,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { BROADCAST_ICONS, BROADCAST_NAME_LABELS, FLEET_BAR_BROADCASTS, type FleetBarBroadcast } from "../bridge/fleetBroadcasts.ts";
   import { FLEET_CMDR_ROLES, FLEET_JOB_CREATOR, isFleetCommander } from "../bridge/fleetCommand.ts";
+  import type { SavedFleetSetup } from "../bridge/fleetSetups.ts";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { FLEET_POINTERS } from "../play/uiPointer.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -12,7 +13,7 @@
   import { clientTexture } from "./skillGroupIcons.ts";
   import { applyWindowFlags, setWindowFlag, windowFlags, WINDOW_ACTION_WORDS, type WindowFlag } from "./windowFlags.ts";
 
-  let { store, flow, flat, onFlat, docked, onBroadcast, onBroadcastSettings, onWatchlist, onComposition, onAdvert, onJoinRequests, onStoreSetup }: {
+  let { store, flow, flat, onFlat, docked, onBroadcast, onBroadcastSettings, onWatchlist, onComposition, onAdvert, onJoinRequests, onStoreSetup, onSetupsOverview }: {
     store: ClientStore;
     flow: AppFlow;
     flat: boolean;
@@ -25,6 +26,7 @@
     onAdvert: () => void;
     onJoinRequests: () => void;
     onStoreSetup: () => void;
+    onSetupsOverview: () => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -40,6 +42,15 @@
   let participationBusy = $state(false);
   let configurationBusy = $state(false);
   let esi = $state<{ base: string; tenant: string } | null>(null);
+  let savedSetups = $state<SavedFleetSetup[]>([]);
+  // svelte-ignore state_referenced_locally
+  const setupRevision = flow.fleetSetupRevision;
+  $effect(() => {
+    void $setupRevision;
+    let current = true;
+    void flow.readFleetSetups().then(setups => { if (current) savedSetups = setups; }, () => { if (current) savedSetups = []; });
+    return () => { current = false; };
+  });
   const labels = {
     more: "UI/Common/More",
     form: F + "FormFleet",
@@ -61,6 +72,8 @@
     joinRequests: F + "OpenJoinRequest",
     externalLink: F + "GetFleetID",
     storeSetup: F + "StoreFleetSetup",
+    fleetSetups: F + "FleetSetups",
+    setupsOverview: F + "SetupsOverview",
   };
   function word(label: string, fallback: string): string {
     const text = $words.templates[label];
@@ -116,7 +129,17 @@
         action(labels.broadcastSettings, "Broadcast Settings", onBroadcastSettings),
         flat ? action(labels.hierarchy, "View as Hierarchy", () => onFlat(false)) :
           action(labels.flat, "View as Flat List", () => onFlat(true)), null);
-      if ($fleet.availability === "ready") rows.push(action(labels.storeSetup, "Store Fleet Setup", onStoreSetup), null);
+      if ($fleet.availability === "ready") {
+        rows.push(action(labels.storeSetup, "Store Fleet Setup", onStoreSetup));
+        if (own && isFleetCommander(own) && savedSetups.length > 0) {
+          const setups = [...savedSetups].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+          rows.push({ label: word(labels.fleetSetups, "Fleet Setups"), sub: [
+            ...setups.map(setup => ({ label: setup.name, run: () => changeConfiguration(() => flow.loadFleetSetup(fleetID, setup.name)) })),
+            null, action(labels.setupsOverview, "Setups Overview", onSetupsOverview),
+          ] });
+        }
+        rows.push(null);
+      }
       if (own && $fleet.availability === "ready") {
         rows.push(...participation.map(([key, label, fallback]) => {
           const checked = own.memberOptOuts[key];

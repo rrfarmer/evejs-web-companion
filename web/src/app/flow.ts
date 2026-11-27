@@ -1232,7 +1232,7 @@ import { decodeAccessGroupAudit, type AccessGroupAuditRow } from "../bridge/acce
 import { agentsAtStation, readAgentsTable } from "../bridge/agentReads.ts";
 import { authoritativeFleetMemberCharacterIDs, decodeFleetCenter, decodeFleetInviteAnswerNotification, decodeFleetInviteNotification, fleetInviteAnswerWords, memberWhereabouts, type FleetInviteAnswer } from "../bridge/fleetCenter.ts";
 import { decodeJoinRequest, type FleetMemberOptOuts } from "../bridge/boundFleet.ts";
-import { FLEET_MAX_SIZE, FLEET_SETUP_NAME_LENGTH, FLEET_SETUPS_KEY, fleetSetupHierarchy, writeFleetSetup, type FleetSetupOptions, type FleetSetupSource } from "../bridge/fleetSetups.ts";
+import { FLEET_MAX_SIZE, FLEET_SETUP_NAME_LENGTH, FLEET_SETUPS_KEY, fleetSetupHierarchy, readSavedFleetSetups, removeSavedFleetSetup, writeFleetSetup, type FleetSetupOptions, type FleetSetupSource, type SavedFleetSetup } from "../bridge/fleetSetups.ts";
 import { FLEET_JOB_CREATOR, canTagInFleet } from "../bridge/fleetCommand.ts";
 import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
 import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert, parseFleetAdvertUrl, type FleetAdvert } from "../bridge/fleetAds.ts";
@@ -2972,6 +2972,11 @@ export interface AppFlow {
   disbandFleet(fleetID: number): Promise<void>;
   readFleetSetupSource(fleetID: number): Promise<FleetSetupSource | null>;
   storeFleetSetup(fleetID: number, name: string, options: FleetSetupOptions): Promise<boolean>;
+  readFleetSetups(): Promise<SavedFleetSetup[]>;
+  deleteFleetSetup(name: string): Promise<void>;
+  loadFleetSetup(fleetID: number, name: string): Promise<void>;
+  readonly fleetSetupRevision: ReadableSignal<number>;
+  readonly lastFleetSetup: ReadableSignal<{ fleetID: number; name: string } | null>;
   updateFleetHierarchy(fleetID: number, action: "wingName" | "squadName" | "defaultSquad", id: number, value?: string): Promise<void>;
   /**
    * An owner's menu's Form Fleet With (menusvc.py 637 to 638; fleetSvc.Invite, 351 to 363): a fleet formed where the
@@ -19134,7 +19139,41 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const next = writeFleetSetup(previous, name, source, include);
     await saveCharacterSetting(FLEET_SETUPS_KEY, next);
     current();
+    fleetSetupRevision.update(revision => revision + 1);
     return true;
+  }
+
+  const fleetSetupRevision = createSignal(0);
+  const lastFleetSetup = createSignal<{ fleetID: number; name: string } | null>(null);
+
+  async function readFleetSetups(): Promise<SavedFleetSetup[]> {
+    return readSavedFleetSetups(await readCharacterSetting(FLEET_SETUPS_KEY));
+  }
+
+  async function deleteFleetSetup(name: string): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    const previous = await readCharacterSetting(FLEET_SETUPS_KEY);
+    current();
+    await saveCharacterSetting(FLEET_SETUPS_KEY, removeSavedFleetSetup(previous, name));
+    current();
+    fleetSetupRevision.update(revision => revision + 1);
+  }
+
+  async function loadFleetSetup(fleetID: number, name: string): Promise<void> {
+    if (!name.trim() || store.fleet.get().authoritativeFleetID !== fleetID) return;
+    const current = callOptions.captureRequestGuard!();
+    sayDialog("AttemptingToLoadFleet", null, "Attempting to load the fleet setup.", "notify");
+    try {
+      await bridgeDo("fleetObjectHandler", "LoadFleetSetup", [name], null, fleetID);
+      current();
+      await loadFleet();
+      current();
+      if (store.fleet.get().authoritativeFleetID === fleetID) lastFleetSetup.set({ fleetID, name });
+    } catch (error) {
+      throwIfRequestRetired(error);
+      current();
+      if (!sayRefusalDialog(error, errorWords(error))) throw error;
+    }
   }
 
   async function updateFleetHierarchy(fleetID: number, action: "wingName" | "squadName" | "defaultSquad", id: number, value?: string): Promise<void> {
@@ -41913,6 +41952,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     disbandFleet,
     readFleetSetupSource,
     storeFleetSetup,
+    readFleetSetups,
+    deleteFleetSetup,
+    loadFleetSetup,
+    fleetSetupRevision: readonlySignal(fleetSetupRevision),
+    lastFleetSetup: readonlySignal(lastFleetSetup),
     updateFleetHierarchy,
     formFleetWith,
     inviteFleetSelection,

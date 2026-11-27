@@ -42,7 +42,7 @@ const PLUMBING_SWEEP_WRITE_METHODS = freezeMethodMap({
   structureVulnerability: ["UpdateReinforceTimesFromClient"],
   structureProfiles: ["ChangeProfiles", "CreateProfile", "UpdateProfile", "DuplicateProfile", "DeleteProfile", "SetDefaultProfile", "SaveProfileSettings"],
   structureAssetSafety: ["MovePersonalAssetsToSafety", "MoveCorpAssetsToSafety", "MoveSafetyWrapToStructure"],
-  fleetObjectHandler: ["CreateFleet", "CreateWing", "CreateSquad", "MoveMember", "KickMember", "MakeLeader", "LeaveFleet", "DisbandFleet", "SetOptions", "SetFleetMaxSize", "SetMotdEx", "UpdateMemberInfo", "SetTakesFleetWarp", "SetAcceptsConduitJumpsValue", "SetAcceptsRegroupValue", "SendBroadcast", "Invite", "MassInvite", "AcceptInvite", "RejectInvite", "RejectJoinRequest", "ChangeWingName", "ChangeSquadName", "SetAutoJoinSquadID", "Reconnect"],
+  fleetObjectHandler: ["CreateFleet", "CreateWing", "CreateSquad", "MoveMember", "KickMember", "MakeLeader", "LeaveFleet", "DisbandFleet", "SetOptions", "SetFleetMaxSize", "SetMotdEx", "UpdateMemberInfo", "SetTakesFleetWarp", "SetAcceptsConduitJumpsValue", "SetAcceptsRegroupValue", "SendBroadcast", "Invite", "MassInvite", "AcceptInvite", "RejectInvite", "RejectJoinRequest", "ChangeWingName", "ChangeSquadName", "SetAutoJoinSquadID", "LoadFleetSetup", "Reconnect"],
   fleetProxy: ["ApplyToJoinFleet", "AddFleetFinderAdvert", "RemoveFleetFinderAdvert", "UpdateAdvertInfo"],
   fleetMgr: ["ForceLeaveFleet", "AddToWatchlist", "RemoveFromWatchlist", "RegisterForDamageUpdates", "BroadcastToBubble", "BroadcastToSystem"],
   entity: ["CmdReturnHome", "CmdSalvage", "CmdAbandonDrone", "CmdReconnectToDrones"],
@@ -961,7 +961,7 @@ const FLEET_PARTICIPATION_CALLS = ["SetTakesFleetWarp", "SetAcceptsConduitJumpsV
   .map(method => `fleetObjectHandler.${method}`);
 const FLEET_CONFIGURATION_WRITES = ["fleetObjectHandler.SetFleetMaxSize", "fleetObjectHandler.SetOptions"];
 const FLEET_BOSS_WRITES = ["fleetObjectHandler.RejectJoinRequest", "fleetObjectHandler.DisbandFleet"];
-const FLEET_HIERARCHY_WRITES = ["ChangeWingName", "ChangeSquadName", "SetAutoJoinSquadID"].map(method => `fleetObjectHandler.${method}`);
+const FLEET_HIERARCHY_WRITES = ["ChangeWingName", "ChangeSquadName", "SetAutoJoinSquadID", "LoadFleetSetup"].map(method => `fleetObjectHandler.${method}`);
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
   ...FLEET_PARTICIPATION_CALLS,
   ...FLEET_CONFIGURATION_WRITES,

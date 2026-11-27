@@ -1932,6 +1932,7 @@
     shipSkinr: { w: 1024, h: 700 },
     hyperNet: { w: 1024, h: 720 },
     fleetComposition: { w: 680, h: 420 }, fleetBroadcastSettings: { w: 480, h: 380 }, fleetAdvertEditor: { w: 600, h: 460 }, fleetJoinRequests: { w: 310, h: 145 }, fleetSetupSave: { w: 396, h: 276 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 570, h: 550 },
+    fleetSetupList: { w: 360, h: 300 },
     structureBrowser: { w: 800, h: 600 }, accessGroups: { w: 800, h: 600 }, autoMoonMiner: { w: 700, h: 515 },
     metenoxTransfer: { w: 400, h: 340 }, metenoxFuel: { w: 435, h: 285 },
     moonMaterialBay: { w: 490, h: 355 },
@@ -1949,6 +1950,7 @@
     auraGuidance: { w: 270, h: 300 },
     fittingManagement: { w: 525, h: 400 },
     channels: { w: 400, h: 250 },
+    fleetSetupList: { w: 360, h: 300 },
     structureBrowser: { w: 600, h: 450 }, accessGroups: { w: 600, h: 400 },
     drones: { w: 240, h: 120 }, scanner: { w: 300, h: 150 }, inventory: { w: 170, h: 140 },
     market: { w: 650, h: 435 }, marketOrders: { w: 300, h: 300 }, contracts: { w: 700, h: 560 }, corporation: { w: 700, h: 832 },
@@ -2112,7 +2114,7 @@
     lastFleetID = fleetID;
     untrack(() => {
       if (leaving) {
-        for (const id of ["watchlist", "fleetComposition", "fleetBroadcastSettings", "fleetAdvertEditor", "fleetSetupSave"] as const) {
+        for (const id of ["watchlist", "fleetComposition", "fleetBroadcastSettings", "fleetAdvertEditor", "fleetSetupSave", "fleetSetupList"] as const) {
           wins = closeWindow(wins, id);
         }
       }
@@ -2177,6 +2179,7 @@
     fleetAdvertEditor: "UI/Fleet/CreateAdvert",
     fleetJoinRequests: "UI/Fleet/FleetWindow/JoinRequests",
     fleetSetupSave: "UI/Fleet/FleetWindow/StoreFleetSetup",
+    fleetSetupList: "UI/Fleet/FleetWindow/SetupsOverview",
     memberDetails: "UI/Corporations/EditMemberDialog/EditMemberCaption",
     structureBrowser: "UI/Structures/Browser/StructureBrowser",
     accessGroups: "UI/Structures/AccessGroups/GroupWndName",
@@ -5073,6 +5076,7 @@
               onAdvert={() => open("fleetAdvertEditor")}
               onJoinRequests={() => open("fleetJoinRequests")}
               onStoreSetup={() => open("fleetSetupSave")}
+              onSetupsOverview={() => open("fleetSetupList")}
               onWatchlist={() => open("watchlist")} onComposition={() => open("fleetComposition")} />{/if}
             {#if win.id === "drones"}<DronesWindowActions store={session.store} flow={session.flow} />{/if}
             {#if win.id === "inventory" && !docked}<InventoryWindowActions store={session.store} flow={session.flow} />{/if}
