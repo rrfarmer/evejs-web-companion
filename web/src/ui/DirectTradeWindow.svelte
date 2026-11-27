@@ -6,6 +6,7 @@
   // offer indicators, and the native Accept / Cancel / Offer Money actions.
   import { onMount, untrack } from "svelte";
   import type { Session } from "../app/sessions.ts";
+  import { loadTypeListsHolding } from "../app/api.ts";
   import { tradeAccepted, type DirectTradeWindow } from "../app/directTrades.ts";
   import { readRowField, type JsonValue } from "../bridge/wire.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
@@ -20,6 +21,15 @@
   import OwnerPicture from "./OwnerPicture.svelte";
   import { DRAG_MIME, decodeDrag, carriesOurPayload } from "./dragDrop.ts";
   import { isNamedItem } from "./inventoryModel.ts";
+  import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
+  import { showInfo } from "./showInfo.ts";
+  import { buyMarketType, showMarketDetails } from "./marketDetails.ts";
+  import { findInContracts } from "./contractsSearch.ts";
+  import { findInPersonalAssets } from "./assetsSearch.ts";
+  import { addType } from "../bridge/marketQuickbar.ts";
+  import { changeQuickbar } from "./marketQuickbar.ts";
+  import { isComparable } from "../bridge/typeComparison.ts";
+  import { typeCompareTarget } from "./typeCompare.ts";
   let { session, trade, inFront }: { session: Session; trade: DirectTradeWindow; inFront: boolean } = $props();
   // svelte-ignore state_referenced_locally
   const words = session.store.words, names = session.store.names, station = session.store.station, images = session.flow.imageServer;
@@ -44,6 +54,71 @@
     return own === typeName ? typeName : plainText(formatTemplate($words.templates["UI/PVPTrade/TypeNameAndItemName"] ?? "{typeName} ({itemName})", { typeName, itemName: own }, { nameOf: () => "" }));
   }
   function quantity(row: JsonValue): number { const quantity = Number(readRowField(row, "quantity")); return quantity < 0 ? 1 : quantity; }
+  const itemMenu = new ContextMenu();
+  let menuRequest = 0;
+  let selectedItem = $state<number | null>(null);
+  const itemWords = {
+    market: ["UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details"],
+    buy: ["UI/Inventory/ItemActions/BuyThisType", "Buy This Type"],
+    contracts: ["UI/Inventory/ItemActions/FindInContracts", "Find in Contracts"],
+    assets: ["UI/Inventory/ItemActions/FindPersonalAssets", "Find in Personal Assets"],
+    quickbar: ["UI/Inventory/ItemActions/AddTypeToMarketQuickbar", "Add to Market Quickbar"],
+    info: ["UI/Commands/ShowInfo", "Show Info"],
+    compare: ["UI/Compare/CompareButton", "Compare"],
+  } as const;
+  async function openItemMenu(event: MouseEvent | KeyboardEvent, row: JsonValue): Promise<void> {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!inFront || !trade.abortOnClose) return;
+    const target = event.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const x = "clientX" in event && event.clientX ? event.clientX : rect.left;
+    const y = "clientY" in event && event.clientY ? event.clientY : rect.bottom;
+    const typeID = Number(readRowField(row, "typeID"));
+    const itemID = Number(readRowField(row, "itemID"));
+    if (!Number.isSafeInteger(typeID) || typeID <= 0 || !Number.isSafeInteger(itemID) || itemID <= 0) return;
+    selectedItem = itemID;
+    const request = ++menuRequest;
+    itemMenu.close();
+    const flow = session.flow;
+    // inventoryrestrictions identifies non-tradable, soulbound and non-contractable types.
+    const [types, lists, comparison] = await Promise.all([
+      flow.typeFacts([typeID]).catch(() => null),
+      loadTypeListsHolding([typeID], [36, 142, 337], flow.requestOptions()).catch(() => null),
+      flow.comparisonTypes([typeID]).catch(() => null),
+    ]);
+    if (request !== menuRequest || !inFront || !target.isConnected || !trade.abortOnClose) return;
+    const type = types?.get(typeID);
+    const restrictions = lists?.[typeID];
+    const entries: (ContextEntry | null)[] = [];
+    const add = (key: keyof typeof itemWords, run: () => void) => {
+      const [path, fallback] = itemWords[key];
+      entries.push({ label: word(path, fallback), path, run, info: key === "info" });
+    };
+    add("info", () => showInfo({ kind: "type", typeID, itemID }));
+    entries.push(null);
+    const market = (type?.marketGroupID ?? 0) > 0 && restrictions && !restrictions.includes(36) && !restrictions.includes(142);
+    if (market) {
+      add("market", () => showMarketDetails(typeID));
+      add("buy", () => buyMarketType(typeID));
+    }
+    if (type?.published) {
+      if (restrictions && !restrictions.includes(337) && !restrictions.includes(142)) add("contracts", () => findInContracts(typeID));
+      add("assets", () => findInPersonalAssets(resolvedName($names.resolved, "type", typeID, itemName(row))));
+    }
+    if (market) add("quickbar", () => { changeQuickbar(bar => addType(bar, typeID)); });
+    if (isComparable(comparison?.types.get(typeID) ?? null)) {
+      if (entries.at(-1) !== null) entries.push(null);
+      add("compare", () => typeCompareTarget.ask([{ typeID, itemID }]));
+    }
+    itemMenu.open(x, y, entries);
+  }
+  $effect(() => {
+    if (!inFront || !trade.abortOnClose || geometry.minimized) {
+      menuRequest++;
+      itemMenu.close();
+    }
+  });
   async function run(action: () => Promise<void>): Promise<void> {
     if (busy) return; busy = true;
     try { await action(); }
@@ -73,7 +148,11 @@
     const end = () => { releasePointer(handle, event.pointerId); handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", end); };
     handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", end);
   }
-  onMount(() => session.flow.loadImageServer());
+  onMount(() => {
+    session.flow.loadImageServer();
+    session.flow.requestWords(Object.values(itemWords).map(([path]) => path));
+    return () => { menuRequest++; itemMenu.close(); };
+  });
 </script>
 <DesktopWindow win={{ ...geometry, id: trade.state.containerID }} title={caption} focused={geometry.z === topZ}
   onFocus={() => geometry = { ...geometry, z: ++topZ }} onClose={() => void run(() => session.flow.directTrades.cancel(trade.state.containerID))}
@@ -96,7 +175,16 @@
           </div>
           <div class="inventory"><table><thead><tr><th>{word("UI/Common/Name", "Name")}</th><th>{word("UI/Common/Quantity", "Quantity")}</th></tr></thead><tbody>
             {#each trade.state.items.filter(row => Number(readRowField(row, "ownerID")) === ownerID) as row (Number(readRowField(row, "itemID")))}
-              <tr><td>{itemName(row)}</td><td>{quantity(row).toLocaleString()}</td></tr>
+              <tr data-trade-item={Number(readRowField(row, "itemID"))}
+                oncontextmenu={event => void openItemMenu(event, row)}>
+                <td><button class="item-name" type="button" aria-haspopup="menu"
+                  aria-pressed={selectedItem === Number(readRowField(row, "itemID"))}
+                  onclick={() => { selectedItem = Number(readRowField(row, "itemID")); }}
+                  onkeydown={event => {
+                    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) void openItemMenu(event, row);
+                  }}>{itemName(row)}</button></td>
+                <td>{quantity(row).toLocaleString()}</td>
+              </tr>
             {/each}
           </tbody></table></div>
         </section>
@@ -118,6 +206,8 @@
   .offer > span:last-child { white-space: nowrap; font-size: .8rem; line-height: 20px; } .paying { color: #ef7474; } .receiving { color: #6ed9a1; }
   .money { align-self: flex-start; font-size: .75rem; } .inventory { overflow: auto; flex: 1; min-height: 0; border: 1px solid var(--color-border); }
   table { width: 100%; font-size: .8rem; border-collapse: collapse; } th, td { text-align: left; padding: 4px 6px; } th:last-child, td:last-child { text-align: right; }
+  .item-name { width: 100%; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: default; }
+  tr:has(.item-name[aria-pressed="true"]) { background: rgba(105, 179, 220, 0.22); }
   thead { position: sticky; top: 0; background: var(--color-bg); }
   .splitter { height: 8px; flex-shrink: 0; cursor: row-resize; touch-action: none; border-top: 1px solid var(--color-border); margin-top: 4px; }
   .answers { display: flex; gap: 8px; padding-top: 8px; } .answers button { flex: 1; }
