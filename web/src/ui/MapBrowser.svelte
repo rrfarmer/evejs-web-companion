@@ -7,6 +7,7 @@
   import { resolvedName } from "../store/names.ts";
   import { ContextMenu } from "../play/contextMenu.ts";
   import { showInfo } from "./showInfo.ts";
+  import { mapBrowserConnections, type MapBrowserConnection } from "./mapBrowserConnections.ts";
 
   let { store, flow, request, onClose, onShowSystem }: {
     store: ClientStore; flow: AppFlow; request: { systemID: number };
@@ -67,22 +68,29 @@
   const region = $derived(data?.regions?.find(row => row[0] === selection[0]));
   const constellation = $derived(data?.constellations?.find(row => row[0] === selection[1]));
   const system = $derived(data?.systems.find(row => row[0] === selection[2]));
+  const connections = $derived(data ? mapBrowserConnections(data) : null);
+  const constellationPoints = $derived((data?.constellations ?? []).map(([id, x, , z, name, region]) => ({ id, x, z, name, typeID: 4, region })));
+  const systemPoints = $derived((data?.systems ?? []).map(([id, x, , z, , , constellation, name]) => ({ id, x, z, name: name ?? String(id), typeID: 5, constellation })));
   const panels = $derived.by(() => {
-    const result: { name: string; title: string; id: number; selected?: number; points: Point[] }[] = [];
+    const result: { name: string; title: string; id: number; selected?: number; points: Point[];
+      edges?: ReadonlyMap<string, MapBrowserConnection>; neighbors?: readonly Point[] }[] = [];
     if (!data) return result;
     result.push({
       name: label(universeLabel, "Universe"), title: label(labelBase + sectionLabels[0], "List Regions"),
       id: 9, selected: selection[0], points: (data.regions ?? []).map(([id, x, , z, name]) => ({ id, x, z, name, typeID: 3 })),
+      edges: connections?.universe,
     });
     if (region) result.push({
       name: label(labelBase + "NameRegion", "Region: {name}", region[4]),
       title: label(labelBase + sectionLabels[1], "List Constellations", region[4]), id: region[0], selected: selection[1],
-      points: (data.constellations ?? []).filter(row => row[5] === region[0]).map(([id, x, , z, name]) => ({ id, x, z, name, typeID: 4 })),
+      points: constellationPoints.filter(point => point.region === region[0]),
+      edges: connections?.regions.get(region[0]), neighbors: constellationPoints,
     });
     if (constellation) result.push({
       name: label(labelBase + "NameConstellation", "Constellation: {name}", constellation[4]),
       title: label(labelBase + sectionLabels[2], "List Solar Systems", constellation[4]), id: constellation[0], selected: selection[2],
-      points: data.systems.filter(row => row[6] === constellation[0]).map(([id, x, , z, , , , name]) => ({ id, x, z, name: name ?? String(id), typeID: 5 })),
+      points: systemPoints.filter(point => point.constellation === constellation[0]),
+      edges: connections?.constellations.get(constellation[0]), neighbors: systemPoints,
     });
     if (system) {
       const name = system[7] ?? String(system[0]);
@@ -102,15 +110,27 @@
     return result;
   });
 
-  function project(points: readonly Point[]) {
-    if (points.length === 0) return [];
+  function project(points: readonly Point[], edges?: ReadonlyMap<string, MapBrowserConnection>, neighbors?: readonly Point[]) {
+    if (points.length === 0) return { points: [], lines: [] };
     const xs = points.map(point => point.x), zs = points.map(point => point.z);
     const left = Math.min(...xs), right = Math.max(...xs), bottom = Math.min(...zs), top = Math.max(...zs);
     const range = Math.max(right - left, top - bottom, 1);
-    return points.map(point => ({ ...point,
+    const position = (point: Point, outside = false) => ({ ...point, outside,
       left: 50 + 76 * (point.x - (right + left) / 2) / range,
       top: 54 - 76 * (point.z - (top + bottom) / 2) / range,
-    }));
+    });
+    const projected = new Map(points.map(point => [point.id, position(point)]));
+    const lines = [];
+    for (const [from, to, group] of edges?.values() ?? []) {
+      for (const id of [from, to]) {
+        if (projected.has(id)) continue;
+        const point = neighbors?.find(row => row.id === id);
+        if (point) projected.set(id, position(point, true));
+      }
+      const a = projected.get(from), b = projected.get(to);
+      if (a && b) lines.push({ a, b, group });
+    }
+    return { points: [...projected.values()], lines };
   }
   // Map2D.DrawSolarsystem puts the sun at the origin and fills 80% of the square at the furthest object.
   function solarGeometry(points: readonly Point[]) {
@@ -128,7 +148,14 @@
     };
   }
   function select(index: number, point: Point): void {
-    if (index < 3) selection = [...selection.slice(0, index), point.id];
+    if (index === 0) selection = [point.id];
+    else if (index === 1) {
+      const parent = constellationPoints.find(row => row.id === point.id);
+      if (parent) selection = [parent.region, point.id];
+    } else if (index === 2) {
+      const parent = data?.systems.find(row => row[0] === point.id);
+      if (parent) selection = [parent[5], parent[6], point.id];
+    }
     else showInfo({ kind: "spaceObject", itemID: point.id, typeID: point.typeID });
     shownList = null;
   }
@@ -170,6 +197,7 @@
   {:else}
     {#each panels as panel, index (panel.id)}
       {@const solar = index === 3 ? solarGeometry(panel.points) : null}
+      {@const chart = project(panel.points, panel.edges, panel.neighbors)}
       <section class="map-browser-panel" aria-label={panel.name} data-location={panel.id}>
         <button class="map-browser-list" type="button" title={panel.title} aria-expanded={shownList === index}
           onclick={() => { shownList = shownList === index ? null : index; }}>{panel.name}</button>
@@ -178,11 +206,20 @@
             aria-label={label(labelBase + "ShowInWorldMap", "Show in World Map")} onclick={() => onShowSystem(panel.id)}>↗</button>
         {/if}
         <div class="map-browser-plot" class:solar={solar !== null}>
+          {#if chart.lines.length}
+            <svg class="map-browser-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+              {#each chart.lines as { a, b, group } (`${a.id}:${b.id}`)}
+                <line x1={a.left} y1={a.top} x2={b.left} y2={b.top} data-from={a.id} data-to={b.id} data-group={group}
+                  vector-effect="non-scaling-stroke" />
+              {/each}
+            </svg>
+          {/if}
           {#each solar?.orbits ?? [] as orbit (orbit.id)}
             <div class="map-browser-orbit" data-orbit={orbit.id} style:width={`${orbit.diameter}%`} aria-hidden="true"></div>
           {/each}
-          {#each solar?.points ?? project(panel.points) as point (point.id)}
+          {#each solar?.points ?? chart.points as point (point.id)}
             <button type="button" class="map-browser-point" class:selected={panel.selected === point.id} class:station={point.station} class:sun={point.groupID === 6}
+              class:outside={"outside" in point && point.outside}
               style:left={`${point.left}%`} style:top={`${point.top}%`} title={point.name} aria-label={point.name}
               aria-pressed={index < 3 ? panel.selected === point.id : undefined} data-map-item={point.id} onclick={() => select(index, point)}></button>
           {/each}
@@ -206,6 +243,10 @@
   .map-browser-panel { height: 25dvh; position: relative; box-sizing: border-box; border-bottom: 1px solid #ffffff30; overflow: hidden; }
   .map-browser-plot { position: absolute; inset: 1.5rem 0 0; background: radial-gradient(ellipse at center, #33586555, #0c171c55 65%, transparent); }
   .map-browser-plot.solar { inset: 0 0 auto; aspect-ratio: 1; }
+  .map-browser-links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .map-browser-links line { stroke-width: 1; stroke: #7fb77f; }
+  .map-browser-links line[data-group="1"] { stroke: #7c9bc5; }
+  .map-browser-links line[data-group="2"] { stroke: #ba8679; }
   .map-browser-orbit { position: absolute; left: 50%; top: 50%; aspect-ratio: 1; box-sizing: border-box;
     border: 1px solid #a7b7c370; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; }
   .map-browser-close, .map-browser-list, .map-browser-world { position: absolute; z-index: 2; background: #101619; border: 1px solid #ffffff30; }
@@ -215,6 +256,7 @@
   .map-browser-point { position: absolute; padding: 0; min-height: 0; width: 7px; height: 7px; border: 1px solid #d6e6eb;
     background: #82b4bc; border-radius: 50%; transform: translate(-50%, -50%); }
   .map-browser-point.station { border-radius: 0; background: #af995c; }
+  .map-browser-point.outside { width: 4px; height: 4px; opacity: 0.75; }
   .map-browser-point.sun { background: #fff0c4; border-color: #fff5d8; box-shadow: 0 0 6px #f4cd8266; }
   .map-browser-point.selected, .map-browser-point:focus-visible, .map-browser-point:hover {
     background: #ffce57; border-color: #fff3b4; box-shadow: 0 0 0 3px #efb33b63; z-index: 1;

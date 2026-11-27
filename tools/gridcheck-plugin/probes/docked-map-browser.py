@@ -36,6 +36,17 @@ def zoom_controls(window):
     return sorted(labels)
 
 
+def observe_connections(browser):
+    result = []
+    for drawlevel, map_view in enumerate(browser.children[:3], 1):
+        groups, outside = map_view.GetConnectionData(map_view.ids, drawlevel - 1, drawlevel)
+        result.append(dict(groups=[sorted(set(tuple(sorted(pair)) for pair in group
+                                               if all(item_id in map_view.cordsAsPortion for item_id in pair)))
+                                   for group in groups],
+                           outside=sorted(set(item.itemID for item in outside))))
+    return result
+
+
 def observe():
     if MapBrowserWnd.GetIfOpen():
         raise RuntimeError('Map Browser is already open')
@@ -54,6 +65,7 @@ def observe():
             blue.pyos.synchro.SleepWallclock(100)
         first = [list(ids) for ids in browser.ids]
         first_orbits = orbit_geometry(browser)
+        connections = observe_connections(browser)
         rect = list(window.GetAbsolute())
         desktop = [uicore.desktop.width, uicore.desktop.height]
         menu.ShowInMapBrowser(30000144)
@@ -63,7 +75,8 @@ def observe():
                     same=MapBrowserWnd.GetIfOpen() is window, sections=len(browser.children),
                     neocom=list(sm.GetService('neocom').GetNeocomContainer().GetAbsolute()),
                     firstOrbits=first_orbits, secondOrbits=orbit_geometry(browser),
-                    alignment=observe_alignment(window), zoomControls=zoom_controls(window))
+                    alignment=observe_alignment(window), zoomControls=zoom_controls(window),
+                    connections=connections)
     finally:
         window = MapBrowserWnd.GetIfOpen()
         if window:
