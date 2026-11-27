@@ -5,8 +5,9 @@ from eve.client.script.ui.station.agents.agentDialogueWindow import AgentDialogu
 def observe():
     agents = sm.GetService('agents')
     agent_id = 3012018
+    second_id = 3016815
     journal = sm.GetService('journal')
-    existing = next((row for row in journal.GetMyAgentJournalDetails()[0] if row[4] == agent_id), None)
+    existing = {row[4] for row in journal.GetMyAgentJournalDetails()[0]}
     try:
         agents.OpenDialogueWindow(agent_id)
         window = None
@@ -18,18 +19,26 @@ def observe():
         if not window:
             raise RuntimeError('Agent conversation did not open')
         agents.OpenDialogueWindow(agent_id)
-        return dict(build=3698585, station=session.stationid, agent=agent_id,
+        agents.OpenDialogueWindow(second_id)
+        second = agents.agentDialogWindows.get(second_id)
+        if not second or second.destroyed or window.destroyed:
+            raise RuntimeError('Two agent conversation windows did not stay open')
+        observed = dict(build=3698585, station=session.stationid, agent=agent_id,
                     windowID=window.windowID, caption=window.GetCaption(),
                     dimensions=[AgentDialogueWindow.default_width, AgentDialogueWindow.default_height],
                     minimum=list(AgentDialogueWindow.default_minSize),
                     panes=bool(window.leftPane and window.rightPane),
-                    reused=agents.agentDialogWindows.get(agent_id) is window)
+                    secondID=second.windowID, secondCaption=second.GetCaption())
+        window.Close()
+        observed['independent'] = not second.destroyed
+        return observed
     finally:
-        window = agents.agentDialogWindows.get(agent_id)
-        if window and not window.destroyed:
-            window.Close()
-        if existing is None:
-            agents.RemoveOfferFromJournal(agent_id)
+        for id in (agent_id, second_id):
+            window = agents.agentDialogWindows.get(id)
+            if window and not window.destroyed:
+                window.Close()
+            if id not in existing:
+                agents.RemoveOfferFromJournal(id)
 
 
 result = observe()

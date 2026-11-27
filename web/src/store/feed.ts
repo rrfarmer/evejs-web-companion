@@ -584,7 +584,8 @@ export type FeedEvent =
       readonly conversation: AgentConversation;
     }
   // The conversation is closed, and what was laid out beside it goes with it.
-  | { readonly type: "agents/conversation-closed" }
+  | { readonly type: "agents/conversation-closed"; readonly agentID?: number }
+  | { readonly type: "agents/conversation-layout"; readonly agentID: number; readonly layout: import("./types.ts").AgentConversationLayout }
   // A mission's keywords, as its agent gave them (kept by "<agentID>:<contentID>").
   | {
       readonly type: "agents/mission-keywords";
@@ -608,7 +609,7 @@ export type FeedEvent =
   // The mission journal (active + offered missions).
   | { readonly type: "agents/journal"; readonly journal: JournalState }
   // An agent action/read failed; null clears the error after success.
-  | { readonly type: "agents/action-error"; readonly message: string | null; readonly said?: boolean }
+  | { readonly type: "agents/action-error"; readonly message: string | null; readonly said?: boolean; readonly agentID?: number }
   // Drop the agents state (character offline / logged out).
   | { readonly type: "agents/cleared" }
   // Goal R6 — the post-completion reward readout (inventory Step 12). The

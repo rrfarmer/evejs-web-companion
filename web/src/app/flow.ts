@@ -27403,7 +27403,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     agentsBeingTalkedTo.add(agentID);
     try {
-      await runAgentAction(talk);
+      await runAgentAction(talk, agentID);
     } finally {
       agentsBeingTalkedTo.delete(agentID);
       agentWindowsClosedWhileTalking.delete(agentID);
@@ -27496,8 +27496,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (change.agentID !== null && agentsBeingTalkedTo.has(change.agentID) && windowOnMissionChange(change, change.agentID) === "close") {
       agentWindowsClosedWhileTalking.add(change.agentID);
     }
-    if (what === "close") {
-      store.apply({ type: "agents/conversation-closed" });
+    if (change.agentID !== null && windowOnMissionChange(change, change.agentID) === "close") {
+      store.apply({ type: "agents/conversation-closed", agentID: change.agentID });
     } else if (what === "again") {
       talkToOpenAgentAgain();
     }
@@ -27804,17 +27804,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function layOutConversation(agentID: number, conversation: AgentConversation): Promise<void> {
     store.apply({ type: "agents/conversation", agentID, conversation });
     const reads = await api.loadBriefing(agentID, callOptions);
-    store.apply({
-      type: "agents/briefing",
-      briefing: objectivesShown(conversation.lastActionInfo) ? decodeBriefing(reads.briefing, reads.objective) : null,
-    });
-    // The pane itself, for a mission of any kind, by the same rule as the courier's table above.
-    store.apply({ type: "agents/objectives", objectives: objectivesShown(conversation.lastActionInfo) ? decodeObjectives(reads.objective ?? undefined) : null });
-    // The briefing's two times belong to what the agent says, not to the objectives: they are kept whatever the last action was.
-    store.apply({ type: "agents/mission-times", times: decodeMissionTimes(reads.briefing) });
-    // The window's header (agentDialogueWindow.GetAgentHeader, bridge/agentHeader.ts): where the agent is, asked
-    // afresh for every layout.
-    store.apply({ type: "agents/agent-location", location: decodeAgentLocationWrap(reads.location) });
+    if (agentWindowsClosedWhileTalking.has(agentID)) return;
+    const show = objectivesShown(conversation.lastActionInfo);
+    store.apply({ type: "agents/conversation-layout", agentID, layout: {
+      conversation,
+      briefing: show ? decodeBriefing(reads.briefing, reads.objective) : null,
+      objectives: show ? decodeObjectives(reads.objective ?? undefined) : null,
+      missionTimes: decodeMissionTimes(reads.briefing),
+      agentLocation: decodeAgentLocationWrap(reads.location),
+    } });
   }
 
   // R6 — the post-completion reward readout (Step 12): wallet / LP / standings.
@@ -28678,10 +28676,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // Run an agent read/action, unwinding to offline on a lost session and
   // surfacing any other failure through the store (the page stays put and shows
   // the reason) rather than throwing into the UI handler.
-  async function runAgentAction(action: () => Promise<void>): Promise<void> {
+  async function runAgentAction(action: () => Promise<void>, agentID?: number): Promise<void> {
     try {
       await action();
-      store.apply({ type: "agents/action-error", message: null });
+      store.apply({ type: "agents/action-error", message: null, agentID });
     } catch (error) {
       if (isSessionLost(error)) {
         stopLiveStream();
@@ -28691,7 +28689,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       // Put up as the client puts up a UserError: the agent's window (agentDialogueWindow.InteractWithAgent, the
       // moniker's DoAction) and the journal's RemoveOfferFromJournal catch none of theirs.
       const message = errorWords(error);
-      store.apply({ type: "agents/action-error", message, said: sayRefusalDialog(error, message) });
+      store.apply({ type: "agents/action-error", message, said: sayRefusalDialog(error, message), agentID });
     }
   }
 

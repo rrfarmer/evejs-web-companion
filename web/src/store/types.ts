@@ -1514,16 +1514,23 @@ export interface JournalState {
   readonly research?: readonly JournalResearch[];
 }
 
-/**
- * The Agents & Missions page state (goal R4): the station's agents, the open
- * conversation, the accepted-courier briefing, and the mission journal. The
- * browser addresses agents by game ID; the BFF holds the bound agent handles.
- */
+/** All reads for one reconstruction of one agent's conversation. */
+export interface AgentConversationLayout {
+  readonly conversation: AgentConversation;
+  readonly briefing: CourierBriefing | null;
+  readonly objectives: MissionObjectives | null;
+  readonly missionTimes: MissionTimes | null;
+  readonly agentLocation: import("../bridge/agentHeader.ts").AgentLocationWrap | null;
+}
+
+/** The station roster, agent windows and mission journal for this pilot. */
 export interface AgentsState {
   readonly stationID: number | null;
   readonly agents: readonly AgentRow[];
   readonly activeAgentID: number | null;
   readonly conversation: AgentConversation | null;
+  readonly conversationLayouts: Readonly<Partial<Record<number, AgentConversationLayout>>>;
+  readonly conversationErrors: Readonly<Partial<Record<number, string | null>>>;
   /**
    * Each mission's keywords, by "<agentID>:<contentID>": what the agent
    * answers to GetMissionKeywords, which the client adds to the arguments of

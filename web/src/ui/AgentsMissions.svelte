@@ -58,15 +58,22 @@
   let busy = $state(false);
   let error = $state("");
   const standalone = $derived(conversationAgentID !== null);
-  const showConversation = $derived(!standalone || $agents.activeAgentID === conversationAgentID);
+  const conversationOwner = $derived(conversationAgentID ?? $agents.activeAgentID);
+  const layout = $derived(conversationAgentID === null ? $agents : $agents.conversationLayouts[conversationAgentID]);
+  const conversation = $derived(layout?.conversation ?? null);
+  const briefing = $derived(layout?.briefing ?? null);
+  const objectives = $derived(layout?.objectives ?? null);
+  const missionTimes = $derived(layout?.missionTimes ?? null);
+  const agentLocation = $derived(layout?.agentLocation ?? null);
+  const conversationError = $derived(conversationAgentID === null ? null : $agents.conversationErrors[conversationAgentID]);
 
   // What the agent says, in the retail client's own words when the BFF has a
   // client to read. The client adds the agent's own IDs to every agent message
   // (agents.py GetAgentArgs) and the player to every message at all.
   const saysClient = $derived.by<ClientWording>(() => {
-    const agentID = $agents.activeAgentID;
+    const agentID = conversationOwner;
     const row = $agents.agents.find((agent) => agent.agentID === agentID) ?? null;
-    const contentID = $agents.conversation?.contentID ?? null;
+    const contentID = conversation?.contentID ?? null;
     return {
       templates: $words.templates,
       playerID: $station.online?.characterID ?? null,
@@ -87,17 +94,17 @@
   // tags (bold and the like) as plain words. A text the server sent as it is came through with its tags showing
   // ("<b>Tidings of Conflict (1 of 2)</b><br><br>Your courier assignment…").
   const saysText = $derived(plainText(
-    $agents.conversation?.agentSaysWords
-      ? questionText($agents.conversation.agentSaysWords, saysName, saysClient)
-      : $agents.conversation?.agentSays ?? "",
+    conversation?.agentSaysWords
+      ? questionText(conversation.agentSaysWords, saysName, saysClient)
+      : conversation?.agentSays ?? "",
   ));
   $effect(() => {
-    const agentID = $agents.activeAgentID;
-    const contentID = $agents.conversation?.contentID ?? null;
+    const agentID = conversationOwner;
+    const contentID = conversation?.contentID ?? null;
     if (agentID !== null && contentID !== null) {
       flow.requestMissionKeywords(agentID, contentID);
     }
-    const said = [$agents.conversation?.agentSaysWords ?? null];
+    const said = [conversation?.agentSaysWords ?? null];
     const labels = wordsLabels(said);
     if (labels.length > 0) {
       flow.requestWords(labels);
@@ -110,9 +117,9 @@
 
   // The mission's time, under what the agent says (agentDialogueWindow.GetMissionTimeText): what declining
   // would cost and for how long, or when the mission expires. In the client's words or not at all.
-  const missionTime = $derived(missionTimeShown($agents.conversation) ? missionTimeText($agents.missionTimes, $words.templates) : null);
+  const missionTime = $derived(missionTimeShown(conversation) ? missionTimeText(missionTimes, $words.templates) : null);
   $effect(() => {
-    if ($agents.conversation) {
+    if (conversation) {
       flow.requestWords([...MISSION_TIME_WORD_LABELS, ...INTERVAL_WORD_LABELS]);
     }
   });
@@ -164,8 +171,8 @@
     for (const agent of cappedAgents) {
       refs.push({ kind: "agent", id: agent.agentID });
     }
-    if ($agents.activeAgentID) {
-      refs.push({ kind: "agent", id: $agents.activeAgentID });
+    if (conversationOwner) {
+      refs.push({ kind: "agent", id: conversationOwner });
     }
     const journal = $agents.journal;
     if (journal) {
@@ -175,7 +182,7 @@
         }
       }
     }
-    const briefing = $agents.briefing;
+
     if (briefing) {
       if (briefing.cargoTypeID) {
         refs.push({ kind: "type", id: briefing.cargoTypeID });
@@ -286,8 +293,8 @@
   // the journal (an agent has one mission with a pilot at a time). Shown only when the page has the
   // client's text for it.
   const talkTitleID = $derived.by<number | null>(() => {
-    const agentID = $agents.activeAgentID;
-    const briefed = $agents.briefing?.missionTitleID ?? null;
+    const agentID = conversationOwner;
+    const briefed = briefing?.missionTitleID ?? null;
     if (agentID !== null && briefed !== null && briefed > 0) {
       return briefed;
     }
@@ -303,9 +310,9 @@
       ? questionText({ label: null, parameters: null, text: null, messageID: titleID }, saysName, client)
       : "";
   const talkTitle = $derived(titleText(talkTitleID, saysClient));
-  const briefingTitle = $derived(titleText($agents.briefing?.missionTitleID ?? null, saysClient));
+  const briefingTitle = $derived(titleText(briefing?.missionTitleID ?? null, saysClient));
   $effect(() => {
-    const ids = [talkTitleID, $agents.briefing?.missionTitleID ?? null].filter((id): id is number => id !== null && id > 0);
+    const ids = [talkTitleID, briefing?.missionTitleID ?? null].filter((id): id is number => id !== null && id > 0);
     if (ids.length > 0) {
       flow.requestWords(ids.map((id) => `#${id}`));
     }
@@ -320,8 +327,8 @@
   // (bridge/missionObjectivePane.ts). Drawn only when the client's words for it are to hand; without
   // them a courier keeps this page's own table below.
   const pane = $derived.by<PaneBlock[]>(() => {
-    const objectives = $agents.objectives;
-    const agentID = $agents.activeAgentID;
+
+    const agentID = conversationOwner;
     if (objectives === null || agentID === null) {
       return [];
     }
@@ -352,13 +359,13 @@
   // says. Asked for: the agent as the client's agents service knows it, the header's words and the division's
   // name, the place's name and its system's security.
   const header = $derived.by(() => {
-    const agentID = $agents.activeAgentID;
-    const conversation = $agents.conversation;
+    const agentID = conversationOwner;
+
     if (agentID === null || conversation === null) return null;
     return agentHeader({
       agentID,
       record: $agents.agentRecords[agentID] ?? null,
-      location: $agents.agentLocation,
+      location: agentLocation,
       loyaltyPoints: conversation.lastActionInfo.loyaltyPoints,
       standings: $standings.char === null ? null : new Map($standings.char.map((row) => [row.fromID, row.standing])),
       skillLevel: $skills.skills === null ? null : ((levels) => (typeID: number) => levels.get(typeID) ?? 0)(new Map($skills.skills.map((skill) => [skill.typeID, skill.level]))),
@@ -371,12 +378,12 @@
     });
   });
   $effect(() => {
-    const agentID = $agents.activeAgentID;
-    if (agentID === null || $agents.conversation === null) return;
+    const agentID = conversationOwner;
+    if (agentID === null || conversation === null) return;
     flow.requestAgentRecord(agentID);
     const divisionNameID = $agents.agentRecords[agentID]?.divisionNameID ?? null;
     flow.requestWords([...AGENT_HEADER_WORD_LABELS, ...(divisionNameID === null ? [] : [`#${divisionNameID}`])]);
-    const location = $agents.agentLocation;
+    const location = agentLocation;
     if (location !== null) {
       flow.requestNames([agentLocationNameRef(location)]);
       if (location.solarSystemID !== null) flow.requestSystemSecurity([location.solarSystemID]);
@@ -387,7 +394,7 @@
   // a read that fails is not asked again on every change of the agents' store).
   let headerReadsFor: number | null = null;
   $effect(() => {
-    const agentID = $agents.activeAgentID;
+    const agentID = conversationOwner;
     if (agentID === null || agentID === headerReadsFor) return;
     headerReadsFor = agentID;
     if (!store.standings.get().loaded) void flow.loadStandings().catch(() => {});
@@ -407,8 +414,8 @@
     return questionText({ label: message.label, parameters: message.parameters, text: null, messageID: message.messageID ?? undefined }, saysName, { ...saysClient, extra: { ...((keywords ?? {}) as NonNullable<ClientWording["extra"]>), ...saysClient.extra } });
   }
   $effect(() => {
-    const objectives = $agents.objectives;
-    const agentID = $agents.activeAgentID;
+
+    const agentID = conversationOwner;
     if (objectives === null || agentID === null) {
       return;
     }
@@ -543,7 +550,7 @@
           <li>
             <button
               type="button"
-              class:active={agent.agentID === $agents.activeAgentID}
+              class:active={agent.agentID === conversationOwner}
               disabled={busy}
               onclick={() => run(() => flow.openConversation(agent.agentID))}
             >
@@ -559,10 +566,10 @@
 {/if}
 {#if standalone && error}
   <p role="alert">{error}</p>
-{:else if standalone && $agents.actionError && !$agents.actionErrorSaid}
-  <p role="alert">{$agents.actionError}</p>
+{:else if standalone && conversationError}
+  <p role="alert">{conversationError}</p>
 {/if}
-{#if !showConversation || (standalone && !$agents.conversation)}
+{#if standalone && !conversation}
   {#if busy}<p role="status">Opening conversation…</p>
   {:else if conversationAgentID !== null}
     {@const id = conversationAgentID}
@@ -570,9 +577,9 @@
   {/if}
 {:else}
 <div class:standalone-conversation={standalone}>
-{#if $agents.conversation}
+{#if conversation}
   <section>
-    <h2>Conversation · {agentName($agents.activeAgentID)}</h2>
+    <h2>Conversation · {agentName(conversationOwner)}</h2>
     {#if header}
       <!-- GetAgentLocationHeader, which the client's window begins what the agent says with (no portrait, no link). -->
       <div class="mission-page-card agent-header">
@@ -591,23 +598,23 @@
       <p class="note mission-time">{missionTime}</p>
     {/if}
     <p class="controls">
-      {#each $agents.conversation.actions as action (action.actionID)}
+      {#each conversation.actions as action (action.actionID)}
         <button
           type="button"
           disabled={busy}
-          onclick={() => run(() => flow.chooseAction($agents.activeAgentID as number, action as AgentAction))}
+          onclick={() => run(() => flow.chooseAction(conversationOwner as number, action as AgentAction))}
         >
           {action.label}
         </button>
       {/each}
-      {#if $agents.conversation.actions.length === 0}
+      {#if conversation.actions.length === 0}
         <span class="note">No actions available.</span>
       {/if}
     </p>
-    {#if $agents.conversation.lastActionInfo.missionCompleted}
+    {#if conversation.lastActionInfo.missionCompleted}
       <p class="note">Mission completed — reward applied.</p>
     {/if}
-    {#if $agents.conversation.lastActionInfo.missionDeclined}
+    {#if conversation.lastActionInfo.missionDeclined}
       <p class="note">Mission declined.</p>
     {/if}
   </section>
@@ -645,7 +652,7 @@
         {/if}
         {#if block.objective?.kind === "transport"}
           {@const transport = block.objective}
-          {#if offerOpen($agents.conversation)}
+          {#if offerOpen(conversation)}
             <!-- The client's window shows an offer's objectives before it is taken. The package is handed over on accepting. -->
             <p class="note mission-offered">This is the offer. Accept it in the conversation to be given the package.</p>
           {:else}
@@ -670,34 +677,34 @@
       {/if}
     {/each}
   </section>
-{:else if $agents.briefing}
+{:else if briefing}
   <section>
     <h2>Courier briefing{briefingTitle ? ` · ${briefingTitle}` : ""}</h2>
     <table class="guests">
       <tbody>
-        <tr><th>Cargo type</th><td>{resolvedName($names.resolved, "type", $agents.briefing.cargoTypeID, "—")}</td></tr>
-        <tr><th>Quantity</th><td class="num">{$agents.briefing.cargoQuantity ?? "—"}</td></tr>
-        <tr><th>Volume (m³)</th><td class="num">{$agents.briefing.cargoVolume ?? "—"}</td></tr>
-        <tr><th>Pickup</th><td>{stationText($agents.briefing.pickupLocationID)} · {systemText($agents.briefing.pickupSystemID)}</td></tr>
-        <tr><th>Destination</th><td>{stationText($agents.briefing.destinationLocationID)} · {systemText($agents.briefing.destinationSystemID)}</td></tr>
-        <tr><th>Reward (ISK)</th><td class="num">{$agents.briefing.rewardISK ?? "—"}</td></tr>
-        <tr><th>Time bonus (ISK)</th><td class="num">{$agents.briefing.bonusISK ?? "—"}</td></tr>
-        <tr><th>Loyalty points</th><td class="num">{$agents.briefing.loyaltyPoints ?? "—"}</td></tr>
+        <tr><th>Cargo type</th><td>{resolvedName($names.resolved, "type", briefing.cargoTypeID, "—")}</td></tr>
+        <tr><th>Quantity</th><td class="num">{briefing.cargoQuantity ?? "—"}</td></tr>
+        <tr><th>Volume (m³)</th><td class="num">{briefing.cargoVolume ?? "—"}</td></tr>
+        <tr><th>Pickup</th><td>{stationText(briefing.pickupLocationID)} · {systemText(briefing.pickupSystemID)}</td></tr>
+        <tr><th>Destination</th><td>{stationText(briefing.destinationLocationID)} · {systemText(briefing.destinationSystemID)}</td></tr>
+        <tr><th>Reward (ISK)</th><td class="num">{briefing.rewardISK ?? "—"}</td></tr>
+        <tr><th>Time bonus (ISK)</th><td class="num">{briefing.bonusISK ?? "—"}</td></tr>
+        <tr><th>Loyalty points</th><td class="num">{briefing.loyaltyPoints ?? "—"}</td></tr>
       </tbody>
     </table>
-    {#if offerOpen($agents.conversation)}
+    {#if offerOpen(conversation)}
       <!-- The client's window shows an offer's objectives before it is taken. The package is handed over on accepting. -->
       <p class="note mission-offered">This is the offer. Accept it in the conversation to be given the package.</p>
     {:else}
     <p class="controls">
       <button
         type="button"
-        disabled={busy || $agents.briefing.cargoTypeID === null}
+        disabled={busy || briefing.cargoTypeID === null}
         onclick={() =>
           run(() =>
             flow.loadPackageIntoShip(
-              $agents.briefing!.cargoTypeID as number,
-              ($agents.briefing!.cargoQuantity ?? 1) as number,
+              briefing!.cargoTypeID as number,
+              (briefing!.cargoQuantity ?? 1) as number,
             ),
           )}
       >
@@ -705,8 +712,8 @@
       </button>
       <button
         type="button"
-        disabled={busy || $agents.briefing.destinationLocationID === null}
-        onclick={() => run(() => flow.setAutopilotToDropoff($agents.briefing!.destinationLocationID as number))}
+        disabled={busy || briefing.destinationLocationID === null}
+        onclick={() => run(() => flow.setAutopilotToDropoff(briefing!.destinationLocationID as number))}
       >
         Set autopilot to dropoff
       </button>

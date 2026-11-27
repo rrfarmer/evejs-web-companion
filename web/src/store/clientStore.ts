@@ -477,6 +477,8 @@ const INITIAL_AGENTS: AgentsState = Object.freeze({
   agents: Object.freeze([]) as AgentsState["agents"],
   activeAgentID: null,
   conversation: null,
+  conversationLayouts: Object.freeze({}),
+  conversationErrors: Object.freeze({}),
   missionKeywords: Object.freeze({}) as AgentsState["missionKeywords"],
   briefing: null,
   objectives: null,
@@ -1964,9 +1966,22 @@ export function createClientStore(): ClientStore {
           actionError: null,
         });
         break;
-      case "agents/conversation-closed":
-        agents.set({ ...agents.get(), activeAgentID: null, conversation: null, briefing: null, objectives: null, missionTimes: null, agentLocation: null });
+      case "agents/conversation-closed": {
+        const current = agents.get();
+        const id = event.agentID ?? current.activeAgentID;
+        const layouts = { ...current.conversationLayouts };
+        if (id !== null) delete layouts[id];
+        agents.set({ ...current, conversationLayouts: layouts, ...(id === current.activeAgentID ? {
+          activeAgentID: null, conversation: null, briefing: null, objectives: null, missionTimes: null, agentLocation: null,
+        } : {}) });
         break;
+      }
+      case "agents/conversation-layout": {
+        const current = agents.get();
+        agents.set({ ...current, conversationLayouts: { ...current.conversationLayouts, [event.agentID]: event.layout },
+          ...(current.activeAgentID === event.agentID && current.conversation === event.layout.conversation ? event.layout : {}) });
+        break;
+      }
       case "agents/mission-keywords": {
         const current = agents.get();
         agents.set({ ...current, missionKeywords: { ...current.missionKeywords, [event.key]: event.keywords } });
@@ -2000,9 +2015,15 @@ export function createClientStore(): ClientStore {
       case "agents/journal":
         agents.set({ ...agents.get(), journal: event.journal });
         break;
-      case "agents/action-error":
-        agents.set({ ...agents.get(), actionError: event.message, actionErrorSaid: event.message !== null && event.said === true });
+      case "agents/action-error": {
+        const current = agents.get();
+        const said = event.message !== null && event.said === true;
+        agents.set({ ...current, actionError: event.message, actionErrorSaid: said,
+          ...(event.agentID === undefined ? {} : { conversationErrors: {
+            ...current.conversationErrors, [event.agentID]: said ? null : event.message,
+          } }) });
         break;
+      }
       case "agents/cleared":
         agents.set(INITIAL_AGENTS);
         break;
