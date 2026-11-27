@@ -32,10 +32,11 @@
   import { startLinkDrag } from "./linkFollowers.ts";
   import { showInfo } from "./showInfo.ts";
 
-  let { flow, store, schedulableRefineryID = null, onOpenRefinerySchedule, onShowSystem, onManageAccessGroups, registerBeforeClose }: {
+  let { flow, store, schedulableRefineryID = null, onOpenRefinerySchedule, onShowSystem, onShowMapBrowser, onManageAccessGroups, registerBeforeClose }: {
     flow: AppFlow; store: ClientStore; schedulableRefineryID?: number | null;
     onOpenRefinerySchedule?: (structureID: number) => Promise<void>;
     onShowSystem?: (systemID: number) => void;
+    onShowMapBrowser?: (systemID: number) => void;
     onManageAccessGroups?: () => void;
     registerBeforeClose?: (guard: () => Promise<boolean>) => () => void;
   } = $props();
@@ -686,7 +687,7 @@
     </div>
   {/if}
   {#if activeTab === "skyhooks" && systemID !== null}
-    <MySkyhooks {store} {flow} {systemID} {onShowSystem} bind:search={skyhookSearch} />
+    <MySkyhooks {store} {flow} {systemID} {onShowSystem} {onShowMapBrowser} bind:search={skyhookSearch} />
   {:else if scheduleOpen}
     <CorporationMoonSchedule {store} {flow} />
   {:else if reinforcementDefaultOpen}

@@ -324,7 +324,7 @@
     {/key}
   {/if}
 {:else if tab === "structureBrowser"}
-  <StructureBrowser {store} {flow} {schedulableRefineryID} {onOpenRefinerySchedule} {onShowSystem} {registerBeforeClose}
+  <StructureBrowser {store} {flow} {schedulableRefineryID} {onOpenRefinerySchedule} {onShowSystem} {onShowMapBrowser} {registerBeforeClose}
     onManageAccessGroups={onOpen ? () => onOpen?.("accessGroups") : undefined} />
 {:else if tab === "accessGroups"}
   <AccessLists {store} {flow} />

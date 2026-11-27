@@ -16,8 +16,9 @@
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import SkyhookConfiguration from "./SkyhookConfiguration.svelte";
 
-  let { store, flow, systemID, onShowSystem, search = $bindable("") }: {
-    store: ClientStore; flow: AppFlow; systemID: number; onShowSystem?: (systemID: number) => void; search?: string;
+  let { store, flow, systemID, onShowSystem, onShowMapBrowser, search = $bindable("") }: {
+    store: ClientStore; flow: AppFlow; systemID: number; onShowSystem?: (systemID: number) => void;
+    onShowMapBrowser?: (systemID: number) => void; search?: string;
   } = $props();
   const station = $derived(store.station);
   const characterID = $derived($station.online?.characterID ?? null);
@@ -68,7 +69,7 @@
     saveLocation: ["UI/Inflight/BookmarkLocation", "Save Location…"],
     bookmarkLabel: ["UI/PeopleAndPlaces/NewBookmarkLocationLabel", "{loc} ({group})"],
     map: ["UI/Commands/ShowLocationOnMap", "Show on Map"],
-    mapBrowser: ["UI/Inflight/ShowInMapBrowser", "Show {locationType} in Map Browser"],
+    mapBrowser: ["UI/Inflight/ShowInMapBrowser", "Show in Mapbrowser ({locationType})"],
     avoid: ["UI/Inflight/AvoidLocation", "Avoid {locationType} {theLocation}"],
     stopAvoiding: ["UI/Inflight/StopAvoidingLocation", "Stop Avoiding {locationType} {theLocation}"],
   } as const;
@@ -181,9 +182,9 @@
       };
     }));
     entries.push(null);
-    if (onShowSystem) {
-      const show = onShowSystem;
-      entries.push(action("map", () => show(id)), { ...action("mapBrowser", () => show(id)), label: locationActionLabel("mapBrowser", id) });
+    if (onShowSystem) entries.push(action("map", () => onShowSystem?.(id)));
+    if (onShowMapBrowser) {
+      entries.push({ ...action("mapBrowser", () => onShowMapBrowser?.(id)), label: locationActionLabel("mapBrowser", id) });
     }
     const avoiding = avoidanceItems(flow.autopilotSettings()).includes(id);
     const key = avoiding ? "stopAvoiding" : "avoid";
