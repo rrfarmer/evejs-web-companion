@@ -3081,6 +3081,7 @@ export interface AppFlow {
   clearFleetLootHistory(): void;
   clearFleetMemberHistory(): void;
   exportFleetLootHistory(): Promise<void>;
+  showFleetLocationDistance(solarSystemID: number): Promise<void>;
   /**
    * The fleet finder, for a pilot that has been told which fleet to join: the
    * adverts open to this session, and the name of the fleet it is already in.
@@ -19149,6 +19150,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     sayDialog("FleetExportInfo", { type: "dict", entries: [["filename", filename], ["folder", "browser downloads"]] }, `Downloaded ${filename}.`, "info");
   }
 
+  async function showFleetLocationDistance(solarSystemID: number): Promise<void> {
+    const fromID = pilotPlace().solarSystemID;
+    if (fromID === null) return;
+    const current = callOptions.captureRequestGuard!();
+    await memberNames({ current, options: { ...callOptions, captureRequestGuard: () => current } },
+      [{ kind: "system", id: fromID }, { kind: "system", id: solarSystemID }]);
+    current();
+    if (fromID !== pilotPlace().solarSystemID) return;
+    const names = store.names.get().resolved;
+    const fromSystem = resolvedName(names, "system", fromID, String(fromID));
+    const toSystem = resolvedName(names, "system", solarSystemID, String(solarSystemID));
+    // The installed FleetSvc passed location records into GetLightYearDistance and produced MapDistanceUnknown.
+    sayDialog("MapDistanceUnknown", { type: "dict", entries: [["fromSystem", fromSystem], ["toSystem", toSystem]] },
+      `The distance from ${fromSystem} to ${toSystem} is unknown.`, "info");
+  }
+
   async function readFleetSetupSource(fleetID: number): Promise<FleetSetupSource | null> {
     const current = callOptions.captureRequestGuard!();
     await loadFleet();
@@ -19638,7 +19655,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   /** evefleet MAX_DAMAGE_SENDERS: the most pilots a watchlist holds. */
   const MAX_WATCHLIST = 100;
 
-  // fleetSvc.AddFavorite (640 to 682): CheckIsInFleet (FleetNotInFleet); the pilot's own number dropped; the list full
+  // fleetSvc.AddFavorite (640 to 682): CheckIsInFleet (FleetNotInFleet); the list full
   // already refused (FleetTooManyFavorites); of the rest, the fleet's members not on it yet are added while there is
   // room; then fleetMgr.AddToWatchlist(newCharsAdded, favorites), every favourite after the adding. The list is kept
   // whatever the call comes to, as the client keeps its set.
@@ -19647,9 +19664,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (state.availability !== "ready" || state.fleet === null) {
       return "not-in-fleet";
     }
-    const me = onlineCharacterID();
-    const wanted = characterIDs.filter((id) => id !== me);
-    if (wanted.length === 0) {
+    if (characterIDs.length === 0) {
       return "unchanged";
     }
     const favorites = [...(state.watchlist ?? [])];
@@ -19658,7 +19673,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     const members = new Set(state.fleet.initState.value.members.map((member) => Number(member.charID)));
     const added: number[] = [];
-    for (const id of wanted) {
+    for (const id of characterIDs) {
       if (!members.has(id) || favorites.includes(id)) {
         continue;
       }
@@ -42034,6 +42049,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       store.apply({ type: "fleet/member-history-cleared" });
     },
     exportFleetLootHistory,
+    showFleetLocationDistance,
     readFleetFinder,
     async loadFleetAdverts() {
       return decodeAvailableFleetAds(await readAvailableFleetAds(bridgeAsk)).filter((ad) => ad.fleetID !== null && ad.fleetID > 0);

@@ -3339,13 +3339,13 @@
   }
 
   function pilotMenu(s: Session, characterID: number, affiliation?: { corporationID: number | null; allianceID: number | null },
-    lobby?: Awaited<ReturnType<typeof guestCorporationAdministration>> & { contacts: readonly ContextEntry[] }): ContextEntry {
+    lobby?: Awaited<ReturnType<typeof guestCorporationAdministration>> & { contacts: readonly ContextEntry[] }, fleetOnly = false): ContextEntry {
     const inLobby = !!lobby;
     const cache = pilotMenuData(s);
     // AddContactMenu: Edit Contact where the pilot is in the address book (IsInAddressBook), else Add Contact
-    if (!inLobby && !cache.book) void s.flow.addressBook("contact").then((book) => { cache.book = book; }).catch(() => {});
+    if (!fleetOnly && !inLobby && !cache.book) void s.flow.addressBook("contact").then((book) => { cache.book = book; }).catch(() => {});
     const known = !!cache.book?.contacts.some((c) => c.contactID === characterID);
-    if (!inLobby) void s.flow.conversations.invitable(characterID).then((list) => { cache.invitable.set(characterID, list); }).catch(() => {});
+    if (!fleetOnly && !inLobby) void s.flow.conversations.invitable(characterID).then((list) => { cache.invitable.set(characterID, list); }).catch(() => {});
     // xmppChatSvc.Invite(charID, channel): None starts a private conversation
     const converse = (room?: string) => void s.flow.conversations.start(characterID, room).catch(() => {});
     const resolved = s.store.names.get().resolved;
@@ -3409,7 +3409,7 @@
       const out: (ContextEntry | null)[] = [{ label: w("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => showInfo({ kind: "character", characterID }) }, null];
       if (!self && (boss || subordinate)) out.push({ label: w("UI/Fleet/KickFleetMember", "Kick Fleet Member"), sub: confirm({ kind: "kick", characterID }) });
       if (!self && boss) out.push({ label: w("UI/Fleet/MakeFleetLeader", "Make Fleet Leader"), run: fleetAct({ kind: "leader", characterID }) });
-      if (!self) out.push({ label: favorite ? w("UI/Fleet/RemovePilotFromWatchlist", "Remove Pilot from Watchlist") : w("UI/Fleet/AddPilotToWatchlist", "Add Pilot to Watchlist"), run: fleetAct({ kind: "watch", characterID, add: !favorite }) });
+      if (!self || fleetOnly) out.push({ label: favorite ? w("UI/Fleet/RemovePilotFromWatchlist", "Remove Pilot from Watchlist") : w("UI/Fleet/AddPilotToWatchlist", "Add Pilot to Watchlist"), run: fleetAct({ kind: "watch", characterID, add: !favorite }) });
       if (self && (boss || [1, 2, 3].includes(mine.role))) out.push({ label: w("UI/Fleet/FleetBroadcast/Commands/BroadcastTravelToMe", "Broadcast: Travel To Me"), run: fleetAct({ kind: "travelToMe" }) });
       // FleetMenu's warps (FleetMemberChecker.OfferWarpToMember / OfferWarp{Fleet,Wing,Squad}ToMember; fleetWarpOffers): Warp to
       // Member at the default distance, Warp to Member Within (WarpToMenu: the ranges, Set Default), and the group's pair
@@ -3444,6 +3444,11 @@
       if (moveSub.length) out.push({ label: w("UI/Fleet/FleetSubmenus/MoveFleetMember", "Move Fleet Member"), sub: moveSub });
       return { label: w("UI/Fleet/Fleet", "Fleet"), sub: out } as ContextEntry;
     })();
+    if (fleetOnly) {
+      const path = "UI/Fleet/Ranks/FleetMember";
+      s.flow.requestWords([path, "UI/Commands/ShowInfo"]);
+      return { path, label: w(path, "Fleet Member"), sub: fleetEntry?.sub ?? [showInfoEntry] };
+    }
     // CharacterChecker.OfferInvitePilotToFleet: in a fleet the character is not in, the pilot its creator (boss) or a commander -
     // Invite Pilot to Fleet with FleetInviteMenu (MemberMenu, isMove False); OfferFormFleetWith: not in a fleet
     const inFleet = s.store.fleet.get().availability === "ready";
@@ -3523,6 +3528,9 @@
   setContext("flightSpaceView", () => view);
   setContext("flightMiningSurvey", flightMiningSurvey);
   setContext("flightSimNow", () => live?.simNow() || null);
+  setContext("fleetHistoryMemberMenu", (flow: AppFlow, characterID: number): ContextEntry | null =>
+    session?.flow === flow ? pilotMenu(session, characterID, undefined, undefined, true) : null);
+  setContext("openFleetHistoryIndustry", () => open("industry"));
   setContext("characterOwnerMenu", async (event: MouseEvent | KeyboardEvent, characterID: number) => {
     event.preventDefault();
     event.stopPropagation();
