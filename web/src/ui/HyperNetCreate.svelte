@@ -3,7 +3,7 @@
   import { failureCode } from "../bridge/ask.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { READABLE_ISK_LABELS, readableIsk } from "../bridge/giveMoney.ts";
-  import { hyperNetCoreType, hyperNetCountBounds, hyperNetCreationQuote, hyperNetMaximumPrice, hyperNetMinimumPrice, hyperNetTaxRate, type HyperNetNodeCount } from "../bridge/hyperNet.ts";
+  import { hyperNetCoreType, hyperNetCountBounds, hyperNetCreationQuote, hyperNetMaximumPrice, hyperNetMinimumPrice, hyperNetPrizeRefusal, hyperNetTaxRate, type HyperNetNodeCount, type HyperNetPrizeRules } from "../bridge/hyperNet.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -27,12 +27,20 @@
   const stationID = $derived(sessionPlace($flight.status, $station.online).stationID);
   const hangar = $derived($inventory.hangar.rows.filter(row => row.flagID === 4 &&
     (row.locationID === undefined || row.locationID === stationID) && (row.ownerID === undefined || row.ownerID === pilot)));
-  const prizes = $derived(hangar.filter(row => row.typeID !== hyperNetCoreType && row.itemID !== $flight.status?.shipID &&
-    row.quantity === 1 && (!row.singleton || row.blueprintCopy)));
+  const candidates = $derived(hangar.filter(row => row.typeID !== hyperNetCoreType && row.itemID !== $flight.status?.shipID));
+  let prizeRules = $state.raw<HyperNetPrizeRules>();
+  let dynamic = $state.raw<ReadonlySet<number>>(new Set());
+  let loadingDynamic = $state(false);
+  const dynamicCandidates = $derived(prizeRules ? [...new Set(candidates.filter(row => row.singleton && row.quantity === 1 &&
+    !prizeRules?.restricted.has(row.typeID) && !prizeRules?.singleton.has(row.typeID)).map(row => row.typeID))]
+    .sort((a, b) => a - b).join(",") : "");
+  const prizes = $derived(prizeRules ? candidates.filter(row => !hyperNetPrizeRefusal(row, prizeRules!, dynamic)) : []);
   const cores = $derived(hangar.filter(row => row.typeID === hyperNetCoreType).sort((a, b) => b.quantity - a.quantity));
 
   const labels = {
     item: ["UI/HyperNet/FilterItemLabel", "Item"],
+    blueprintOriginal: ["UI/Generic/Original", "Original"],
+    blueprintCopy: ["UI/Generic/Copy", "Copy"],
     count: ["UI/HyperNet/TicketCountLabel", "HyperNode count"],
     price: ["UI/HyperNet/TicketPrice", "HyperNode price"],
     total: ["UI/HyperNet/TotalPrice", "Total price"],
@@ -70,6 +78,8 @@
   const iskFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
   const isk = (amount: number) => `${iskFormat.format(amount)} ISK`;
   const itemName = (item: InventoryItemRow) => resolvedName($names.resolved, "type", item.typeID, String(item.typeID));
+  const prizeName = (item: InventoryItemRow) => item.categoryID === 9
+    ? `${itemName(item)} (${word(item.blueprintCopy ? "blueprintCopy" : "blueprintOriginal")})` : itemName(item);
 
   let itemID = $state(0);
   let tokenID = $state(0);
@@ -79,6 +89,7 @@
   let submitting = $state(false);
   let loading = $state(true);
   let loadError = $state("");
+  let dropError = $state("");
   let result = $state<{ id: number; item: string } | { error: string }>();
   let armedFor = $state("");
   let confirmationReady = $state(false);
@@ -95,7 +106,7 @@
     return template ? plainText(template) : null;
   }) ?? isk(value);
   const token = $derived(cores.find(row => row.itemID === tokenID) ?? cores[0]);
-  const estimate = $derived(prize && pricing?.estimates?.get(prize.typeID));
+  const estimate = $derived(prize && !prize.blueprintCopy && pricing?.estimates?.get(prize.typeID));
   const quote = $derived(total !== undefined && Number.isFinite(total) && pricing
     ? hyperNetCreationQuote(total, count, pricing.plexPrice) : undefined);
   const ready = $derived(!loading && !loadError && stationID !== null && prize && token && quote && token.quantity >= quote.cores);
@@ -110,6 +121,21 @@
     if (armedFor && armedFor !== terms) cancelConfirmation();
   });
   $effect(() => () => cancelConfirmation());
+  $effect(() => {
+    const types = dynamicCandidates;
+    dynamic = new Set();
+    loadingDynamic = !!types;
+    if (!types) return;
+    let current = true;
+    void flow.loadHyperNetDynamicTypes(types.split(",").map(Number)).then(value => {
+      if (current) dynamic = value;
+    }).catch(() => {
+      if (current) dropError = "Modified item eligibility could not be read.";
+    }).finally(() => {
+      if (current) loadingDynamic = false;
+    });
+    return () => { current = false; };
+  });
   $effect(() => {
     stats = undefined;
     statsError = "";
@@ -133,10 +159,14 @@
     tokenID = 0;
     result = undefined;
     loadError = "";
+    dropError = "";
     loading = true;
     submitting = false;
-    Promise.all([flow.loadInventory(), flow.loadHyperNetPricing()]).then(([, result]) => {
-      if (generation === current) pricing = result;
+    Promise.all([flow.loadInventory(), flow.loadHyperNetPricing(), flow.loadHyperNetPrizeRules()]).then(([, result, rules]) => {
+      if (generation === current) {
+        pricing = result;
+        prizeRules = rules;
+      }
     }).catch(cause => {
       if (generation === current) loadError = panelErrorWords(cause);
     }).finally(() => {
@@ -147,8 +177,9 @@
 
   function selectPrize(id: number) {
     itemID = id;
+    dropError = "";
     const item = prizes.find(row => row.itemID === id);
-    const market = item && pricing?.estimates?.get(item.typeID);
+    const market = item && !item.blueprintCopy && pricing?.estimates?.get(item.typeID);
     total = market && pricing ? hyperNetCreationQuote(market * 1.4, count, pricing.plexPrice).total : hyperNetMinimumPrice;
   }
 
@@ -167,7 +198,11 @@
 
   function describeFailure(cause: unknown): string {
     if (failureCode(cause) !== "CALL_REFUSED" || !(cause instanceof Error)) return panelErrorWords(cause);
-    const label = Object.hasOwn(refusalLabels, cause.message) ? refusalLabels[cause.message] : "UnknownError";
+    return creationRefusal(cause.message);
+  }
+
+  function creationRefusal(key: string): string {
+    const label = Object.hasOwn(refusalLabels, key) ? refusalLabels[key] : "UnknownError";
     const template = $words.templates[`UI/HyperNet/${label}`];
     return template ? plainText(formatTemplate(template, {
       min_price: isk(hyperNetMinimumPrice), max_price: isk(hyperNetMaximumPrice), factionID: 500026,
@@ -181,13 +216,25 @@
 
   function drop(event: DragEvent) {
     event.preventDefault();
-    if (loading || submitting) return;
+    if (loading || loadingDynamic || submitting || !prizeRules) return;
     const drag = decodeDrag(event.dataTransfer?.getData(DRAG_MIME));
     const assets = decodeAssetItemDrag(event.dataTransfer?.getData(ASSET_ITEM_DRAG_MIME));
     const id = drag?.kind === "inventoryItem" && drag.from.kind === "hangar" ? drag.itemID : assets[0]?.itemID;
     if (id === undefined) return;
-    if (cores.some(row => row.itemID === id)) tokenID = id;
-    else if (prizes.some(row => row.itemID === id)) selectPrize(id);
+    if (cores.some(row => row.itemID === id)) {
+      tokenID = id;
+      dropError = "";
+      return;
+    }
+    const item = candidates.find(row => row.itemID === id);
+    if (!item) {
+      dropError = "Choose an item from your personal hangar at this station.";
+      return;
+    }
+    const reason = hyperNetPrizeRefusal(item, prizeRules, dynamic);
+    if (reason === "split") dropError = "Split one item from the stack before listing it.";
+    else if (reason) dropError = creationRefusal(reason);
+    else selectPrize(id);
   }
 
   async function submit(event: SubmitEvent) {
@@ -206,7 +253,7 @@
     if (!confirmationReady) return;
     cancelConfirmation();
     const current = generation;
-    const item = itemName(prize);
+    const item = prizeName(prize);
     submitting = true;
     try { localStorage.setItem(learnedKey, "1"); } catch {}
     try {
@@ -252,17 +299,18 @@
 {:else}
   <form class="create-offer" onsubmit={submit}>
     {#if loading || loadError}<p role="status">{loading ? "Loading hangar and prices…" : loadError}</p>{/if}
-    <fieldset disabled={loading || submitting || !!loadError} ondrop={drop} ondragover={event => {
+    <fieldset disabled={loading || loadingDynamic || submitting || !!loadError} ondrop={drop} ondragover={event => {
       if (event.dataTransfer?.types.some(type => type === DRAG_MIME || type === ASSET_ITEM_DRAG_MIME)) event.preventDefault();
     }}>
       <label>{word("item")}
         <select data-hypernet-create-item value={itemID} onchange={event => selectPrize(Number(event.currentTarget.value))}>
           <option value={0}>{prizes.length ? "Select an item" : "No eligible items in this hangar"}</option>
           {#each prizes as item (item.itemID)}
-            <option value={item.itemID}>{itemName(item)}</option>
+            <option value={item.itemID}>{prizeName(item)}</option>
           {/each}
         </select>
       </label>
+      {#if dropError}<p role="status" data-hypernet-drop-error>{dropError}</p>{/if}
       <label>HyperCores
         <select data-hypernet-create-token value={token?.itemID ?? 0} onchange={event => tokenID = Number(event.currentTarget.value)}>
           {#if !cores.length}<option value={0}>No HyperCores in this hangar</option>{/if}

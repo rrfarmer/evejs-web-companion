@@ -11,7 +11,7 @@ import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, dec
 import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
-import { decodeHyperNetActiveTickets, decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, decodeHyperNetTypeStatistics, hyperNetCountBounds, hyperNetCreationQuote, hyperNetDetailNoticeIDs, type HyperNetCreationDraft, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
+import { decodeHyperNetActiveTickets, decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, decodeHyperNetTypeStatistics, hyperNetCountBounds, hyperNetCreationQuote, hyperNetDetailNoticeIDs, hyperNetRestrictedTypeLists, hyperNetSingletonTypeList, type HyperNetCreationDraft, type HyperNetPrizeRules, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
@@ -4644,6 +4644,8 @@ export interface AppFlow {
   buyHyperNetNodes(id: number, quantity: number): Promise<HyperNetOfferDetails>;
   claimHyperNetReward(id: number): Promise<HyperNetOfferDetails>;
   loadHyperNetTypeStatistics(typeID: number): Promise<ReturnType<typeof decodeHyperNetTypeStatistics>>;
+  loadHyperNetPrizeRules(): Promise<HyperNetPrizeRules>;
+  loadHyperNetDynamicTypes(typeIDs: readonly number[]): Promise<ReadonlySet<number>>;
   loadHyperNetPricing(): Promise<{ plexPrice: number; estimates: ReadonlyMap<number, number | null> | null }>;
   createHyperNetOffer(draft: HyperNetCreationDraft): Promise<number>;
   readonly hyperNetWinnerState: ReadableSignal<{ pilot: number; unseen: ReadonlySet<number> } | null>;
@@ -29436,6 +29438,32 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return decodeHyperNetTypeStatistics(result);
   }
 
+  let hyperNetPrizeRules: HyperNetPrizeRules | undefined;
+  async function loadHyperNetPrizeRules(): Promise<HyperNetPrizeRules> {
+    if (hyperNetPrizeRules) return hyperNetPrizeRules;
+    const current = callOptions.captureRequestGuard!();
+    const [singleton, ...restricted] = await Promise.all(
+      [hyperNetSingletonTypeList, ...hyperNetRestrictedTypeLists].map(listID => api.loadTypeList(listID, callOptions)),
+    );
+    current();
+    if (!singleton || restricted.some(list => list === null)) throw new Error("HyperNet item eligibility is unavailable.");
+    hyperNetPrizeRules = { restricted: new Set(restricted.flatMap(list => list ?? [])), singleton: new Set(singleton) };
+    return hyperNetPrizeRules;
+  }
+
+  async function loadHyperNetDynamicTypes(typeIDs: readonly number[]): Promise<ReadonlySet<number>> {
+    const current = callOptions.captureRequestGuard!();
+    const dynamic = new Set<number>();
+    for (let index = 0; index < typeIDs.length; index += 50) {
+      const { dynamic: flags } = await api.getTypePrices(typeIDs.slice(index, index + 50), callOptions);
+      for (const [type, flag] of Object.entries(flags)) {
+        if (flag === true) dynamic.add(Number(type));
+      }
+    }
+    current();
+    return dynamic;
+  }
+
   async function loadHyperNetPricing() {
     const current = callOptions.captureRequestGuard!();
     const key = "HyperNetPlexPriceOverride";
@@ -42071,6 +42099,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     buyHyperNetNodes,
     claimHyperNetReward,
     loadHyperNetTypeStatistics,
+    loadHyperNetPrizeRules,
+    loadHyperNetDynamicTypes,
     loadHyperNetPricing,
     createHyperNetOffer,
     hyperNetWinnerState: readonlySignal(hyperNetWinnerState),

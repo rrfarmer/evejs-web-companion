@@ -8,6 +8,24 @@ export const hyperNetCoreType = 52568;
 export const hyperNetMinimumPrice = 1000;
 export const hyperNetMaximumPrice = 10_000_000_000_000;
 export const hyperNetTaxRate = 0.05;
+export const hyperNetRestrictedTypeLists = [36, 133, 142] as const;
+export const hyperNetSingletonTypeList = 134;
+
+export interface HyperNetPrizeRules {
+  readonly restricted: ReadonlySet<number>;
+  readonly singleton: ReadonlySet<number>;
+}
+
+export function hyperNetPrizeRefusal(
+  item: { typeID: number; singleton: boolean; quantity: number },
+  rules: HyperNetPrizeRules,
+  dynamic: ReadonlySet<number>,
+) {
+  if (rules.restricted.has(item.typeID)) return "ItemTypeError";
+  if (item.singleton && !rules.singleton.has(item.typeID) && !dynamic.has(item.typeID)) return "ItemSingletonError";
+  if (item.quantity !== 1) return "split";
+  return null;
+}
 
 export function hyperNetCreationQuote(price: number, count: HyperNetNodeCount, plexPrice: number) {
   const bounded = Math.min(hyperNetMaximumPrice, Math.max(hyperNetMinimumPrice, price));
