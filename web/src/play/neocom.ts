@@ -632,6 +632,7 @@ export class Neocom {
     // 48 x 48, OpenCharactersheet); ButtonSkills follows it
     const sheet = document.createElement("button");
     sheet.className = "nc-btn nc-portrait";
+    sheet.dataset.uiPointer = neocomPointerName("charactersheet");
     sheet.setAttribute("aria-label", "Character Sheet");
     this.portrait.alt = "";
     this.portrait.style.visibility = "hidden";

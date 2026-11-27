@@ -42,6 +42,7 @@
   import ExpertSystems from "./ExpertSystems.svelte";
   import CharacterMembership from "./CharacterMembership.svelte";
   import CharacterDecorations from "./CharacterDecorations.svelte";
+  import { CHARACTER_SHEET_POINTERS as pointers } from "../play/uiPointer.ts";
   import Standings from "./Standings.svelte";
   import JumpClonesPanel from "./JumpClonesPanel.svelte";
   import HomeStationPanel from "./HomeStationPanel.svelte";
@@ -74,11 +75,15 @@
     return typeof template === "string" ? template : TAB_WORDS[label] ?? "";
   };
 
-  let { store, flow, panel = null }: { store: ClientStore; flow: AppFlow; panel?: SheetPanel | null } = $props();
+  let { store, flow, panel = null, expanded = true, onExpansionChange }: {
+    store: ClientStore; flow: AppFlow; panel?: SheetPanel | null; expanded?: boolean;
+    onExpansionChange?: (expanded: boolean) => void;
+  } = $props();
   // svelte-ignore state_referenced_locally
   const opening = panel;
   let sheetTab = $state<SheetTab>(opening === "standings" ? "interactions" : opening === "employment" || opening === "skills" ? "history" : "character");
   type CharacterTab = Exclude<SheetPanel, "standings" | "employment" | "skills">;
+  const characterPointers: Partial<Record<CharacterTab, string>> = pointers;
   let characterTab = $state<CharacterTab>(opening && opening !== "standings" && opening !== "employment" && opening !== "skills" ? opening : "home");
   const activeCharacter = $derived(store.character);
   let historyTab = $state<"employment" | "skills">(opening === "skills" ? "skills" : "employment");
@@ -97,6 +102,7 @@
   $effect(() => {
     const asked = $sheetPanelRequest;
     if (asked === null) return;
+    if (!expanded) onExpansionChange?.(true);
     loadPanel(asked);
     sheetPanelRequest.set(null);
   });
@@ -177,7 +183,7 @@
   }
 </script>
 
-<section class="panel" class:cs-retail={retail}>
+<section class="panel" class:cs-retail={retail} class:cs-collapsed={!expanded}>
   <!-- ⚠ REFRESH LIVES IN THE STRIP, NOT AT THE BOTTOM OF THE PAGE. It used
        to be a bare <p><button> after the last section, so this window put its
        one action somewhere no other window puts one — below content of
@@ -238,7 +244,16 @@
   {#if retail && $sheet.identity}
     {@const portrait = portraitUrl($imageServer, $sheet.identity.characterID, 512) ?? clientTexture(portraitDefaultPath(512))}
     <aside class="cs-left" style={portrait ? `--portrait: url(${portrait})` : undefined}>
-      <span class="cap">{tabWord("UI/CharacterSheet/CharacterSheetWindow/CharacterSheetCaption")}</span>
+      <div class="overview-header">
+        <span class="cap">{tabWord("UI/CharacterSheet/CharacterSheetWindow/CharacterSheetCaption")}</span>
+        {#if onExpansionChange}
+          <button type="button" class="overview-toggle" data-ui-pointer={pointers.expand}
+            aria-expanded={expanded} aria-label={expanded ? "Collapse Character Sheet" : "Expand Character Sheet"}
+            onclick={() => onExpansionChange?.(!expanded)}>
+            <img alt="" src={clientTexture(`res:/UI/Texture/Shared/DarkStyle/${expanded ? "backward" : "forward"}.png`)} />
+          </button>
+        {/if}
+      </div>
       <div class="info">
         <b class="nm">{$sheet.identity.characterName}</b>
         <span class="div"></span>
@@ -253,18 +268,20 @@
       </div>
     </aside>
   {/if}
-  <div class="cs-main">
+  <div class="cs-main" hidden={!expanded}>
 
   <!-- The window's tabs, then the tab's own. -->
   <nav class="sheet-tabs" aria-label="Character Sheet">
     {#each [["character", "Tooltips/CharacterSheet/Character"], ["interactions", "Tooltips/CharacterSheet/Interactions"], ["history", "Tooltips/CharacterSheet/History"]] as [id, label] (id)}
-      <button type="button" class:active={sheetTab === id} aria-pressed={sheetTab === id} onclick={() => (sheetTab = id as SheetTab)}>{tabWord(label!)}</button>
+      <button type="button" data-ui-pointer={id === "character" ? pointers.character : id === "interactions" ? pointers.interactions : undefined}
+        class:active={sheetTab === id} aria-pressed={sheetTab === id} onclick={() => (sheetTab = id as SheetTab)}>{tabWord(label!)}</button>
     {/each}
   </nav>
   {#if sheetTab === "character"}
   <nav class="sheet-tabs sub" aria-label="Character">
     {#each [["home", "Tooltips/CharacterSheet/HomeStation"], ["memberships", "Tooltips/CharacterSheet/Memberships"], ["implants", "Tooltips/CharacterSheet/Augmentations"], ["jumpClones", "Tooltips/CharacterSheet/JumpClones"], ["bio", "Tooltips/CharacterSheet/Bio"], ["decorations", "Tooltips/CharacterSheet/Decorations"], ["expert", "Tooltips/CharacterSheet/ExpertSystems"]] as [id, label] (id)}
-      <button type="button" class:active={characterTab === id} aria-pressed={characterTab === id} onclick={() => (characterTab = id as typeof characterTab)}>{tabWord(label!)}</button>
+      <button type="button" data-ui-pointer={characterPointers[id as CharacterTab]} class:active={characterTab === id}
+        aria-pressed={characterTab === id} onclick={() => (characterTab = id as CharacterTab)}>{tabWord(label!)}</button>
     {/each}
   </nav>
   {#if characterTab === "home"}
@@ -372,7 +389,7 @@
   {/if}
   {#if sheetTab === "interactions"}
   <nav class="sheet-tabs sub" aria-label="Interactions">
-    <button type="button" class="active" aria-pressed="true">{tabWord("Tooltips/CharacterSheet/Standings")}</button>
+    <button type="button" data-ui-pointer={pointers.standings} class="active" aria-pressed="true">{tabWord("Tooltips/CharacterSheet/Standings")}</button>
   </nav>
   <!-- interactionsPanel's Standings: the pilot's standings panel (toID the pilot). -->
   <Standings {store} {flow} scopes={["char"]} />
@@ -382,6 +399,9 @@
 </section>
 
 <style>
+  .overview-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .overview-toggle { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; }
+  .overview-toggle img { width: 16px; height: 16px; }
   .sheet-tabs {
     display: flex;
     flex-wrap: wrap;

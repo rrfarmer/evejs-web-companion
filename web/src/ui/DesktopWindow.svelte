@@ -23,6 +23,7 @@
     headerActions,
     loading = false,
     resizable = true,
+    resizeWidth = true,
     minWidth = MIN_W,
     minHeight = MIN_H,
     showTitle = true,
@@ -50,6 +51,7 @@
     headerActions?: Snippet;
     loading?: boolean;
     resizable?: boolean;
+    resizeWidth?: boolean;
     minWidth?: number;
     minHeight?: number;
     showTitle?: boolean;
@@ -173,7 +175,7 @@
     {@render children()}
   </div>
   {#if resizable}
-    {#each onResizeRect ? WINDOW_RESIZE_EDGES : resizeEdges as edge}
+    {#each (onResizeRect ? WINDOW_RESIZE_EDGES : resizeEdges).filter(edge => resizeWidth || edge === "n" || edge === "s") as edge}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <span class="win-resize window-resize win-resize-{edge}" data-edge={edge} onpointerdown={(e) => startResize(e, edge)}></span>
     {/each}

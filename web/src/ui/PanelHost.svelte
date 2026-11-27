@@ -127,12 +127,16 @@
     onShowPlexOffers,
     reprocessingInput,
     onReprocessingInputTaken,
+    characterSheetExpanded,
+    onCharacterSheetExpansionChange,
     upwellLpIssuer = null,
   }: {
     store: ClientStore;
     flow: AppFlow;
     tab: TabID;
     chatUnread?: ReadonlySet<string>;
+    characterSheetExpanded?: boolean;
+    onCharacterSheetExpansionChange?: (expanded: boolean) => void;
     upwellLpIssuer?: number | null;
     /**
      * Lets a panel navigate to another tab (e.g. Agent Finder -> Travel).
@@ -383,7 +387,7 @@
 {:else if tab === "loginRewards"}
   <LoginRewards {store} {flow} />
 {:else if tab === "characterSheet"}
-  <CharacterSheet {store} {flow} />
+  <CharacterSheet {store} {flow} expanded={characterSheetExpanded} onExpansionChange={onCharacterSheetExpansionChange} />
 {:else if tab === "corporation"}
   <CorporationWindow {store} {flow} openMail={() => onOpen?.("mail")} openWatchlist={() => onOpen?.("watchlist")} openPaintTool={() => onOpen?.("paintTool")} />
 {:else if tab === "memberDetails"}

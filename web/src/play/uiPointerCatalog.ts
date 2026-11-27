@@ -3,17 +3,31 @@ import { helpPointerLinksFromDrop, helpPointerUrl, parseHelpPointerUrl } from ".
 import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
 import { clientTexture } from "../ui/skillGroupIcons.ts";
 import { EVE_MENU, NEOCOM_DEFAULT } from "./neocom.ts";
-import { CONTRACT_POINTERS, FITTING_POINTERS, INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, MARKET_POINTERS, neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
+import { CHARACTER_SHEET_POINTERS, CONTRACT_POINTERS, FITTING_POINTERS, INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, MARKET_POINTERS, neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
 
 const industryParent = neocomPointerName("industry");
 const contractsParent = neocomPointerName("contracts");
+const characterSheetParent = neocomPointerName("charactersheet");
 const menuOnlyPointers = new Set([industryParent, contractsParent]);
-const menuOnlyEntries = EVE_MENU.flatMap(group => group.items)
-  .flatMap(({ id, label, icon }) => id !== null && menuOnlyPointers.has(neocomPointerName(id)) ? [{ id, label, icon }] : []);
-export const NEOCOM_POINTERS: readonly UiPointerTarget[] = [...NEOCOM_DEFAULT, ...menuOnlyEntries].map(item => ({
+const extraNeocomPointers = new Set([...menuOnlyPointers, characterSheetParent]);
+const extraNeocomEntries = EVE_MENU.flatMap(group => group.items)
+  .flatMap(({ id, label, icon }) => id !== null && extraNeocomPointers.has(neocomPointerName(id)) ? [{ id, label, icon }] : []);
+export const NEOCOM_POINTERS: readonly UiPointerTarget[] = [...NEOCOM_DEFAULT, ...extraNeocomEntries].map(item => ({
   name: neocomPointerName(item.id), label: item.label, icon: item.icon,
 }));
 const tabIcon = clientTexture("res:/UI/Texture/Classes/HelpPointer/tabFlat.png");
+const sheet = CHARACTER_SHEET_POINTERS;
+const characterSheetTabs: readonly UiPointerTarget[] = ([
+  [sheet.character, "Character Sheet - Character", sheet.expand],
+  [sheet.interactions, "Character Sheet - Interactions", sheet.expand],
+  [sheet.home, "Home Station", sheet.character],
+  [sheet.implants, "Augmentations", sheet.character],
+  [sheet.jumpClones, "Jump Clones", sheet.character],
+  [sheet.expert, "Expert Systems", sheet.character],
+  [sheet.decorations, "Decorations", sheet.character],
+  [sheet.titles, "Titles", sheet.decorations],
+  [sheet.standings, "Standings", sheet.interactions],
+] as const).map(([name, label, parent]) => ({ name, label, icon: tabIcon, parent }));
 const fittingStats: readonly UiPointerTarget[] = ([
   [FITTING_POINTERS.capacitor, "Capacitor"],
   [FITTING_POINTERS.defense, "Defense"],
@@ -54,6 +68,9 @@ export const INTERFACE_POINTERS: readonly UiPointerTarget[] = [
   { name: CONTRACT_POINTERS.search, label: "Contract Search", icon: tabIcon, parent: contractsParent },
   { name: CONTRACT_POINTERS.options, label: "Show/Hide more contract search options", parent: CONTRACT_POINTERS.search },
   { name: CONTRACT_POINTERS.availability, label: "Contract Availability Setting", parent: CONTRACT_POINTERS.options },
+  { name: sheet.expand, label: "Expand/Collapse Character Sheet", parent: characterSheetParent,
+    icon: clientTexture("res:/UI/Texture/Shared/DarkStyle/forward.png") },
+  ...characterSheetTabs,
   { name: FITTING_POINTERS.equipment, label: "Fitting Tab", icon: tabIcon, parent: neocomPointerName("fitting") },
   { name: FITTING_POINTERS.personalization, label: "Personalization", icon: tabIcon, parent: neocomPointerName("fitting") },
   { name: FITTING_POINTERS.skins, label: "SKINs Browser", icon: tabIcon, parent: FITTING_POINTERS.personalization },

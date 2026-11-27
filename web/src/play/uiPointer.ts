@@ -23,6 +23,19 @@ export const CONTRACT_POINTERS = {
   availability: "unique_UI_contractAvailabilitySetting",
 } as const;
 
+export const CHARACTER_SHEET_POINTERS = {
+  expand: "unique_UI_expandCharacterSheet",
+  character: "unique_UI_charactersheetCharacterTab",
+  interactions: "unique_UI_charactersheetInteractionTab",
+  home: "unique_UI_homeTab",
+  implants: "unique_UI_augmentationsTab",
+  jumpClones: "unique_UI_jumpClonesTab",
+  expert: "unique_UI_expertSystemsTab",
+  decorations: "unique_UI_decorationsTab",
+  titles: "unique_UI_titlesTab",
+  standings: "unique_UI_standingsTabInCharactersheet",
+} as const;
+
 export const FITTING_POINTERS = {
   equipment: "unique_UI_fittingEquipment",
   personalization: "unique_UI_fittingPersonalization",

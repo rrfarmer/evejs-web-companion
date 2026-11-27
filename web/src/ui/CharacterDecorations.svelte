@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
   import { plainText } from "../bridge/clientWords.ts";
+  import { CHARACTER_SHEET_POINTERS } from "../play/uiPointer.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { achievementRequest } from "./achievementRequests.ts";
@@ -77,7 +78,8 @@
 <section class="decorations" aria-label="Decorations">
   <nav aria-label="Decorations tabs">
     {#each ["Titles", "Ranks", "Medals", "Permissions"] as value}
-      <button type="button" aria-pressed={tab === value} onclick={() => tab = value as Tab}>{word(value)}</button>
+      <button type="button" data-ui-pointer={value === "Titles" ? CHARACTER_SHEET_POINTERS.titles : undefined}
+        aria-pressed={tab === value} onclick={() => tab = value as Tab}>{word(value)}</button>
     {/each}
   </nav>
   {#if error}<p role="alert">{error}</p>{/if}

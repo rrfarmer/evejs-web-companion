@@ -452,6 +452,19 @@
   });
   const flight = $derived(session?.store.flight);
   const station = $derived(session?.store.station);
+  const characterSheetPreference = $derived($station?.online && session
+    ? `evejs.user.${session.store.session.get().accountID ?? "local"}.characterSheetExpanded` : null);
+  let characterSheetExpanded = $state(true);
+  $effect(() => {
+    const key = characterSheetPreference;
+    try { characterSheetExpanded = !key || localStorage.getItem(key) !== "false"; }
+    catch { characterSheetExpanded = true; }
+  });
+  function setCharacterSheetExpanded(expanded: boolean): void {
+    characterSheetExpanded = expanded;
+    try { if (characterSheetPreference) localStorage.setItem(characterSheetPreference, String(expanded)); }
+    catch { /* this visit only */ }
+  }
   const planets = $derived(session?.store.planets);
   const targeting = $derived(session?.store.targeting);
   const fitting = $derived(session?.store.fitting);
@@ -4933,21 +4946,24 @@
     {#each wins as win (win.id)}
       <ErrorBoundary name={tabLabel(win.id)}>
         {@const minimum = flightWindowMinimum(win.id)}
+        {@const sheetCollapsed = win.id === "characterSheet" && !characterSheetExpanded}
+        {@const collapsedWidth = Math.min(396, flightDesktopSize().w)}
         <DesktopWindow
-          {win}
+          win={sheetCollapsed ? { ...win, w: collapsedWidth } : win}
           title={win.id === "drones" ? ($dronesCompact ? "" : dronesTitle) : win.id === "scanner" && !docked && $scannerCompact ? "" : win.id === "inventory" && !docked ? (inventoryPrimary ? captions[win.id] ?? tabLabel(win.id) : activeShipCaption) : captions[win.id] ?? tabLabel(win.id)}
           caption={win.id === "drones" ? dronesTitle : win.id === "scanner" ? captions[win.id] ?? tabLabel(win.id) : null}
           icon={win.id === "inventory" && !docked ? clientTexture("res:/UI/Texture/WindowIcons/cargo.png") : win.id === "log" ? clientTexture("res:/ui/Texture/WindowIcons/log.png") : win.id === "help" ? clientTexture("res:/ui/Texture/WindowIcons/help.png") : win.id === "auraGuidance" ? clientTexture("res:/UI/Texture/classes/careerPortal/aura/aura_icon_32x32.png") : null}
           killable={win.id !== "drones"}
           resizable={win.id !== "fitting" && win.id !== "medalDesigner" && win.id !== "securityOffice" && win.id !== "calculator" && win.id !== "help"}
-          minWidth={minimum.w}
+          resizeWidth={!sheetCollapsed}
+          minWidth={sheetCollapsed ? collapsedWidth : minimum.w}
           minHeight={minimum.h}
           focused={win.id === activeWinKey}
           onFocus={() => { wins = focusWindow(wins, win.id); raiseApp(win.id); }}
           onClose={() => closePlayWindow(win.id)}
           onToggleMinimize={() => { const was = win.minimized; wins = toggleMinimize(wins, win.id); if (!was && activeWinKey === win.id) activeWinKey = null; }}
           onMove={(x, y) => (wins = moveWindow(wins, win.id, x, y))}
-          onResizeRect={(rect) => resizeFlightWindow(win.id, rect)}
+          onResizeRect={(rect) => resizeFlightWindow(win.id, sheetCollapsed ? { ...rect, w: win.w } : rect)}
           onGeometryCommit={() => { const placed = wins.find(w => w.id === win.id); if (placed) keepPlace(placed); }}
         >
           {#snippet headerActions()}
@@ -4965,6 +4981,7 @@
             <FlyInventoryWindow store={session.store} flow={session.flow} />
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} chatUnread={win.id === "chat" ? chatUnread : undefined}
+              {characterSheetExpanded} onCharacterSheetExpansionChange={setCharacterSheetExpanded}
               onOpen={(t) => open(t)} onClose={() => closePlayWindow(win.id)}
               registerBeforeClose={win.id === "structureBrowser" || win.id === "shipSkinr" ?
                 guard => registerPlayWindowClose(win.id, guard) : undefined}
@@ -5704,6 +5721,7 @@
   .fly-windows :global(.cs-left) { flex: 0 0 340px; position: relative; display: flex; flex-direction: column; min-height: 560px; padding: 12px;
     box-sizing: border-box; background: linear-gradient(180deg, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.75) 70%), var(--portrait, none) center top / cover no-repeat, #0d0f11; }
   .fly-windows :global(.cs-left .cap) { font-size: 13px; color: rgba(255, 255, 255, 0.85); }
+  .fly-windows :global(.cs-collapsed .cs-left) { flex: 1; min-width: 0; }
   .fly-windows :global(.cs-left .info) { margin-top: auto; display: flex; flex-direction: column; gap: 6px; }
   .fly-windows :global(.cs-left .nm) { font-size: 20px; font-weight: 400; color: #fff; }
   .fly-windows :global(.cs-left .div) { height: 1px; background: rgba(255, 255, 255, 0.2); margin: 4px 0; }
