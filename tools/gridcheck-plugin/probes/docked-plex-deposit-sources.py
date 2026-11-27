@@ -51,12 +51,18 @@ cases = [
     ('trade-inner-container', trade_inner_id, const.groupCurrency),
     ('asset-safety', safety_id, const.groupCurrency),
     ('asset-safety-inner-container', safety_inner_id, const.groupCurrency),
+    ('vault-item', session.stationid, const.groupCurrency),
+    ('fake-item', session.stationid, const.groupCurrency),
     ('non-currency', session.stationid, 18),
 ]
 rows = []
 for name, location_id, group_id in cases:
     item = KeyVal(itemID=970000004, typeID=const.typePlex if group_id == const.groupCurrency else 34,
                   groupID=group_id, locationID=location_id, ownerID=session.charid, stacksize=7)
+    if name == 'vault-item':
+        item.isInPlexVault = True
+    elif name == 'fake-item':
+        item.itemID = const.minFakeItem
     checker = ItemChecker(item, session, ProjectedServices())
     rows.append({'source': name, 'location': location_id, 'offer': checker.OfferRedeemCurrency()})
 

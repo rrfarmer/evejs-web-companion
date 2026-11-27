@@ -43,7 +43,7 @@
 // refusals (CannotTrashItem) where it destroys nothing.
 
 import type { Ask } from "./ask.ts";
-import type { InventoryState } from "../store/types.ts";
+import type { InventoryItemRow, InventoryState } from "../store/types.ts";
 import type { JsonValue } from "./wire.ts";
 
 /** `of`, for the hangar of where the pilot is docked: invCache.GetInventory(const.containerHangar). */
@@ -213,18 +213,34 @@ export type StackPlace = keyof typeof STACK_FLAGS
  * Supported StationContainer scope: assembled ordinary cargo containers (group12) and station containers
  * (17366/17367/17368), directly in the docked pilot's hangar or active cargo. StationContainer.oneWay1559-1574
  * is falsey for these personally owned rows; the raw inventory password proxy stays below the writer guards.
- * Corporate/nested/space containers need their own controller handling before exposure.
+ * Callers that supply parent reads can resolve nested personal containers to the same roots.
  */
-export function ordinaryContainerStackPlace(inventory: InventoryState, characterID: number | null): Extract<StackPlace, { kind: "container" }> | null {
+export function ordinaryContainerStackPlace(
+  inventory: InventoryState,
+  characterID: number | null,
+  readParent?: (itemID: number) => InventoryItemRow | undefined,
+): Extract<StackPlace, { kind: "container" }> | null {
   const open = inventory.container;
-  if (!open || open.error || characterID === null) return null;
-  const row = [...inventory.hangar.rows, ...inventory.cargo.rows].find(row => row.itemID === open.itemID);
-  if (!row || (row.groupID !== 12 && ![17366, 17367, 17368].includes(row.typeID)) || !row.singleton || row.ownerID !== characterID) return null;
   const dockedAt = inventory.structureID ?? inventory.stationID;
-  if (dockedAt === null) return null;
-  const atHangar = row.locationID === dockedAt && row.flagID === 4;
-  const atCargo = row.locationID === inventory.activeShipID && row.flagID === 5;
-  return atHangar || atCargo ? { kind: "container", itemID: open.itemID } : null;
+  if (!open || open.error || characterID === null || dockedAt === null) return null;
+  const roots = [...inventory.hangar.rows, ...inventory.cargo.rows];
+  const visited = new Set<number>();
+  let itemID = open.itemID;
+  while (!visited.has(itemID)) {
+    visited.add(itemID);
+    const root = roots.find(row => row.itemID === itemID);
+    const row = root ?? readParent?.(itemID);
+    if (!row || (row.groupID !== 12 && ![17366, 17367, 17368].includes(row.typeID)) ||
+        !row.singleton || row.ownerID !== characterID) return null;
+    if (root) {
+      const atHangar = root.locationID === dockedAt && root.flagID === STACK_FLAGS.hangar;
+      const atCargo = root.locationID === inventory.activeShipID && root.flagID === STACK_FLAGS.cargo;
+      return atHangar || atCargo ? { kind: "container", itemID: open.itemID } : null;
+    }
+    if (row.flagID !== 0 || row.locationID === undefined) return null;
+    itemID = row.locationID;
+  }
+  return null;
 }
 
 /** BaseInvContainer.StackAll382-393: a bay/division passes its flag; an unflagged StationContainer calls StackAll(). */

@@ -1032,8 +1032,8 @@
   function plexDepositSource(place: InventoryPlace): Parameters<AppFlow["depositVaultPlex"]>[0] | null {
     if (!isDocked) return null;
     if (place.kind === "hangar" || place.kind === "cargo") return place.kind;
-    if (place.kind === "container" &&
-        ordinaryContainerStackPlace($inventory, $station.online?.characterID ?? null)?.itemID === place.itemID) return place;
+    if (place.kind === "container" && $inventory.container?.itemID === place.itemID &&
+        flow.canDepositContainerPlex(place.itemID)) return place;
     return null;
   }
 

@@ -2837,6 +2837,7 @@ export interface AppFlow {
   readonly assetSaleAsked: ReadableSignal<AssetSaleAsk | null>;
   openAssetSale(items: readonly PersonalAssetSelection[]): Promise<void>;
   openVaultPlexSale(): Promise<void>;
+  canDepositContainerPlex(itemID: number): boolean;
   depositVaultPlex(source: "hangar" | "cargo" | Extract<InventoryPlace, { kind: "container" }>, items: readonly Pick<InventoryItemRow, "itemID" | "quantity">[]): Promise<void>;
   readonly plexVaultChanged: ReadableSignal<number>;
   repackageAssets(items: readonly PersonalAssetSelection[]): Promise<void>;
@@ -12894,6 +12895,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return itemID;
   }
 
+  function canDepositContainerPlex(itemID: number): boolean {
+    return dockedNow() !== null && ordinaryContainerStackPlace(
+      store.inventory.get(), store.station.get().online?.characterID ?? null, parentID => safetyItemCache.get(parentID),
+    )?.itemID === itemID;
+  }
+
   async function depositVaultPlex(source: Parameters<AppFlow["depositVaultPlex"]>[0], items: readonly Pick<InventoryItemRow, "itemID" | "quantity">[]): Promise<void> {
     const stationID = dockedNow();
     const generation = requestGeneration;
@@ -12901,8 +12908,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const current = callOptions.captureRequestGuard!();
     const shipID = store.inventory.get().activeShipID;
     const container = typeof source === "string" ? null : source;
-    const containerIsAvailable = () => container === null ||
-      ordinaryContainerStackPlace(store.inventory.get(), store.station.get().online?.characterID ?? null)?.itemID === container.itemID;
+    const containerIsAvailable = () => container === null || canDepositContainerPlex(container.itemID);
     depositPlexGeneration = generation;
     let sent = false;
     try {
@@ -41226,6 +41232,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     closeAssetContainerContents,
     openAssetSale,
     openVaultPlexSale,
+    canDepositContainerPlex,
     depositVaultPlex,
     plexVaultChanged: readonlySignal(plexVaultChanged),
     repackageAssets,
