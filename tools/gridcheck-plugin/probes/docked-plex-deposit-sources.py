@@ -10,10 +10,16 @@ if not session.stationid:
 container_id = 970000001
 trade_id = 970000002
 safety_id = 970000003
+inner_id = 970000005
+trade_inner_id = 970000006
+safety_inner_id = 970000007
 places = {
     container_id: KeyVal(itemID=container_id, locationID=session.stationid, typeID=23),
     trade_id: KeyVal(itemID=trade_id, locationID=session.stationid, typeID=const.typeTradeSession),
     safety_id: KeyVal(itemID=safety_id, locationID=session.stationid, typeID=const.typeAssetSafetyWrap),
+    inner_id: KeyVal(itemID=inner_id, locationID=container_id, typeID=23),
+    trade_inner_id: KeyVal(itemID=trade_inner_id, locationID=trade_id, typeID=23),
+    safety_inner_id: KeyVal(itemID=safety_inner_id, locationID=safety_id, typeID=23),
 }
 
 
@@ -40,8 +46,11 @@ cases = [
     ('local-hangar', session.stationid, const.groupCurrency),
     ('remote-hangar', other_station, const.groupCurrency),
     ('owned-container', container_id, const.groupCurrency),
+    ('owned-inner-container', inner_id, const.groupCurrency),
     ('trade', trade_id, const.groupCurrency),
+    ('trade-inner-container', trade_inner_id, const.groupCurrency),
     ('asset-safety', safety_id, const.groupCurrency),
+    ('asset-safety-inner-container', safety_inner_id, const.groupCurrency),
     ('non-currency', session.stationid, 18),
 ]
 rows = []

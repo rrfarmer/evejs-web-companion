@@ -2837,7 +2837,7 @@ export interface AppFlow {
   readonly assetSaleAsked: ReadableSignal<AssetSaleAsk | null>;
   openAssetSale(items: readonly PersonalAssetSelection[]): Promise<void>;
   openVaultPlexSale(): Promise<void>;
-  depositVaultPlex(source: "hangar" | "cargo", items: readonly Pick<InventoryItemRow, "itemID" | "quantity">[]): Promise<void>;
+  depositVaultPlex(source: "hangar" | "cargo" | Extract<InventoryPlace, { kind: "container" }>, items: readonly Pick<InventoryItemRow, "itemID" | "quantity">[]): Promise<void>;
   readonly plexVaultChanged: ReadableSignal<number>;
   repackageAssets(items: readonly PersonalAssetSelection[]): Promise<void>;
   repackableAssetTypes(typeIDs: readonly number[]): Promise<ReadonlySet<number>>;
@@ -12894,24 +12894,31 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return itemID;
   }
 
-  async function depositVaultPlex(source: "hangar" | "cargo", items: readonly Pick<InventoryItemRow, "itemID" | "quantity">[]): Promise<void> {
+  async function depositVaultPlex(source: Parameters<AppFlow["depositVaultPlex"]>[0], items: readonly Pick<InventoryItemRow, "itemID" | "quantity">[]): Promise<void> {
     const stationID = dockedNow();
     const generation = requestGeneration;
     if (stationID === null || items.length === 0 || depositPlexGeneration === generation) return;
     const current = callOptions.captureRequestGuard!();
     const shipID = store.inventory.get().activeShipID;
+    const container = typeof source === "string" ? null : source;
+    const containerIsAvailable = () => container === null ||
+      ordinaryContainerStackPlace(store.inventory.get(), store.station.get().online?.characterID ?? null)?.itemID === container.itemID;
     depositPlexGeneration = generation;
     let sent = false;
     try {
       await loadInventory();
       current();
+      if (container && dockedNow() === stationID && containerIsAvailable()) await openContainer(container.itemID);
+      current();
       const inventory = store.inventory.get();
       if ((inventory.structureID ?? inventory.stationID) !== stationID || dockedNow() !== stationID ||
-          (source === "cargo" && inventory.activeShipID !== shipID)) {
+          (source === "cargo" && inventory.activeShipID !== shipID) || !containerIsAvailable()) {
         throw new Error("The docked inventory has changed. Select the stacks again.");
       }
-      const available = new Map(inventory[source].rows.filter(row => row.typeID === PLEX_TYPE_ID &&
-        row.locationID === (source === "cargo" ? shipID : stationID)).map(row => [row.itemID, row.quantity]));
+      const rows = typeof source === "string" ? inventory[source].rows : inventory.container?.rows ?? [];
+      const locationID = container?.itemID ?? (source === "cargo" ? shipID : stationID);
+      const available = new Map(rows.filter(row => row.typeID === PLEX_TYPE_ID && row.locationID === locationID)
+        .map(row => [row.itemID, row.quantity]));
       const stacks = [...new Map(items.map(row => [row.itemID, row.quantity]))];
       if (stacks.some(([itemID, quantity]) => !Number.isSafeInteger(quantity) || quantity <= 0 || available.get(itemID) !== quantity)) {
         throw new Error("A selected PLEX stack has changed. Select the stacks again.");
@@ -12927,6 +12934,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (sent && requestGeneration === generation && dockedNow() === stationID) {
         plexVaultChanged.update(revision => revision + 1);
         await Promise.allSettled([loadInventory(), loadPersonalAssets(),
+          ...(container && store.inventory.get().container?.itemID === container.itemID ? [openContainer(container.itemID)] : []),
           ...(source === "cargo" && shipID !== null && store.inventory.get().openShip?.itemID === shipID
             ? [openShipBays(shipID)] : [])]);
       }

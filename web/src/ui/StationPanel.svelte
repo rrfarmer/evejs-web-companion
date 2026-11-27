@@ -1029,9 +1029,11 @@
     pending = { kind: "move", place, label };
   }
 
-  function plexDepositSource(place: InventoryPlace): "hangar" | "cargo" | null {
+  function plexDepositSource(place: InventoryPlace): Parameters<AppFlow["depositVaultPlex"]>[0] | null {
     if (!isDocked) return null;
     if (place.kind === "hangar" || place.kind === "cargo") return place.kind;
+    if (place.kind === "container" &&
+        ordinaryContainerStackPlace($inventory, $station.online?.characterID ?? null)?.itemID === place.itemID) return place;
     return null;
   }
 
@@ -1049,7 +1051,8 @@
     const source = plexDepositSource(payload.from);
     if (source === null) return;
     const dragged = new Set([payload.itemID, ...(payload.itemIDs ?? [])]);
-    const stacks = $inventory[source].rows.filter(row => row.typeID === PLEX_TYPE_ID && dragged.has(row.itemID));
+    const rows = typeof source === "string" ? $inventory[source].rows : $inventory.container?.rows ?? [];
+    const stacks = rows.filter(row => row.typeID === PLEX_TYPE_ID && dragged.has(row.itemID));
     if (stacks.length === 0) return;
     if (view !== "plexVault") goTo("plexVault");
     void run(() => flow.depositVaultPlex(source, stacks));
@@ -1497,6 +1500,7 @@
     void run(async () => {
       await flow.openContainer(row.itemID);
       if (lobbyHangars) showInventoryLocation("container");
+      else if ($inventory.container?.itemID === row.itemID) goTo("container");
     });
   }
 
