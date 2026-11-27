@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
+  import { failureCode } from "../bridge/ask.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { READABLE_ISK_LABELS, readableIsk } from "../bridge/giveMoney.ts";
-  import { hyperNetCoreType, hyperNetCountBounds, hyperNetCreationQuote, hyperNetMinimumPrice, hyperNetTaxRate, type HyperNetNodeCount } from "../bridge/hyperNet.ts";
+  import { hyperNetCoreType, hyperNetCountBounds, hyperNetCreationQuote, hyperNetMaximumPrice, hyperNetMinimumPrice, hyperNetTaxRate, type HyperNetNodeCount } from "../bridge/hyperNet.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -39,6 +40,15 @@
     earnings: ["UI/HyperNet/Earnings", "Earnings"],
     private: ["UI/HyperNet/PrivateRaffle", "Private offer"],
     create: ["UI/HyperNet/CreateButton", "Create offer"],
+    clear: ["UI/HyperNet/ClearButton", "Clear"],
+    confirm: ["UI/HyperNet/ConfirmPurchaseButtonLabel", "Confirm"],
+    creating: ["UI/HyperNet/Creating", "Creating…"],
+    success: ["UI/HyperNet/CreateSuccessTitle", "Offer created"],
+    successMessage: ["UI/HyperNet/CreateSuccessMessage", "Your offer is available on the HyperNet Relay."],
+    createAnother: ["UI/HyperNet/CreateAnother", "Create another"],
+    viewOffer: ["UI/HyperNet/ViewRaffle", "View offer"],
+    failed: ["UI/HyperNet/CreateFailedTitle", "Offer creation failed"],
+    dismiss: ["UI/HyperNet/ConfirmCreationFailed", "OK"],
     historic: ["UI/HyperNet/HistoricalStatistics", "Historical offers"],
     active: ["UI/HyperNet/ActiveStatistics", "Active offers"],
     max: ["UI/HyperNet/MaximumPrice", "Maximum price"],
@@ -47,6 +57,14 @@
     market: ["UI/HyperNet/OpenMarket", "Open Market"],
     store: ["UI/HyperNet/OpenNES", "Open New Eden Store"],
   } as const;
+  const refusalLabels: Readonly<Record<string, string>> = {
+    TokenPaymentError: "TokenPaymentError", ItemEscrowError: "ItemEscrowError", TypeMismatchError: "TypeMismatchError",
+    TicketCountError: "TicketCountError", TicketPriceError: "TicketPriceError",
+    ItemTypeError: "ItemTypeError", ItemLocationError: "ItemLocationError", ItemInventoryError: "ItemLocationError",
+    ItemSingletonError: "ItemSingletonError", ItemOwnerError: "ItemOwnerError", ItemTriglavianSystemError: "ItemSystemFactionError",
+    TokenTypeError: "TokenTypeError", TokenLocationError: "TokenLocationError", TokenInventoryError: "TokenLocationError",
+    TokenOwnerError: "TokenOwnerError", TokenAmountError: "TokenAmountError", UnknownError: "UnknownError",
+  };
   const word = (key: keyof typeof labels) => plainText(formatTemplate($words.templates[labels[key][0]] ?? labels[key][1],
     { percentage: new Intl.NumberFormat(undefined, { style: "percent" }).format(hyperNetTaxRate) }, { nameOf: () => null }));
   const iskFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
@@ -61,7 +79,11 @@
   let submitting = $state(false);
   let loading = $state(true);
   let loadError = $state("");
-  let error = $state("");
+  let result = $state<{ id: number; item: string } | { error: string }>();
+  let armedFor = $state("");
+  let confirmationReady = $state(false);
+  let readyTimer: number | undefined;
+  let expiryTimer: number | undefined;
   let pricing = $state.raw<Awaited<ReturnType<AppFlow["loadHyperNetPricing"]>>>();
   const prize = $derived(prizes.find(row => row.itemID === itemID));
   const typeID = $derived(prize?.typeID);
@@ -77,11 +99,17 @@
   const quote = $derived(total !== undefined && Number.isFinite(total) && pricing
     ? hyperNetCreationQuote(total, count, pricing.plexPrice) : undefined);
   const ready = $derived(!loading && !loadError && stationID !== null && prize && token && quote && token.quantity >= quote.cores);
+  const terms = $derived(ready && quote && token ? [pilot, stationID, itemID, token.itemID, count, quote.nodePrice, privateOffer].join("/") : "");
   let generation = 0;
 
   $effect(() => {
-    flow.requestWords([...Object.values(labels).map(([path]) => path), ...READABLE_ISK_LABELS]);
+    flow.requestWords([...Object.values(labels).map(([path]) => path), ...READABLE_ISK_LABELS,
+      ...new Set(Object.values(refusalLabels).map(key => `UI/HyperNet/${key}`))]);
   });
+  $effect(() => {
+    if (armedFor && armedFor !== terms) cancelConfirmation();
+  });
+  $effect(() => () => cancelConfirmation());
   $effect(() => {
     stats = undefined;
     statsError = "";
@@ -103,7 +131,7 @@
     const current = ++generation;
     itemID = 0;
     tokenID = 0;
-    error = "";
+    result = undefined;
     loadError = "";
     loading = true;
     submitting = false;
@@ -122,7 +150,33 @@
     const item = prizes.find(row => row.itemID === id);
     const market = item && pricing?.estimates?.get(item.typeID);
     total = market && pricing ? hyperNetCreationQuote(market * 1.4, count, pricing.plexPrice).total : hyperNetMinimumPrice;
-    error = "";
+  }
+
+  function cancelConfirmation() {
+    window.clearTimeout(readyTimer);
+    window.clearTimeout(expiryTimer);
+    armedFor = "";
+    confirmationReady = false;
+  }
+
+  function clearPrize() {
+    result = undefined;
+    cancelConfirmation();
+    selectPrize(0);
+  }
+
+  function describeFailure(cause: unknown): string {
+    if (failureCode(cause) !== "CALL_REFUSED" || !(cause instanceof Error)) return panelErrorWords(cause);
+    const label = Object.hasOwn(refusalLabels, cause.message) ? refusalLabels[cause.message] : "UnknownError";
+    const template = $words.templates[`UI/HyperNet/${label}`];
+    return template ? plainText(formatTemplate(template, {
+      min_price: isk(hyperNetMinimumPrice), max_price: isk(hyperNetMaximumPrice), factionID: 500026,
+    }, { nameOf: (_kind, id) => id === 500026 ? "Triglavian Collective" : null })) : "HyperNet could not create this offer.";
+  }
+
+  function viewOffer(id: number) {
+    clearPrize();
+    onCreated(id);
   }
 
   function drop(event: DragEvent) {
@@ -138,24 +192,33 @@
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (submitting || !ready || stationID === null || !prize || !token || !quote) return;
+    if (submitting || result || !terms || !pilot || stationID === null || !prize || !token || !quote) return;
+    const learnedKey = `evejs-hypernet-confirm:${pilot}`;
+    if (armedFor !== terms) {
+      cancelConfirmation();
+      armedFor = terms;
+      let learned = false;
+      try { learned = localStorage.getItem(learnedKey) === "1"; } catch {}
+      readyTimer = window.setTimeout(() => { confirmationReady = true; }, 400);
+      expiryTimer = window.setTimeout(cancelConfirmation, learned ? 2900 : 9900);
+      return;
+    }
+    if (!confirmationReady) return;
+    cancelConfirmation();
     const current = generation;
+    const item = itemName(prize);
     submitting = true;
-    error = "";
+    try { localStorage.setItem(learnedKey, "1"); } catch {}
     try {
       const id = await flow.createHyperNetOffer({
         stationID, itemID: prize.itemID, typeID: prize.typeID, tokenID: token.itemID, count, nodePrice: quote.nodePrice, privateOffer,
       });
       if (generation === current) {
-        selectPrize(0);
-        tokenID = 0;
-        count = 8;
-        privateOffer = false;
-        onCreated(id);
+        result = { id, item };
         void flow.loadInventory().catch(() => undefined);
       }
     } catch (cause) {
-      if (generation === current) error = panelErrorWords(cause);
+      if (generation === current) result = { error: describeFailure(cause) };
     } finally {
       if (generation === current) submitting = false;
     }
@@ -164,6 +227,28 @@
 
 {#if stationID === null}
   <p class="create-status">Dock at an NPC station to select the item and HyperCores for your offer.</p>
+{:else if submitting}
+  <div class="create-result" data-hypernet-create-result="pending" role="status">{word("creating")}</div>
+{:else if result && "id" in result}
+  {@const id = result.id}
+  <div class="create-result" data-hypernet-create-result="success">
+    <div role="status">
+      <h3>{word("success")}</h3>
+      <p>{word("successMessage")}</p>
+      <p>{result.item}</p>
+    </div>
+    <div class="result-actions">
+      <button type="button" data-hypernet-create-another onclick={clearPrize}>{word("createAnother")}</button>
+      <button type="button" data-hypernet-create-view={id} onclick={() => viewOffer(id)}>{word("viewOffer")}</button>
+    </div>
+  </div>
+{:else if result}
+  <div class="create-result" data-hypernet-create-result="failure">
+    <div role="alert"><h3>{word("failed")}</h3><p>{result.error}</p></div>
+    <div class="result-actions">
+      <button type="button" data-hypernet-create-dismiss onclick={() => { result = undefined; }}>{word("dismiss")}</button>
+    </div>
+  </div>
 {:else}
   <form class="create-offer" onsubmit={submit}>
     {#if loading || loadError}<p role="status">{loading ? "Loading hangar and prices…" : loadError}</p>{/if}
@@ -233,14 +318,26 @@
           {/each}
         </div>
       {/if}
-      {#if error}<p role="alert">{error}</p>{/if}
-      <button data-hypernet-create-submit type="submit" disabled={!ready || submitting}>{submitting ? "Creating…" : word("create")}</button>
+      <div class="result-actions">
+        <button type="button" disabled={!itemID} onclick={clearPrize}>{word("clear")}</button>
+        <button data-hypernet-create-submit type="submit" disabled={!ready}
+          aria-pressed={!!armedFor} aria-disabled={!!armedFor && !confirmationReady}
+          class:confirm={!!armedFor}>{word(armedFor ? "confirm" : "create")}</button>
+      </div>
     </fieldset>
   </form>
 {/if}
 
 <style>
   .create-offer, .create-status { padding: 12px; }
+  .create-result { max-width: 480px; margin: 24px auto; padding: 16px; background: #10181d; border: 1px solid #42515b; }
+  .create-result h3 { margin: 0 0 8px; }
+  .create-result p { margin: 4px 0; }
+  .create-result[data-hypernet-create-result="success"] { border-color: #4a836f; }
+  .create-result[data-hypernet-create-result="failure"] { border-color: #a77d48; }
+  .result-actions { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 6px; margin-top: 8px; }
+  button.confirm { background: #315968; border-color: #6b9ba9; }
+  button.confirm[aria-disabled="true"] { opacity: .65; }
   fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; max-width: 580px; border: 0; margin: 0; padding: 0; min-width: 0; }
   label { display: grid; gap: 4px; min-width: 0; }
   select, input[type="number"] { width: 100%; min-width: 0; box-sizing: border-box; color: inherit; background: #10181d; border: 1px solid #42515b; padding: 5px; }
