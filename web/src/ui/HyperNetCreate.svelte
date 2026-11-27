@@ -27,7 +27,7 @@
   const stationID = $derived(sessionPlace($flight.status, $station.online).stationID);
   const hangar = $derived($inventory.hangar.rows.filter(row => row.flagID === 4 &&
     (row.locationID === undefined || row.locationID === stationID) && (row.ownerID === undefined || row.ownerID === pilot)));
-  const candidates = $derived(hangar.filter(row => row.typeID !== hyperNetCoreType && row.itemID !== $flight.status?.shipID));
+  const candidates = $derived(hangar.filter(row => row.quantity > 0 && row.typeID !== hyperNetCoreType && row.itemID !== $flight.status?.shipID));
   let prizeRules = $state.raw<HyperNetPrizeRules>();
   let dynamic = $state.raw<ReadonlySet<number>>(new Set());
   let loadingDynamic = $state(false);
@@ -41,6 +41,7 @@
     item: ["UI/HyperNet/FilterItemLabel", "Item"],
     blueprintOriginal: ["UI/Generic/Original", "Original"],
     blueprintCopy: ["UI/Generic/Copy", "Copy"],
+    stackHint: ["UI/HyperNet/CreateQuantityStackHint", "One item from the stack of {stack_size} will be listed."],
     count: ["UI/HyperNet/TicketCountLabel", "HyperNode count"],
     price: ["UI/HyperNet/TicketPrice", "HyperNode price"],
     total: ["UI/HyperNet/TotalPrice", "Total price"],
@@ -73,13 +74,16 @@
     TokenTypeError: "TokenTypeError", TokenLocationError: "TokenLocationError", TokenInventoryError: "TokenLocationError",
     TokenOwnerError: "TokenOwnerError", TokenAmountError: "TokenAmountError", UnknownError: "UnknownError",
   };
-  const word = (key: keyof typeof labels) => plainText(formatTemplate($words.templates[labels[key][0]] ?? labels[key][1],
-    { percentage: new Intl.NumberFormat(undefined, { style: "percent" }).format(hyperNetTaxRate) }, { nameOf: () => null }));
+  const word = (key: keyof typeof labels, args: Record<string, string> = {}) =>
+    plainText(formatTemplate($words.templates[labels[key][0]] ?? labels[key][1],
+      { percentage: new Intl.NumberFormat(undefined, { style: "percent" }).format(hyperNetTaxRate), ...args }, { nameOf: () => null }));
   const iskFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
   const isk = (amount: number) => `${iskFormat.format(amount)} ISK`;
   const itemName = (item: InventoryItemRow) => resolvedName($names.resolved, "type", item.typeID, String(item.typeID));
   const prizeName = (item: InventoryItemRow) => item.categoryID === 9
     ? `${itemName(item)} (${word(item.blueprintCopy ? "blueprintCopy" : "blueprintOriginal")})` : itemName(item);
+  const prizeOption = (item: InventoryItemRow) => item.quantity > 1
+    ? `${prizeName(item)} (×${item.quantity.toLocaleString()})` : prizeName(item);
 
   let itemID = $state(0);
   let tokenID = $state(0);
@@ -232,8 +236,7 @@
       return;
     }
     const reason = hyperNetPrizeRefusal(item, prizeRules, dynamic);
-    if (reason === "split") dropError = "Split one item from the stack before listing it.";
-    else if (reason) dropError = creationRefusal(reason);
+    if (reason) dropError = creationRefusal(reason);
     else selectPrize(id);
   }
 
@@ -306,10 +309,13 @@
         <select data-hypernet-create-item value={itemID} onchange={event => selectPrize(Number(event.currentTarget.value))}>
           <option value={0}>{prizes.length ? "Select an item" : "No eligible items in this hangar"}</option>
           {#each prizes as item (item.itemID)}
-            <option value={item.itemID}>{prizeName(item)}</option>
+            <option value={item.itemID}>{prizeOption(item)}</option>
           {/each}
         </select>
       </label>
+      {#if prize && prize.quantity > 1}
+        <p data-hypernet-prize-stack={prize.quantity}>{word("stackHint", { stack_size: prize.quantity.toLocaleString() })}</p>
+      {/if}
       {#if dropError}<p role="status" data-hypernet-drop-error>{dropError}</p>{/if}
       <label>HyperCores
         <select data-hypernet-create-token value={token?.itemID ?? 0} onchange={event => tokenID = Number(event.currentTarget.value)}>

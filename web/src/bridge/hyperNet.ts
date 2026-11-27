@@ -17,13 +17,12 @@ export interface HyperNetPrizeRules {
 }
 
 export function hyperNetPrizeRefusal(
-  item: { typeID: number; singleton: boolean; quantity: number },
+  item: { typeID: number; singleton: boolean },
   rules: HyperNetPrizeRules,
   dynamic: ReadonlySet<number>,
 ) {
   if (rules.restricted.has(item.typeID)) return "ItemTypeError";
   if (item.singleton && !rules.singleton.has(item.typeID) && !dynamic.has(item.typeID)) return "ItemSingletonError";
-  if (item.quantity !== 1) return "split";
   return null;
 }
 
