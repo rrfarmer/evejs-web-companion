@@ -5,7 +5,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { BROADCAST_ICONS, BROADCAST_NAME_LABELS, FLEET_BAR_BROADCASTS, type FleetBarBroadcast } from "../bridge/fleetBroadcasts.ts";
   import { FLEET_CMDR_ROLES, FLEET_JOB_CREATOR, isFleetCommander } from "../bridge/fleetCommand.ts";
-  import type { SavedFleetSetup } from "../bridge/fleetSetups.ts";
+  import { fleetSetupHint, type SavedFleetSetup } from "../bridge/fleetSetups.ts";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { FLEET_POINTERS } from "../play/uiPointer.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -54,6 +54,7 @@
   const labels = {
     more: "UI/Common/More",
     form: F + "FormFleet",
+    formWithSetup: F + "FormFleetWithSetup",
     leave: "UI/Fleet/LeaveMyFleet",
     disband: "UI/Fleet/DisbandFleet",
     regroup: F + "Regroup",
@@ -114,6 +115,9 @@
     ];
     if ($fleet.availability === "not-in-fleet") {
       rows.push(null, action(labels.form, "Form Fleet", () => run(flow.formFleet())));
+      if (savedSetups.length > 0) rows.push({ label: word(labels.formWithSetup, "Form Fleet with Setup"), sub: savedSetups.map(setup => ({
+        label: setup.name, hint: fleetSetupHint(setup), run: () => changeConfiguration(() => flow.formFleet(setup.name)),
+      })) });
     } else if ($fleet.authoritativeFleetID !== null) {
       const fleetID = $fleet.authoritativeFleetID;
       const own = $fleet.fleet?.initState.value.members.find(member => Number(member.charID) === $station.online?.characterID);
@@ -132,9 +136,8 @@
       if ($fleet.availability === "ready") {
         rows.push(action(labels.storeSetup, "Store Fleet Setup", onStoreSetup));
         if (own && isFleetCommander(own) && savedSetups.length > 0) {
-          const setups = [...savedSetups].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
           rows.push({ label: word(labels.fleetSetups, "Fleet Setups"), sub: [
-            ...setups.map(setup => ({ label: setup.name, run: () => changeConfiguration(() => flow.loadFleetSetup(fleetID, setup.name)) })),
+            ...savedSetups.map(setup => ({ label: setup.name, hint: fleetSetupHint(setup), run: () => changeConfiguration(() => flow.loadFleetSetup(fleetID, setup.name)) })),
             null, action(labels.setupsOverview, "Setups Overview", onSetupsOverview),
           ] });
         }

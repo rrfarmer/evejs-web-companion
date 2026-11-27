@@ -2962,7 +2962,7 @@ export interface AppFlow {
   /** Keep the fleet window's detail reads active only while that window is mounted. */
   retainFleetDetails(): () => void;
   /** Form a fleet, then re-read membership before settling. */
-  formFleet(): Promise<void>;
+  formFleet(setupName?: string | null): Promise<void>;
   /**
    * Invite one character by ID, then re-read the authoritative fleet. `place` is where in the fleet, as the invite
    * menu's places give it (menusvc.FleetInviteMenu); none, a squad member with no place said.
@@ -19034,9 +19034,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
   }
 
-  async function formFleet(): Promise<void> {
+  async function formFleet(setupName: string | null = null): Promise<void> {
     // (The page's own call, bridge/fleetWrites.ts: none from a pilot the Fleet window knows to be in a fleet.)
-    await runFleetAction("form", () => formFleetCall(bridgeDo, store.fleet.get().availability === "ready"), "ready");
+    await runFleetAction("form", () => formFleetCall(bridgeDo, store.fleet.get().availability === "ready", null, setupName), "ready");
   }
 
   async function setFleetParticipation(fleetID: number, option: keyof FleetMemberOptOuts, value: boolean): Promise<void> {

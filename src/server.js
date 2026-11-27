@@ -1559,6 +1559,11 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_FLEET_ID", message: "A positive fleetID is required." });
     return;
   }
+  if (objectKind === "fleet" && body.method === "CreateFleet" && body.kwargs?.setupName != null &&
+      (typeof body.kwargs.setupName !== "string" || !body.kwargs.setupName.trim())) {
+    res.status(400).json({ ok: false, error: "INVALID_FLEET_SETUP", message: "Choose a saved fleet setup by name." });
+    return;
+  }
   if (objectKind === "fleetParticipation" && (strictPositiveID(body.of) === null ||
       !Array.isArray(body.args) || body.args.length !== 1 || typeof body.args[0] !== "boolean" || body.kwargs != null)) {
     res.status(400).json({ ok: false, error: "INVALID_FLEET_PARTICIPATION", message: "Choose a fleet and a single true or false participation value." });
@@ -1822,7 +1827,7 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       // (Or a member kicked, or the boss handed on, on the session's own fleet's object: fleetSvc.KickMember and
       // MakeLeader, 601 to 612.)
       ? { ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => (body.method === "CreateFleet"
-        ? createFleetCall(heldBridgeSession, req.webSessionID, body.kwargs && typeof body.kwargs === "object" ? body.kwargs.adInfoData : null)
+        ? createFleetCall(heldBridgeSession, req.webSessionID, body.kwargs?.adInfoData, body.kwargs?.setupName)
         : body.method === "LeaveFleet"
         ? leaveFleetCall(heldBridgeSession, req.webSessionID, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null)
         : boundCall(heldBridgeSession, req.webSessionID, fleetBindSpec(), body.method, Array.isArray(body.args) ? body.args : [], body.kwargs ?? null))), service: body.service, method: body.method }
@@ -6592,11 +6597,11 @@ async function leaveFleetCall(held, webSessionID, args = [], kwargs = null) {
  * A fleet formed, as the client's fleet service forms one (fleetSvc.CreateFleet, 331 to 342): the handler's
  * CreateFleet, with nothing, which answers the fleet's own object; and Init on that object. The mint is the bind,
  * and its key is its own each time, so that a second forming is of a second fleet and never Init on what the first
- * was bound to. Init goes with nothing said: the game port says the ship's type as the client does (retailCalls.js,
+ * was bound to. Init can carry a saved setup name. The game port says the ship's type as the client does (retailCalls.js,
  * fleetInit), and through the gateway the server takes the session's. Whatever comes of it, none of the BFF's
  * handles for a fleet is kept: the pilot's fleet is another one now, or may be.
  */
-async function createFleetCall(held, webSessionID, adInfoData = null) {
+async function createFleetCall(held, webSessionID, adInfoData = null, setupName = null) {
   const bindSpec = {
     key: `fleet-create:${Date.now()}:${Math.random().toString(36).slice(2)}`,
     service: "fleetObjectHandler",
@@ -6608,7 +6613,7 @@ async function createFleetCall(held, webSessionID, adInfoData = null) {
     // CreateAndRegisterFleet (1857): Init's adInfoData, the advert's data where the pilot formed the fleet with one
     // (the Agency's Fleet Up); nothing said otherwise. Only a dict goes: anything else is none.
     const advert = adInfoData && typeof adInfoData === "object" && adInfoData.type === "dict" ? adInfoData : null;
-    return await boundCall(held, webSessionID, bindSpec, "Init", [null, null], advert ? { adInfoData: advert } : null);
+    return await boundCall(held, webSessionID, bindSpec, "Init", [null, setupName], advert ? { adInfoData: advert } : null);
   } finally {
     invalidateFleetBoundHandles(held);
   }

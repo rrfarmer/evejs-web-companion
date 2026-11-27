@@ -54,7 +54,19 @@ export function readSavedFleetSetups(text: string | null): SavedFleetSetup[] {
       freeMove: typeof record.isFreeMove === "boolean" ? record.isFreeMove : undefined,
       maxSize: typeof record.maxFleetSize === "number" ? record.maxFleetSize : undefined });
   }
-  return [...setups.values()];
+  return [...setups.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+}
+
+export function fleetSetupHint(setup: SavedFleetSetup): string {
+  const lines = [setup.name];
+  if (setup.motd) lines.push(setup.motd.length > 100 ? `${setup.motd.slice(0, 100)}…` : setup.motd);
+  if (setup.freeMove !== undefined) lines.push(setup.freeMove ? "Free-Move On" : "Free-Move Off");
+  if (setup.maxSize !== undefined) lines.push(`Max Fleet Size ${setup.maxSize}`);
+  if (setup.defaultSquad !== undefined) lines.push(`Default Squad ${setup.defaultSquad}`);
+  const squads = setup.wings.reduce((count, wing) => count + wing.squads.length, 0);
+  if (setup.wings.length) lines.push(`${setup.wings.length} ${setup.wings.length === 1 ? "wing" : "wings"}`);
+  if (squads) lines.push(`${squads} ${squads === 1 ? "squad" : "squads"}`);
+  return lines.join("\n");
 }
 
 export function removeSavedFleetSetup(text: string | null, name: string): string {

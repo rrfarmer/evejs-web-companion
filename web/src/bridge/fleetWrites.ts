@@ -365,12 +365,12 @@ export async function makeFleetLeader(act: Ask, characterID: number): Promise<vo
  * from there the client asks nothing, and nor does this. Fails as the call fails. `adInfoData`, where the Agency's
  * Fleet Up forms the fleet with its advert (fleetSvc.CreateAndRegisterFleet, 1857), goes as Init's adInfoData.
  */
-export async function formFleet(act: Ask, inAFleet: boolean, adInfoData: JsonValue | null = null): Promise<void> {
+export async function formFleet(act: Ask, inAFleet: boolean, adInfoData: JsonValue | null = null, setupName: string | null = null): Promise<void> {
   if (inAFleet) {
     throw new Error("You are already in a fleet.");
   }
-  if (adInfoData === null) await act("fleetObjectHandler", "CreateFleet", []);
-  else await act("fleetObjectHandler", "CreateFleet", [], { adInfoData });
+  const options = { ...(adInfoData === null ? {} : { adInfoData }), ...(setupName === null ? {} : { setupName }) };
+  await act("fleetObjectHandler", "CreateFleet", [], Object.keys(options).length ? options : undefined);
 }
 
 /** A fleet advert's basic options, as the Agency's Fleet Up registration (BasicOptionsCont) takes them. */

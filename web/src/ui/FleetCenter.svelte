@@ -19,6 +19,7 @@
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import type { FleetMember, FleetSquad, FleetWing } from "../bridge/boundFleet.ts";
   import { fleetAdvertUrl, type FleetAdvert } from "../bridge/fleetAds.ts";
+  import { fleetSetupHint, type SavedFleetSetup } from "../bridge/fleetSetups.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
   let { store, flow, openWatchlist, openComposition, onFleetBroadcast, fleetRosterFlat = false, openAdvert }: {
@@ -30,6 +31,22 @@
 
   // svelte-ignore state_referenced_locally
   const { fleet, words } = store;
+  // svelte-ignore state_referenced_locally
+  const setupRevision = flow.fleetSetupRevision;
+  let formSetups = $state<SavedFleetSetup[]>([]);
+  let selectedSetup = $state("");
+  const activeSetup = $derived(formSetups.find(setup => setup.name === selectedSetup));
+  $effect(() => {
+    void $setupRevision;
+    if ($fleet.availability !== "not-in-fleet") { selectedSetup = ""; return; }
+    let active = true;
+    void flow.readFleetSetups().then(setups => {
+      if (!active) return;
+      formSetups = setups;
+      if (!setups.some(setup => setup.name === selectedSetup)) selectedSetup = "";
+    }, () => { if (active) { formSetups = []; selectedSetup = ""; } });
+    return () => { active = false; };
+  });
   const hierarchyMenu = new ContextMenu();
   const hierarchyWords = "UI/Fleet/FleetWindow/";
   const nameWord = hierarchyWords + "ChangeName";
@@ -64,7 +81,7 @@
     changingName = null;
     hierarchyAction(flow.updateFleetHierarchy(fleetID, action, id, hierarchyName));
   }
-  onMount(() => flow.requestWords([nameWord, setDefaultWord, removeDefaultWord]));
+  onMount(() => flow.requestWords([nameWord, setDefaultWord, removeDefaultWord, "UI/Fleet/FleetWindow/DefaultSetup"]));
   onDestroy(() => hierarchyMenu.close());
   /**
    * fleetwindow.FleetWindow on the play page (500 x 400, the tabs in the header - TabNavigationWindowHeader): in a
@@ -374,7 +391,7 @@
   // 365 to 371); an invitation is answered in its own dialog, of which the Accept and Decline here are the two
   // answers (OnFleetInvite, 1193). So the page asks nothing either.
   async function formFleet(): Promise<void> {
-    await flow.formFleet();
+    await flow.formFleet(activeSetup?.name ?? null);
   }
 
   async function acceptInvite(): Promise<void> {
@@ -554,7 +571,10 @@
         {/if}
         <div class="fl-form-row">
           <button type="button" disabled={busy} onclick={() => void formFleet()}>{fleetWord("UI/Fleet/FleetWindow/FormFleet") || "Form Fleet"}</button>
-          <select><option>{fleetWord("UI/Fleet/FleetWindow/DefaultSetup") || "Default Setup"}</option></select>
+          <select bind:value={selectedSetup} aria-label="Fleet setup" disabled={busy} title={activeSetup ? fleetSetupHint(activeSetup) : undefined}>
+            <option value="">{fleetWord("UI/Fleet/FleetWindow/DefaultSetup") || "Default setup"}</option>
+            {#each formSetups as setup (setup.name)}<option value={setup.name}>{setup.name}</option>{/each}
+          </select>
         </div>
       </div>
     {/if}
