@@ -153,8 +153,8 @@
     onOpen?: (tab: TabID, sessionID?: string) => void;
     onClose?: () => void;
     registerBeforeClose?: (guard: () => Promise<boolean>) => () => void;
-    openParagonHub?: (shipTypeID: number) => void;
-    paragonHubRequest?: { shipTypeID: number } | null;
+    openParagonHub?: (shipTypeID?: number) => void;
+    paragonHubRequest?: { shipTypeID?: number } | null;
     onParagonHubRequestTaken?: () => void;
     inventoryVaultRequested?: boolean;
     storeCategoryRequest?: { tag: "gametime" | "plex" } | { typeID: number } | null;
@@ -424,7 +424,8 @@
 {:else if tab === "auraGuidance"}
   <AuraGuidance {store} {flow} />
 {:else if tab === "newEdenStore"}
-  <NewEdenStore {flow} categoryRequest={storeCategoryRequest} />
+  <NewEdenStore {store} {flow} categoryRequest={storeCategoryRequest}
+    openParagonHub={openParagonHub ? () => { onClose?.(); openParagonHub?.(); } : undefined} />
 {:else if tab === "plexCheckout"}
   <PlexCheckout {flow} onShowStore={onShowPlexOffers} />
 {:else if tab === "omegaUpsell"}

@@ -14,13 +14,13 @@
   type Guard = () => Promise<boolean>;
   let { store, flow, registerBeforeClose, paragonHubRequest, onParagonHubRequestTaken }: { store: ClientStore; flow: AppFlow;
     registerBeforeClose?: (guard: Guard) => () => void;
-    paragonHubRequest?: { shipTypeID: number } | null;
+    paragonHubRequest?: { shipTypeID?: number } | null;
     onParagonHubRequestTaken?: () => void } = $props();
   let page = $state<Page>("studio");
   let storePage = $state<"skins" | "elements">("skins");
   let linked = $state.raw<ReturnType<AppFlow["takeShipSkinrListingLink"]>>(null);
   let linkedDesign = $state.raw<ReturnType<AppFlow["takeShipSkinrDesignLink"]>>(null);
-  let hubLanding = $state.raw<{ shipTypeID: number } | null>(null);
+  let hubLanding = $state.raw<{ shipTypeID?: number } | null>(null);
   let sequenceFailure = $state<keyof typeof failureWords | null>(null);
   let guard: Guard | undefined;
   let changingPage = $state(false);
@@ -77,7 +77,7 @@
       void choose("store", false, () => {
         storePage = "skins";
         linked = null;
-        hubLanding = request;
+        hubLanding = request.shipTypeID ? request : { shipTypeID: hubLanding?.shipTypeID };
       }).catch(() => {});
     });
   });

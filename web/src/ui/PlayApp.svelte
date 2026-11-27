@@ -1029,8 +1029,8 @@
     toggleShipSkinr: toggleShipSkinrWindow,
     openParagonHub,
   };
-  let paragonHubRequest = $state.raw<{ shipTypeID: number } | null>(null);
-  function openParagonHub(shipTypeID: number) {
+  let paragonHubRequest = $state.raw<{ shipTypeID?: number } | null>(null);
+  function openParagonHub(shipTypeID?: number) {
     paragonHubRequest = { shipTypeID };
     open("shipSkinr");
   }

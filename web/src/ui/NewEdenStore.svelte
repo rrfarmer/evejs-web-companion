@@ -2,12 +2,21 @@
   import { onMount } from "svelte";
   import { bridgeAsk } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
+  import { plainText } from "../bridge/clientWords.ts";
   import { decodeStoreOffers, IN_GAME_STORE_ID, storeEntries, storeEntryID, storeFieldText } from "../bridge/newEdenStore.ts";
   import { isListValue, readDictEntry } from "../bridge/wire.ts";
+  import type { ClientStore } from "../store/clientStore.ts";
+  import { clientTexture } from "./skillGroupIcons.ts";
 
   type StoreRequest = { tag: "gametime" | "plex" } | { typeID: number };
-  let { flow, categoryRequest = null }: { flow: AppFlow; categoryRequest?: StoreRequest | null } = $props();
-  type Category = { id: number; name: string; tags: string[] };
+  let { store, flow, categoryRequest = null, openParagonHub }: { store: ClientStore; flow: AppFlow;
+    categoryRequest?: StoreRequest | null; openParagonHub?: () => void } = $props();
+  const words = $derived(store.words);
+  const station = $derived(store.station);
+  const ribbon = "UI/VirtualGoodsStore/SKINR/Ribbon";
+  const description = "UI/VirtualGoodsStore/SKINR/Description";
+  const shipSkinsRoot = 1; // ROOT_CATEGORY_SHIP_SKINS in aurumStoreContainer.py.
+  type Category = { id: number; parentID: number | null; name: string; tags: string[] };
   let catalogue = $state<{ offers: ReturnType<typeof decodeStoreOffers>; categories: Category[] } | null>(null);
   let selectedCategory = $state<number | null>(null);
   let loading = $state(false);
@@ -17,6 +26,12 @@
   let selectedProduct = $state<number | null>(null);
   const offers = $derived(catalogue?.offers.filter(offer => (selectedCategory === null || offer.categories.includes(selectedCategory)) &&
     (selectedProduct === null || offer.productTypes.includes(selectedProduct))) ?? []);
+  const selected = $derived(catalogue?.categories.find(row => row.id === selectedCategory));
+  const parent = $derived(catalogue?.categories.find(row => row.id === selected?.parentID));
+  const isSkinCategory = (category: Category | undefined) => category?.id === shipSkinsRoot || category?.tags.includes("skins");
+  const showSkinrBanner = $derived(!!openParagonHub && !!$station.online?.characterID && !!catalogue &&
+    (isSkinCategory(selected) || isSkinCategory(parent) || (selectedCategory === null && selectedProduct === null && !categoryUnavailable)));
+  $effect(() => { if (openParagonHub) flow.requestWords([ribbon, description]); });
 
   $effect(() => {
     const requested = categoryRequest;
@@ -43,7 +58,10 @@
       const categories = rawCategories.items.flatMap((entry) => {
         const categoryID = storeEntryID(entry), title = storeFieldText(entry, "name");
         const tags = storeEntries(readDictEntry(entry, "tags")).filter(tag => typeof tag === "string");
-        return categoryID === null || !title ? [] : [{ id: categoryID, name: title, tags }];
+        const parent = readDictEntry(entry, "parentId");
+        const parentID = typeof parent === "number" && Number.isSafeInteger(parent) && parent > 0 ? parent :
+          storeEntryID(readDictEntry(entry, "parent"));
+        return categoryID === null || !title ? [] : [{ id: categoryID, parentID, name: title, tags }];
       });
       catalogue = { offers: decodeStoreOffers(rawOffers), categories };
       if (selectedCategory !== null && !categories.some(category => category.id === selectedCategory)) selectedCategory = null;
@@ -70,6 +88,14 @@
     {#if selectedProduct !== null}<button type="button" onclick={() => (selectedProduct = null)}>Show all offers</button>{/if}
     <button type="button" disabled={loading} onclick={() => void load()}>Refresh catalogue</button>
   </div>
+  {#if showSkinrBanner}
+    <button type="button" class="paragon-banner" onclick={openParagonHub}>
+      <img src={clientTexture("res:/UI/texture/classes/paintTool/paragon_logo.png")} alt="" width="34" height="32" />
+      <span><strong>{plainText($words.templates[ribbon] || "Paragon Hub")}</strong>
+        {#if $words.templates[description]}<span>{plainText($words.templates[description])}</span>{/if}
+      </span>
+    </button>
+  {/if}
   {#if loading && catalogue === null}<p role="status">Loading store catalogue…</p>{/if}
   {#if categoryUnavailable}<p role="status">{categoryRequest && "tag" in categoryRequest && categoryRequest.tag === "plex" ? "PLEX offers are unavailable in this catalogue." : "Game time is unavailable in this catalogue."}</p>{/if}
   {#if error}<p role="alert">{error}</p>{/if}
@@ -91,6 +117,10 @@
 <style>
   .new-eden-store { padding: 16px; }
   .store-controls { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+  .paragon-banner { width: 100%; display: flex; align-items: center; gap: 14px; margin-bottom: 14px; padding: 14px; text-align: start; border-color: #5c9da8; background: #5c9da81a; }
+  .paragon-banner img { flex: none; }
+  .paragon-banner strong, .paragon-banner span { display: block; }
+  .paragon-banner strong + span { margin-top: 4px; }
   .offers { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); padding: 0; margin: 0; gap: 10px; }
   .offers li { padding: 12px; border: 1px solid var(--line, #39444b); }
   h2 { font-size: 1rem; margin: 0; }
