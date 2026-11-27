@@ -8,6 +8,7 @@
 //        [--turret <res path of a turret module's graphic> ...] [--gfx-turrets] [--ammo-colors] [--sof-materials] [--missile <missile typeID> ...]
 //        [--ship-info] (the Ship Info scene, faction backgrounds and light rig, needs --sde)
 //        [--portrait-head <female|male>] (the skinned character-creation base head)
+//        [--portrait-outfit <gender/style/variant>] (an installed paper-doll outer garment)
 //        [--observatory-environment] (the anchor template and its postprocessing textures)
 //        [--observatory-vortex] (the vault volume and its authored lighting inputs)
 //
@@ -883,11 +884,73 @@ async function extractPortraitHair(rf, gender, style, outRoot) {
   }));
 }
 
+async function extractPortraitOutfit(rf, outfit, outRoot) {
+  const [gender, style, variant] = outfit.split("/");
+  const folder = `res:/graphics/character/${gender}/paperdoll/outer/${style}`;
+  const typePath = `${folder}/types/${variant}.type`;
+  const type = rf.read(typePath).toString("utf8");
+  const fields = [...type.matchAll(/^-\s+([^\r\n]*)$/gm)].map(match => match[1].trim().replace(/^(['"])(.*)\1$/, "$2"));
+  if (fields.length !== 3 || fields[0] !== `outer/${style}` ||
+    !fields.slice(1).every(field => /^[a-z0-9_]*$/.test(field))) throw new Error(`${typePath}: unrecognized outfit type`);
+  const [, variation, palette] = fields;
+  const definitions = rf.list(folder + "/", /\.black$/i).filter(res => !res.slice(folder.length + 1).includes("/"));
+  const sources = new Set(definitions.flatMap(res => (readBlack(rf.read(res), res).meshes ?? [])
+    .map(mesh => mesh.geometryResPath?.toLowerCase()).filter(resource => resource?.startsWith(folder + "/") && resource.endsWith(".gr2"))));
+  if (sources.size !== 1) throw new Error(`${typePath}: expected one authored skinned model`);
+  const [source] = sources;
+  const layers = variation ? [`${folder}/${variation}`, folder] : [folder];
+  const texture = (suffixes) => {
+    for (const layer of layers) {
+      const files = rf.list(layer + "/", /\.(?:png|dds)$/i).filter(res => !res.slice(layer.length + 1).includes("/"));
+      for (const suffix of suffixes) {
+        const resource = files.find(res => suffix.test(res));
+        if (resource) return copyRes(rf, resource, outRoot);
+      }
+    }
+    return null;
+  };
+  const palettePath = `${folder}/${palette || "default"}.color`;
+  const colorBlock = rf.has(palettePath) ? /^colors:[ \t]*\r?\n((?:[- \t][^\r\n]*(?:\r?\n|$))*)/m.exec(rf.read(palettePath).toString("utf8"))?.[1] : "";
+  const colors = (colorBlock ?? "").split(/\r?\n/).flatMap(line => {
+    const tuple = /\[([^\]]+)\]/.exec(line);
+    if (!tuple) return [];
+    const values = tuple[1].split(",").map(Number);
+    return values.length === 4 && values.every(Number.isFinite) ? [values] : [];
+  }).slice(0, 3);
+  const metadataPath = `${folder}/metadata.yaml`;
+  const metadata = rf.has(metadataPath) ? rf.read(metadataPath).toString("utf8") : "";
+  const occludes = (/occludesModifiers:\s*\[([^\]]*)\]/.exec(metadata)?.[1] ?? "").split(",").map(s => s.trim()).filter(Boolean);
+  const dir = path.join(outRoot, "portrait-outfit", gender, style);
+  fs.mkdirSync(dir, { recursive: true });
+  const modelFile = path.join(dir, "model.glb");
+  if (!fs.existsSync(modelFile)) {
+    const { root } = await readGranny(rf.read(source), source);
+    const model = root.Models.find(entry => entry.Skeleton?.Bones?.length && entry.MeshBindings?.length);
+    if (!model) throw new Error(`${source}: no skinned outfit model`);
+    const bones = model.Skeleton.Bones;
+    const lods = model.MeshBindings.map(({ Mesh }) => ({ ...meshArrays(Mesh), skin: meshSkinArrays(Mesh, bones) }));
+    writeExtracted(modelFile, writeGlb({ name: style, lods, bones, extras: { source } }));
+    console.log(`portrait-outfit/${gender}/${style}/model.glb: ${lods.length} meshes, ${bones.length} bones`);
+  }
+  writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
+    model: `/client-assets/portrait-outfit/${gender}/${style}/model.glb`, source, type: typePath, variation, palette, colors, occludes,
+    diffuse: texture([/\/colorize_body_l_512\.png$/i, /\/colorize_body_l_256\.dds$/i, /\/colorize_body_l\.png$/i]),
+    zones: texture([/\/colorize_body_z_512\.png$/i, /\/colorize_body_z_256\.dds$/i, /\/colorize_body_z\.png$/i]),
+    normal: texture([/_n_512\.png$/i, /_n\.png$/i]),
+  }));
+}
+
 function parseArgs(argv) {
   const out = { hulls: [], types: [], typeSkins: [], graphics: [], dnas: [], scenes: [], wormholeNebulas: [], celestials: [], turrets: [], missiles: [], systemCelestials: [], typeGraphics: false, gfxTurrets: false, ammoColors: false, sofMaterials: false, fx: [], effects: [], starMap: false, fittingScene: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--client") out.client = argv[++i];
+    else if (a === "--portrait-outfit") {
+      out.portraitOutfit = argv[++i];
+      if (!/^(?:female|male)\/[a-z0-9_]+\/[a-z0-9_]+$/.test(out.portraitOutfit ?? "")) {
+        throw new Error("--portrait-outfit needs gender/style/variant");
+      }
+    }
     else if (a === "--out") out.out = argv[++i];
     else if (a === "--portrait-bloodline") {
       out.portraitBloodline = Number(argv[++i]);
@@ -1228,6 +1291,7 @@ async function main() {
       background, lightRig }));
     console.log(`shipInfoScene.json: ${Object.keys(background.childEffects).length} faction effects and light rig`);
   }
+  if (args.portraitOutfit) await extractPortraitOutfit(rf, args.portraitOutfit, outRoot);
   if (args.portraitHead) {
     if (args.portraitHair) await extractPortraitHair(rf, args.portraitHead, args.portraitHair, outRoot);
     else if (args.portraitBloodline !== undefined) extractPortraitArchetype(rf, args.portraitHead, args.portraitBloodline, outRoot);
@@ -1308,7 +1372,7 @@ async function main() {
     }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.shipBannerTextures && !args.shipBannerLayout && !args.shipEmblems && !args.firstPartySkins && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.wormholeTransit && !args.warpTunnel && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.asteroidRules && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.portraitHead && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
+  if (!done.length && !args.shipBannerTextures && !args.shipBannerLayout && !args.shipEmblems && !args.firstPartySkins && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.wormholeTransit && !args.warpTunnel && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.asteroidRules && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.portraitHead && !args.portraitOutfit && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
   await compression.prepareAssets(writtenAssets, (file, error) => console.warn(`Brotli ${path.relative(outRoot, file)}: ${error.message}`));
   if (!process.env.EVEJS_DEFER_HULL_COLOR_ENCODING) {
     await hullColorCompression.prepareHullColors(writtenAssets, path.dirname(outRoot),
