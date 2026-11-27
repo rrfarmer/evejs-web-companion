@@ -113,6 +113,7 @@
   import { mailBodyLines } from "../bridge/mailMarkup.ts";
   import ShipSkinrCollection from "./ShipSkinrCollection.svelte";
   import FittingFirstPartySkins from "./FittingFirstPartySkins.svelte";
+  import { playUiEvent } from "../play/uiAudio.ts";
 
   let {
     store,
@@ -1434,7 +1435,8 @@
   const personalizationShown = $derived(personalization && canPersonalize && !simulation);
   const personalizationLabel = "UI/ShipCosmetics/Personalization";
   const skinsLabel = "UI/ShipCosmetics/Skins";
-  $effect(() => { flow.requestWords([personalizationLabel, skinsLabel]); });
+  const cleanShipLabel = "UI/Fitting/FittingWindow/CleanShip";
+  $effect(() => { flow.requestWords([personalizationLabel, skinsLabel, cleanShipLabel]); });
   $effect(() => {
     if (!canPersonalize || simulation) personalization = false;
   });
@@ -3602,6 +3604,13 @@
       <h3 id="fitting-personalization-skins" data-ui-pointer={FITTING_POINTERS.skins}>
         {plainText($words.templates[skinsLabel] ?? "SKINs")}
       </h3>
+      {#if $fitting.activeShipID !== $station.online?.structureID}
+        {@const shipID = $fitting.activeShipID}
+        <button type="button" class="minor" disabled={busy} onclick={() => {
+          void playUiEvent("fitting_window_clean_ship_play");
+          void run(() => flow.cleanShip(shipID));
+        }}>{plainText($words.templates[cleanShipLabel] ?? "Clean ship")}</button>
+      {/if}
     </header>
     {#key $fitting.activeShipID}
       <FittingFirstPartySkins {store} {flow} shipID={$fitting.activeShipID} shipTypeID={activeShipTypeID} />

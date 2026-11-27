@@ -619,7 +619,7 @@ const MONIKER_NEEDS = Object.freeze({
  * shipConfigSvc.py 51: eveMoniker.GetShipAccess().GetShipConfiguration(shipID), and baseHangarBehaviours.py 89:
  * eveMoniker.GetShipAccess().GetDirtTimestamp(itemID), each a Moniker of its own each time.
  */
-const OWN_SHIP_MONIKER = new Set(["GetShipConfiguration", "GetDirtTimestamp"]);
+const OWN_SHIP_MONIKER = new Set(["GetShipConfiguration", "GetDirtTimestamp", "ResetDirtTimestamp"]);
 /**
  * Whether the client makes a new Moniker for this call, which binds carrying it and is not kept, or calls one it
  * keeps. All of crimewatch's are made anew (crimewatchSvc.py: CharGetCrimewatchLocation().Method(...) at each use).
@@ -1071,6 +1071,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // A ship's dirt time, which the client's hangar asks for the docked ship (baseHangarBehaviours.SetShipDirtLevel:
   // GetShipAccess().GetDirtTimestamp(itemID), for its hull's dust). The gateway's list has it not.
   "ship.GetDirtTimestamp",
+  "ship.ResetDirtTimestamp",
 ]);
 
 /**
@@ -3614,6 +3615,7 @@ const RETAIL_CALLS = Object.freeze({
   "repairSvc.RepairItems": differs("eve/client/script/ui/station/repairshop/base_repairshop.py:65", "The client's repair service asks RepairItemsInStation or RepairItemsInStructure of the shop's Moniker. This name is the server's own for both, and what the web gateway's list has."),
   "slash.SlashCmd": typing(judged("eve/client/script/ui/services/menusvc.py:834", aSlashCommand, "RemoteSvc('slash').SlashCmd(line), by name, with the one line of text: what the client's GM menus send, and what its own slash service sends for a line typed in chat once its aliases are worked out (svc_slash.py 520 to 523). No recording has one. A line typed in chat goes unicode, as the page's GM console's does; the GM menus' own lines are byte strings, and the page sends none of those."), [0]),
   "ship.GetShipConfiguration": reshaped(`${SHIP_CONFIG}:51`, configuration, "GetShipAccess().GetShipConfiguration(shipID)"),
+  "ship.ResetDirtTimestamp": same("eve/client/script/ui/shared/fitting/cleanShipButton.py:30", "GetShipAccess().ResetDirtTimestamp(shipID)"),
 });
 
 /**

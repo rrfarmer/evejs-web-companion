@@ -447,6 +447,7 @@
   const targeting = $derived(session?.store.targeting);
   const fitting = $derived(session?.store.fitting);
   const appliedSkinr = $derived(session?.flow.shipSkinrApplied);
+  const shipDirtReset = $derived(session?.flow.shipDirtReset);
   const inventory = $derived(session?.store.inventory);
   const fleet = $derived(session?.store.fleet);
   const memberDetails = $derived(session?.flow.memberDetailsShown);
@@ -1181,8 +1182,18 @@
       $effect(() => {
         // (the fitting's active ship: the flight is not read while docked)
         const shipID = $fitting?.activeShipID ?? null;
-        if (!shipID || !$station?.station) { hangar.setDirt(null); return; }
-        void session?.flow.shipDirtTime(shipID).then((t) => hangar.setDirt(t === null ? null : dirtLevelFromTime(t))).catch(() => hangar.setDirt(null));
+        const online = $station?.online;
+        if (!shipID || !(online?.stationID || online?.structureID) || shipID === online.structureID) {
+          hangar.setDirt(null);
+          return;
+        }
+        // Clean ship refreshes the docked view's dirt read. Keep the server timestamp authoritative when the view remounts.
+        void $shipDirtReset;
+        let current = true;
+        void session?.flow.shipDirtTime(shipID)
+          .then(time => { if (current) hangar.setDirt(time === null ? null : dirtLevelFromTime(time)); })
+          .catch(() => { if (current) hangar.setDirt(null); });
+        return () => { current = false; };
       });
       // its damage (dogma GetDamageStateEx from the active ship's attributes, kept as OnModuleAttributeChanges tells:
       // shieldCharge / shieldCapacity, 1 - armorDamage / armorHP, 1 - damage / hp), its change a repair's

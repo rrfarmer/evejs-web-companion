@@ -5076,6 +5076,8 @@ export interface AppFlow {
    * .SetShipDirtLevel: eveMoniker.GetShipAccess().GetDirtTimestamp(itemID)); null where the server gives none.
    */
   shipDirtTime(shipID: number): Promise<bigint | number | null>;
+  readonly shipDirtReset: ReadableSignal<{ shipID: number; characterID: number; time: bigint } | null>;
+  cleanShip(shipID: number): Promise<void>;
   /** shipConfigSvc.GetShipConfig: the ship's fleet hangar and maintenance bay sharing flags; null where unread. */
   shipConfig(shipID: number): Promise<ShipConfig | null>;
   /** shipConfigSvc.SetShipConfig (the access toggles on a fleet hangar's or maintenance bay's tree entry). */
@@ -14522,6 +14524,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const skillBooksAskedSignal = createSignal<SkillBooksAsk | null>(null);
   const gatewayNoticesSignal = createSignal<GatewayNotice | null>(null);
   const shipSkinrAppliedSignal = createSignal<ShipSkinrAppliedState | null>(null);
+  const shipDirtReset = createSignal<{ shipID: number; characterID: number; time: bigint } | null>(null);
   const shipDefaultSkinChanged = createSignal(0);
   const shipDefaultSkins = new Map<string, ShipDefaultSkin | null>();
   let shipSkinrAppliedRequest = 0;
@@ -39567,6 +39570,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (typeof answer === "bigint" || typeof answer === "number") return answer;
       const long = answer as { type?: unknown; value?: unknown } | null;
       return long && typeof long === "object" && long.type === "long" && /^-?\d+$/.test(String(long.value)) ? BigInt(String(long.value)) : null;
+    },
+    shipDirtReset: readonlySignal(shipDirtReset),
+    async cleanShip(shipID) {
+      const current = callOptions.captureRequestGuard!();
+      const online = store.station.get().online;
+      if (!online?.characterID || !(online.stationID || online.structureID) ||
+          shipID !== store.fitting.get().activeShipID || shipID === online.structureID) {
+        throw new Error("Select your active ship while docked to clean it.");
+      }
+      const time = unwrapLong(await bridgeDo("ship", "ResetDirtTimestamp", [shipID]));
+      current();
+      if (time === null || time <= 0n) throw new Error("The ship's dirt timestamp could not be reset.");
+      shipDirtReset.set({ shipID, characterID: online.characterID, time });
     },
     npcNpcStandings() {
       npcNpcStandingsRead ??= readNpcNpcStandings(bridgeAsk).catch((error: unknown) => {
