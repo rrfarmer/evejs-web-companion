@@ -192,12 +192,12 @@ export class HangarView {
   }
 
   async show(typeID: number | null, hangarGraphics: HangarGraphics | null = null,
-    skin: ShipSkinrApplication | null = null, options?: ApiOptions): Promise<void> {
+    skin: ShipSkinrApplication | null = null, options?: ApiOptions, skinMaterialSetID: number | null = null): Promise<void> {
     const hangarKey = hangarGraphics ? `${hangarGraphics.model}:${hangarGraphics.scene}` : null;
     this.hangarType = hangarGraphics?.hangarType ?? 0;
     if (hangarGraphics) void hangarColorSet(hangarGraphics.model).then((c) => { if (this.shownHangar === `${hangarGraphics.model}:${hangarGraphics.scene}`) this.hangarColors = c; });
     else this.hangarColors = null;
-    const skinKey = skin?.hex ?? null;
+    const skinKey = skin?.hex ?? (skinMaterialSetID ? String(skinMaterialSetID) : null);
     if (typeID === this.shownType && hangarKey === this.shownHangar && skinKey === this.shownSkin) return;
     const request = ++this.showRequest;
     // another ship boarded in the same hangar (hangarView.OnActiveShipChanged, a hangar that is not modular):
@@ -218,7 +218,7 @@ export class HangarView {
     const currentHangar = loadHangar ? null : this.hangar;
     const modelRead = (async () => {
       const painted = skin ? await appliedShipSkinrModel(typeID, skin, options).catch(() => null) : null;
-      return { model: painted ?? await typeModel(typeID).catch(() => null), customSkin: painted !== null };
+      return { model: painted ?? await typeModel(typeID, skinMaterialSetID).catch(() => null), customSkin: painted !== null };
     })();
     const [{ model, customSkin }, hangar, scene] = await Promise.all([
       modelRead,

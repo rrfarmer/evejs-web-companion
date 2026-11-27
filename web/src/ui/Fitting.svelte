@@ -112,6 +112,7 @@
   import { assetSearchTextForType } from "../bridge/assetSearch.ts";
   import { mailBodyLines } from "../bridge/mailMarkup.ts";
   import ShipSkinrCollection from "./ShipSkinrCollection.svelte";
+  import FittingFirstPartySkins from "./FittingFirstPartySkins.svelte";
 
   let {
     store,
@@ -3595,15 +3596,16 @@
   {/if}
 </section>
 
-{#if personalizationShown && activeShipTypeID !== null}
+{#if personalizationShown && activeShipTypeID !== null && $fitting.activeShipID !== null}
   <section class="panel" data-fitting-personalization aria-labelledby="fitting-personalization-skins">
     <header class="panel-head">
       <h3 id="fitting-personalization-skins" data-ui-pointer={FITTING_POINTERS.skins}>
         {plainText($words.templates[skinsLabel] ?? "SKINs")}
       </h3>
-      <p class="stat-line">Ship SKINR</p>
     </header>
     {#key $fitting.activeShipID}
+      <FittingFirstPartySkins {store} {flow} shipID={$fitting.activeShipID} shipTypeID={activeShipTypeID} />
+      <header class="panel-head"><h3>Ship SKINR</h3></header>
       <ShipSkinrCollection {store} {flow} fittingHull={activeShipTypeID} />
     {/key}
   </section>

@@ -46,6 +46,22 @@ export function loadGraphicMaterialSets(sdeDir, required = true) {
   return new Map(file ? readRows(file).map(row => [row._key, row]) : []);
 }
 
+export function buildFirstPartySkins(sdeDir, typeID) {
+  const materials = new Map(readRows(clientTable(sdeDir, ["skinmaterials.jsonl", "skinMaterials.jsonl"], true))
+    .map(row => [row.skinMaterialID ?? row._key, row]));
+  return readRows(clientTable(sdeDir, ["skins.jsonl"], true)).flatMap(skin => {
+    const material = materials.get(skin.skinMaterialID);
+    if (!skin.types?.includes(typeID) || !material?.displayNameID) return [];
+    return [{
+      skinID: skin.skinID ?? skin._key,
+      materialID: skin.skinMaterialID,
+      materialSetID: material.materialSetID ?? null,
+      nameID: material.displayNameID,
+      visible: skin.visibleTranquility === true,
+    }];
+  });
+}
+
 /** The stock recipe belongs to the graphic, which may be shared by several type IDs. */
 export function buildGraphicSofDefaults(sdeDir) {
   const file = graphicsFile(sdeDir, false);

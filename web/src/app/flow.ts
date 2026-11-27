@@ -12,6 +12,7 @@ import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequ
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
 import { decodeHyperNetActiveTickets, decodeHyperNetCreationNotice, decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, decodeHyperNetTypeStatistics, hyperNetCountBounds, hyperNetCreationQuote, hyperNetDetailNoticeIDs, hyperNetRestrictedTypeLists, hyperNetSingletonTypeList, type HyperNetCreationDraft, type HyperNetCreationNotice, type HyperNetPrizeRules, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
+import { decodeFirstPartySkinLicenses } from "../bridge/firstPartySkins.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
@@ -4617,6 +4618,8 @@ export interface AppFlow {
   activateShipSkinrLicense(hex: string): Promise<void>;
   readonly shipSkinrApplied: ReadableSignal<ShipSkinrAppliedState | null>;
   loadShipSkinrApplied(shipID: number): Promise<void>;
+  loadFirstPartySkinLicenses(shipTypeID: number): Promise<ReadonlySet<number>>;
+  applyFirstPartySkin(shipID: number, skinID: number | null): Promise<void>;
   applyShipSkinrLicense(hex: string, shipID: number, remove: boolean): Promise<void>;
   loadShipSkinrOwnedListings(): Promise<ReturnType<typeof decodeOwnedShipSkinrListings>>;
   browseShipSkinrListings(query: ShipSkinrBrowseQuery): Promise<ReturnType<typeof decodeShipSkinrBrowse>>;
@@ -29133,6 +29136,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       applied.characterID === store.station.get().online?.characterID) shipSkinrAppliedSignal.set(applied);
   }
 
+  async function loadFirstPartySkinLicenses(shipTypeID: number): Promise<ReadonlySet<number>> {
+    const current = callOptions.captureRequestGuard!();
+    const pilot = store.station.get().online?.characterID;
+    if (!pilot) throw new Error("Select a pilot to read the ship's SKIN licenses.");
+    const answer = await bridgeAsk("shipCosmeticsMgr", "GetLicencedSkinsForShipType", [pilot, shipTypeID]);
+    current();
+    return decodeFirstPartySkinLicenses(answer);
+  }
+
+  async function applyFirstPartySkin(shipID: number, skinID: number | null): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    if (store.fitting.get().activeShipID !== shipID) throw new Error("Select the active ship to change its SKIN.");
+    await bridgeDo("shipCosmeticsMgr", "ApplySkinToShip", [shipID, skinID]);
+    current();
+    await loadShipSkinrApplied(shipID);
+  }
+
   async function applyShipSkinrLicense(hex: string, shipID: number, remove: boolean): Promise<void> {
     const current = callOptions.captureRequestGuard!();
     const pilot = store.station.get().online?.characterID;
@@ -42159,6 +42179,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     activateShipSkinrLicense,
     shipSkinrApplied: readonlySignal(shipSkinrAppliedSignal),
     loadShipSkinrApplied,
+    loadFirstPartySkinLicenses,
+    applyFirstPartySkin,
     applyShipSkinrLicense,
     loadShipSkinrOwnedListings,
     browseShipSkinrListings,

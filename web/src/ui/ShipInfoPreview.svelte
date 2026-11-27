@@ -4,13 +4,14 @@
   import type { ShipSkinrBlendMode, ShipSkinrPatternPreview, ShipSkinrProjectorGesture } from "../bridge/shipSkinrPatterns.ts";
   import { capturePointer, releasePointer } from "./pointerCapture.ts";
 
-  let { typeID, factionID, active, expanded, coatings, patterns, blendMode, darkhullChannel, clearedTechCoating, onProjectorGesture }: {
+  let { typeID, factionID, active, expanded, coatings, patterns, blendMode, darkhullChannel, clearedTechCoating, onProjectorGesture, skinMaterialSetID }: {
     typeID: number; factionID: number | null | undefined; active: boolean; expanded: boolean;
     coatings?: readonly (string | null)[];
     patterns?: readonly ShipSkinrPatternPreview[];
     blendMode?: ShipSkinrBlendMode;
     darkhullChannel?: number;
     clearedTechCoating?: boolean;
+    skinMaterialSetID?: number | null;
     onProjectorGesture?: (gesture: ShipSkinrProjectorGesture) => void;
   } = $props();
   const keyboardHelp = $props.id();
@@ -97,7 +98,7 @@
     if (!view || faction === undefined) return;
     let current = true;
     if (untrack(() => load) !== "shown") load = "waiting";
-    void view.show(id, faction, coatings, patterns, blendMode, darkhullChannel, clearedTechCoating).then(shown => {
+    void view.show(id, faction, coatings, patterns, blendMode, darkhullChannel, clearedTechCoating, skinMaterialSetID).then(shown => {
       if (current) load = shown ? "shown" : "unavailable";
     }).catch(() => { if (current) load = "unavailable"; });
     return () => { current = false; };

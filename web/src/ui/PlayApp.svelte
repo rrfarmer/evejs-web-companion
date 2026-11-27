@@ -167,6 +167,7 @@
   import type { ActiveBookmarks, Bookmark } from "../bridge/bookmarks.ts";
   import { safetyBadge, safetyLocks } from "../space/crimewatch.ts";
   import { OVERVIEW_WORDS, typeNames as typeData } from "../play/overview.ts";
+  import { loadFirstPartySkinCatalog } from "../bridge/firstPartySkins.ts";
   import type { OverviewRelationships } from "../play/overviewFilters.ts";
   import type { OverviewAffiliation } from "../play/overview.ts";
   import { authoritativeFleetMemberCharacterIDs } from "../bridge/fleetCenter.ts";
@@ -1153,20 +1154,26 @@
         const flow = session?.flow;
         const shipID = status?.shipID ?? $fitting?.activeShipID;
         const applied = $appliedSkinr;
-        const skin = applied && applied.shipID === shipID && applied.characterID === $station?.online?.characterID ? applied.skin : null;
+        const skinState = applied && applied.shipID === shipID && applied.characterID === $station?.online?.characterID ? applied : null;
+        const firstPartySkinID = skinState?.firstPartySkinID;
+        const firstPartyMaterial = shipTypeID && firstPartySkinID
+          ? loadFirstPartySkinCatalog(shipTypeID).then(rows => rows.find(row => row.skinID === firstPartySkinID)?.materialSetID ?? null).catch(() => null)
+          : null;
         const knownSecurity = solarSystemID === null ? null : $hudNames?.systemSecurity[solarSystemID] ?? null;
         let stale = false;
-        void typeData().then((names) => {
+        void Promise.all([typeData(), firstPartyMaterial]).then(([names, materialSetID]) => {
           if (stale) return;
           if (structureID) {
             const shipGroup = status?.shipGroupID ?? names?.types[String(shipTypeID)]?.[1] ?? null;
             const security = knownSecurity ?? (solarSystemID === null ? null : flow?.systemSecurity(solarSystemID) ?? null);
-            return hangar.show(shipTypeID, upwellHangarGraphics(structure?.typeID ?? null, shipGroup, security), skin, flow?.requestOptions());
+            return hangar.show(shipTypeID, upwellHangarGraphics(structure?.typeID ?? null, shipGroup, security),
+              skinState?.skin, flow?.requestOptions(), materialSetID);
           }
           const t = st?.stationTypeID != null ? names?.types[String(st.stationTypeID)] : undefined;
           const raceID = (t as unknown as (number | null)[] | undefined)?.[2] ?? null;
           const categoryID = t?.[1] != null ? names?.groups[String(t[1])]?.[1] ?? null : null;
-          return hangar.show(shipTypeID, st ? hangarGraphics(st.stationID, { raceID, categoryID }) : null, skin, flow?.requestOptions());
+          return hangar.show(shipTypeID, st ? hangarGraphics(st.stationID, { raceID, categoryID }) : null,
+            skinState?.skin, flow?.requestOptions(), materialSetID);
         });
         return () => { stale = true; };
       });

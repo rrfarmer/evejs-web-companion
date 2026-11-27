@@ -880,24 +880,26 @@ const byType = new Map<number, Promise<THREE.Object3D | null>>();
 const bySkin = new Map<string, Promise<THREE.Object3D | null>>();
 
 /** A fresh instance of a type's model (shared geometry and textures), or null when it has none. */
-export async function typeModel(typeID: number, skinMaterialSetID: number | null = null): Promise<THREE.Object3D | null> {
-  if (skinMaterialSetID) {
-    const key = `${typeID}/${skinMaterialSetID}`;
-    let pending = bySkin.get(key);
-    if (!pending) {
-      pending = fetch(`/client-assets/type/${typeID}/skin/${skinMaterialSetID}`).then(async response => {
-        if (!response.ok) throw new Error(`SKIN asset HTTP ${response.status}`);
-        return loadModel(await response.json() as TypeModelInfo, typeID);
-      }).catch(error => {
-        bySkin.delete(key);
-        console.warn(`SKIN material set ${skinMaterialSetID}:`, error);
-        return null;
-      });
-      bySkin.set(key, pending);
-    }
-    const variant = await pending;
-    if (variant) return variant.clone(true);
+export async function typeSkinModel(typeID: number, skinMaterialSetID: number): Promise<THREE.Object3D | null> {
+  const key = `${typeID}/${skinMaterialSetID}`;
+  let pending = bySkin.get(key);
+  if (!pending) {
+    pending = fetch(`/client-assets/type/${typeID}/skin/${skinMaterialSetID}`).then(async response => {
+      if (!response.ok) throw new Error(`SKIN asset HTTP ${response.status}`);
+      return loadModel(await response.json() as TypeModelInfo, typeID);
+    }).catch(error => {
+      bySkin.delete(key);
+      console.warn(`SKIN material set ${skinMaterialSetID}:`, error);
+      return null;
+    });
+    bySkin.set(key, pending);
   }
+  return (await pending)?.clone(true) ?? null;
+}
+
+export async function typeModel(typeID: number, skinMaterialSetID: number | null = null): Promise<THREE.Object3D | null> {
+  const variant = skinMaterialSetID ? await typeSkinModel(typeID, skinMaterialSetID) : null;
+  if (variant) return variant;
   if (!byType.has(typeID)) byType.set(typeID, loadType(typeID));
   const proto = await byType.get(typeID)!;
   return proto ? proto.clone(true) : null;

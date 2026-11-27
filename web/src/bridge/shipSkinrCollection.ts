@@ -14,6 +14,7 @@ export interface ShipSkinrAppliedState {
   readonly shipID: number;
   readonly characterID: number;
   readonly skin: ShipSkinrApplication | null;
+  readonly firstPartySkinID: number | null;
 }
 
 export function decodeShipSkinrAppliedState(payload: JsonValue | null): ShipSkinrAppliedState | null {
@@ -21,10 +22,14 @@ export function decodeShipSkinrAppliedState(payload: JsonValue | null): ShipSkin
   const shipID = Number(record(state?.ship)?.sequential);
   const characterID = Number(record(state?.character)?.sequential);
   if (!Number.isSafeInteger(shipID) || shipID < 1 || !Number.isSafeInteger(characterID) || characterID < 1) return null;
-  const applied = record(record(state?.skin)?.thirdparty);
+  const skin = record(state?.skin);
+  const applied = record(skin?.thirdparty);
+  const firstPartySkinID = Number(record(record(skin?.firstparty)?.identifier)?.sequential);
   const hex = record(applied?.identifier)?.hex;
   const layout = record(applied?.layout);
-  return { shipID, characterID, skin: typeof hex === "string" && /^[a-f0-9]{64}$/.test(hex) && layout ? { hex, layout } : null };
+  return { shipID, characterID,
+    firstPartySkinID: Number.isSafeInteger(firstPartySkinID) && firstPartySkinID > 0 ? firstPartySkinID : null,
+    skin: typeof hex === "string" && /^[a-f0-9]{64}$/.test(hex) && layout ? { hex, layout } : null };
 }
 
 export interface ShipSkinrOwnedSkin {

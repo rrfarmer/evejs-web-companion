@@ -1347,10 +1347,21 @@ function createGamePortPilots({
     return fail("CALL_FAILED", `${service}.${method} failed: ${detail}`);
   }
 
-  function assertAllowed(service, method) {
+  function assertAllowed(service, method, entry, args, kwargs) {
     // (Two names, as text: what would only spell a pair on the list is not on it.)
     if (typeof service !== "string" || typeof method !== "string" || !allowed.has(`${service}.${method}`)) {
       throw fail("CALL_NOT_ALLOWED", `${service}.${method} is not on the web-call allowlist.`);
+    }
+    if (service === "shipCosmeticsMgr") {
+      if (!entry || !Array.isArray(args) || args.length !== 2 || kwargs !== null) {
+        throw fail("CALL_INVALID", "Ship SKINs require an active pilot and two positional arguments.");
+      }
+      const [id, value] = args;
+      const valid = method === "GetLicencedSkinsForShipType"
+        ? id === entry.characterID && Number.isSafeInteger(value) && value > 0
+        : id === attribute(entry, "shipid") && Number.isSafeInteger(id) &&
+          (value === null || (Number.isSafeInteger(value) && value > 0));
+      if (!valid) throw fail("CALL_INVALID", "Select your active pilot and ship to use this SKIN.");
     }
   }
 
@@ -2723,7 +2734,7 @@ function createGamePortPilots({
       });
       return { service, method, result: wireToBridgeJson(result ?? null), notifications: drain(entry) };
     }
-    assertAllowed(service, method);
+    assertAllowed(service, method, entry, args, kwargs);
     if (service === "repackagingSvc" && method === "RepackageItems") {
       const where = personalRepackageLocation(args, kwargs);
       if (where === null || where !== (attribute(entry, "structureid") ?? attribute(entry, "stationid"))) {

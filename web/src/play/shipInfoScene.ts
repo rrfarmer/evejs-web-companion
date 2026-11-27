@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { loadDds } from "../three/ddsTexture.ts";
 import { effectObject, startEffect, type SofChildNode } from "../three/hullChildren.ts";
-import { setControllerVariable, setDirtLevel, setThrust, typeModel, updateSkinrProjection } from "../three/hullModel.ts";
+import { setControllerVariable, setDirtLevel, setThrust, typeModel, typeSkinModel, updateSkinrProjection } from "../three/hullModel.ts";
 import { disposeShipSkinrMaterials, shipSkinrPreviewModel } from "../three/shipSkinrModel.ts";
 import type { ShipSkinrBlendMode, ShipSkinrPatternPreview } from "../bridge/shipSkinrPatterns.ts";
 import { useHullTextureRenderer } from "../three/hullAlbedo";
@@ -116,9 +116,9 @@ export class ShipInfoScene {
 
   async show(typeID: number, factionID: number | null, coatings: readonly (string | null)[] = [],
     patterns: readonly ShipSkinrPatternPreview[] = [], blendMode: ShipSkinrBlendMode = 1,
-    darkhullChannel?: number, clearedTechCoating = false): Promise<boolean> {
+    darkhullChannel?: number, clearedTechCoating = false, skinMaterialSetID: number | null = null): Promise<boolean> {
     const request = ++this.serial;
-    const variant = JSON.stringify([typeID, factionID, coatings, darkhullChannel, clearedTechCoating, patterns.map(({ layer, material }) =>
+    const variant = JSON.stringify([typeID, factionID, skinMaterialSetID, coatings, darkhullChannel, clearedTechCoating, patterns.map(({ layer, material }) =>
       [layer.texture, layer.projectionU, layer.projectionV, material])]);
     if (this.model && variant === this.variant) {
       if (patterns.length) updateSkinrProjection(this.model, patterns.map(({ layer }) => layer), blendMode);
@@ -126,7 +126,7 @@ export class ShipInfoScene {
     }
     const custom = coatings.some(Boolean) || patterns.length > 0 || darkhullChannel !== undefined;
     const modelRead = custom ? shipSkinrPreviewModel(typeID, coatings, patterns, blendMode, darkhullChannel, clearedTechCoating)
-      : typeModel(typeID);
+      : skinMaterialSetID ? typeSkinModel(typeID, skinMaterialSetID) : typeModel(typeID);
     const [model] = await Promise.all([modelRead.catch(() => null), this.ready.catch(() => {})]);
     if (this.closed || request !== this.serial) {
       if (model && custom) disposeShipSkinrMaterials(model);

@@ -678,6 +678,7 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
  * (importExportUI.py 549), and the gateway never had it.
  */
 const GAME_PORT_ONLY_CALLS = Object.freeze([
+  "shipCosmeticsMgr.GetLicencedSkinsForShipType", "shipCosmeticsMgr.ApplySkinToShip",
   "invbroker.WithdrawPlexFromVault", "invbroker.DepositPlexToVault", "marketProxy.GetPlexOrders", "marketProxy.PlacePlexSellOrder",
   "raffleProxy.Grab", "raffleProxy.FilteredGrab", "raffleProxy.GetMyRaffleHistory",
   "raffleProxy.GetCreatedParticipated", "raffleProxy.GetActiveHistoricPrices", "raffleProxy.GetRaffle", "raffleProxy.GetMyActiveTickets",
@@ -2244,6 +2245,8 @@ function scanProbes(given) {
 }
 
 const RETAIL_CALLS = Object.freeze({
+  "shipCosmeticsMgr.GetLicencedSkinsForShipType": same("cosmetics/client/cosmeticsSvc.py:128", "GetLicencedSkinsForShipType(characterID, typeID)"),
+  "shipCosmeticsMgr.ApplySkinToShip": same("cosmetics/client/cosmeticsSvc.py:163", "ApplySkinToShip(itemID, skinID or None)"),
   "hackingMgr.ClickedOnTile": same("eve/client/script/ui/hacking/hackingUISvc.py:249", "ClickedOnTile((x, y))"),
   "hackingMgr.UsedUtilityElement": same("eve/client/script/ui/hacking/hackingUISvc.py:249", "UsedUtilityElement(slot, (x, y))"),
   "hackingMgr.UsedUtilityElementOnVirus": same("eve/client/script/ui/hacking/hackingUISvc.py:261", "UsedUtilityElementOnVirus(slot)"),
