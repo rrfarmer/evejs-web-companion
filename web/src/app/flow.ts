@@ -300,6 +300,7 @@ import { sessionChangeNames, sessionChangeValue, wholeDigits } from "../bridge/s
 import { createPushLedger } from "../bridge/pushOnce.ts";
 import { standingsAfter } from "../bridge/standingChanges.ts";
 import { decodeMissionTimes } from "../bridge/missionTime.ts";
+import { decodeJournalMissionDetails, type JournalMissionDetails } from "../bridge/journalMission.ts";
 import { decodeAgentLocationWrap } from "../bridge/agentHeader.ts";
 import { ABYSSAL_COLLAPSE_WARNING_SECONDS, ATTRIBUTE_DIFFICULTY_TIER, ATTRIBUTE_WEATHER_ID, DEFAULT_GAME_MODE_SETTING, EXPIRATION_INDICATION_MS, GAME_MODES, abyssalExpiryMs, abyssErrorsOfRefusal, activateEntranceGate, deployEntranceGate, type AbyssErrorEntry, type GameModeID } from "../bridge/abyssalKeys.ts";
 import { DEFAULT_ACTIVE_RESULT_FILTERS, EMPTY_RESULTS_HISTORY, type CustomResultFilter, clearResults, decodeScanStopped, heldResult, injectResults, lastResults, registerResults, sitesAsProbeResults, type ResultFilterSettings, type ResultsHistory } from "../bridge/probeResults.ts";
@@ -3896,6 +3897,8 @@ export interface AppFlow {
   loadBriefing(agentID: number): Promise<void>;
   /** Load the mission journal (agentMgr.GetMyJournalDetails). */
   loadJournal(): Promise<void>;
+  loadJournalMission(agentID: number): Promise<JournalMissionDetails | null>;
+  readonly journalMissionChanged: ReadableSignal<MissionChange | null>;
   /** The journal's "Remove Offer" for an agent's offered mission. */
   removeOffer(agentID: number): Promise<void>;
   /**
@@ -27358,6 +27361,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const result = await readJournal(bridgeAsk);
     store.apply({ type: "agents/journal", journal: decodeJournal(result) });
   }
+  const journalMissionChanged = createSignal<MissionChange | null>(null);
 
   /**
    * A push that makes the window talk again is often the echo of the pilot's own action (an undock, a
@@ -27486,6 +27490,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
 
   /** OnAgentMissionChange(action, agentID), as each of the client's listeners takes it. */
   function onMissionChange(change: MissionChange): void {
+    journalMissionChanged.set(change);
     const what = windowOnMissionChange(change, store.agents.get().activeAgentID);
     // A window that is still opening, or has a press out, is a window too: closed, its answer is not laid out when it comes.
     if (change.agentID !== null && agentsBeingTalkedTo.has(change.agentID) && windowOnMissionChange(change, change.agentID) === "close") {
@@ -42665,6 +42670,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadBriefing,
 
     loadJournal,
+    async loadJournalMission(agentID) {
+      const result = decodeJournalMissionDetails(await api.loadJournalMission(agentID, callOptions));
+      if (result?.contentID != null) requestMissionKeywords(agentID, result.contentID);
+      return result;
+    },
+    journalMissionChanged: readonlySignal(journalMissionChanged),
 
     // missionentry.RemoveOffer: the call and nothing else. The server says the offer is gone
     // (OnAgentMissionChange "offer_removed"), and that is what reads the journal again and closes the

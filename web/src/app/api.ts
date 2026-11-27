@@ -1806,6 +1806,12 @@ export async function loadAgentSolarSystem(agentID: number, options: ApiOptions 
   return typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
+/** The bound agent's read for the classic Journal popup. */
+export async function loadJournalMission(agentID: number, options: ApiOptions = {}): Promise<JsonValue> {
+  const data = await getJson(`/api/bridge/agents/${agentID}/journal-mission`, options);
+  return data.mission ?? null;
+}
+
 /** A mission's objectives as the job board's page of it reads them (raw; decoded in the flow). */
 export async function loadMissionObjectives(agentID: number, options: ApiOptions = {}): Promise<JsonValue> {
   const data = await getJson(`/api/bridge/agents/${agentID}/mission-objectives`, options);

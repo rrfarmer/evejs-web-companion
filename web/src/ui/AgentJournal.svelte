@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { getContext, onDestroy, onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { SHORT_INTERVAL_WORD_LABELS } from "../bridge/timeInterval.ts";
@@ -25,6 +25,7 @@
     remove: "UI/Agents/Commands/RemoveOffer",
   };
   const menu = new ContextMenu();
+  const openJournalMission = getContext<((flow: AppFlow, agentID: number) => void) | undefined>("openJournalMission");
   let failure = $state("");
   const missions = $derived([...($agents.journal?.active ?? []), ...($agents.journal?.offered ?? [])]);
   const nameOf = (kind: NameKind, id: number) => resolvedName($names.resolved, kind === "owner" ? "agent" : kind, id, "");
@@ -44,6 +45,10 @@
   }
 
   function details(id: number): void {
+    if (openJournalMission) {
+      openJournalMission(flow, id);
+      return;
+    }
     openAgents();
     run(() => flow.openMissionDetails(id));
   }

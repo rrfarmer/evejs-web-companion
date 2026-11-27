@@ -2492,7 +2492,7 @@ const RETAIL_CALLS = Object.freeze({
   "agentMgr.WarpToLocation": judged("eve/client/script/ui/services/menuSvcExtras/movementFunctions.py:416", agentWarping,
     "GetAgentMoniker(agentID).WarpToLocation(locationType, locationNumber, warpRange, fleet, referringAgentID, GetFormationSettings()), on the agent's own object: a mission's marked spot warped to. Recorded 23 times on Tranquility, each ('dungeon', 0, nought, False, None, the three settings)."),
   "agentMgr.RemoveOfferFromJournal": same(`${AGENTS}:783`, "GetAgentMoniker(agentID).RemoveOfferFromJournal(), no arguments, on the agent's bound object"),
-  "agentMgr.GetMissionJournalInfo": differs(`${AGENTS}:747`, "The client sends (charID, contentID). The BFF sends nothing."),
+  "agentMgr.GetMissionJournalInfo": same(`${AGENTS}:747`, "The own-agent Journal popup sends (None, None) for the pilot's current mission."),
 
   // ── the scanner (the scan manager a service call answers with, and the dogma location) ─────────────
   "beyonce.GetFormations": same("eve/client/script/remote/michelle.py:324", "RemoteSvc('beyonce').GetFormations(), no arguments, by name, as the ballpark is made. Recorded on Tranquility so."),

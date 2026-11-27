@@ -8110,6 +8110,23 @@ app.get("/api/bridge/agents/:agentID/briefing", requireAuth, async (req, res, ne
   }
 });
 
+// The classic Journal popup reads the pilot's own mission through the bound agent.
+app.get("/api/bridge/agents/:agentID/journal-mission", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  const agentID = Number(req.params.agentID);
+  if (!Number.isSafeInteger(agentID) || agentID <= 0) {
+    res.status(400).json({ ok: false, error: "INVALID_AGENT", message: "A positive agentID is required." });
+    return;
+  }
+  try {
+    const { result } = await boundCall(held, req.webSessionID, agentBindSpec(agentID), "GetMissionJournalInfo", [null, null], null);
+    res.json({ ok: true, mission: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // A mission's objectives as the retail client's job board reads them when a mission's page opens, which
 // is what the journal's Read Details does (missionentry.py 70, agents.PopupMission, and
 // jobboard/client/features/agent_missions/job.py 411): GetMissionObjectiveInfo on the agent's bound

@@ -224,6 +224,7 @@
   import type { ContactAction } from "./contactAction.ts";
   import type { ContactScope, NamedAddressBook } from "../bridge/contacts.ts";
   import SafeLogoffTimer from "./SafeLogoffTimer.svelte";
+  import JournalMissionPopup from "./JournalMissionPopup.svelte";
   import type { MySovHub, SovHubDetails, SovHubExtras } from "../app/flow.ts";
 
   // The app's navy panels in the client's greys, for as long as the play mode is up (play/clientTint.ts).
@@ -285,6 +286,54 @@
   function keepPlace(win: { id: string; x: number; y: number; w: number; h: number }): void {
     const { w: dw, h: dh } = flightDesktopSize();
     try { localStorage.setItem(placeKey(win.id), JSON.stringify({ x: win.x, y: win.y, w: win.w, h: win.h, dw, dh })); } catch { /* this visit only */ }
+  }
+  type JournalPopupWindow = WindowRect & { id: string; agentID: number; z: number; minimized: boolean; serial: number };
+  let journalPopups = $state<JournalPopupWindow[]>([]);
+  const journalWords = $derived(session?.store.words);
+  const journalNames = $derived(session?.store.names);
+  const JOURNAL_CAPTION = "UI/Agents/MissionJournalWithAgent";
+  $effect(() => {
+    void session?.id;
+    void $station?.online?.characterID;
+    journalPopups = [];
+  });
+  function focusJournal(w: JournalPopupWindow): void {
+    w.z = topZ() + 1;
+    activeWinKey = w.id;
+  }
+  function closeJournal(w: JournalPopupWindow): void {
+    journalPopups = journalPopups.filter(item => item.id !== w.id);
+    if (activeWinKey === w.id) activeWinKey = null;
+  }
+  function toggleJournalMinimize(w: JournalPopupWindow): void {
+    w.minimized = !w.minimized;
+    if (!w.minimized) focusJournal(w);
+    else if (activeWinKey === w.id) activeWinKey = null;
+  }
+  setContext("openJournalMission", (flow: AppFlow, agentID: number) => {
+    if (session?.flow !== flow) return;
+    const existing = journalPopups.find(w => w.agentID === agentID);
+    if (existing) {
+      existing.minimized = false;
+      existing.serial++;
+      focusJournal(existing);
+      return;
+    }
+    const id = `missionJournal:${agentID}`;
+    const desktop = flightDesktopSize();
+    const size = keptPlace(id) ?? { x: 80 + 18 * journalPopups.length, y: 8 + 18 * journalPopups.length, w: 600, h: 800 };
+    journalPopups = [...journalPopups, {
+      ...size, id, agentID, w: Math.min(desktop.w, Math.max(420, size.w)), h: Math.min(desktop.h, Math.max(400, size.h)),
+      z: topZ() + 1, minimized: false, serial: 0,
+    }];
+    activeWinKey = id;
+    flow.requestWords([JOURNAL_CAPTION]);
+    flow.requestNames([{ kind: "agent", id: agentID }]);
+  });
+  function journalCaption(agentID: number): string {
+    const name = resolvedName($journalNames?.resolved ?? {}, "agent", agentID, "Agent");
+    const template = $journalWords?.templates[JOURNAL_CAPTION];
+    return template ? plainText(formatTemplate(template, { agentID }, { nameOf: () => name })) : `Mission Journal with ${name}`;
   }
   let bayWindows = $state<{ key: string; title: string; win: { id: string; x: number; y: number; w: number; h: number; z: number; minimized: boolean } }[]>([]);
   $effect(() => {
@@ -2651,6 +2700,12 @@
         else { wins = toggleMinimize(wins, active.id); activeWinKey = null; }
         return true;
       }
+      const journal = journalPopups.find(w => w.id === activeWinKey && !w.minimized);
+      if (journal) {
+        if (close) { void playUiEvent("ui_object_close_play"); closeJournal(journal); }
+        else toggleJournalMinimize(journal);
+        return true;
+      }
       const bay = bayWindows.find((b) => b.win.id === activeWinKey);
       if (bay) {
         if (close) { void playUiEvent("ui_object_close_play"); bayWindows = bayWindows.filter((b) => b !== bay); } else { bay.win.minimized = true; activeWinKey = null; }
@@ -2667,9 +2722,10 @@
     // (the space view's own windows too: one that can be closed (IsKillable) closed, one that cannot minimized)
     if (cmd === "CmdCloseAllWindows") {
       const guarded = wins.filter(win => closeGuards.has(win.id));
-      const othersOpen = guarded.length !== wins.length;
+      const othersOpen = guarded.length !== wins.length || journalPopups.length > 0;
       if (othersOpen) void playUiEvent("ui_object_close_play");
       wins = guarded;
+      journalPopups = [];
       for (const win of guarded) closePlayWindow(win.id, !othersOpen);
       for (const w of spaceWindows()) {
         const close = w.querySelector<HTMLElement>(".pw-close");
@@ -5056,6 +5112,16 @@
         </div>
       </DesktopWindow>
     {/if}
+    {#each journalPopups as popup (popup.id)}
+      <DesktopWindow win={popup} title={journalCaption(popup.agentID)} focused={activeWinKey === popup.id}
+        onFocus={() => focusJournal(popup)} onClose={() => closeJournal(popup)}
+        onToggleMinimize={() => toggleJournalMinimize(popup)}
+        onMove={(x, y) => Object.assign(popup, { x, y })} onResizeRect={rect => Object.assign(popup, rect)}
+        onGeometryCommit={() => keepPlace(popup)} minWidth={420} minHeight={400}>
+        <JournalMissionPopup store={session.store} flow={session.flow} agentID={popup.agentID} openSerial={popup.serial}
+          onClose={() => closeJournal(popup)} />
+      </DesktopWindow>
+    {/each}
     <!-- not the each block's only child: an each that is the only child of its element is emptied by clearing the
          element, which would take the space view's own windows (the overview, Selected Item, ...) kept in it too -->
     <span class="fly-windows-anchor" hidden></span>
