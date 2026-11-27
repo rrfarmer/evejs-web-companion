@@ -5119,7 +5119,7 @@
         onMove={(x, y) => Object.assign(popup, { x, y })} onResizeRect={rect => Object.assign(popup, rect)}
         onGeometryCommit={() => keepPlace(popup)} minWidth={420} minHeight={400}>
         <JournalMissionPopup store={session.store} flow={session.flow} agentID={popup.agentID} openSerial={popup.serial}
-          onClose={() => closeJournal(popup)} />
+          onClose={() => closeJournal(popup)} onShowSystem={showSystemOnMap} />
       </DesktopWindow>
     {/each}
     <!-- not the each block's only child: an each that is the only child of its element is emptied by clearing the

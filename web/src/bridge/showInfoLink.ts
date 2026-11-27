@@ -32,6 +32,19 @@ export function parseShowInfoUrl(url: string): { readonly typeID: number; readon
   return { typeID, itemID: item === null || item === 0 ? null : item };
 }
 
+/** The solar system in a dungeon bookmark link, rather than a plain Show Info link. */
+export function dungeonBookmarkSystem(url: string): number | null {
+  if (linkScheme(url) !== "showinfo") return null;
+  const parts = url.slice(url.indexOf(":") + 1).split("//");
+  if (parts.length !== 8 || parts[7] !== "dungeon") return null;
+  const ids = parseShowInfoUrl(url);
+  if (ids?.typeID !== 5 || ids.itemID === null || ids.itemID <= 0) return null;
+  const coordinates = parts.slice(2, 5);
+  if (coordinates.some(part => !/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(part) || !Number.isFinite(Number(part)))) return null;
+  if (!/^\d+(?:,\d+)?$/.test(parts[5]!) || pythonInt(parts[6]!) === null) return null;
+  return ids.itemID;
+}
+
 /** The link's scheme as the registry keys it (normalize_scheme: lower case), or null where it has none. */
 export function linkScheme(url: string): string | null {
   const colon = url.indexOf(":");

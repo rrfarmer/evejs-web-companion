@@ -16,7 +16,12 @@
 <!-- No whitespace between the tags inside a line: under pre-wrap it would be drawn as text. -->
 {#each lines as line, n (n)}
   <div class="label-line" style:text-align={line.align}>{#each line.tabs as cell, c (c)}<span
-        class="label-cell" class:tabbed={line.tabs.length > 1}>{#each cell as run, r (r)}{@const follower = run.link === null ? null : followerOf?.(run.link, run.text)}{#if follower}<button type="button" class="evelink {follower.kind}" title={run.hint ?? follower.hint} draggable="true" ondragstart={event => startLinkDrag(event, run.link ?? "", run.text)} onclick={follower.follow}>{@render styledRun(run)}</button>{:else}{@render styledRun(run)}{/if}{/each}</span>{/each}{#if line.tabs.every((cell) => cell.length === 0)}&nbsp;{/if}</div>
+        class="label-cell" class:tabbed={line.tabs.length > 1}>{#each cell as run, r (r)}{@const follower = run.link === null ? null : followerOf?.(run.link, run.text)}{#if follower}<button type="button"
+          class="evelink {follower.kind}" title={run.hint ?? follower.hint} draggable="true"
+          ondragstart={event => startLinkDrag(event, run.link ?? "", run.text)} onclick={follower.follow}
+          oncontextmenu={follower.contextMenu} onkeydown={event => {
+            if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) follower.contextMenu?.(event);
+          }}>{@render styledRun(run)}</button>{:else}{@render styledRun(run)}{/if}{/each}</span>{/each}{#if line.tabs.every((cell) => cell.length === 0)}&nbsp;{/if}</div>
 {/each}
 
 {#snippet styledRun(run: LabelRun)}<span

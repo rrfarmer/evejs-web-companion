@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { journalMessageMarkup, journalMessagePhrases, type JournalMissionDetails } from "../bridge/journalMission.ts";
@@ -7,26 +8,32 @@
   import type { MissionMessage } from "../bridge/missionObjectives.ts";
   import { questionMarkup, wordsLabels, wordsNameRefs, type ClientWording } from "../bridge/questions.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
-  import { linkScheme, parseShowInfoUrl } from "../bridge/showInfoLink.ts";
+  import { dungeonBookmarkSystem, linkScheme, parseShowInfoUrl } from "../bridge/showInfoLink.ts";
+  import { ContextMenu } from "../play/contextMenu.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName, type NameKind } from "../store/names.ts";
   import type { QuestionWords } from "../store/types.ts";
   import LabelText from "./LabelText.svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import { LINK_WORDS, linkFollowerOf, startLinkDrag, type LinkFollower } from "./linkFollowers.ts";
+  import { solarSystemMenu, solarSystemMenuWords } from "./solarSystemMenu.ts";
   import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
   import { showInfo } from "./showInfo.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
-  let { store, flow, agentID, openSerial, onClose }: {
+  let { store, flow, agentID, openSerial, onClose, onShowSystem }: {
     store: ClientStore; flow: AppFlow; agentID: number; openSerial: number; onClose: () => void;
+    onShowSystem: (id: number) => void;
   } = $props();
   const agents = $derived(store.agents), names = $derived(store.names), words = $derived(store.words);
   const station = $derived(store.station), flight = $derived(store.flight);
   const notices = $derived(flow.journalMissionChanged);
   const logos = $derived(flow.ownerLogos), images = $derived(flow.imageServer);
   const place = $derived(sessionPlace($flight.status, $station.online));
+  const docked = $derived(place.locationID !== null && place.locationID !== place.solarSystemID);
   const stationID = $derived(place.stationID);
+  const bookmarkMenu = new ContextMenu();
+  onDestroy(() => bookmarkMenu.close());
   const labels = {
     briefing: "UI/Agents/StandardMission/MissionBriefing",
     offerExpiry: "UI/Agents/Dialogue/ThisOfferExpiresAt",
@@ -84,7 +91,16 @@
       return { kind: "showInfo", hint: linkWord("UI/Commands/ShowInfo"),
         follow: () => showInfo({ kind: "spaceObject", typeID, itemID }) };
     }
-    return linkFollowerOf(url, flow, null, linkWord, text);
+    const follower = linkFollowerOf(url, flow, null, linkWord, text);
+    const system = docked ? dungeonBookmarkSystem(url) : null;
+    if (system === null || follower === null) return follower;
+    return { ...follower, contextMenu: event => {
+      event.preventDefault();
+      const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+      const pointer = event instanceof MouseEvent && (event.clientX !== 0 || event.clientY !== 0);
+      bookmarkMenu.open(pointer ? event.clientX : bounds.left, pointer ? event.clientY : bounds.bottom,
+        solarSystemMenu(store, flow, system, () => text, null, onShowSystem));
+    } };
   }
 
   // The mission article uses HTML RGB colors. LabelText reads ARGB.
@@ -132,7 +148,7 @@
     ownSecurityStatus: () => $station.ownSecurityStatus,
   }) : []);
   $effect(() => {
-    flow.requestWords([...Object.values(labels), ...PANE_WORD_LABELS, ...Object.keys(LINK_WORDS)]);
+    flow.requestWords([...Object.values(labels), ...PANE_WORD_LABELS, ...Object.keys(LINK_WORDS), ...solarSystemMenuWords]);
     flow.requestAgentRecord(agentID);
     flow.loadOwnerLogos();
   });

@@ -10,7 +10,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import BookmarkWindow from "./BookmarkWindow.svelte";
-  import { mercenarySystemMenu, mercenarySystemMenuWords } from "./mercenarySystemMenu.ts";
+  import { solarSystemMenu, solarSystemMenuWords } from "./solarSystemMenu.ts";
   import MercenaryOperationTrackButton from "./MercenaryOperationTrackButton.svelte";
   import MercenaryOperationTravel from "./MercenaryOperationTravel.svelte";
   import { showInfo } from "./showInfo.ts";
@@ -63,7 +63,7 @@
   function openSystemMenu(x: number, y: number) {
     const id = operation.solarSystemID;
     const name = system;
-    systemMenu.open(x, y, mercenarySystemMenu(store, flow, id, () => name, place => { bookmark = place; }, onShowSystem));
+    systemMenu.open(x, y, solarSystemMenu(store, flow, id, () => name, place => { bookmark = place; }, onShowSystem));
   }
   async function startOperation() {
     if (starting || started || completed) return;
@@ -92,7 +92,7 @@
   $effect(() => {
     const messages = [intel?.gameplayDescriptionID, intel?.archetypeTitleID, intel?.archetypeDescriptionID]
       .filter((id): id is number => Boolean(id)).map(id => `#${id}`);
-    flow.requestWords([...Object.values(labels).map(([path]) => path), ...mercenarySystemMenuWords, ...messages]);
+    flow.requestWords([...Object.values(labels).map(([path]) => path), ...solarSystemMenuWords, ...messages]);
   });
   $effect(() => {
     void operation.id;

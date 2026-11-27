@@ -23,11 +23,11 @@ const labels = {
   stopAvoiding: ["UI/Inflight/StopAvoidingLocation", "Do Not Avoid {theLocation} ({locationType})"],
 } as const;
 
-export const mercenarySystemMenuWords = Object.values(labels).map(([path]) => path);
+export const solarSystemMenuWords = Object.values(labels).map(([path]) => path);
 
-export function mercenarySystemMenu(
+export function solarSystemMenu(
   store: ClientStore, flow: AppFlow, id: number, systemName: () => string,
-  onBookmark: (place: BookmarkPlace) => void, onShowSystem?: (id: number) => void,
+  onBookmark: ((place: BookmarkPlace) => void) | null, onShowSystem?: (id: number) => void,
 ): (ContextEntry | null)[] {
   const templates = store.words.get().templates;
   const word = (key: keyof typeof labels, args: Record<string, string | number> = {}) => {
@@ -45,10 +45,19 @@ export function mercenarySystemMenu(
   if (route.setDestination) entries.push(entry("destination", () => flow.setDestination(id)));
   if (route.addWaypoint) entries.push(entry("addWaypoint", () => flow.addWaypoint(id)));
   if (route.removeWaypoint) entries.push(entry("removeWaypoint", () => flow.clearWaypoints(id)));
-  entries.push(null, entry("saveLocation", () => onBookmark({
+  if (onBookmark) entries.push(null, entry("saveLocation", () => onBookmark({
     itemID: id, askIfKnown: true, typeName: () => word("system"),
     name: () => word("bookmarkLabel", { loc: id, group: word("system") }),
   })));
+  const travel = store.fleet.get().availability === "ready" && waypoint ? {
+    ...entry("travelTo", () => {
+      void flow.broadcastTravelToSystem(id).catch(cause => {
+        if (cause?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: word("travelTo"), detail: String(cause) });
+      });
+    }),
+    icon: "res:/UI/Texture/classes/Fleet/Broadcast/16/travelTo.png",
+  } : null;
+  if (!onBookmark && travel) entries.push(null, travel);
   if (isAvoidablePlace(id)) {
     const locationType = word("system");
     entries.push(null);
@@ -62,15 +71,6 @@ export function mercenarySystemMenu(
       else flow.avoidLocation(id);
     }, { locationType, theLocation: id }));
   }
-  if (store.fleet.get().availability === "ready" && waypoint) {
-    entries.push(null, {
-      ...entry("travelTo", () => {
-        void flow.broadcastTravelToSystem(id).catch(cause => {
-          if (cause?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: word("travelTo"), detail: String(cause) });
-        });
-      }),
-      icon: "res:/UI/Texture/classes/Fleet/Broadcast/16/travelTo.png",
-    });
-  }
+  if (onBookmark && travel) entries.push(null, travel);
   return entries;
 }

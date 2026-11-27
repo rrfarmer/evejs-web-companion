@@ -91,6 +91,7 @@ export interface LinkFollower {
   readonly kind: "skillPlan" | "showInfo" | "web" | "fitting" | "sharedSetting" | "helpPointer" | "shipSkinListing" | "shipSkinDesign" | "hyperNet" | "killReport" | "fleetAdvert";
   readonly hint: string;
   readonly follow: (event?: MouseEvent) => void;
+  readonly contextMenu?: (event: MouseEvent | KeyboardEvent) => void;
 }
 
 /**
