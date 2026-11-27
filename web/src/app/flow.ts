@@ -3171,7 +3171,7 @@ export interface AppFlow {
   readonly corporationCEOChoice: ReadableSignal<CorporationCEOChoice | null>;
   selectCorporationCEO(n: number, index: number): void;
   answerCorporationCEO(n: number, confirmed: boolean): void;
-  corporationAwardMenu(ownerIDs: readonly number[]): Promise<{ readonly award: () => Promise<void> } | null>;
+  corporationAwardMenu(ownerIDs: readonly number[]): Promise<{ readonly targetCount: number; readonly award: () => Promise<void> } | null>;
   corporationInviteMenu(ownerIDs: readonly number[]): Promise<{ readonly invite: () => Promise<void> } | null>;
   readonly corporationAwardAsk: ReadableSignal<CorporationAwardAsk | null>;
   selectCorporationAward(n: number, index: number): void;
@@ -21988,7 +21988,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       catch (error) { if (!sayRefusalDialog(error, errorWords(error))) throw error; }
     }};
   }
-  async function corporationAwardMenu(ownerIDs: readonly number[]): Promise<{ readonly award: () => Promise<void> } | null> {
+  async function corporationAwardMenu(ownerIDs: readonly number[]): ReturnType<AppFlow["corporationAwardMenu"]> {
     const online = store.station.get().online;
     // Compiled CharacterChecker95-102 uses Personnel Manager, without Director.
     if (!online || online.corporationID === null || isNpcOwner(online.corporationID) || (BigInt(online.corpRole ?? "0") & 128n) === 0n) return null;
@@ -21999,7 +21999,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (members.corporationID !== scope.online.corporationID) throw new BridgeCallError("SESSION_REQUEST_RETIRED", "The corporation changed while its award menu was being read.", 0);
     const targets = possible.filter(id => members.memberIDs.includes(id));
     if (!targets.length) return null;
-    return { award: async () => {
+    return { targetCount: targets.length, award: async () => {
       scope.current();
       try {
         const raw = await scope.ask("corporationSvc", "GetAllCorpMedals", [scope.online.corporationID]); scope.current();

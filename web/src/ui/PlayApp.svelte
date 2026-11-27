@@ -3099,6 +3099,44 @@
     }, () => {}).catch(() => {});
   }
 
+  async function guestCorporationAdministration(s: Session, ids: readonly number[]) {
+    const target = ids.length === 1 ? ids[0] : undefined;
+    const [allow, cash, award, invite, expel] = await Promise.all([
+      target !== undefined ? s.flow.corporationRoleAllowance(target).catch(() => null) : null,
+      s.flow.corporationCashMenu(ids).catch(() => null),
+      s.flow.corporationAwardMenu(ids).catch(() => null),
+      s.flow.corporationInviteMenu(ids).catch(() => null),
+      s.flow.corporationExpelMenu(ids).catch(() => null),
+    ]);
+    const word = (key: string, fallback: string) => {
+      const path = `UI/Corporations/Common/${key}`;
+      s.flow.requestWords([path]);
+      return plainText(s.store.words.get().templates[path] ?? fallback);
+    };
+    const action = (key: string, fallback: string, run: () => Promise<void>, count = 1): ContextEntry => {
+      const label = word(key, fallback);
+      return { label: count > 1 ? `${label} (${count})` : label, run: () => void run().catch(() => {}) };
+    };
+    const expelEntry = expel ? [{
+      label: expel.multiple ? word("ExpelCorpMembers", "Expel Members") : word("ExpelCorpMember", "Expel Member"),
+      sub: [expel.multiple ? action("ConfirmExpelMembers", "Confirm Expulsion", expel.confirm)
+        : action("ConfirmExpelMember", "Confirm Expulsion", expel.confirm)],
+    }] : [];
+    return {
+      other: [
+        ...(allow ? [{ label: word("AllowCorpRoles", "Allow New Roles"),
+          sub: [action("ConfirmAllowCorpRoles", "Confirm", allow.confirm)] }] : []),
+        ...(expel?.multiple ? expelEntry : []),
+        ...(invite ? [action("SendCorpInvite", "Send Corporation Invitation", invite.invite)] : []),
+      ],
+      corporation: [
+        ...(cash ? [action("TransferCorpCash", "Transfer Corporation Cash", cash.transfer)] : []),
+        ...(award ? [action("AwardCorpMemberDecoration", "Award Decoration", award.award, award.targetCount)] : []),
+      ],
+      expel: expel?.multiple ? [] : expelEntry,
+    };
+  }
+
   async function lobbyGuestMenu(s: Session, guests: readonly { characterID: number; corporationID: number | null; allianceID: number | null }[]):
     Promise<readonly (ContextEntry | null)[]> {
     const online = s.store.station.get().online;
@@ -3150,6 +3188,7 @@
       ...contactEntries("corpcontact", corporation),
       ...contactEntries("alliancecontact", alliance),
     ]) : [];
+    const administration = guestCorporationAdministration(s, guests.map(guest => guest.characterID));
     if (guests.length < 2) {
       const guest = guests[0];
       if (!guest) return [];
@@ -3163,9 +3202,9 @@
         if (book) cache.book = book;
         cache.invitable.set(guest.characterID, rooms);
       }
-      const entries = await organizationContacts;
+      const [entries, admin] = await Promise.all([organizationContacts, administration]);
       if (!current()) return [];
-      return pilotMenu(s, guest.characterID, guest, true, entries).sub ?? [];
+      return pilotMenu(s, guest.characterID, guest, { contacts: entries, ...admin }).sub ?? [];
     }
     const ids = guests.map(guest => guest.characterID);
     const pilotIDs = ids.filter(id => !isNpcOwner(id));
@@ -3182,7 +3221,7 @@
     const withCount = (label: string, count: number) => count > 1 ? `${label} (${count})` : label;
     const fleetKey = inFleet ? "UI/Fleet/InvitePilotToFleet" : "UI/Fleet/FormFleetWith";
     s.flow.requestWords([fleetKey, "UI/Commands/CapturePortrait", "UI/Commands/ShowInfo"]);
-    const entries = await organizationContacts;
+    const [entries, admin] = await Promise.all([organizationContacts, administration]);
     if (!current()) return [];
     return [
       { label: withCount(word("UI/Commands/ShowInfo", "Show Info"), ids.length), info: true, run: () => {
@@ -3194,11 +3233,13 @@
       ...(pilotIDs.length ? [{ label: withCount(word("UI/Commands/CapturePortrait", "Capture Portrait"), pilotIDs.length), run: () => downloadPilotPortraits(s, pilotIDs) }] : []),
       ...(canInvite && invited.length ? [{ label: withCount(word(fleetKey, inFleet ? "Invite Pilot to Fleet" : "Form Fleet With..."), inFleet ? invited.length : pilotIDs.length),
         run: () => void s.flow.inviteFleetSelection(invited, !inFleet).catch(() => {}) }] : []),
+      null, ...admin.other, null, ...admin.corporation,
     ];
   }
 
-  function pilotMenu(s: Session, characterID: number, affiliation?: { corporationID: number | null; allianceID: number | null }, inLobby = false,
-    organizationContacts: readonly ContextEntry[] = []): ContextEntry {
+  function pilotMenu(s: Session, characterID: number, affiliation?: { corporationID: number | null; allianceID: number | null },
+    lobby?: Awaited<ReturnType<typeof guestCorporationAdministration>> & { contacts: readonly ContextEntry[] }): ContextEntry {
+    const inLobby = !!lobby;
     const cache = pilotMenuData(s);
     // AddContactMenu: Edit Contact where the pilot is in the address book (IsInAddressBook), else Add Contact
     if (!inLobby && !cache.book) void s.flow.addressBook("contact").then((book) => { cache.book = book; }).catch(() => {});
@@ -3316,7 +3357,7 @@
       const sub = placesTree(false, (p) => () => void s.flow.inviteFleetSelection([characterID], false, { wingID: p.wingID, squadID: p.squadID, role: p.role }).catch(() => {}));
       return sub.length ? { label: w("UI/Fleet/InvitePilotToFleet", "Invite Pilot to Fleet"), sub } as ContextEntry : null;
     })();
-    const memberDetailsEntry = { label: director ? w("UI/Corporations/Common/EditCorpMember", "Edit Corporation Member") : w("UI/Corporations/Common/ViewCorpMemberDetails", "View Member Details"),
+    const memberDetailsEntry = { label: director ? w("UI/Corporations/Common/EditCorpMember", inLobby ? "Edit Member" : "Edit Corporation Member") : w("UI/Corporations/Common/ViewCorpMemberDetails", "View Member Details"),
       run: () => void s.flow.openCorporationMemberDetails(characterID).catch(() => {}) };
     const stationState = s.store.station.get();
     const formFleetEntry = inFleet ? []
@@ -3324,9 +3365,10 @@
     const fleetSubmenu = fleetEntry ? [fleetEntry] : [];
     if (characterID === stationState.online?.characterID) {
       return { path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
-        sub: inLobby
+        sub: lobby
           ? [showInfoEntry, null, ...fleetSubmenu, null, ...(director ? [] : [memberDetailsEntry]), null,
-            bountyEntry, null, ...organizationContacts, null, portraitEntry, ...formFleetEntry, null, ...(director ? [memberDetailsEntry] : [])]
+            bountyEntry, null, ...lobby.contacts, null, portraitEntry, ...formFleetEntry, null, ...lobby.other, null,
+            ...(director ? [memberDetailsEntry] : []), ...lobby.corporation]
           : [showInfoEntry, null, memberDetailsEntry, null, bountyEntry, null, portraitEntry, ...fleetSubmenu, ...formFleetEntry] };
     }
     const guest = inLobby && !isNpcOwner(characterID)
@@ -3367,10 +3409,12 @@
       path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
       // Guests uses the native menuDataFactory order: Show Info, Fleet submenu, trade, changes, contacts, and social.
       // OfferDuelMenuEntry checks solarsystemid, which is empty while docked and resolves to zero security.
-      sub: inLobby
-        ? [showInfoEntry, null, ...fleetSubmenu, null, moneyEntry, ...tradeEntries, ...(sameCorp && !director ? [memberDetailsEntry] : []), null,
-          ...(blocked ? [blockEntry] : []), bountyEntry, null, ...contacts, ...(blocked ? [] : [blockEntry]), ...organizationContacts, null,
-          ...socialEntries, ...formFleetEntry, null, ...invite, null, ...(sameCorp && director ? [memberDetailsEntry] : [])]
+      sub: lobby
+        ? [showInfoEntry, null, ...fleetSubmenu, null,
+          moneyEntry, ...tradeEntries, ...(sameCorp && !director ? [memberDetailsEntry] : []), null,
+          ...(blocked ? [blockEntry] : []), bountyEntry, null, ...contacts, ...(blocked ? [] : [blockEntry]), ...lobby.contacts, null,
+          ...socialEntries, ...formFleetEntry, null, ...lobby.other, null, ...invite, null, ...(sameCorp && director ? [memberDetailsEntry] : []),
+          ...lobby.corporation, null, ...lobby.expel]
         : [showInfoEntry, null, moneyEntry, null, bountyEntry, null, ...contacts, blockEntry, null,
           ...socialEntries, ...invite, ...fleetSubmenu, ...formFleetEntry, null, duelEntry],
     };
