@@ -80,6 +80,7 @@
   import OwnerPicture from "./OwnerPicture.svelte";
   import CorpLogo from "./CorpLogo.svelte";
   import MoneyTransferWindow from "./MoneyTransferWindow.svelte";
+  import CombatReportWindows from "./CombatReportWindows.svelte";
   import { allianceLogoUrl, portraitUrl, portraitDefaultPath } from "./ownerImages.ts";
 
   let { session, inFront }: { session: Session; inFront: boolean } = $props();
@@ -1114,6 +1115,8 @@
     if (dot >= 0) typed = typed.slice(0, dot + 1) + typed.slice(dot + 1).replace(/\./g, "").slice(0, digits);
   }
 </script>
+
+<CombatReportWindows store={session.store} {flow} {inFront} />
 
 {#if $academyTravel && inFront}
   <AcademyTravelConversation {session} />

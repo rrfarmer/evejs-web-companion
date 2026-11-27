@@ -15,6 +15,7 @@
 // a size or colour it leaves to its own type, and any other tag it passes over, as the client's stacks of tags would
 // to no visible end.
 
+import { parseCombatReportUrl } from "./combatLog.ts";
 import { parseHelpPointerUrl } from "./helpPointerLink.ts";
 import { parseHyperNetOfferUrl } from "./hyperNetOfferLink.ts";
 import { parseShipSkinrDesignUrl, parseShipSkinrListingUrl } from "./shipSkinrListingLink.ts";
@@ -74,7 +75,7 @@ export function isMailItemLink(url: string): boolean {
 
 export function isMailDraftLink(url: string): boolean {
   return isMailItemLink(url) || parseHelpPointerUrl(url) !== null || parseShipSkinrListingUrl(url) !== null ||
-    parseShipSkinrDesignUrl(url) !== null || parseHyperNetOfferUrl(url) !== null;
+    parseShipSkinrDesignUrl(url) !== null || parseHyperNetOfferUrl(url) !== null || parseCombatReportUrl(url) !== null;
 }
 
 /** Retain complete links on either side of one textarea edit. Editing inside a label makes it plain text. */
@@ -95,7 +96,7 @@ export function updateMailDraftLinks(before: string, after: string, links: reado
   });
 }
 
-/** Compose uses plain text and validated item-link ranges, so typed markup is always escaped. */
+/** Compose uses plain text and validated link ranges, so typed markup is always escaped. */
 export function mailMarkupOfDraft(body: string, links: readonly MailDraftLink[]): string {
   if (!links.length) return mailMarkupOfTyped(body);
   let result = "";

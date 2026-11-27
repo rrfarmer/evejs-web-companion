@@ -531,7 +531,7 @@ import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from ".
 import { convertTyped, DATE_LABELS, formatInterval, formatTemplate, LIST_DELIMITER, plainText, QUANTITY_AND_ITEM } from "../bridge/clientWords.ts";
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
 import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts";
-import { decodeCombatLog, type CombatLogReport } from "../bridge/combatLog.ts";
+import { decodeCombatLog, decodeCombatReport, parseCombatReportUrl, type CombatLogReport, type CombatReportWindow } from "../bridge/combatLog.ts";
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
 import { decodeWars, type CorpWar, type WarAlly } from "../bridge/corpWars.ts";
 
@@ -3221,6 +3221,11 @@ export interface AppFlow {
   /** CorpKillReports: corpRegistry.GetRecentKills / GetRecentLosses(NUM_KILL_ENTRIES, offset), the names its rows show primed. */
   corporationKillReports(kind: "kills" | "losses", count: number, offset: number | null): Promise<readonly KillReport[]>;
   personalCombatLog(kind: "kills" | "losses", offset: number | null): Promise<readonly CombatLogReport[]>;
+  readonly combatReportWindows: ReadableSignal<readonly CombatReportWindow[]>;
+  openCombatReport(report: CombatLogReport, shifted?: boolean): void;
+  followCombatReportLink(url: string, shifted?: boolean): Promise<void>;
+  raiseCombatReportWindow(id: string): void;
+  closeCombatReportWindow(id: string): void;
   /** CorpUIBulletins: corpRegistry.GetBulletins(), its editors' names primed (GetBulletinEntries' BulletinPostedBy). */
   corporationBulletins(alliance?: boolean): Promise<readonly CorpBulletin[]>;
   /** FormAlliancesMembers.ShowMembers: alliance.GetMembers() (the alliance moniker's CIndexedRowset by corporationID),
@@ -14700,6 +14705,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         if (parseHyperNetOfferUrl(url) === null) return null;
         text = labelEscaped(text);
       }
+      if (/^killreport:/i.test(url)) {
+        if (parseCombatReportUrl(url) === null) return null;
+        text = labelEscaped(text);
+      }
     }
     // AddLink: StripTags(text, stripOnly=['localized']).
     const markup = `<a href="${url}">${text.replace(/<\/?localized\b[^>]*>/gi, "")}</a>`;
@@ -14713,6 +14722,46 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function followWebLink(url: string): Promise<void> {
     if (!(await askDialog("ExternalLinkWarning", { type: "dict", entries: [["url", url]] }, `Open ${url} in a tab of its own?`, "okcancel"))) return;
     window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  const combatReportWindows = createSignal<readonly CombatReportWindow[]>([]);
+  const pendingCombatReportLinks = new Map<string, symbol>();
+  const combatReportWindowID = (killID: number, shifted: boolean) => shifted ? `KillReport_${killID}` : "KillReportWnd";
+  function showCombatReportWindow(id: string, report: CombatLogReport): void {
+    combatReportWindows.update(windows => [...windows.filter(window => window.id !== id), { id, report }]);
+  }
+  function openCombatReport(report: CombatLogReport, shifted = false): void {
+    const id = combatReportWindowID(report.killID, shifted);
+    pendingCombatReportLinks.delete(id);
+    showCombatReportWindow(id, report);
+  }
+  async function followCombatReportLink(url: string, shifted = false): Promise<void> {
+    const link = parseCombatReportUrl(url);
+    if (link === null) return;
+    const id = combatReportWindowID(link.killID, shifted);
+    const current = callOptions.captureRequestGuard!();
+    const ticket = Symbol();
+    pendingCombatReportLinks.set(id, ticket);
+    try {
+      const result = await bridgeAsk("warStatisticMgr", "GetKillMail", [link.killID, link.hash]);
+      current();
+      if (pendingCombatReportLinks.get(id) !== ticket) return;
+      const report = decodeCombatReport(result);
+      if (report?.killID === link.killID) showCombatReportWindow(id, report);
+    } finally {
+      if (pendingCombatReportLinks.get(id) === ticket) pendingCombatReportLinks.delete(id);
+    }
+  }
+  function raiseCombatReportWindow(id: string): void {
+    const windows = combatReportWindows.get();
+    const window = windows.find(each => each.id === id);
+    if (window && windows.at(-1) !== window) {
+      combatReportWindows.set([...windows.filter(each => each !== window), window]);
+    }
+  }
+  function closeCombatReportWindow(id: string): void {
+    pendingCombatReportLinks.delete(id);
+    combatReportWindows.update(windows => windows.filter(window => window.id !== id));
   }
 
   const inventoryFilterLinks = createSignal<InventoryFilter | null>(null);
@@ -41521,6 +41570,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationApplicationDecision,
     corporationApplicationsExpanded,
     corporationKillReports,
+    combatReportWindows: readonlySignal(combatReportWindows),
+    openCombatReport,
+    followCombatReportLink,
+    raiseCombatReportWindow,
+    closeCombatReportWindow,
     async personalCombatLog(kind, offset) {
       const current = callOptions.captureRequestGuard!();
       const characterID = store.station.get().online?.characterID;

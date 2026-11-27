@@ -24,6 +24,7 @@ import { hyperNetOfferLinkText, hyperNetOfferUrl, parseHyperNetOfferUrl } from "
 import { linkScheme, parseShowInfoUrl } from "../bridge/showInfoLink.ts";
 import { showInfo, subjectOfShowInfoLink } from "./showInfo.ts";
 import { parseAccessGroupUrl, showAccessGroupInfo } from "./accessGroupInfo.ts";
+import { COMBAT_REPORT_LABEL, parseCombatReportUrl } from "../bridge/combatLog.ts";
 
 /**
  * A link in a text dragged (carbonui label.GetDragData: a TextLink of its url and its text, the tags stripped), for a
@@ -78,13 +79,14 @@ export const LINK_WORDS: Readonly<Record<string, string>> = {
   "UI/Personalization/ShipSkins/ShipSkinListingLinkHint": "View SKIN listing in the Paragon Hub",
   "UI/Personalization/ShipSkins/LinkHint": "View shared SKIN design",
   "UI/HyperNet/LinkHint": "View HyperNet offer",
+  [COMBAT_REPORT_LABEL]: "Kill Report",
 };
 
 export interface LinkFollower {
   /** Its registry's kind, for its colour (styles.css .evelink.skillPlan, .showInfo, .web, .fitting). */
-  readonly kind: "skillPlan" | "showInfo" | "web" | "fitting" | "sharedSetting" | "helpPointer" | "shipSkinListing" | "shipSkinDesign" | "hyperNet";
+  readonly kind: "skillPlan" | "showInfo" | "web" | "fitting" | "sharedSetting" | "helpPointer" | "shipSkinListing" | "shipSkinDesign" | "hyperNet" | "killReport";
   readonly hint: string;
-  readonly follow: () => void;
+  readonly follow: (event?: MouseEvent) => void;
 }
 
 /**
@@ -95,13 +97,19 @@ export interface LinkFollower {
 export function linkFollowerOf(
   url: string,
   flow: Pick<AppFlow, "followWebLink" | "followFittingLink"> & Partial<Pick<AppFlow,
-    "followOverviewPresetLink" | "followShipSkinrListingLink" | "followShipSkinrDesignLink" | "followHyperNetOfferLink">>,
+    "followOverviewPresetLink" | "followShipSkinrListingLink" | "followShipSkinrDesignLink" | "followHyperNetOfferLink" |
+    "followCombatReportLink">>,
   openSkillPlanLink: ((url: string) => void) | null,
   word: (label: string) => string,
   text: string | null = null,
   openInventoryFilterLink: ((url: string) => void) | null = null,
 ): LinkFollower | null {
   const scheme = linkScheme(url);
+  if (scheme === "killreport" && flow.followCombatReportLink && parseCombatReportUrl(url)) {
+    const follow = flow.followCombatReportLink;
+    return { kind: "killReport", hint: word(COMBAT_REPORT_LABEL),
+      follow: event => void follow(url, event?.shiftKey === true).catch(() => {}) };
+  }
   if (scheme === "shipskinlisting" && flow.followShipSkinrListingLink && parseShipSkinrListingUrl(url)) {
     const follow = flow.followShipSkinrListingLink;
     return { kind: "shipSkinListing", hint: word("UI/Personalization/ShipSkins/ShipSkinListingLinkHint"),

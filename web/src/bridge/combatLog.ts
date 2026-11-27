@@ -12,24 +12,44 @@ export interface CombatLogReport extends KillReport {
   readonly killBlob: string;
 }
 
+export interface CombatReportWindow {
+  readonly id: string;
+  readonly report: CombatLogReport;
+}
+
 export function decodeCombatLog(result: JsonValue): CombatLogReport[] {
-  return killReportRows(result).flatMap(row => {
-    const report = decodeKillReport(row);
-    if (report === null) return [];
-    const id = (field: string) => Number(unwrapLong(readRowField(row, field)) ?? 0n) || null;
-    const blob = readRowField(row, "killBlob");
-    return [{
-      ...report,
-      killTime: unwrapLong(readRowField(row, "killTime")),
-      victimFactionID: id("victimFactionID"),
-      moonID: id("moonID"),
-      damageTaken: unwrapReal(readRowField(row, "victimDamageTaken")),
-      finalDamageDone: unwrapReal(readRowField(row, "finalDamageDone")),
-      finalFactionID: id("finalFactionID"),
-      finalSecurityStatus: unwrapReal(readRowField(row, "finalSecurityStatus")),
-      killBlob: typeof blob === "string" ? blob : "",
-    }];
-  });
+  return killReportRows(result).map(decodeCombatReport).filter(report => report !== null);
+}
+
+export function decodeCombatReport(row: JsonValue): CombatLogReport | null {
+  const report = decodeKillReport(row);
+  if (report === null) return null;
+  const id = (field: string) => Number(unwrapLong(readRowField(row, field)) ?? 0n) || null;
+  const blob = readRowField(row, "killBlob");
+  return {
+    ...report,
+    killTime: unwrapLong(readRowField(row, "killTime")),
+    victimFactionID: id("victimFactionID"),
+    moonID: id("moonID"),
+    damageTaken: unwrapReal(readRowField(row, "victimDamageTaken")),
+    finalDamageDone: unwrapReal(readRowField(row, "finalDamageDone")),
+    finalFactionID: id("finalFactionID"),
+    finalSecurityStatus: unwrapReal(readRowField(row, "finalSecurityStatus")),
+    killBlob: typeof blob === "string" ? blob : "",
+  };
+}
+
+export const COMBAT_REPORT_LABEL = "UI/Corporations/Wars/Killmails/KillReport";
+
+export function combatReportUrl(killID: number, hash: string): string {
+  return `killReport:${killID}:${hash}`;
+}
+
+export function parseCombatReportUrl(url: string): { killID: number; hash: string } | null {
+  const parts = /^killReport:([1-9]\d*):([0-9a-f]{40})$/i.exec(url);
+  if (!parts) return null;
+  const killID = Number(parts[1]);
+  return Number.isSafeInteger(killID) ? { killID, hash: parts[2]! } : null;
 }
 
 export async function combatReportHash(row: CombatLogReport): Promise<string> {
