@@ -522,6 +522,7 @@ export class Neocom {
           const c = entry(item.label, item.icon, false);
           if (item.id) {
             const id = item.id;
+            c.dataset.uiPointer = neocomPointerName(id);
             if (id === "hyperNet" && !this.hyperNetAvailable) c.style.display = "none";
             this.menuEntries.push({ el: c, ids: [id], sub: true });
             // PanelEntryBase.OnMouseExit: SetHasNewActivityOff, ClearBlinkHint, SetBlinkingOff

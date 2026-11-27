@@ -42,6 +42,7 @@
   import { contractsSearchTarget } from "./contractsSearch.ts";
   import type { JsonValue } from "../bridge/wire.ts";
   import { isSessionLost } from "../app/flow.ts";
+  import { CONTRACT_POINTERS } from "../play/uiPointer.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
@@ -828,7 +829,7 @@
   <nav class="tabs con-tabs">
     <button type="button" class:active={tab === "board"} onclick={() => (chosenTab = "board")}>{titleWord("Tooltips/Neocom/Contracts") || "Contracts"}</button>
     <button type="button" class:active={tab === "mine"} onclick={() => (chosenTab = "mine")}>{titleWord("UI/Contracts/ContractsWindow/MyContracts") || "My Contracts"}{mineCount > 0 ? ` (${mineCount})` : ""}</button>
-    <button type="button" class:active={tab === "search"} onclick={() => (chosenTab = "search")}>{titleWord(SEARCH_WORDS.tab) || "Contract Search"}</button>
+    <button type="button" data-ui-pointer={CONTRACT_POINTERS.search} class:active={tab === "search"} onclick={() => (chosenTab = "search")}>{titleWord(SEARCH_WORDS.tab) || "Contract Search"}</button>
   </nav>
   {:else}
   <nav class="tabs">
@@ -984,7 +985,7 @@
             <button type="button" onclick={() => { startPicker = false; clearPlaceLookup(); }}>Cancel</button>
           </div>
         {/if}
-        <button type="button" aria-expanded={advanced} onclick={() => setAdvanced(!advanced)}>
+        <button type="button" data-ui-pointer={CONTRACT_POINTERS.options} aria-expanded={advanced} onclick={() => setAdvanced(!advanced)}>
           {advanced ? titleWord(SEARCH_WORDS.less) || "Show Fewer Options" : titleWord(SEARCH_WORDS.more) || "Show More Options"}
         </button>
         {#if advanced}
@@ -1052,7 +1053,7 @@
           {/if}
           <label class="con-location-scope">
             {titleWord(SEARCH_WORDS.availability) || "Availability"}
-            <select value={availability} onchange={(event) => setAvailability(Number(event.currentTarget.value))}>
+            <select data-ui-pointer={CONTRACT_POINTERS.availability} value={availability} onchange={(event) => setAvailability(Number(event.currentTarget.value))}>
               {#each availabilityOptions as option (option.id)}
                 <option value={option.id}>{titleWord(option.label) || option.fallback}</option>
               {/each}

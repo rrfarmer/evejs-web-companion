@@ -3,13 +3,16 @@ import { helpPointerLinksFromDrop, helpPointerUrl, parseHelpPointerUrl } from ".
 import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
 import { clientTexture } from "../ui/skillGroupIcons.ts";
 import { EVE_MENU, NEOCOM_DEFAULT } from "./neocom.ts";
-import { FITTING_POINTERS, INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, MARKET_POINTERS, neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
+import { CONTRACT_POINTERS, FITTING_POINTERS, INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, MARKET_POINTERS, neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
 
 const industryParent = neocomPointerName("industry");
-const industryEntry = EVE_MENU.flatMap(group => group.items).find(item => item.id === "industry");
-export const NEOCOM_POINTERS: readonly UiPointerTarget[] = [...NEOCOM_DEFAULT.map(item => ({
+const contractsParent = neocomPointerName("contracts");
+const menuOnlyPointers = new Set([industryParent, contractsParent]);
+const menuOnlyEntries = EVE_MENU.flatMap(group => group.items)
+  .flatMap(({ id, label, icon }) => id !== null && menuOnlyPointers.has(neocomPointerName(id)) ? [{ id, label, icon }] : []);
+export const NEOCOM_POINTERS: readonly UiPointerTarget[] = [...NEOCOM_DEFAULT, ...menuOnlyEntries].map(item => ({
   name: neocomPointerName(item.id), label: item.label, icon: item.icon,
-})), ...(industryEntry ? [{ name: industryParent, label: industryEntry.label, icon: industryEntry.icon }] : [])];
+}));
 const tabIcon = clientTexture("res:/UI/Texture/Classes/HelpPointer/tabFlat.png");
 const fittingStats: readonly UiPointerTarget[] = ([
   [FITTING_POINTERS.capacitor, "Capacitor"],
@@ -48,6 +51,9 @@ export const INTERFACE_POINTERS: readonly UiPointerTarget[] = [
   { name: INVENTORY_POINTERS.stackAll, label: "Inventory Stack All", parent: neocomPointerName("inventory") },
   { name: INVENTORY_POINTERS.viewMode, label: "Change Inventory View",
     icon: clientTexture("res:/UI/Texture/eveicon/system_icons/grid_view_16px.png"), parent: neocomPointerName("inventory") },
+  { name: CONTRACT_POINTERS.search, label: "Contract Search", icon: tabIcon, parent: contractsParent },
+  { name: CONTRACT_POINTERS.options, label: "Show/Hide more contract search options", parent: CONTRACT_POINTERS.search },
+  { name: CONTRACT_POINTERS.availability, label: "Contract Availability Setting", parent: CONTRACT_POINTERS.options },
   { name: FITTING_POINTERS.equipment, label: "Fitting Tab", icon: tabIcon, parent: neocomPointerName("fitting") },
   { name: FITTING_POINTERS.personalization, label: "Personalization", icon: tabIcon, parent: neocomPointerName("fitting") },
   { name: FITTING_POINTERS.skins, label: "SKINs Browser", icon: tabIcon, parent: FITTING_POINTERS.personalization },
@@ -77,7 +83,7 @@ export const STATION_POINTER_LINK_LABEL = "UI/Help/PointerWndStationServicesLong
 export function resolveUiPointer(target: UiPointerTarget): HTMLElement | null {
   const node = visiblePointerTarget(target.name);
   if (node) return node;
-  if (target.name === industryParent) return document.querySelector<HTMLElement>(".fly-neocom .neocom .eve");
+  if (menuOnlyPointers.has(target.name)) return document.querySelector<HTMLElement>(".fly-neocom .neocom .eve");
   if (!target.parent) return null;
   const parent = UI_POINTER_BY_NAME.get(target.parent);
   return parent ? resolveUiPointer(parent) : null;

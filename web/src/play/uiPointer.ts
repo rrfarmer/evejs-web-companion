@@ -17,6 +17,12 @@ export const INVENTORY_POINTERS = {
   viewMode: "unique_UI_inventoryListView",
 } as const;
 
+export const CONTRACT_POINTERS = {
+  search: "unique_UI_availableContractsTab",
+  options: "unique_UI_showHideContractOptions",
+  availability: "unique_UI_contractAvailabilitySetting",
+} as const;
+
 export const FITTING_POINTERS = {
   equipment: "unique_UI_fittingEquipment",
   personalization: "unique_UI_fittingPersonalization",
