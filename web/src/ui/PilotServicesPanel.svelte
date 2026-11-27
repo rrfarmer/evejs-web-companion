@@ -42,15 +42,20 @@
   const descriptionLink = $derived(/<a href="showinfo:\{typeID\}">([\s\S]*?)<\/a>/i.exec(description));
   const cloneGrade = $derived(omegaTime ? "Omega" : "Alpha");
 
+  function updateSubscription(raw: unknown): boolean {
+    const time = unwrapLong(raw);
+    if (raw !== null && time === null) return false;
+    omegaTime = time && time > 0n ? time.toString() : null;
+    return true;
+  }
+
   async function readSubscription() {
     const request = ++subscriptionRequest;
     subscriptionError = "";
     try {
       const raw = await bridgeAsk(flow.requestOptions())("subscriptionMgr", "GetSubscriptionTime", []);
       if (request !== subscriptionRequest) return;
-      const time = unwrapLong(raw);
-      if (raw !== null && time === null) throw new Error("Could not read subscription time.");
-      omegaTime = time && time > 0n ? time.toString() : null;
+      if (!updateSubscription(raw)) throw new Error("Could not read subscription time.");
     } catch (cause) {
       if (request === subscriptionRequest && !isSessionLost(cause)) subscriptionError = panelErrorWords(cause);
     }
@@ -84,7 +89,14 @@
     const unsubscribe = store.live.subscribe(({ notifications }) => {
       const subscription = latest(notifications, "OnSubscriptionTimeUpdateServer");
       const queues = latest(notifications, "OnMultipleCharactersTrainingUpdated");
-      if (subscription && subscription !== subscriptionNotice) void readSubscription();
+      if (subscription && subscription !== subscriptionNotice) {
+        if (updateSubscription(subscription.args[0])) {
+          subscriptionRequest++;
+          subscriptionError = "";
+        } else {
+          void readSubscription();
+        }
+      }
       if (queues && queues !== trainingNotice) void readTraining();
       subscriptionNotice = subscription;
       trainingNotice = queues;

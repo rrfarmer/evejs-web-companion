@@ -34,6 +34,31 @@ def observe_vault_drop(vault):
     return dict(height=vault.height, deposits=deposits)
 
 
+def training_rows(panel):
+    return [dict(text=label.text, expires=expiry.text if expiry.display else None) for label, expiry in
+            ((panel.multipleQueueLabel1, panel.multipleQueueExpiryLabel1),
+             (panel.multipleQueueLabel2, panel.multipleQueueExpiryLabel2))]
+
+
+def observe_entitlement_notices(panel):
+    subscription = panel.GetOmegaTime()
+    queue = sm.GetService('skillqueue')
+    get_training = queue.GetMultipleCharacterTraining
+    ends = blue.os.GetWallclockTime() + 2 * 864000000000
+    try:
+        panel.OnSubscriptionTimeUpdateServer(None)
+        alpha = [panel.subscriptionHeaderLabel.text, panel.subscriptionDescriptionLabel.text]
+        panel.OnSubscriptionTimeUpdateServer(ends)
+        omega = [panel.subscriptionHeaderLabel.text, panel.subscriptionDescriptionLabel.text]
+        queue.GetMultipleCharacterTraining = lambda *args, **kwargs: {2: ends}
+        panel.OnMultipleCharactersTrainingRefreshed()
+        return dict(alpha=alpha, omega=omega, training=training_rows(panel))
+    finally:
+        queue.GetMultipleCharacterTraining = get_training
+        panel.LoadPanel()
+        panel.OnSubscriptionTimeUpdateServer(subscription)
+
+
 def observe():
     opened = CharacterSheetWindow.GetIfOpen()
     if not opened:
@@ -64,9 +89,7 @@ def observe():
                     clone=dict(text=panel.subscriptionHeaderLabel.text, details=panel.subscriptionDescriptionLabel.text,
                                icon=panel.cloneState.icon.texturePath, time=panel.GetOmegaTime()),
                     slots=dict(sm.GetService('skillqueue').GetMultipleCharacterTraining()),
-                    rows=[dict(text=label.text, expires=expiry.text if expiry.display else None) for label, expiry in
-                          ((panel.multipleQueueLabel1, panel.multipleQueueExpiryLabel1),
-                           (panel.multipleQueueLabel2, panel.multipleQueueExpiryLabel2))])
+                    rows=training_rows(panel), entitlementNotices=observe_entitlement_notices(panel))
     finally:
         if opened:
             window._StartLoadingPanel(previous)
