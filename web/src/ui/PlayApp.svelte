@@ -3121,14 +3121,16 @@
       : peers;
     const canInvite = !inFleet || !!mine && ((mine.job & 2) !== 0 || [1, 2, 3].includes(mine.role));
     const word = (key: string, fallback: string) => plainText(s.store.words.get().templates[key] ?? fallback);
+    const withCount = (label: string, count: number) => count > 1 ? `${label} (${count})` : label;
     const fleetKey = inFleet ? "UI/Fleet/InvitePilotToFleet" : "UI/Fleet/FormFleetWith";
     s.flow.requestWords([fleetKey, "UI/Commands/CapturePortrait", "UI/Commands/ShowInfo"]);
     return [
-      { label: word("UI/Commands/ShowInfo", "Show Info"), info: true, run: () => {
+      { label: withCount(word("UI/Commands/ShowInfo", "Show Info"), ids.length), info: true, run: () => {
         for (const characterID of ids) showInfo({ kind: "character", characterID }, { new: true });
       } },
-      ...(pilotIDs.length ? [{ label: word("UI/Commands/CapturePortrait", "Capture Portrait"), run: () => downloadPilotPortraits(s, pilotIDs) }] : []),
-      ...(canInvite && invited.length ? [{ label: word(fleetKey, inFleet ? "Invite Pilot to Fleet" : "Form Fleet With..."),
+      null,
+      ...(pilotIDs.length ? [{ label: withCount(word("UI/Commands/CapturePortrait", "Capture Portrait"), pilotIDs.length), run: () => downloadPilotPortraits(s, pilotIDs) }] : []),
+      ...(canInvite && invited.length ? [{ label: withCount(word(fleetKey, inFleet ? "Invite Pilot to Fleet" : "Form Fleet With..."), inFleet ? invited.length : pilotIDs.length),
         run: () => void s.flow.inviteFleetSelection(invited, !inFleet).catch(() => {}) }] : []),
     ];
   }
@@ -3254,13 +3256,15 @@
     const memberDetailsEntry = { label: director ? w("UI/Corporations/Common/EditCorpMember", "Edit Corporation Member") : w("UI/Corporations/Common/ViewCorpMemberDetails", "View Member Details"),
       run: () => void s.flow.openCorporationMemberDetails(characterID).catch(() => {}) };
     const stationState = s.store.station.get();
+    const formFleetEntry = inFleet ? []
+      : [{ label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) }];
+    const fleetSubmenu = fleetEntry ? [fleetEntry] : [];
     if (characterID === stationState.online?.characterID) {
-      const formFleetEntry = s.store.fleet.get().availability === "ready" ? []
-        : [{ label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) }];
       return { path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
         sub: inLobby
-          ? [showInfoEntry, null, bountyEntry, null, portraitEntry, ...(fleetEntry ? [fleetEntry] : []), ...formFleetEntry, null, memberDetailsEntry]
-          : [showInfoEntry, null, memberDetailsEntry, null, bountyEntry, null, portraitEntry, ...(fleetEntry ? [fleetEntry] : []), ...formFleetEntry] };
+          ? [showInfoEntry, null, ...fleetSubmenu, null, ...(director ? [] : [memberDetailsEntry]), null,
+            bountyEntry, null, portraitEntry, ...formFleetEntry, null, ...(director ? [memberDetailsEntry] : [])]
+          : [showInfoEntry, null, memberDetailsEntry, null, bountyEntry, null, portraitEntry, ...fleetSubmenu, ...formFleetEntry] };
     }
     const guest = inLobby && !isNpcOwner(characterID)
       ? stationState.guests.find(row => row.characterID === characterID) : undefined;
@@ -3270,38 +3274,41 @@
       await action;
       cache.book = await s.flow.addressBook("contact");
     };
+    const moneyEntry = { label: w("UI/Commands/GiveMoney", "Give Money"), run: () => void s.flow.openMoneyTransfer(characterID).catch(() => {}) };
+    const tradeEntries = guest ? [{ label: w("UI/Market/TradeWithCharacter", "Trade"), run: () => void s.flow.startDirectTrade(characterID).catch(() => {}) }] : [];
+    const contacts = [
+      { label: known ? w("UI/PeopleAndPlaces/EditContact", "Edit Contact") : w("UI/PeopleAndPlaces/AddContact", "Add Contact"),
+        run: () => void s.flow.addressBook("contact").then((book) => { cache.book = book; pilotContact = { kind: "manage", ownerID: characterID, name: nameOf(characterID) || name, book }; }).catch(() => {}) },
+      ...(inLobby && known ? [{ label: w("UI/PeopleAndPlaces/RemoveContact", "Remove Contact"),
+        run: () => void refreshBook(s.flow.deleteContacts([characterID], "contact")).catch(() => {}) }] : []),
+    ];
+    const blockEntry = blocked
+      ? { label: w("UI/PeopleAndPlaces/UnblockContact", "Unblock"), run: () => void refreshBook(s.flow.unblockOwners([characterID])).catch(() => {}) }
+      : { label: w("UI/PeopleAndPlaces/BlockContact", "Block"), run: () => {
+        const action = s.flow.blockOwners([characterID]);
+        void (inLobby ? refreshBook(action) : action).catch(() => {});
+      } };
+    const socialEntries = [
+      { label: w("UI/Chat/StartConversation", "Start Conversation"), run: () => converse() },
+      { label: w("UI/Chat/InviteToChat", "Invite to..."), sub: [
+        { label: w("UI/Chat/StartConversation", "Start Conversation"), run: () => converse() },
+        ...[...(cache.invitable.get(characterID) ?? [])].sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0)).map((c) => ({ label: c.title, run: () => converse(c.channel) })),
+      ] },
+      { label: w("UI/EVEMail/SendPilotEVEMail", "Send Message"), run: () => { focusMail({ kind: "compose", characterID, name }); open("mail"); } },
+      portraitEntry,
+    ];
+    const invite = inviteEntry ? [inviteEntry] : [];
+    const duelEntry = { label: w("UI/Crimewatch/Duel/DuelMenuEntry", "Invite to Duel"), run: () => void s.flow.startDuel(characterID).catch(() => {}) };
+    const sameCorp = guest?.corporationID != null && guest.corporationID === stationState.online?.corporationID;
     return {
       path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
-      // (g413, another pilot's ship: Show Info | Give Money | Place Bounty | Add Contact, Block | Start Conversation, Invite to...,
-      // Send Message, Capture Portrait, Form Fleet With... | Invite to Duel)
-      sub: [
-        showInfoEntry, null,
-        { label: w("UI/Commands/GiveMoney", "Give Money"), run: () => void s.flow.openMoneyTransfer(characterID).catch(() => {}) }, null,
-        ...(guest ? [{ label: w("UI/Market/TradeWithCharacter", "Trade"), run: () => void s.flow.startDirectTrade(characterID).catch(() => {}) }] : []),
-        bountyEntry, null,
-        { label: known ? w("UI/PeopleAndPlaces/EditContact", "Edit Contact") : w("UI/PeopleAndPlaces/AddContact", "Add Contact"),
-          run: () => void s.flow.addressBook("contact").then((book) => { cache.book = book; pilotContact = { kind: "manage", ownerID: characterID, name: nameOf(characterID) || name, book }; }).catch(() => {}) },
-        ...(inLobby && known ? [{ label: w("UI/PeopleAndPlaces/RemoveContact", "Remove Contact"),
-          run: () => void refreshBook(s.flow.deleteContacts([characterID], "contact")).catch(() => {}) }] : []),
-        blocked
-          ? { label: w("UI/PeopleAndPlaces/UnblockContact", "Unblock"), run: () => void refreshBook(s.flow.unblockOwners([characterID])).catch(() => {}) }
-          : { label: w("UI/PeopleAndPlaces/BlockContact", "Block"), run: () => {
-              const action = s.flow.blockOwners([characterID]);
-              void (inLobby ? refreshBook(action) : action).catch(() => {});
-            } }, null,
-        { label: w("UI/Chat/StartConversation", "Start Conversation"), run: () => converse() },
-        { label: w("UI/Chat/InviteToChat", "Invite to..."), sub: [
-          { label: w("UI/Chat/StartConversation", "Start Conversation"), run: () => converse() },
-          ...[...(cache.invitable.get(characterID) ?? [])].sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0)).map((c) => ({ label: c.title, run: () => converse(c.channel) })),
-        ] },
-        { label: w("UI/EVEMail/SendPilotEVEMail", "Send Message"), run: () => { focusMail({ kind: "compose", characterID, name }); open("mail"); } },
-        portraitEntry,
-        ...(inviteEntry ? [inviteEntry] : []),
-        ...(fleetEntry ? [fleetEntry] : []),
-        ...(inFleet ? [] : [{ label: w("UI/Fleet/FormFleetWith", "Form Fleet With..."), run: () => void s.flow.formFleetWith(characterID).catch(() => {}) }]), null,
-        { label: w("UI/Crimewatch/Duel/DuelMenuEntry", "Invite to Duel"), run: () => void s.flow.startDuel(characterID).catch(() => {}) },
-        ...(guest?.corporationID != null && guest.corporationID === stationState.online?.corporationID ? [null, memberDetailsEntry] : []),
-      ],
+      // Guests uses the native menuDataFactory order: Show Info, Fleet submenu, trade, changes, contacts, and social.
+      sub: inLobby
+        ? [showInfoEntry, null, ...fleetSubmenu, null, moneyEntry, ...tradeEntries, ...(sameCorp && !director ? [memberDetailsEntry] : []), null,
+          ...(blocked ? [blockEntry] : []), bountyEntry, null, ...contacts, ...(blocked ? [] : [blockEntry]), null,
+          ...socialEntries, ...formFleetEntry, null, ...invite, null, ...(sameCorp && director ? [memberDetailsEntry] : []), null, duelEntry]
+        : [showInfoEntry, null, moneyEntry, null, bountyEntry, null, ...contacts, blockEntry, null,
+          ...socialEntries, ...invite, ...fleetSubmenu, ...formFleetEntry, null, duelEntry],
     };
   }
   setContext("flightSpaceView", () => view);
