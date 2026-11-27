@@ -20,6 +20,8 @@ controller.on_creation_failure = Signal()
 controller.on_item_changed = Signal()
 controller._on_raffle_created(type('Offer', (object,), {'raffle_id': 92})())
 ignored = controller.status == CreationStatus.creating and not events
+controller.OnRaffleCreationFailedServer(92, CreateErrorReason.token_amount)
+ignored_failure = controller.status == CreationStatus.creating and not events
 controller._on_raffle_created(type('Offer', (object,), {'raffle_id': 91})())
 success = controller.status == CreationStatus.success and events[-1][0].raffle_id == 91
 controller.OnRaffleCreationFailedServer(91, CreateErrorReason.token_amount)
@@ -31,7 +33,7 @@ controller._item = None
 view._handle_view_raffle()
 opened = events[-1] == ('view', 91)
 view._handle_confirm_error()
-result = dict(station=session.stationid, ignored=ignored, success=success, failure=failure,
+result = dict(station=session.stationid, ignored=ignored, ignoredFailure=ignored_failure, success=success, failure=failure,
               opened=opened, reset=controller.status == CreationStatus.none and controller.raffle_id is None,
               labels=[Text.create_button(), Text.confirm_purchase(), Text.creating(), Text.create_success_title(),
                       Text.create_success_message(), Text.create_another(), Text.view_raffle(),

@@ -106,6 +106,27 @@ export interface HyperNetOfferDetails extends HyperNetOffer {
   readonly ended: number | null;
 }
 
+export type HyperNetCreationNotice =
+  | { readonly id: number; readonly offer: HyperNetOfferDetails }
+  | { readonly id: number; readonly error: string };
+
+export function decodeHyperNetCreationNotice(method: string | null, args: readonly unknown[]): HyperNetCreationNotice | null {
+  if (method !== "OnRaffleCreatedServer" && method !== "OnRaffleCreationFailedServer") return null;
+  const id = Number(unwrapLong(args[0]));
+  if (!Number.isSafeInteger(id) || id <= 0) return null;
+  const payload = args[1];
+  if (method === "OnRaffleCreationFailedServer") {
+    const error = typeof payload === "string" ? payload : (payload as { value?: unknown } | null)?.value;
+    return { id, error: typeof error === "string" && /^\w+$/.test(error) ? error : "UnknownError" };
+  }
+  try {
+    const offer = decodeHyperNetOfferDetails(payload);
+    return offer.id === id ? { id, offer } : null;
+  } catch {
+    return null;
+  }
+}
+
 export function decodeHyperNetOfferDetails(payload: unknown): HyperNetOfferDetails {
   const offer = decodeHyperNetOffer(payload);
   const number = (key: string, source = payload) => {
@@ -153,7 +174,7 @@ export function hyperNetDetailNoticeIDs(method: string, args: readonly unknown[]
     const id = Number(unwrapLong(value));
     return Number.isSafeInteger(id) && id > 0 ? [id] : [];
   };
-  if (method === "OnRaffleUpdatedServer" || method === "OnRaffleFinishedServer") return idOf(args[0]);
+  if (method === "OnRaffleUpdatedServer" || method === "OnRaffleFinishedServer" || method === "OnRaffleCreatedServer") return idOf(args[0]);
   if (method !== "OnTicketsUpdatedServer" || args[0] === null || typeof args[0] !== "object") return [];
   const updates = args[0] as { type?: unknown; entries?: unknown };
   return updates.type === "dict" && Array.isArray(updates.entries)

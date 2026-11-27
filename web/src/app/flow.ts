@@ -11,7 +11,7 @@ import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, dec
 import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
-import { decodeHyperNetActiveTickets, decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, decodeHyperNetTypeStatistics, hyperNetCountBounds, hyperNetCreationQuote, hyperNetDetailNoticeIDs, hyperNetRestrictedTypeLists, hyperNetSingletonTypeList, type HyperNetCreationDraft, type HyperNetPrizeRules, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
+import { decodeHyperNetActiveTickets, decodeHyperNetCreationNotice, decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, decodeHyperNetTypeStatistics, hyperNetCountBounds, hyperNetCreationQuote, hyperNetDetailNoticeIDs, hyperNetRestrictedTypeLists, hyperNetSingletonTypeList, type HyperNetCreationDraft, type HyperNetCreationNotice, type HyperNetPrizeRules, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
@@ -6341,6 +6341,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const onlineCharacterID = (): number | null => store.station.get().online?.characterID ?? null;
   const academyChangedSignal = createSignal(0);
   const hyperNetHistoryChanged = createSignal(0);
+  const hyperNetCreationListeners = new Set<(notice: HyperNetCreationNotice) => void>();
   const hyperNetDetailWatches = new Map<number, { listeners: Set<() => void>; attempted: boolean }>();
   let hyperNetSubscriptionQueue = Promise.resolve();
   const hyperNetAvailabilityChanged = createSignal(0);
@@ -7904,6 +7905,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     receivedAtMs: number,
     insideMultiEvent = false,
   ): void {
+    if (hyperNetCreationListeners.size > 0) {
+      const notice = decodeHyperNetCreationNotice(method, args);
+      if (notice) for (const listener of hyperNetCreationListeners) listener(notice);
+    }
     if (method === "OnRaffleUpdatedServer" || method === "OnTicketsUpdatedServer" ||
         method === "OnRaffleFinishedServer" || method === "OnRaffleCreatedServer") {
       hyperNetHistoryChanged.update(revision => revision + 1);
@@ -29508,17 +29513,78 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         !hyperNetCountBounds.includes(count) || hyperNetCreationQuote(nodePrice * count, count, 1).nodePrice !== nodePrice) {
       throw new Error("Review the HyperNet offer terms.");
     }
-    const reply = await bridgeDo("raffleProxy", "CreateRaffle", [{
-      type: "object", name: "raffles.common.raffle_data.RaffleCreationData", args: { type: "dict", entries: [
-        ["owner_id", pilot.characterID], ["location_id", stationID], ["solar_system_id", null],
-        ["token_id", tokenID], ["token_location_id", tokenStationID], ["item_id", itemID], ["type_id", typeID],
-        ["ticket_count", count], ["ticket_price", nodePrice], ["restriction_id", privateOffer ? 1 : null],
-      ] },
-    }]);
-    current();
-    const id = Number(unwrapLong(reply));
-    if (!Number.isSafeInteger(id) || id <= 0) throw new Error("HyperNet could not confirm the new offer.");
-    return id;
+    const pending = new Map<number, HyperNetCreationNotice>();
+    const matches = (offer: HyperNetOfferDetails) => offer.status >= 6 && offer.ownerID === pilot.characterID &&
+      offer.locationID === stationID && offer.typeID === typeID && offer.tickets === count &&
+      offer.price === BigInt(nodePrice) && offer.private === privateOffer;
+    let id: number | undefined;
+    let finishNotice: ((notice: HyperNetCreationNotice) => void) | undefined;
+    const onNotice = (notice: HyperNetCreationNotice) => {
+      if ("offer" in notice && !matches(notice.offer)) return;
+      if (id !== undefined) {
+        if (notice.id === id) finishNotice?.(notice);
+      } else if (pending.size < 32 && !pending.has(notice.id)) {
+        pending.set(notice.id, notice);
+      }
+    };
+    hyperNetCreationListeners.add(onNotice);
+    try {
+      const reply = await bridgeDo("raffleProxy", "CreateRaffle", [{
+        type: "object", name: "raffles.common.raffle_data.RaffleCreationData", args: { type: "dict", entries: [
+          ["owner_id", pilot.characterID], ["location_id", stationID], ["solar_system_id", null],
+          ["token_id", tokenID], ["token_location_id", tokenStationID], ["item_id", itemID], ["type_id", typeID],
+          ["ticket_count", count], ["ticket_price", nodePrice], ["restriction_id", privateOffer ? 1 : null],
+        ] },
+      }]);
+      current();
+      const createdID = Number(unwrapLong(reply));
+      if (!Number.isSafeInteger(createdID) || createdID <= 0) throw new Error("HyperNet could not confirm the new offer.");
+      id = createdID;
+      return await new Promise<number>((resolve, reject) => {
+        let settled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const limit = setTimeout(() => finish(new Error("HyperNet could not confirm the outcome. Check History before creating another offer.")), 12_000);
+        function finish(error?: unknown) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(limit);
+          clearTimeout(timer);
+          try {
+            current();
+            if (error !== undefined) reject(error);
+            else resolve(createdID);
+          } catch (cause) {
+            reject(cause);
+          }
+        }
+        finishNotice = notice => finish("error" in notice ? new BridgeCallError("CALL_REFUSED", notice.error, 0) : undefined);
+        const early = pending.get(createdID);
+        pending.clear();
+        if (early) {
+          finishNotice(early);
+          return;
+        }
+        async function read() {
+          try {
+            current();
+            if (matches(await loadHyperNetOfferDetails(createdID))) {
+              finish();
+              return;
+            }
+          } catch (cause) {
+            if (failsTheReading(cause)) {
+              finish(cause);
+              return;
+            }
+          }
+          if (!settled) timer = setTimeout(() => { void read(); }, 1000);
+        }
+        // A durable read also covers a notice lost while the live connection was between sessions.
+        timer = setTimeout(() => { void read(); }, 1000);
+      });
+    } finally {
+      hyperNetCreationListeners.delete(onNotice);
+    }
   }
 
   async function loadHyperNetMetaGroups(): Promise<readonly { readonly id: number; readonly name: string }[]> {
