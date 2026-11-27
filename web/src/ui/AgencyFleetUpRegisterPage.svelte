@@ -40,7 +40,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { resolvedName } from "../store/names.ts";
 
-  let { store, flow, onShow }: { store: ClientStore; flow: AppFlow; onShow?: (groupID: number) => void } = $props();
+  let { store, flow, onShow, fleetOnly = false }: { store: ClientStore; flow: AppFlow; onShow?: (groupID: number) => void; fleetOnly?: boolean } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -75,9 +75,9 @@
   $effect(() => {
     void flow.agencyFleetRegistration().then((r) => {
       loaded = r;
-      if (r.inFleet && !r.isBoss) return;
+      if ((r.inFleet && !r.isBoss) || (fleetOnly && (!r.inFleet || r.registered && !r.advert))) return;
       let ad: CurrentAd & { fleetName: string; description: string; activityValue: number | null } = { inviteScope: 0, useAdvanceOptions: false, newPlayerFriendly: false,
-        advanced: { ...DEFAULT_ADVERT_ADVANCED }, fleetName: "", description: "", activityValue: null };
+        advanced: { ...DEFAULT_ADVERT_ADVANCED }, fleetName: fleetOnly && online ? `${online.characterName}'s Fleet`.slice(0, 32) : "", description: "", activityValue: null };
       if (r.advert) {
         const a = r.advert;
         ad = { fleetName: a.fleetName, description: a.description, activityValue: a.activityValue, newPlayerFriendly: a.newPlayerFriendly, inviteScope: a.inviteScope, useAdvanceOptions: a.useAdvanceOptions,
@@ -89,7 +89,8 @@
       }
       if (!ad.useAdvanceOptions && lastAdvancedOptions) ad = { ...ad, advanced: { ...ad.advanced, ...lastAdvancedOptions } };
       current = { inviteScope: ad.inviteScope, useAdvanceOptions: ad.useAdvanceOptions, newPlayerFriendly: ad.newPlayerFriendly, advanced: ad.advanced };
-      fleetName = ad.fleetName; description = ad.description; activity = ad.activityValue; useAdvanced = ad.useAdvanceOptions; newPlayerFriendly = ad.newPlayerFriendly;
+      fleetName = ad.fleetName; description = ad.description; activity = ad.activityValue;
+      useAdvanced = fleetOnly || ad.useAdvanceOptions; newPlayerFriendly = ad.newPlayerFriendly;
     });
   });
   $effect(() => {
@@ -147,6 +148,8 @@
   });
 
   async function register(): Promise<void> {
+    const expectedFleetID = fleetOnly ? loaded?.fleetID : undefined;
+    if (expectedFleetID === null || fleetOnly && expectedFleetID === undefined) return;
     let advert = null, advanced = null;
     if (!hidden) {
       const name = fleetName.trim();
@@ -174,7 +177,9 @@
     }
     busy = true;
     try {
-      if (await flow.agencyRegisterFleet(advert, advanced)) {
+      if (fleetOnly && advanced?.inviteScope === 0 &&
+          !(await flow.askClientDialog("FleetNobodyHasAccess", "Nobody can join through this advert. Submit it anyway?", true))) return;
+      if (await flow.agencyRegisterFleet(advert, advanced, expectedFleetID)) {
         if (advert) {
           const a = advanced?.advanced ?? DEFAULT_ADVERT_ADVANCED;
           lastAdvert = { ...advert, fleetName: advert.fleetName.slice(0, 32), description: advert.description.slice(0, 250), inviteScope: advanced?.inviteScope ?? INVITE_PUBLIC_OPEN,
@@ -253,7 +258,7 @@
 {/snippet}
 
 {#if view === "basic"}
-<div class="afr">
+<div class="afr" data-fleet-advert-editor={fleetOnly || undefined}>
   <div class="afr-left">
     <div class="afr-name">
       <input type="text" maxlength="32" placeholder={word(`${U}FleetNameHint`)} disabled={hidden} value={fleetName} oninput={(e) => (fleetName = e.currentTarget.value)} />
@@ -265,15 +270,16 @@
   <div class="afr-right">
     <label class="afr-combo"><span>{word(`${U}SelectFleetActivity`)}</span>
       <select disabled={hidden} value={shownActivity} onchange={(e) => (activity = Number(e.currentTarget.value))}>{#each options as [v, t] (v)}<option value={v}>{t}</option>{/each}</select></label>
-    <label class="afr-check afr-first" title={word(`${U}HideFleetCbHint`)}><input type="checkbox" checked={hidden} onchange={(e) => (hidden = e.currentTarget.checked)} />{word(`${U}HideFleetCb`)}</label>
+    {#if !fleetOnly}<label class="afr-check afr-first" title={word(`${U}HideFleetCbHint`)}><input type="checkbox" checked={hidden} onchange={(e) => (hidden = e.currentTarget.checked)} />{word(`${U}HideFleetCb`)}</label>{/if}
     <label class="afr-check" title={word(`${U}NewPlayerFriendlyCbHint`)}><input type="checkbox" disabled={hidden} checked={newPlayerFriendly} onchange={(e) => (newPlayerFriendly = e.currentTarget.checked)} />{word(`${U}NewPlayerFriendlyCb`)}</label>
-    <label class="afr-check" title={word(`${U}UseAdvancedOptionsCbHint`)}><input type="checkbox" disabled={hidden} checked={useAdvanced}
-      onchange={(e) => { useAdvanced = e.currentTarget.checked; current = { ...current, useAdvanceOptions: useAdvanced }; }} />{word(`${U}UseAdvancedOptionsCb`)}</label>
+    {#if !fleetOnly}<label class="afr-check" title={word(`${U}UseAdvancedOptionsCbHint`)}><input type="checkbox" disabled={hidden} checked={useAdvanced}
+      onchange={(e) => { useAdvanced = e.currentTarget.checked; current = { ...current, useAdvanceOptions: useAdvanced }; }} />{word(`${U}UseAdvancedOptionsCb`)}</label>{/if}
     {#if hidden}<p class="afr-warn">⚠ {word(`${U}PrivateWarning`)}</p>
     {:else if summary}<p class="afr-summary">{summary}</p>{/if}
   </div>
   <div class="afr-buttons">
-    <button type="button" class="afr-primary" disabled={busy || loaded === null} onclick={() => void register()}>{word(loaded?.registered ? `${U}UpdateRegistration` : `${U}RegisterFleetBn`)}</button>
+    <button type="button" class="afr-primary" disabled={busy || loaded === null || fleetOnly && (!loaded.inFleet || !loaded.isBoss || loaded.registered && !loaded.advert)}
+      onclick={() => void register()}>{fleetOnly ? word("UI/Common/Buttons/Submit") || "Submit" : word(loaded?.registered ? `${U}UpdateRegistration` : `${U}RegisterFleetBn`)}</button>
     <button type="button" onclick={openAdvanced}>{word(`${U}AdvancedBtn`)}</button>
     <button type="button" onclick={() => onShow?.(67)}>{word("UI/Commands/Cancel")}</button>
   </div>

@@ -11,15 +11,17 @@
   import type { FleetBarBroadcast } from "../bridge/fleetBroadcasts.ts";
   import FleetBroadcastBar from "./FleetBroadcastBar.svelte";
   import FleetHistory from "./FleetHistory.svelte";
+  import FleetAdvertPanel from "./FleetAdvertPanel.svelte";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import type { FleetMember, FleetSquad, FleetWing } from "../bridge/boundFleet.ts";
   import type { FleetAdvert } from "../bridge/fleetAds.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
-  let { store, flow, openWatchlist, openComposition, onFleetBroadcast, fleetRosterFlat = false }: {
+  let { store, flow, openWatchlist, openComposition, onFleetBroadcast, fleetRosterFlat = false, openAdvert }: {
     store: ClientStore; flow: AppFlow; openWatchlist?: () => void; openComposition?: () => void;
     onFleetBroadcast?: (name: FleetBarBroadcast) => void;
     fleetRosterFlat?: boolean;
+    openAdvert?: () => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -471,6 +473,8 @@
           </div>
         {/if}
       </div>
+    {:else if fleetTab === "advert" && openAdvert}
+      <FleetAdvertPanel {store} {flow} onEdit={openAdvert} />
     {:else if !["fleet", "broadcasts", "form"].includes(fleetTab)}<p class="note fl-unbuilt">This panel is not on the play page yet.</p>{/if}
   {/if}
   {#if refreshError}<p class="error">{refreshError}</p>{/if}

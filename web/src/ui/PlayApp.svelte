@@ -1922,7 +1922,7 @@
     mercenaryDens: { w: 900, h: 572 },
     shipSkinr: { w: 1024, h: 700 },
     hyperNet: { w: 1024, h: 720 },
-    fleetComposition: { w: 680, h: 420 }, fleetBroadcastSettings: { w: 480, h: 380 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 570, h: 550 },
+    fleetComposition: { w: 680, h: 420 }, fleetBroadcastSettings: { w: 480, h: 380 }, fleetAdvertEditor: { w: 600, h: 460 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 570, h: 550 },
     structureBrowser: { w: 800, h: 600 }, accessGroups: { w: 800, h: 600 }, autoMoonMiner: { w: 700, h: 515 },
     metenoxTransfer: { w: 400, h: 340 }, metenoxFuel: { w: 435, h: 285 },
     moonMaterialBay: { w: 490, h: 355 },
@@ -2155,6 +2155,7 @@
     planets: "UI/InfoWindow/TabNames/PlanetaryProduction", notepad: "UI/Notepad/Notepad", calendar: "UI/Calendar/CalendarWindow/Caption",
     fleetComposition: "UI/Fleet/FleetComposition/FleetComposition",
     fleetBroadcastSettings: "UI/Fleet/FleetBroadcast/BroadcastSettings",
+    fleetAdvertEditor: "UI/Fleet/CreateAdvert",
     memberDetails: "UI/Corporations/EditMemberDialog/EditMemberCaption",
     structureBrowser: "UI/Structures/Browser/StructureBrowser",
     accessGroups: "UI/Structures/AccessGroups/GroupWndName",
@@ -5048,6 +5049,7 @@
             {#if win.id === "fleet"}<FleetWindowActions store={session.store} flow={session.flow} flat={fleetRosterFlat}
               onFlat={setFleetRosterFlat} {docked} onBroadcast={sendFleetBarBroadcast}
               onBroadcastSettings={() => open("fleetBroadcastSettings")}
+              onAdvert={() => open("fleetAdvertEditor")}
               onWatchlist={() => open("watchlist")} onComposition={() => open("fleetComposition")} />{/if}
             {#if win.id === "drones"}<DronesWindowActions store={session.store} flow={session.flow} />{/if}
             {#if win.id === "inventory" && !docked}<InventoryWindowActions store={session.store} flow={session.flow} />{/if}

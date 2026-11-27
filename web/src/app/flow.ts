@@ -4353,14 +4353,17 @@ export interface AppFlow {
    * The Agency's Fleet Up registration (BasicOptionsCont.LoadData): whether the pilot is in a fleet, its boss, and
    * its fleet registered, and the fleet's advert where it is (GetCurrentAdvertForMyFleet: GetMyFleetFinderAdvert).
    */
-  agencyFleetRegistration(): Promise<{ readonly inFleet: boolean; readonly isBoss: boolean; readonly registered: boolean; readonly advert: FleetAdvert | null }>;
+  agencyFleetRegistration(): Promise<{ readonly fleetID: number | null; readonly inFleet: boolean; readonly isBoss: boolean; readonly registered: boolean; readonly advert: FleetAdvert | null }>;
+  readonly fleetAdvertRevision: ReadableSignal<number>;
+  readFleetAdvert(fleetID: number): Promise<FleetAdvert | null>;
+  removeFleetAdvert(fleetID: number): Promise<void>;
   /**
    * BasicOptionsCont.RegisterFleet and fleetSvc.CreateAndRegisterFleet (1850 to 1861): in a fleet, the advert
    * registered (AddFleetFinderAdvert, its boss only: FleetNotCreator otherwise) or, made hidden (null), taken down
    * where it was registered; in none, the fleet formed with the advert, or with none. A refusal is said in the
    * client's dialog. True where it was made.
    */
-  agencyRegisterFleet(advert: FleetAdvertBasics | null, options?: { readonly inviteScope: number; readonly advanced: FleetAdvertAdvanced } | null): Promise<boolean>;
+  agencyRegisterFleet(advert: FleetAdvertBasics | null, options?: { readonly inviteScope: number; readonly advanced: FleetAdvertAdvanced } | null, expectedFleetID?: number): Promise<boolean>;
   /**
    * The Agency's Pirate Strongholds (ContentProviderPirateStronghold): custom_agency_provider.get_content_data's
    * content of type CONTENTTYPE_PIRATE_STRONGHOLD (15), by system (GetContentDataBySolarSystemID), the systems within
@@ -8798,6 +8801,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (characterID !== null && characterID > 0) store.apply({ type: "fleet/jump-beacon", characterID, beacon: null });
     }
     if (method !== null && fleetSnapshotNotifications.has(method)) {
+      if (method === "OnFleetOptionsChanged") fleetAdvertRevision.update(revision => revision + 1);
       // The notification is an invalidation, never the roster authority. A
       // coalesced, single-flight bound read below replaces the full snapshot.
       scheduleFleetRefresh();
@@ -24066,6 +24070,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     sayDialog("CustomInfo", { type: "dict", entries: [["info", text]] } as JsonValue, text);
     return false;
   }
+  const fleetAdvertRevision = createSignal(0);
   function fleetStanding(): { readonly fleetID: number | null; readonly isBoss: boolean; readonly registered: boolean } {
     const bound = store.fleet.get().fleet, online = store.station.get().online;
     const fleetID = bound && !bound.sessionHasNoFleet && bound.fleetID !== null ? Number(bound.fleetID) : null;
@@ -24075,11 +24080,30 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function agencyFleetRegistration(): Promise<Awaited<ReturnType<AppFlow["agencyFleetRegistration"]>>> {
     await loadFleet(fleetDetailViews === 0).catch(() => undefined);
     const { fleetID, isBoss, registered } = fleetStanding();
-    const advert = registered ? await bridgeAsk("fleetProxy", "GetMyFleetFinderAdvert", []).then(decodeMyFleetFinderAdvert).catch(() => null) : null;
-    return { inFleet: fleetID !== null, isBoss, registered, advert };
+    const advert = registered && fleetID !== null ? await readFleetAdvert(fleetID).catch(() => null) : null;
+    return { fleetID, inFleet: fleetID !== null, isBoss, registered, advert };
   }
-  async function agencyRegisterFleet(advert: FleetAdvertBasics | null, options: { readonly inviteScope: number; readonly advanced: FleetAdvertAdvanced } | null = null): Promise<boolean> {
+  async function readFleetAdvert(fleetID: number): Promise<FleetAdvert | null> {
+    if (fleetStanding().fleetID !== fleetID) return null;
+    const current = callOptions.captureRequestGuard!();
+    const advert = decodeMyFleetFinderAdvert(await bridgeAsk("fleetProxy", "GetMyFleetFinderAdvert", []));
+    current();
+    return fleetStanding().fleetID === fleetID ? advert : null;
+  }
+  async function removeFleetAdvert(fleetID: number): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    const state = fleetStanding();
+    if (state.fleetID !== fleetID || !state.isBoss || !state.registered) return;
+    if (!(await askDialog("FleetRemoveFleetFinderAd", null, "Remove this fleet advert?", "yesno", { suppressAnswer: "yes" }))) return;
+    current();
+    await agencyRegisterFleet(null, null, fleetID);
+  }
+  async function agencyRegisterFleet(advert: FleetAdvertBasics | null, options: { readonly inviteScope: number; readonly advanced: FleetAdvertAdvanced } | null = null, expectedFleetID?: number): Promise<boolean> {
     const { fleetID, isBoss, registered } = fleetStanding();
+    if (expectedFleetID !== undefined && (fleetID !== expectedFleetID || !isBoss)) {
+      sayDialog("FleetNotCreator", null, "Only the current fleet's boss can change its advert.");
+      return false;
+    }
     const data = advert ? (options ? advertData(advert, options.inviteScope, options.advanced) : basicAdvertData(advert)) : null;
     if (fleetID === null) {
       await runFleetAction("form", () => formFleetCall(bridgeDo, false, data), "ready");
@@ -24099,6 +24123,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     } finally {
       await loadFleet(fleetDetailViews === 0).catch(() => undefined);
     }
+    if (expectedFleetID !== undefined) {
+      const state = fleetStanding();
+      if (state.fleetID !== expectedFleetID || state.registered !== (advert !== null)) return false;
+    }
+    fleetAdvertRevision.update(revision => revision + 1);
     return true;
   }
   async function agencyFleetUp(): Promise<Awaited<ReturnType<AppFlow["agencyFleetUp"]>>> {
@@ -42208,6 +42237,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     agencyTriglavianStandings,
     agencyFleetRegistration,
     agencyRegisterFleet,
+    fleetAdvertRevision: readonlySignal(fleetAdvertRevision),
+    readFleetAdvert,
+    removeFleetAdvert,
     agencyColonyResources,
     agencyIncursion,
     factionWarfareLocal,

@@ -11,7 +11,7 @@
   import { clientTexture } from "./skillGroupIcons.ts";
   import { applyWindowFlags, setWindowFlag, windowFlags, WINDOW_ACTION_WORDS, type WindowFlag } from "./windowFlags.ts";
 
-  let { store, flow, flat, onFlat, docked, onBroadcast, onBroadcastSettings, onWatchlist, onComposition }: {
+  let { store, flow, flat, onFlat, docked, onBroadcast, onBroadcastSettings, onWatchlist, onComposition, onAdvert }: {
     store: ClientStore;
     flow: AppFlow;
     flat: boolean;
@@ -21,6 +21,7 @@
     onBroadcastSettings: () => void;
     onWatchlist: () => void;
     onComposition: () => void;
+    onAdvert: () => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -49,6 +50,9 @@
     watchlist: F + "OpenFleetWatchlist",
     maxFleetSize: F + "SetFleetMaxSize",
     freeMove: F + "SetFreeMove",
+    createAdvert: F + "CreateAdvert",
+    editAdvert: F + "EditAdvert",
+    removeAdvert: F + "RemoveAdvert",
   };
   function word(label: string, fallback: string): string {
     const text = $words.templates[label];
@@ -114,6 +118,12 @@
           () => changeConfiguration(() => flow.setFleetFreeMove(fleetID, !checked))), checkbox: true, checked, disabled }, null);
       }
       if (own && isFleetCommander(own)) rows.push(action(labels.composition, "Show Fleet Composition", onComposition));
+      if (own && (own.job & FLEET_JOB_CREATOR) !== 0 && $fleet.availability === "ready") {
+        if ($fleet.fleet?.initState.value.options.isRegistered) {
+          rows.push(action(labels.editAdvert, "Edit Advert", onAdvert),
+            action(labels.removeAdvert, "Remove Advert", () => run(flow.removeFleetAdvert(fleetID))));
+        } else rows.push(action(labels.createAdvert, "Create Advert", onAdvert));
+      }
       rows.push(action(labels.watchlist, "Open Fleet Watch List", onWatchlist),
         null, action(labels.leave, "Leave Fleet", () => run(flow.fleetMenuAction({ kind: "leave" }))));
     }

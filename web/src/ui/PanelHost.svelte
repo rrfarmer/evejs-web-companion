@@ -24,6 +24,7 @@
   import Activity from "./Activity.svelte";
   import FleetCenter from "./FleetCenter.svelte";
   import FleetBroadcastSettings from "./FleetBroadcastSettings.svelte";
+  import AgencyFleetUpRegisterPage from "./AgencyFleetUpRegisterPage.svelte";
   import type { FleetBarBroadcast } from "../bridge/fleetBroadcasts.ts";
   import Scanner from "./Scanner.svelte";
   import MiningScanResults from "./MiningScanResults.svelte";
@@ -268,11 +269,14 @@
   <Activity {store} {flow} showMail={() => onOpen?.("mail")} openApplications={() => { flow.requestCorporationApplications(); onOpen?.("corporation"); }} />
 {:else if tab === "fleet"}
   <FleetCenter {store} {flow} {onFleetBroadcast} {fleetRosterFlat} openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined}
-    openComposition={onOpen ? () => onOpen?.("fleetComposition") : undefined} />
+    openComposition={onOpen ? () => onOpen?.("fleetComposition") : undefined}
+    openAdvert={onOpen ? () => onOpen?.("fleetAdvertEditor") : undefined} />
 {:else if tab === "fleetComposition"}
   <FleetComposition {store} {flow} openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined} />
 {:else if tab === "fleetBroadcastSettings"}
   <FleetBroadcastSettings {store} {flow} />
+{:else if tab === "fleetAdvertEditor"}
+  <AgencyFleetUpRegisterPage {store} {flow} fleetOnly onShow={() => onClose?.()} />
 {:else if tab === "scanner"}
   <Scanner {store} {flow} />
 {:else if tab === "miningScan"}

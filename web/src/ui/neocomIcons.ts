@@ -126,6 +126,7 @@ export const NEOCOM_GLYPHS: Readonly<Record<CoreTabID, NeocomGlyph>> = {
   fleet: ["M12 3l4 8-4-2-4 2z", "M6 13l3 7-3-1.5-3 1.5z", "M18 13l3 7-3-1.5-3 1.5z"],
   fleetComposition: ["M12 3l4 8-4-2-4 2z", "M6 13l3 7-3-1.5-3 1.5z", "M18 13l3 7-3-1.5-3 1.5z"],
   fleetBroadcastSettings: ["M5 6h14M5 12h14M5 18h14", "M9 4v4M15 10v4M11 16v4"],
+  fleetAdvertEditor: ["M5 4h14v16H5z", "M8 8h8M8 12h8M8 16h4"],
   // Watch List: an eye, the members watched.
   watchlist: ["M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z", "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6"],
   mail: ["M4 6h16v12H4z", "M4 7.5l8 6 8-6"],
