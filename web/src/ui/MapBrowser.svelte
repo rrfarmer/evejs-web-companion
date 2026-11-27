@@ -19,12 +19,14 @@
   const labelBase = "UI/Map/MapBrowser/";
   const universeLabel = "UI/Common/LocationTypes/Universe";
   const sectionLabels = ["ListRegions", "ListConstellations", "ListSolarSystems", "ListCelestials"] as const;
-  type Point = { id: number; name: string; x: number; z: number; typeID: number; station?: boolean; groupID?: number | null };
+  type Point = { id: number; name: string; x: number; z: number; typeID: number; station?: boolean;
+    groupID?: number | null; orbitID?: number | null };
   let data = $state.raw<StarMapData | null>(null);
   let objects = $state.raw<readonly SystemObjectRow[]>([]);
   let selection = $state<readonly number[]>([]);
   let shownList = $state<number | null>(null);
   let error = $state(false);
+  let solarPlotWidth = $state(0);
   let alignment = $state<"left" | "right">("right");
   const alignmentMenu = new ContextMenu();
   onDestroy(() => alignmentMenu.close());
@@ -102,7 +104,7 @@
         const detail = row.groupID === 10 && row.destinationID
           ? data?.systems.find(other => other[0] === row.destinationID)?.[7] : row.celestialIndex ?? null;
         return [{ id: row.itemID, typeID: row.typeID, name: `${objectName || row.itemID}${!row.name && detail ? ` · ${detail}` : ""}`,
-          station, groupID: row.groupID, x: row.position[0], z: row.position[2] }];
+          station, groupID: row.groupID, orbitID: row.orbitID, x: row.position[0], z: row.position[2] }];
       });
       result.push({ name: label(labelBase + "NameSolarSystem", "Solar System: {name}", name),
         title: label(labelBase + sectionLabels[3], "List Celestials", name), id: system[0], points });
@@ -133,19 +135,43 @@
     return { points: [...projected.values()], lines };
   }
   // Map2D.DrawSolarsystem puts the sun at the origin and fills 80% of the square at the furthest object.
-  function solarGeometry(points: readonly Point[]) {
+  function solarGeometry(points: readonly Point[], width: number) {
     const extent = Math.max(1, ...points.map(point => Math.hypot(point.x, point.z)));
     const scale = 40 / extent;
+    const magnification = width > 0 ? Math.max(1, Math.floor(4096 / width)) : 1;
+    const byID = new Map(points.map(point => [point.id, point]));
+    function orbitingPlanet(point: Point): Point | undefined {
+      if (point.groupID === 6 || point.groupID === 7 || point.groupID === 10) return;
+      let orbitID = point.orbitID;
+      const seen = new Set([point.id]);
+      while (orbitID != null && !seen.has(orbitID)) {
+        const parent = byID.get(orbitID);
+        if (parent?.groupID === 7) return parent;
+        seen.add(orbitID);
+        orbitID = parent?.orbitID;
+      }
+    }
     return {
-      points: points.map(point => ({
-        ...point,
-        left: point.groupID === 6 ? 50 : 50 - point.x * scale,
-        top: point.groupID === 6 ? 50 : 50 - point.z * scale,
-      })),
+      points: points.map(point => {
+        // Map2D.AddChilds spreads descendants relative to the planet, including objects orbiting its moons.
+        const planet = orbitingPlanet(point);
+        const x = planet ? point.x + (point.x - planet.x) * magnification : point.x;
+        const z = planet ? point.z + (point.z - planet.z) * magnification : point.z;
+        return { ...point, planetID: planet?.id, left: point.groupID === 6 ? 50 : 50 - x * scale,
+          top: point.groupID === 6 ? 50 : 50 - z * scale };
+      }),
       orbits: points.filter(point => point.groupID === 7).map(point => ({
         id: point.id, diameter: 2 * Math.hypot(point.x, point.z) * scale,
       })),
     };
+  }
+  function trackSolarWidth(node: HTMLElement, solar: boolean) {
+    if (!solar) return;
+    const measure = () => { solarPlotWidth = node.clientWidth; };
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    measure();
+    return { destroy: () => observer.disconnect() };
   }
   function select(index: number, point: Point): void {
     if (index === 0) selection = [point.id];
@@ -196,7 +222,7 @@
   {:else if !data}<p role="status">Loading map…</p>
   {:else}
     {#each panels as panel, index (panel.id)}
-      {@const solar = index === 3 ? solarGeometry(panel.points) : null}
+      {@const solar = index === 3 ? solarGeometry(panel.points, solarPlotWidth) : null}
       {@const chart = project(panel.points, panel.edges, panel.neighbors)}
       <section class="map-browser-panel" aria-label={panel.name} data-location={panel.id}>
         <button class="map-browser-list" type="button" title={panel.title} aria-expanded={shownList === index}
@@ -205,7 +231,7 @@
           <button class="map-browser-world" type="button" title={label(labelBase + "ShowInWorldMap", "Show in World Map")}
             aria-label={label(labelBase + "ShowInWorldMap", "Show in World Map")} onclick={() => onShowSystem(panel.id)}>↗</button>
         {/if}
-        <div class="map-browser-plot" class:solar={solar !== null}>
+        <div class="map-browser-plot" class:solar={solar !== null} use:trackSolarWidth={index === 3}>
           {#if chart.lines.length}
             <svg class="map-browser-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
               {#each chart.lines as { a, b, group } (`${a.id}:${b.id}`)}
@@ -220,6 +246,7 @@
           {#each solar?.points ?? chart.points as point (point.id)}
             <button type="button" class="map-browser-point" class:selected={panel.selected === point.id} class:station={point.station} class:sun={point.groupID === 6}
               class:outside={"outside" in point && point.outside}
+              class:satellite={"planetID" in point && point.planetID !== undefined}
               style:left={`${point.left}%`} style:top={`${point.top}%`} title={point.name} aria-label={point.name}
               aria-pressed={index < 3 ? panel.selected === point.id : undefined} data-map-item={point.id} onclick={() => select(index, point)}></button>
           {/each}
@@ -256,6 +283,7 @@
   .map-browser-point { position: absolute; padding: 0; min-height: 0; width: 7px; height: 7px; border: 1px solid #d6e6eb;
     background: #82b4bc; border-radius: 50%; transform: translate(-50%, -50%); }
   .map-browser-point.station { border-radius: 0; background: #af995c; }
+  .map-browser-point.satellite { width: 4px; height: 4px; }
   .map-browser-point.outside { width: 4px; height: 4px; opacity: 0.75; }
   .map-browser-point.sun { background: #fff0c4; border-color: #fff5d8; box-shadow: 0 0 6px #f4cd8266; }
   .map-browser-point.selected, .map-browser-point:focus-visible, .map-browser-point:hover {

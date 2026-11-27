@@ -6,9 +6,17 @@ from eve.client.script.ui.shared.maps.map2D import FLIPMAP
 
 def orbit_geometry(browser):
     solar_map = next(child for child in browser.children[3].children if getattr(child, 'drawlevel', None) == 4)
+    children = []
+    for _, _, planet, _ in solar_map.orbs:
+        for child in solar_map.GetChilds(planet.itemID, [], 0):
+            position = solar_map.cordsAsPortion.get(child.itemID)
+            if position:
+                children.append(dict(id=child.itemID, parent=planet.itemID, x=child.x, z=child.z,
+                                     parentX=planet.x, parentZ=planet.z, left=position[0], top=position[1]))
     return dict(size=solar_map.sr.sizefactorsize, factor=solar_map.sr.sizefactor,
                 fill=solar_map.fillSize, flip=FLIPMAP,
                 abstract=bool(settings.user.ui.Get('solarsystemmapabstract', 0)),
+                children=sorted(children, key=lambda child: child['id']),
                 orbits=[dict(id=planet.itemID, radius=radius, x=planet.x, z=planet.z)
                         for _, radius, planet, _ in solar_map.orbs])
 
