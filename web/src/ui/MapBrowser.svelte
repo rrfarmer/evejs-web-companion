@@ -9,10 +9,11 @@
   import { showInfo } from "./showInfo.ts";
   import { mapBrowserConnections, type MapBrowserConnection } from "./mapBrowserConnections.ts";
   import { solarGeometry } from "./mapBrowserSolarGeometry.ts";
+  import { clientTexture } from "./skillGroupIcons.ts";
 
-  let { store, flow, request, onClose, onShowSystem }: {
+  let { store, flow, request, onClose, onShowLocation }: {
     store: ClientStore; flow: AppFlow; request: { systemID: number };
-    onClose: () => void; onShowSystem: (systemID: number) => void;
+    onClose: () => void; onShowLocation: (locationID: number) => void;
   } = $props();
   const names = $derived(store.names);
   const words = $derived(store.words);
@@ -39,6 +40,17 @@
   const abstractPreference = $derived(`evejs.user.${$auth.accountID ?? "local"}.solarsystemmapabstract`);
   const label = (key: string, fallback: string, name = "") =>
     plainText(formatTemplate($words.templates[key] ?? fallback, { name }, { nameOf: () => name }));
+
+  function showInWorldMap(id: number) {
+    if ((id >= 11_000_000 && id < 12_000_000) || (id >= 21_000_000 && id < 22_000_000) ||
+        (id >= 31_000_000 && id < 32_000_000)) {
+      const char = store.character.get().selectedCharacterID;
+      flow.sayDialog("MapShowWormholeSpaceInfo", { type: "dict", entries: [["char", char]] },
+        "Your current location does not translate to known coordinates in your local NEOCOM database.");
+      return;
+    }
+    onShowLocation(id);
+  }
 
   $effect(() => {
     let current = true;
@@ -224,10 +236,10 @@
       <section class="map-browser-panel" aria-label={panel.name} data-location={panel.id}>
         <button class="map-browser-list" type="button" title={panel.title} aria-expanded={shownList === index}
           onclick={() => { shownList = shownList === index ? null : index; }}>{panel.name}</button>
-        {#if index === 3}
-          <button class="map-browser-world" type="button" title={label(labelBase + "ShowInWorldMap", "Show in World Map")}
-            aria-label={label(labelBase + "ShowInWorldMap", "Show in World Map")} onclick={() => onShowSystem(panel.id)}>↗</button>
-        {/if}
+        <button class="map-browser-world" type="button" title={label(labelBase + "ShowInWorldMap", "Show in world map")}
+          aria-label={label(labelBase + "ShowInWorldMap", "Show in world map")} onclick={() => showInWorldMap(panel.id)}>
+          <img src={clientTexture("res:/UI/Texture/Shared/arrowLeft.png")} alt="" />
+        </button>
         <div class="map-browser-plot" class:solar={solar !== null} use:trackSolarWidth={index === 3}>
           {#if chart.lines.length}
             <svg class="map-browser-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
@@ -277,7 +289,10 @@
   .map-browser-close, .map-browser-list, .map-browser-world { position: absolute; z-index: 2; background: #101619; border: 1px solid #ffffff30; }
   .map-browser-close { right: 4px; top: 4px; z-index: 4; }
   .map-browser-list { left: 4px; top: 4px; max-width: calc(100% - 48px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .map-browser-world { right: 4px; top: 4px; }
+  .map-browser-world { left: 2px; bottom: 2px; width: 16px; height: 16px; min-height: 0; padding: 0; border: 0;
+    background: transparent; opacity: 0.5; }
+  .map-browser-world img { display: block; width: 100%; height: 100%; }
+  .map-browser-world:hover, .map-browser-world:focus-visible { opacity: 1; }
   .map-browser-point { position: absolute; padding: 0; min-height: 0; width: 7px; height: 7px; border: 1px solid #d6e6eb;
     background: #82b4bc; border-radius: 50%; transform: translate(-50%, -50%); }
   .map-browser-point.station { border-radius: 0; background: #af995c; }

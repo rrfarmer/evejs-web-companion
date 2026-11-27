@@ -2500,7 +2500,7 @@
   let mapInFront = $state(false);
   let mapBrowserRequest = $state.raw<{ systemID: number } | null>(null);
   let requestedMapMode: StarMapColorMode = "empire";
-  let requestedMapSystem: number | null = null;
+  let requestedMapLocation: { id: number; zoom: boolean } | null = null;
   let mapFilters: ReturnType<typeof mountStarMapFilterControls> | null = null;
   /** The system menu (Esc: uicore.cmd.OnEsc's EscapeCommand opens it when nothing else takes the key). */
   let systemMenu = $state(false);
@@ -2686,11 +2686,15 @@
   function toggleSystemMenu() {
     systemMenu = !systemMenu;
   }
-  function showSystemOnMap(systemID: number) {
-    requestedMapSystem = systemID;
+  function showLocationOnMap(id: number, zoom: boolean) {
+    requestedMapLocation = { id, zoom };
     mapInFront = true;
     toggleStarMap(true);
-    starMap?.select(systemID);
+    if (zoom) starMap?.selectLocation(id);
+    else starMap?.select(id);
+  }
+  function showSystemOnMap(systemID: number) {
+    showLocationOnMap(systemID, false);
   }
   function showSystemInMapBrowser(systemID: number) {
     mapBrowserRequest = { systemID };
@@ -2702,7 +2706,7 @@
       starMap = null;
       mapInFront = false;
       requestedMapMode = "empire";
-      requestedMapSystem = null;
+      requestedMapLocation = null;
       mapFilters = null;
       return;
     }
@@ -2749,8 +2753,12 @@
       if (starMap !== m) return;
       const here = sessionPlace(s.store.flight.get().status, s.store.station.get().online).solarSystemID ?? live?.hello?.solarSystemID ?? null;
       m.build(data, here);
-      if (requestedMapSystem !== null) m.select(requestedMapSystem);
-      void m.setLayout(box.checked);
+      const location = requestedMapLocation;
+      if (location && !location.zoom) m.select(location.id);
+      void m.setLayout(box.checked).then(() => {
+        const target = requestedMapLocation;
+        if (starMap === m && target?.zoom) m.selectLocation(target.id);
+      });
       route();
       const stop = s.flow.waypoints.subscribe(() => route());
       const filters = mountStarMapFilterControls(m, s);
@@ -5153,7 +5161,7 @@
   <!-- the star map's host, over the hangar or space and under the windows -->
   <div class="fly-map" class:foreground={mapInFront} bind:this={mapHost}></div>
   {#if session && mapBrowserRequest}
-    <MapBrowser store={session.store} flow={session.flow} request={mapBrowserRequest} onShowSystem={showSystemOnMap}
+    <MapBrowser store={session.store} flow={session.flow} request={mapBrowserRequest} onShowLocation={(id) => showLocationOnMap(id, true)}
       onClose={() => { mapBrowserRequest = null; }} />
   {/if}
   {#if planetInMode}

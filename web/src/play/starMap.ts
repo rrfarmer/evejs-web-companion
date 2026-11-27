@@ -119,6 +119,7 @@ const MAX_CAMERA_DISTANCE = 160000.0;
 const ZOOM_DIST_SYSTEM = 6000;
 const ZOOM_DIST_CONSTELLATION = 10000;
 const ZOOM_DIST_REGION = 20000;
+const ZOOM_DIST_UNIVERSE = 10000;
 /** mapFilterConst.py NEUTRAL_COLOR, BASE11_COLORRANGE; eveColor.py's faction colours (#AARRGGBB, or #RRGGBB). */
 const NEUTRAL: [number, number, number] = [0.5, 0.5, 0.5];
 const BASE11: [number, number, number][] = [
@@ -630,22 +631,55 @@ export class StarMap {
   }
 
   /** SetActiveItemID: the system selected, its markers active, the camera's point of interest moved to it. */
-  select(systemID: number): void {
+  select(systemID: number, zoomToItem = false): void {
     if (!this.data || !this.positions.has(systemID)) return;
     this.selectedID = systemID;
     this.selectedCluster = null;
     this.buildMarkers(this.data, this.within, this.names, systemID);
     this.updateLineOpacity();
-    this.move = { from: this.controls.target.clone(), to: this.positions.get(systemID)!.clone(), at: performance.now() };
+    const layout = this.abstract ? this.layouts.abstract : this.layouts.own;
+    const target = (zoomToItem ? layout.get(systemID) : undefined) ?? this.positions.get(systemID)!;
+    this.moveTo(target, zoomToItem ? ZOOM_DIST_SYSTEM : undefined);
+  }
+
+  selectLocation(locationID: number): void {
+    if (!this.data) return;
+    if (this.positions.has(locationID)) { this.select(locationID, true); return; }
+    const region = this.regionMarks.find(mark => mark.id === locationID);
+    const constellation = this.constellationMarks.find(mark => mark.id === locationID);
+    const area = region ?? constellation;
+    if (!area && locationID !== 9) return;
+    this.selectedID = locationID;
+    this.selectedCluster = null;
+    this.buildMarkers(this.data, this.within, this.names, null, constellation?.id);
+    this.updateLineOpacity();
+    const target = area ? (this.abstract ? area.abstract : area.own) : new THREE.Vector3();
+    this.moveTo(target, region ? ZOOM_DIST_REGION : constellation ? ZOOM_DIST_CONSTELLATION : ZOOM_DIST_UNIVERSE);
+  }
+
+  private selectedAreaPosition(): THREE.Vector3 | undefined {
+    if (this.selectedID === 9) return new THREE.Vector3();
+    const area = this.regionMarks.find(mark => mark.id === this.selectedID)
+      ?? this.constellationMarks.find(mark => mark.id === this.selectedID);
+    return this.abstract ? area?.abstract : area?.own;
+  }
+
+  private moveTo(position: THREE.Vector3, zoom?: number): void {
+    const target = this.controls.target;
+    this.move = { from: target.clone(), to: position.clone(), at: performance.now(),
+      zoom: zoom === undefined ? undefined : { from: this.camera.position.distanceTo(target), to: zoom } };
   }
 
   private get selectedRegionID(): number | null {
-    return this.selectedCluster?.regionID ?? (this.selectedID === null ? null : this.within.get(this.selectedID)?.[0] ?? null);
+    return this.selectedCluster?.regionID ?? (this.selectedID === null ? null : this.within.get(this.selectedID)?.[0]
+      ?? this.constellationMarks.find(mark => mark.id === this.selectedID)?.regionID
+      ?? this.regionMarks.find(mark => mark.id === this.selectedID)?.id ?? null);
   }
 
   private get selectedConstellationID(): number | null {
     if (this.selectedCluster) return this.selectedCluster.level === "constellation" ? this.selectedCluster.id : null;
-    return this.selectedID === null ? null : this.within.get(this.selectedID)?.[1] ?? null;
+    return this.selectedID === null ? null : this.within.get(this.selectedID)?.[1]
+      ?? this.constellationMarks.find(mark => mark.id === this.selectedID)?.id ?? null;
   }
 
   private clusterPosition(cluster: ActivityCluster): THREE.Vector3 {
@@ -659,11 +693,7 @@ export class StarMap {
     this.selectedCluster = cluster;
     this.buildMarkers(this.data, this.within, this.names, null, this.selectedConstellationID);
     this.updateLineOpacity();
-    const target = this.controls.target;
-    this.move = {
-      from: target.clone(), to: this.clusterPosition(cluster), at: performance.now(),
-      zoom: { from: this.camera.position.distanceTo(target), to: cluster.level === "region" ? ZOOM_DIST_REGION : ZOOM_DIST_CONSTELLATION },
-    };
+    this.moveTo(this.clusterPosition(cluster), cluster.level === "region" ? ZOOM_DIST_REGION : ZOOM_DIST_CONSTELLATION);
   }
 
   /** The hilight: the hovered system's label shown, a dashed circle on it; the active constellation's lines + 0.3. */
@@ -740,7 +770,7 @@ export class StarMap {
     const target = this.abstract ? this.layouts.abstract : this.layouts.own;
     // (the camera's point of interest moves with the active item, as the map keeps its camera on it)
     const selectedPosition = () => this.selectedCluster ? this.clusterPosition(this.selectedCluster)
-      : this.selectedID !== null ? this.positions.get(this.selectedID) : undefined;
+      : this.selectedID !== null ? this.positions.get(this.selectedID) ?? this.selectedAreaPosition() : undefined;
     const sel = selectedPosition()?.clone();
     for (const [id, p] of this.positions) p.lerpVectors(this.morph.from.get(id)!, target.get(id)!, t);
     if (sel && !this.move) {
@@ -1252,10 +1282,10 @@ export class StarMap {
     // Make2DCamera's turn: pitch to kMinPitch (0.005 from straight down) and yaw to 0 over 1 s, the distance kept
     if (this.turn) {
       const t = Math.min(1, (performance.now() - this.turn.at) / 1000);
-      const d = Math.min(310000, Math.max(3100, this.turn.from.length()));
+      const distance = THREE.MathUtils.clamp(this.camera.position.distanceTo(this.controls.target), 3100, 310000);
       // yaw 0 with the default eye's way: from above, behind on EVE's -z (three's +z)
-      const top = new THREE.Vector3(0, Math.cos(0.005), Math.sin(0.005)).multiplyScalar(d);
-      const now = this.turn.from.clone().normalize().lerp(top.clone().normalize(), t).normalize().multiplyScalar(this.turn.from.length() + (d - this.turn.from.length()) * t);
+      const top = new THREE.Vector3(0, Math.cos(0.005), Math.sin(0.005));
+      const now = this.turn.from.clone().normalize().lerp(top, t).setLength(distance);
       this.camera.position.copy(this.controls.target).add(now);
       if (t >= 1) this.turn = null;
     }
