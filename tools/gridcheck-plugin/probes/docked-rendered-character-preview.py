@@ -6,14 +6,15 @@ from eve.client.script.ui.shared.preview import PreviewCharacterWnd
 from eve.common.script.paperDoll.paperDollDefinitions import ModifierRow
 
 
-def observe(gender, outfit, hair):
+def observe(gender, outfit, hair, apparel=()):
     if PortraitWindow.GetIfOpen() or PreviewCharacterWnd.GetIfOpen():
         raise RuntimeError('A character preview is already open')
     candidate = next((char_id for char_id, info in iter_npc_characters()
                       if info.gender == gender and info.bloodlineID == 8), None)
     if candidate is None:
         raise RuntimeError('No reference character has the selected paper-doll gender')
-    dna = utillib.KeyVal(sculpts=[], colors=[], modifiers=[ModifierRow(10, outfit, 0), ModifierRow(5, hair, 0)])
+    modifiers = [(10, outfit), (5, hair)] + list(apparel)
+    dna = utillib.KeyVal(sculpts=[], colors=[], modifiers=[ModifierRow(slot, resource, 0) for slot, resource in modifiers])
     try:
         wnd = PreviewCharacterWnd.Open(charID=candidate, dna=dna)
         preview = wnd.previewContainer
@@ -31,6 +32,8 @@ def observe(gender, outfit, hair):
         bounds = [list(point) for point in measured]
         result = dict(station=session.stationid, characterID=candidate, windowID=wnd.windowID, outfit=outfit,
                       resource=cfg.paperdollResources.Get(outfit).resPath,
+                      apparel=[dict(slot=slot, resource=cfg.paperdollResources.Get(resource).resPath)
+                               for slot, resource in apparel],
                       minSize=wnd.default_minSize, bounds=bounds, target=list(camera.atPosition),
                       verticalPan=scene.verticalPanEnabled)
         wnd.SwitchToPortrait(candidate)
@@ -44,4 +47,5 @@ def observe(gender, outfit, hair):
         PortraitWindow.CloseIfOpen()
 
 
-result = dict(female=observe(0, 15525, 407), male=observe(1, 15555, 127))
+result = dict(female=observe(0, 15525, 407), male=observe(1, 15555, 127),
+              layered=observe(0, 2225, 407, ((25, 236), (22, 298))))

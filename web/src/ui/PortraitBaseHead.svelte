@@ -3,12 +3,12 @@
   import * as THREE from "three";
   import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
   import type { PortraitFraming } from "../app/flow.ts";
-  import type { PortraitFrame, PortraitSkinTone } from "../app/api.ts";
+  import type { PortraitApparel, PortraitFrame, PortraitSkinTone } from "../app/api.ts";
   import { compressedSupport, loadDds } from "../three/ddsTexture";
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
   import { capturePointer } from "./pointerCapture.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, outfit }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, outfit, apparel }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
@@ -19,6 +19,7 @@
     skinColors?: PortraitSkinTone["colors"];
     hairstyle?: string;
     outfit?: string;
+    apparel?: PortraitApparel;
   } = $props();
   let canvas: HTMLCanvasElement;
   let renderer = $state.raw<THREE.WebGLRenderer | null>(null);
@@ -202,16 +203,18 @@
   $effect(() => {
     const active = renderer;
     const source = outfit;
+    const extra = apparel;
     const gender = model;
     if (!active || !source) return;
     let retired = false;
     let body: THREE.Group | null = null;
-    const maps: Awaited<ReturnType<typeof loadMap>>[] = [];
+    const maps: { texture: THREE.Texture; bitmap?: ImageBitmap }[] = [];
     const texture = async (url: string | null, color: boolean): Promise<THREE.Texture | null> => {
       if (!url) return null;
-      const map = await loadMap(url, color);
+      const map = url.endsWith(".dds") ? { texture: await loadDds(url), bitmap: undefined } : await loadMap(url, color);
+      if (color) map.texture.colorSpace = THREE.SRGBColorSpace;
       if (retired) {
-        map.bitmap.close();
+        map.bitmap?.close();
         map.texture.dispose();
         return null;
       }
@@ -220,27 +223,25 @@
     };
     outfitDisplay = "loading";
     outfitBounds = null;
-    void (async () => {
-      const response = await fetch(source);
+    type Garment = {
+      model: string; diffuse: string | null; zones: string | null; normal: string | null;
+      colors: [number, number, number, number][]; occludes: string[]; skinMeshes: string[];
+    };
+    const manifest = async (url: string): Promise<Garment> => {
+      const response = await fetch(url);
       if (!response.ok) throw new Error("Outfit unavailable");
-      const data = await response.json() as {
-        model: string; diffuse: string | null; zones: string | null; normal: string | null;
-        colors: [number, number, number, number][]; occludes: string[];
-      };
-      // Only covered outer garments can use the body meshes without separate apparel.
-      if (!["topouter", "bottomouter", "feet"].every(location => data.occludes.includes(location))) {
-        throw new Error("This outfit requires additional apparel layers");
-      }
+      return await response.json() as Garment;
+    };
+    let skin: THREE.MeshStandardMaterial | undefined;
+    const loadGarment = async (data: Garment, group: THREE.Group) => {
       const diffuse = await texture(data.diffuse, true);
       const zones = data.colors.length === 3 ? await texture(data.zones, false) : null;
       const normal = await texture(data.normal, false);
-      const skinDetail = await texture(`/client-assets/graphics/character/${gender}/paperdoll/skintone/basic/colorize_body_l_512.png`, true).catch(() => null);
       if (retired) return;
       const { scene: object } = await loader.loadAsync(data.model);
       if (retired) { release(object); return; }
-      body = object;
+      group.add(object);
       const garment = new THREE.MeshStandardMaterial({ map: diffuse, normalMap: normal, roughness: 0.68, side: THREE.DoubleSide });
-      const skin = new THREE.MeshStandardMaterial({ map: skinDetail, color: skinDetail ? 0xffffff : 0xb59280, roughness: 0.78 });
       garment.onBeforeCompile = shader => {
         if (zones && diffuse) {
           shader.uniforms.outfitZones = { value: zones };
@@ -264,16 +265,43 @@
       };
       garment.customProgramCacheKey = () => `outfit:${Boolean(zones && diffuse)}:${Boolean(normal)}`;
       const original = new Set<THREE.Material>();
-      let hasSkinMesh = false;
-      body.traverse(node => {
+      object.traverse(node => {
         if (!(node instanceof THREE.Mesh)) return;
         for (const material of Array.isArray(node.material) ? node.material : [node.material]) original.add(material);
-        const bareSkin = /^skin/i.test(node.name);
-        hasSkinMesh ||= bareSkin;
-        node.material = bareSkin ? skin : garment;
+        const bareSkin = data.skinMeshes?.includes(node.name.replace(/_\d+$/, "")) || /^skin/i.test(node.name);
+        node.material = bareSkin && skin ? skin.clone() : garment;
       });
       original.forEach(material => material.dispose());
-      if (!hasSkinMesh) skin.dispose();
+    };
+    void (async () => {
+      const outer = await manifest(source);
+      if (!outer.occludes.includes("topouter")) throw new Error("This outfit requires an additional top layer");
+      const worn = [outer];
+      const occludes = new Set(outer.occludes);
+      for (const slot of ["bottomouter", "feet"] as const) {
+        if (occludes.has(slot)) continue;
+        const url = extra?.[slot];
+        if (!url) throw new Error("This outfit requires additional apparel layers");
+        const layer = await manifest(url);
+        worn.push(layer);
+        for (const name of layer.occludes) occludes.add(name);
+      }
+      const skinDetail = await texture(`/client-assets/graphics/character/${gender}/paperdoll/skintone/basic/colorize_body_l_512.png`, true).catch(() => null);
+      if (retired) return;
+      skin = new THREE.MeshStandardMaterial({ map: skinDetail, color: skinDetail ? 0xffffff : 0xb59280, roughness: 0.78 });
+      body = new THREE.Group();
+      for (const layer of worn) await loadGarment(layer, body);
+      if (retired) return;
+      if (!occludes.has("hands") && !occludes.has("hand")) {
+        const { scene: hands } = await loader.loadAsync(`/client-assets/portrait-outfit/${gender}/hands.glb`);
+        if (retired) { release(hands); return; }
+        hands.traverse(node => {
+          if (!(node instanceof THREE.Mesh)) return;
+          for (const material of Array.isArray(node.material) ? node.material : [node.material]) material.dispose();
+          node.material = skin!.clone();
+        });
+        body.add(hands);
+      }
       body.updateMatrixWorld(true);
       outfitBounds = new THREE.Box3().setFromObject(body, true);
       scene.add(body);
@@ -282,7 +310,8 @@
     return () => {
       retired = true;
       if (body) { scene.remove(body); release(body); }
-      for (const map of maps) { map.texture.dispose(); map.bitmap.close(); }
+      skin?.dispose();
+      for (const map of maps) { map.texture.dispose(); map.bitmap?.close(); }
     };
   });
 

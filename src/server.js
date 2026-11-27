@@ -19597,7 +19597,7 @@ app.get("/api/bridge/character/:characterID/preview-appearance", requireAuth, as
     const model = gender === false || gender === 0 ? "female" : gender === true || gender === 1 ? "male" : null;
     return res.json({ ok: true, appearance: {
       model, bloodlineID: strictPositiveID(bloodlineID),
-      ...(model ? portraitPreviewModifiers(appearance, model, locations, resources) : { outfit: null, hairstyle: null }),
+      ...(model ? portraitPreviewModifiers(appearance, model, locations, resources) : { outfit: null, apparel: {}, hairstyle: null }),
     } });
   } catch (error) { next(error); }
 });
