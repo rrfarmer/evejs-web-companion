@@ -332,6 +332,7 @@
   interface MenuAsset extends ComparisonSubject {
     readonly itemID: number;
     readonly stationID: number;
+    readonly quantity: number;
     readonly packagedHangar: boolean;
     readonly assembledHangar: boolean;
   }
@@ -349,6 +350,7 @@
   function menuAsset(element: HTMLButtonElement): MenuAsset {
     return {
       itemID: Number(element.dataset.assetItem), typeID: Number(element.dataset.assetType), stationID: Number(element.dataset.assetStation),
+      quantity: Number(element.dataset.assetQuantity),
       packagedHangar: element.dataset.assetPackagedHangar === "true",
       assembledHangar: element.dataset.assetAssembledHangar === "true",
     };
@@ -392,7 +394,7 @@
       const repackableTypes = assembled.length > 0 ? await flow.repackableAssetTypes(assembled).catch(() => undefined) : undefined;
       if (itemMenu === menu) itemMenu = { ...menu, types: facts, comparison: comparison?.types, repackableTypes };
     });
-    if (chosen.some(row => row.stationID === dockedAt && (chosen.length === 1 || row.typeID === PLEX_TYPE_ID) && !localAsset(row))) {
+    if (chosen.length === 1 && chosen[0].stationID === dockedAt && !localAsset(chosen[0])) {
       void flow.loadInventory().catch(() => {});
     }
   }
@@ -426,13 +428,20 @@
 
   function itemCommands(menu: AssetItemMenu): { readonly key: ItemCommand; readonly run: () => void }[] {
     const actions: { key: ItemCommand; run: () => void }[] = [];
-    const plexStacks = menu.rows.flatMap(row => {
-      if (row.typeID !== PLEX_TYPE_ID) return [];
-      const item = localAsset(row);
-      return item ? [{ itemID: item.itemID, quantity: item.quantity }] : [];
-    });
-    if (plexStacks.length) {
-      actions.push({ key: "moveToPlexVault", run: () => void run(() => flow.depositVaultPlex("hangar", plexStacks)) });
+    if (dockedAt !== null) {
+      const plexStacks = menu.rows.filter(row => row.typeID === PLEX_TYPE_ID && row.packagedHangar && row.quantity > 0);
+      if (plexStacks.length) {
+        actions.push({ key: "moveToPlexVault", run: () => void run(async () => {
+          const revision = flow.plexVaultChanged.get();
+          try {
+            await flow.depositVaultPlex("assets", plexStacks);
+          } finally {
+            if (tab === "search" && searchResults && flow.plexVaultChanged.get() !== revision) {
+              searchResults = await flow.searchPersonalAssets(submittedSearch).catch(() => null);
+            }
+          }
+        }) });
+      }
     }
     const activeShip = $flight.status?.shipID ?? $inventory.activeShipID;
     const repackable = menu.rows.filter(row => row.assembledHangar && row.stationID === dockedAt &&
@@ -673,12 +682,15 @@
   let searchText = $state("");
   let searching = $state(false);
   let searchResults = $state.raw<{ readonly locations: readonly AssetSearchLocation[]; readonly stopped: boolean } | null>(null);
+  let submittedSearch = "";
   function search(): void {
     void run(async () => {
       clearItemSelection();
       searching = true;
       try {
-        searchResults = await flow.searchPersonalAssets(searchText);
+        const query = searchText;
+        searchResults = await flow.searchPersonalAssets(query);
+        submittedSearch = query;
       } finally {
         searching = false;
       }
@@ -717,10 +729,11 @@
   </div>
 {/if}
 
-{#snippet assetItemRow(item: Pick<AssetItemRow, "itemID" | "typeID" | "categoryID" | "locationID" | "flagID">, stationID: number, singleton: boolean, searchRow: boolean, children: Snippet)}
+{#snippet assetItemRow(item: Pick<AssetItemRow, "itemID" | "typeID" | "categoryID" | "locationID" | "flagID">, stationID: number, quantity: number, singleton: boolean, searchRow: boolean, children: Snippet)}
   <button type="button" class="asset-item-row" class:asset-search-item={searchRow} class:as-item={!searchRow}
     style:grid-template-columns={searchRow ? undefined : itemGrid}
     data-asset-item={item.itemID} data-asset-type={item.typeID} data-asset-station={stationID}
+    data-asset-quantity={quantity}
     data-asset-packaged-hangar={!singleton && item.locationID === stationID && item.flagID === 4 ? "true" : undefined}
     data-asset-assembled-hangar={singleton && item.locationID === stationID && item.flagID === 4 ? "true" : undefined}
     data-asset-owned-ship={singleton && item.categoryID === 6 ? "true" : undefined}
@@ -737,7 +750,7 @@
     <span class="asset-place"><TypeIcon typeID={item.typeID} name={itemName(item.typeID)} size="sm" />{itemName(item.typeID)}</span>
     <span class="num">{formatUnits(searchUnits(item))}</span>
   {/snippet}
-  {@render assetItemRow(item, stationID, item.quantity < 0, true, cells)}
+  {@render assetItemRow(item, stationID, searchUnits(item), item.quantity < 0, true, cells)}
 {/snippet}
 
 {#snippet locationBody(row: AssetStationRow)}
@@ -794,7 +807,7 @@
                   {/if}
                 {/each}
               {/snippet}
-              {@render assetItemRow(item, row.stationID, item.singleton === 1, false, cells)}
+              {@render assetItemRow(item, row.stationID, item.units, item.singleton === 1, false, cells)}
             {/each}
           {/if}
         {/if}

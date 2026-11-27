@@ -1,4 +1,7 @@
-"""Read the native PLEX menu predicate for projected docked inventory rows."""
+"""Read native PLEX menu eligibility and deposit routing without writing inventory."""
+from types import FunctionType
+
+from eve.client.script.ui.services.menuSvcExtras.menuFunctions import RedeemCurrency
 from inventorycommon import const
 from localization import GetByLabel
 from menucheckers.itemCheckers import ItemChecker
@@ -32,6 +35,9 @@ class ProjectedInventory:
 
 
 class ProjectedServices:
+    def __init__(self):
+        self.deposit = None
+
     def GetService(self, name):
         if name == 'invCache':
             return self
@@ -40,8 +46,16 @@ class ProjectedServices:
     def GetInventoryFromId(self, location_id):
         return ProjectedInventory(places.get(location_id))
 
+    def GetInventoryMgr(self):
+        return self
+
+    def DepositPlexToVault(self, location_id, item_id, quantity, invoice):
+        self.deposit = [location_id, item_id, quantity, invoice]
+
 
 other_station = 60003760 if session.stationid != 60003760 else 60003754
+services = ProjectedServices()
+redeem = FunctionType(RedeemCurrency.__code__, dict(RedeemCurrency.__globals__, sm=services))
 cases = [
     ('local-hangar', session.stationid, const.groupCurrency),
     ('remote-hangar', other_station, const.groupCurrency),
@@ -63,8 +77,12 @@ for name, location_id, group_id in cases:
         item.isInPlexVault = True
     elif name == 'fake-item':
         item.itemID = const.minFakeItem
-    checker = ItemChecker(item, session, ProjectedServices())
-    rows.append({'source': name, 'location': location_id, 'offer': checker.OfferRedeemCurrency()})
+    checker = ItemChecker(item, session, services)
+    offer = checker.OfferRedeemCurrency()
+    services.deposit = None
+    if offer:
+        redeem(item, item.stacksize)
+    rows.append({'source': name, 'location': location_id, 'offer': offer, 'deposit': services.deposit})
 
 result = {'pilot': session.charid, 'station': session.stationid, 'rows': rows,
           'label': GetByLabel('UI/Inventory/ItemActions/RedeemCurrency')}

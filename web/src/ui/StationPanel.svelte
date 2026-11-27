@@ -1029,7 +1029,7 @@
     pending = { kind: "move", place, label };
   }
 
-  function plexDepositSource(place: InventoryPlace): Parameters<AppFlow["depositVaultPlex"]>[0] | null {
+  function plexDepositSource(place: InventoryPlace): Exclude<Parameters<AppFlow["depositVaultPlex"]>[0], "assets"> | null {
     if (!isDocked) return null;
     if (place.kind === "hangar" || place.kind === "cargo") return place.kind;
     if (place.kind === "container" && $inventory.container?.itemID === place.itemID &&
