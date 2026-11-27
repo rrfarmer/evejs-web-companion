@@ -6,12 +6,48 @@
 import { createSignal, readonlySignal, type ReadableSignal } from "../store/signals.ts";
 import { militiaFactionID, type MilitiaFactionID } from "../bridge/militiaEnlistment.ts";
 import { WAR_DUNGEON_PROVIDERS, dungeonJobID, type TrackedDungeonIdentity, type TrackedDungeonKind, type WarDungeonKind } from "../bridge/dungeonJobs.ts";
+import { AGENT_MISSION_STATE } from "../bridge/agents.ts";
+import { filetimeOf } from "../bridge/journalWords.ts";
+import type { JournalMission } from "../store/types.ts";
 
 const PROVIDER_ID = "freelance_projects";
 const key = (characterID: number, provider = PROVIDER_ID) => `evejs.play.${characterID}.tracked_opportunities_${provider}`;
 const changes = createSignal(0);
 /** Bumped at each change of any character's tracked jobs. */
 export const trackedJobsChanged: ReadableSignal<number> = readonlySignal(changes);
+
+/** Accepted missions start out tracked, and each live offer can be tracked explicitly. */
+export function agentMissionTrackable(mission: JournalMission): boolean {
+  if (mission.agentID === null || (mission.missionState !== AGENT_MISSION_STATE.OFFERED &&
+    mission.missionState !== AGENT_MISSION_STATE.ACCEPTED)) return false;
+  const expiry = mission.expirationTime;
+  return !expiry || expiry === "0" || (/^\d+$/.test(expiry) && BigInt(expiry) >= filetimeOf(Date.now()));
+}
+
+type MissionTrackingOverrides = Record<number, { readonly mission: string; readonly tracked: boolean }>;
+const missionKey = (mission: JournalMission) => JSON.stringify([mission.missionID, mission.missionState, mission.expirationTime]);
+
+function missionTrackingOverrides(characterID: number): MissionTrackingOverrides {
+  try {
+    const raw = JSON.parse(localStorage.getItem(key(characterID, "agent_missions")) ?? "{}");
+    return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  } catch { return {}; }
+}
+
+export function isAgentMissionTracked(characterID: number | null, mission: JournalMission): boolean {
+  if (characterID === null || mission.agentID === null || !agentMissionTrackable(mission)) return false;
+  const override = missionTrackingOverrides(characterID)[mission.agentID];
+  return override?.mission === missionKey(mission) && typeof override.tracked === "boolean"
+    ? override.tracked : mission.missionState === AGENT_MISSION_STATE.ACCEPTED;
+}
+
+export function toggleTrackedAgentMission(characterID: number | null, mission: JournalMission): void {
+  if (characterID === null || mission.agentID === null || !agentMissionTrackable(mission)) return;
+  const next = missionTrackingOverrides(characterID);
+  next[mission.agentID] = { mission: missionKey(mission), tracked: !isAgentMissionTracked(characterID, mission) };
+  try { localStorage.setItem(key(characterID, "agent_missions"), JSON.stringify(next)); } catch { return; }
+  changes.set(changes.get() + 1);
+}
 
 /** The character's tracked freelance jobs: job ID -> the time it was tracked (ms). */
 export function trackedFreelanceJobs(characterID: number | null): Readonly<Record<string, number>> {

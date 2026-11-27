@@ -32,6 +32,7 @@
   import { objectiveSystemIDs } from "../bridge/locationWrapper.ts";
   import { AGENT_HEADER_WORD_LABELS, agentHeader, agentLocationNameRef } from "../bridge/agentHeader.ts";
   import { filetimeOf, journalRowAsks, journalRowText, journalRowWords } from "../bridge/journalWords.ts";
+  import { agentMissionTrackable, isAgentMissionTracked, toggleTrackedAgentMission, trackedJobsChanged } from "./jobTracking.ts";
 
   let { store, flow, conversationAgentID = null, onConversationClose }: {
     store: ClientStore; flow: AppFlow; conversationAgentID?: number | null; onConversationClose?: () => void;
@@ -69,10 +70,19 @@
   const agentLocation = $derived(layout?.agentLocation ?? null);
   const conversationError = $derived(conversationAgentID === null ? null : $agents.conversationErrors[conversationAgentID]);
   const footer = $derived(standalone && conversation ? agentConversationFooter(conversation) : null);
+  const characterID = $derived($station.online?.characterID ?? null);
+  const trackableMission = $derived(standalone && $agents.journal
+    ? [...$agents.journal.active, ...$agents.journal.offered].find(mission => mission.agentID === conversationAgentID && agentMissionTrackable(mission))
+    : undefined);
+  const missionTracked = $derived.by(() => {
+    void $trackedJobsChanged;
+    return trackableMission !== undefined && isAgentMissionTracked(characterID, trackableMission);
+  });
+  const trackLabel = $derived(missionTracked ? "UI/Common/Untrack" : "UI/Common/Track");
   $effect(() => {
     if (!footer) return;
     const paths = footer.actions.map(action => agentButtonWord(action.buttonType)).filter(path => path !== null);
-    flow.requestWords(footer.close ? [...paths, AGENT_CLOSE_LABEL] : paths);
+    flow.requestWords([...paths, ...(footer.close ? [AGENT_CLOSE_LABEL] : []), "UI/Common/Track", "UI/Common/Untrack"]);
   });
 
   // What the agent says, in the retail client's own words when the BFF has a
@@ -745,6 +755,12 @@
       </button>
     {/each}
     {#if footer.close}<button type="button" onclick={onConversationClose}>{plainText($words.templates[AGENT_CLOSE_LABEL] ?? "Close")}</button>{/if}
+    {#if trackableMission && characterID !== null}
+      {@const mission = trackableMission}
+      <button type="button" aria-pressed={missionTracked} disabled={busy} onclick={() => toggleTrackedAgentMission(characterID, mission)}>
+        {plainText($words.templates[trackLabel] ?? (missionTracked ? "Untrack" : "Track"))}
+      </button>
+    {/if}
   </footer>
 {/if}
 </div>

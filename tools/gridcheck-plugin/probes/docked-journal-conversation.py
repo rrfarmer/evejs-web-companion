@@ -2,6 +2,24 @@ import blue
 from carbonui import uiconst
 from eve.common.lib import appConst
 from eve.client.script.ui.station.agents.agentDialogueWindow import AgentDialogueWindow
+from jobboard.client import get_agent_mission_job
+
+
+def observe_tracking(agent_id):
+    job = get_agent_mission_job(agent_id)
+    if not job or not job.is_trackable:
+        raise RuntimeError('Native agent job is missing or untrackable')
+    provider = job.provider
+    original = dict(provider.get_tracked_job_ids())
+    try:
+        initial = bool(job.is_tracked)
+        job.toggle_tracked_by_player()
+        after = bool(job.is_tracked)
+        job.toggle_tracked_by_player()
+        return dict(jobID=job.job_id, before=initial, after=after, restored=bool(job.is_tracked),
+                    accepted=bool(job.is_accepted), setting=provider._tracked_setting_id)
+    finally:
+        provider._set_tracked_job_ids(original)
 
 
 def observe():
@@ -35,6 +53,7 @@ def observe():
             return [getattr(button, 'label', None) for button in window.buttonGroup.buttons]
 
         observed['offerButtons'] = buttons()
+        observed['tracking'] = observe_tracking(agent_id)
         observed['footer'] = window.buttonGroup.align == uiconst.TOBOTTOM
         window.ReconstructButtons([(1, appConst.agentDialogueButtonQuit)], {})
         observed['quitButtons'] = buttons()

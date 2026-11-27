@@ -10,7 +10,7 @@
   // Read as the client's tracker reads (flow.refreshMissionTracker): as the window opens, at each change of the pilot's
   // place and each warp's end. The space feed is claimed while it is open, for the distance to a mission's place.
   //
-  // Not done: the objective's icon; untracking a mission (the job board's own window); Open Container
+  // Not done: the objective's icon; Open Container
   // (DropItemInMissionContainer); Preparing to warp; Docking.
   //
   // The tracked freelance jobs (jobTracking.ts; FreelanceProjectJob.INFO_PANEL_ENTRY_CLASS FreelanceProjectInfoPanelEntry,
@@ -44,7 +44,7 @@
   import type { AppFlow, DungeonOpportunityJob } from "../app/flow.ts";
   import type { JournalMission, MissionSpot } from "../store/types.ts";
   import type { FreelanceJob } from "../app/flow.ts";
-  import { trackedFreelanceJobs, trackedJobsChanged, trackedMilitiaJob, trackedDungeonJobs, untrackFreelanceJob } from "./jobTracking.ts";
+  import { isAgentMissionTracked, trackedFreelanceJobs, trackedJobsChanged, trackedMilitiaJob, trackedDungeonJobs, untrackFreelanceJob } from "./jobTracking.ts";
   import { dungeonJobID } from "../bridge/dungeonJobs.ts";
   import DungeonOpportunity from "./DungeonOpportunity.svelte";
   import MilitiaOpportunity from "./MilitiaOpportunity.svelte";
@@ -177,10 +177,12 @@
     };
   });
 
-  /** GetAgentMissions: the journal's missions accepted and not expired, by when they expire. */
+  /** The displayed missions, in expiration order. Objective reads still follow accepted missions. */
   const missions = $derived.by((): readonly JournalMission[] => {
+    void $trackedJobsChanged;
     const read = $tracker;
-    const active = ($agents.journal?.active ?? []).filter((mission) => mission.agentID !== null && read.has(mission.agentID));
+    const active = [...($agents.journal?.active ?? []), ...($agents.journal?.offered ?? [])].filter(mission =>
+      isAgentMissionTracked(me, mission) && (mission.missionState === 1 || (mission.agentID !== null && read.has(mission.agentID))));
     const expires = (mission: JournalMission): bigint => (mission.expirationTime === null ? 0n : BigInt(mission.expirationTime));
     return [...active].sort((a, b) => (expires(a) < expires(b) ? -1 : expires(a) > expires(b) ? 1 : 0));
   });
@@ -382,7 +384,7 @@
     <p class="empty">{$agents.journal === null ? "Reading the journal…" : "No mission is accepted."}</p>
   {/if}
   {#each missions as mission (mission.agentID)}
-    <article class="tracked-mission">
+    <article class="tracked-mission" data-agent-mission={mission.agentID}>
       <h3>{missionName(mission) || "Mission"}</h3>
       {#each shownObjectives(mission) as shown, i (i)}
         <div class="tracked-objective" class:done={!shown.active}>

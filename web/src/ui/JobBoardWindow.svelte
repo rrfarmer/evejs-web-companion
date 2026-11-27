@@ -59,7 +59,7 @@
   import { resolvedName } from "../store/names.ts";
   import FreelanceJobPage from "./FreelanceJobPage.svelte";
   import MilitiaOpportunity from "./MilitiaOpportunity.svelte";
-  import { trackedJobsChanged, trackedMilitiaJob, trackedDungeonJobs } from "./jobTracking.ts";
+  import { isAgentMissionTracked, trackedJobsChanged, trackedMilitiaJob, trackedDungeonJobs } from "./jobTracking.ts";
   import { dungeonJobID } from "../bridge/dungeonJobs.ts";
   import CorporationFreelanceForm from "./CorporationFreelanceForm.svelte";
   import type { FreelanceProject } from "../app/flow.ts";
@@ -226,10 +226,12 @@
   let openMission = $state<number | null>(null);
   const missionExpired = (m: JournalMission) => !!m.expirationTime && /^\d+$/.test(m.expirationTime) && BigInt(m.expirationTime) <= BigInt(Date.now()) * 10_000n + 116_444_736_000_000_000n;
   const missions = $derived.by(() => {
+    void $trackedJobsChanged;
     const j = $agentsStore.journal;
     if (!missionsAvailable || !j) return { browse: [] as JournalMission[], active: [] as JournalMission[] };
     const all = [...j.active, ...j.offered].filter((m) => m.agentID !== null);
-    return { browse: all.filter((m) => (m.missionState === 1 || m.missionState === 2) && !missionExpired(m)), active: j.active.filter((m) => m.missionState === 2 && m.agentID !== null) };
+    return { browse: all.filter((m) => (m.missionState === 1 || m.missionState === 2) && !missionExpired(m)),
+      active: all.filter(m => m.missionState === 2 || isAgentMissionTracked($station.online?.characterID ?? null, m)) };
   });
   const shownMissions = $derived(tab === "browse" ? missions.browse : tab === "active" ? missions.active : []);
   async function openMissionPage(agentID: number): Promise<void> { openMission = agentID; open = null; await flow.openMissionDetails(agentID); }
