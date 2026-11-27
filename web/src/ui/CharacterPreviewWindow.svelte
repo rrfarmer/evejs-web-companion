@@ -36,7 +36,7 @@
         <PortraitBaseHead model={appearance.model} bloodlineID={appearance.bloodlineID}
           outfit={appearance.outfit ?? appearance.apparel.topmiddle} apparel={appearance.apparel}
           hairstyle={appearance.hairstyle ?? undefined} morphs={appearance.morphs}
-          piercings={appearance.piercings} iris={appearance.iris ?? undefined} />
+          piercings={appearance.piercings} iris={appearance.iris ?? undefined} makeup={appearance.makeup} />
       {:else}
         <p role="status">This character’s outfit could not be displayed.</p>
       {/if}

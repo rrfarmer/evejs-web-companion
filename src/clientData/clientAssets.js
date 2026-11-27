@@ -170,6 +170,8 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   if (morph) return { file: await ensure(rel.slice(1), ["--portrait-head", morph[1], "--portrait-morph", morph[2]]) };
   const eyes = /^\/portrait-head\/(female|male)\/eyes\/(eyes_[a-z0-9_]+\/[a-z0-9_]+)\.json$/.exec(rel);
   if (eyes) return { file: await ensure(rel.slice(1), ["--portrait-head", eyes[1], "--portrait-eyes", eyes[2]]) };
+  const makeup = /^\/portrait-head\/(female|male)\/makeup\/((eyeliner|lipstick)\/\3_[a-z0-9_]+\/[a-z0-9_]+)\.json$/.exec(rel);
+  if (makeup) return { file: await ensure(rel.slice(1), ["--portrait-head", makeup[1], "--portrait-makeup", makeup[2]]) };
   const hair = /^\/portrait-hair\/(female|male)\/(hair_[a-z0-9_]+)\.(glb|json)$/.exec(rel);
   if (hair && portraitHairStyle(hair[1], hair[2])) {
     return { file: await ensure(rel.slice(1), ["--portrait-head", hair[1], "--portrait-hair", hair[2]]) };

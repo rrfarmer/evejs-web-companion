@@ -3,13 +3,14 @@
   import * as THREE from "three";
   import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
   import type { PortraitFraming } from "../app/flow.ts";
-  import type { PortraitApparel, PortraitFrame, PortraitMorph, PortraitSkinTone } from "../app/api.ts";
+  import type { PortraitApparel, PortraitFrame, PortraitMakeup, PortraitMorph, PortraitSkinTone } from "../app/api.ts";
+  import { compositePortraitColorLayer, type PortraitColorLayer } from "../three/portraitMakeup.ts";
   import { applyPortraitMorphs } from "../three/portraitMorphs.ts";
   import { compressedSupport, loadDds } from "../three/ddsTexture";
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
   import { capturePointer } from "./pointerCapture.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, outfit, apparel, morphs, piercings, iris }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, outfit, apparel, morphs, piercings, iris, makeup }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
@@ -24,6 +25,7 @@
     morphs?: readonly PortraitMorph[];
     piercings?: readonly string[];
     iris?: string;
+    makeup?: readonly PortraitMakeup[];
   } = $props();
   let canvas: HTMLCanvasElement;
   let renderer = $state.raw<THREE.WebGLRenderer | null>(null);
@@ -499,6 +501,7 @@
     const sculpts = morphs;
     const jewelry = piercings;
     const irisAsset = iris;
+    const makeupAssets = makeup;
     if (!active) return;
     let retired = false;
     let head: THREE.Group | null = null;
@@ -571,40 +574,46 @@
           };
         }
       }
-      let irisLayer: {
-        diffuse: THREE.Texture; zones: THREE.Texture; colors: THREE.Color[]; diffuseRect: THREE.Vector4; zonesRect: THREE.Vector4;
-      } | null = null;
-      if (irisAsset) {
+      const readColorLayer = async (selection: PortraitMakeup): Promise<PortraitColorLayer | null> => {
         try {
-          const response = await fetch(irisAsset);
-          if (!response.ok) throw new Error("Iris layer unavailable");
-          const eye = await response.json() as {
+          const response = await fetch(selection.asset);
+          if (!response.ok) return null;
+          const layer = await response.json() as {
             diffuse: string; zones: string; colors: [number, number, number][];
             diffuseRect: number[]; zonesRect: number[];
           };
-          const detail = await loadMap(eye.diffuse, true);
-          if (retired) { detail.texture.dispose(); detail.bitmap.close(); return; }
+          const detail = await loadMap(layer.diffuse, true);
+          if (retired) { detail.texture.dispose(); detail.bitmap.close(); return null; }
           maps.push(detail);
-          const zones = await loadMap(eye.zones, false);
-          if (retired) { zones.texture.dispose(); zones.bitmap.close(); return; }
+          const zones = await loadMap(layer.zones, false);
+          if (retired) { zones.texture.dispose(); zones.bitmap.close(); return null; }
           maps.push(zones);
-          irisLayer = { diffuse: detail.texture, zones: zones.texture,
-            colors: eye.colors.map(([r, g, b]) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace)),
-            diffuseRect: new THREE.Vector4().fromArray(eye.diffuseRect), zonesRect: new THREE.Vector4().fromArray(eye.zonesRect) };
+          return { diffuse: detail.texture, zones: zones.texture,
+            colors: layer.colors.map(([r, g, b]) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace)),
+            diffuseRect: new THREE.Vector4().fromArray(layer.diffuseRect), zonesRect: new THREE.Vector4().fromArray(layer.zonesRect),
+            weight: selection.weight, gloss: selection.gloss };
         } catch {
-          // The base head contains its own eye texture when the selected layer is unavailable.
+          return null;
         }
+      };
+      const irisLayer = irisAsset ? await readColorLayer({ asset: irisAsset, weight: 1, gloss: null }) : null;
+      const faceLayers: [string, PortraitColorLayer][] = [];
+      for (const [index, selection] of (makeupAssets ?? []).entries()) {
+        if (retired) return;
+        const layer = await readColorLayer(selection);
+        if (layer) faceLayers.push(["portraitMakeup" + index, layer]);
       }
+      if (retired) return;
       const { scene: avatar } = await loader.loadAsync(stem + ".glb");
       if (!retired && sculpts?.length) await applyPortraitMorphs(avatar, stem, sculpts, () => retired);
       if (retired) { release(avatar); return; }
       head = avatar;
       const surface = new THREE.MeshStandardMaterial({ map: maps[0]!.texture, normalMap: maps[1]!.texture, roughness: 0.76 });
       const tint = skinUniforms;
-      const skin = tint ? surface.clone() : surface;
+      const skin = tint || faceLayers.length ? surface.clone() : surface;
       // The authored head normal packs tangent X in alpha and Y in green.
       // Read the two linear channels without premultiplying the PNG.
-      const configure = (material: THREE.MeshStandardMaterial, skinLayer: SkinUniforms | null, eyes = false) => {
+      const configure = (material: THREE.MeshStandardMaterial, skinLayer: SkinUniforms | null, layers: readonly [string, PortraitColorLayer][] = []) => {
         material.onBeforeCompile = shader => {
           const layeredNormal = archetype ? `headNormal = mix(headNormal,
             texture2D( archetypeNormal, vNormalMapUv ).ag * 2.0 - 1.0, archetypeCoverage);` : "";
@@ -642,32 +651,7 @@
               #include <color_fragment>
             `);
           }
-          if (eyes && irisLayer) {
-            shader.uniforms.portraitIrisDetail = { value: irisLayer.diffuse };
-            shader.uniforms.portraitIrisZones = { value: irisLayer.zones };
-            shader.uniforms.portraitIrisColors = { value: irisLayer.colors };
-            shader.uniforms.portraitIrisRect = { value: irisLayer.diffuseRect };
-            shader.uniforms.portraitIrisZonesRect = { value: irisLayer.zonesRect };
-            shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
-              #include <map_pars_fragment>
-              uniform sampler2D portraitIrisDetail;
-              uniform sampler2D portraitIrisZones;
-              uniform vec3 portraitIrisColors[3];
-              uniform vec4 portraitIrisRect;
-              uniform vec4 portraitIrisZonesRect;
-            `).replace("#include <color_fragment>", `
-              vec2 irisUV = (vMapUv - portraitIrisRect.xy) / portraitIrisRect.zw;
-              vec2 irisZoneUV = (vMapUv - portraitIrisZonesRect.xy) / portraitIrisZonesRect.zw;
-              vec4 irisDetail = texture2D(portraitIrisDetail, irisUV);
-              vec3 irisZones = texture2D(portraitIrisZones, irisZoneUV).rgb;
-              float irisWeight = dot(irisZones, vec3(1.0));
-              vec3 irisTint = irisZones.r * portraitIrisColors[0] + irisZones.g * portraitIrisColors[1] + irisZones.b * portraitIrisColors[2];
-              irisTint = mix(portraitIrisColors[0], irisTint / max(irisWeight, 0.001), clamp(irisWeight, 0.0, 1.0));
-              float irisClip = step(0.0, irisUV.x) * step(0.0, irisUV.y) * step(irisUV.x, 1.0) * step(irisUV.y, 1.0);
-              diffuseColor.rgb = mix(diffuseColor.rgb, irisDetail.rgb * irisTint, irisDetail.a * irisClip);
-              #include <color_fragment>
-            `);
-          }
+          for (const [name, layer] of layers) compositePortraitColorLayer(shader, name, layer);
           shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>",
             THREE.ShaderChunk.normal_fragment_maps.replace(
               "vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;",
@@ -676,14 +660,14 @@
                vec3 mapN = vec3( headNormal, sqrt( max( 0.0, 1.0 - dot( headNormal, headNormal ) ) ) );`,
             ));
         };
-        material.customProgramCacheKey = () => `portrait:${Boolean(archetype)}:${Boolean(skinLayer)}:${eyes}`;
+        material.customProgramCacheKey = () => `portrait:${Boolean(archetype)}:${Boolean(skinLayer)}:${layers.map(([name, layer]) => name + (layer.gloss !== null ? "+" : "")).join(",")}`;
       };
       configure(surface, null);
-      if (tint) configure(skin, tint);
+      if (skin !== surface) configure(skin, tint, faceLayers);
       applySurface(avatar, surface, new Set(transparent), new Set(eyelashMeshes), eyelashes, skin);
       if (irisLayer) {
         const eyes = surface.clone();
-        configure(eyes, null, true);
+        configure(eyes, null, [["portraitIris", irisLayer]]);
         let attached = false;
         avatar.traverse(node => {
           if (node instanceof THREE.Mesh && /^eyeball/i.test(node.name)) { node.material = eyes; attached = true; }

@@ -10,6 +10,7 @@
 //        [--portrait-head <female|male>] (the skinned character-creation base head)
 //        [--portrait-morph <name>] (one sparse morph from that head)
 //        [--portrait-eyes <style/palette>] (a saved iris layer for that head)
+//        [--portrait-makeup <category/style/palette>] (a saved face layer for that head)
 //        [--portrait-body <model stem>] (extract a sparse morph for an extracted outfit model)
 //        [--portrait-outfit <gender/[slot/]style/variant>] (an installed paper-doll garment)
 //        [--portrait-hands <female|male>] (the skinned base hands)
@@ -950,12 +951,14 @@ function portraitPngRect(buffer) {
   return [...offset, ...scale].map(value => value / 1_000_000);
 }
 
-function extractPortraitEyes(rf, gender, key, outRoot) {
+function extractPortraitMakeup(rf, gender, category, key, outRoot) {
   const [style, palette] = key.split("/");
-  const root = `res:/graphics/character/${gender}/paperdoll/makeup/eyes`;
+  const root = `res:/graphics/character/${gender}/paperdoll/makeup/${category}`;
   const typePath = `${root}/${style}/types/${style}.type`;
   const type = parseYaml(rf.read(typePath).toString("utf8"), paperDollYaml);
-  if (!Array.isArray(type) || type[0]?.toLowerCase() !== `makeup/eyes/${style}`) throw new Error("Unknown eye style");
+  if (!Array.isArray(type) || typeof type[0] !== "string" || type[0].toLowerCase() !== `makeup/${category}/${style}`) {
+    throw new Error("Unknown makeup style");
+  }
   const source = `${root}/${style}/colorize_head_l_512.png`, zone = `${root}/${style}/colorize_head_z_512.png`;
   const palettePath = [`${root}/${style}/${palette}.color`, `${root}/colors/${palette}.color`,
     `${root}/${style}/default.color`].find(path => rf.has(path));
@@ -963,7 +966,8 @@ function extractPortraitEyes(rf, gender, key, outRoot) {
   const colors = Array.isArray(authored) && authored.length >= 3 &&
     authored.slice(0, 3).every(rgb => Array.isArray(rgb) && rgb.length >= 3 && rgb.slice(0, 3).every(Number.isFinite))
     ? authored.slice(0, 3).map(rgb => rgb.slice(0, 3)) : [[1, 1, 1], [1, 1, 1], [1, 1, 1]];
-  const dir = path.join(outRoot, "portrait-head", gender, "eyes", style);
+  const slot = category === "eyes" ? "eyes" : `makeup/${category}`;
+  const dir = path.join(outRoot, "portrait-head", gender, slot, style);
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, palette + ".json"), JSON.stringify({
     style, palette, colors, diffuse: copyRes(rf, source, outRoot), zones: copyRes(rf, zone, outRoot),
@@ -1136,6 +1140,12 @@ function parseArgs(argv) {
     else if (a === "--portrait-eyes") {
       out.portraitEyes = argv[++i];
       if (!/^eyes_[a-z0-9_]+\/[a-z0-9_]+$/.test(out.portraitEyes ?? "")) throw new Error("--portrait-eyes needs style/palette");
+    }
+    else if (a === "--portrait-makeup") {
+      out.portraitMakeup = argv[++i];
+      if (!/^(eyeliner|lipstick)\/\1_[a-z0-9_]+\/[a-z0-9_]+$/.test(out.portraitMakeup ?? "")) {
+        throw new Error("--portrait-makeup needs category/style/palette");
+      }
     }
     else if (a === "--portrait-body") {
       out.portraitBody = argv[++i];
@@ -1448,7 +1458,11 @@ async function main() {
     if (args.portraitMorph) await extractPortraitMorph(rf,
       `res:/graphics/character/${args.portraitHead}/paperdoll/head/head_generic/head_generic.gr2`, args.portraitMorph,
       path.join(outRoot, "portrait-head", args.portraitHead, "morphs", args.portraitMorph + ".json"));
-    else if (args.portraitEyes) extractPortraitEyes(rf, args.portraitHead, args.portraitEyes, outRoot);
+    else if (args.portraitEyes) extractPortraitMakeup(rf, args.portraitHead, "eyes", args.portraitEyes, outRoot);
+    else if (args.portraitMakeup) {
+      const [category, ...style] = args.portraitMakeup.split("/");
+      extractPortraitMakeup(rf, args.portraitHead, category, style.join("/"), outRoot);
+    }
     else if (args.portraitHair) await extractPortraitHair(rf, args.portraitHead, args.portraitHair, outRoot);
     else if (args.portraitBloodline !== undefined) extractPortraitArchetype(rf, args.portraitHead, args.portraitBloodline, outRoot);
     else await extractPortraitHead(rf, args.portraitHead, outRoot);

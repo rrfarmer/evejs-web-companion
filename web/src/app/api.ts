@@ -6292,6 +6292,11 @@ export interface PortraitMorph {
   readonly weight: number;
   readonly body?: true;
 }
+export interface PortraitMakeup {
+  readonly asset: string;
+  readonly weight: number;
+  readonly gloss: number | null;
+}
 export interface CharacterPreviewAppearance {
   readonly model: PortraitHead | null;
   readonly bloodlineID: number | null;
@@ -6300,6 +6305,7 @@ export interface CharacterPreviewAppearance {
   readonly morphs: readonly PortraitMorph[];
   readonly piercings: readonly string[];
   readonly iris: string | null;
+  readonly makeup: readonly PortraitMakeup[];
   readonly hairstyle: string | null;
 }
 
@@ -6312,6 +6318,14 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
   const outfit = appearance?.outfit;
   const hairstyle = appearance?.hairstyle;
   const iris = appearance?.iris;
+  const makeup = (Array.isArray(appearance?.makeup) ? appearance.makeup : []).flatMap((value: JsonValue) => {
+    const layer = asObject(value);
+    const asset = layer?.asset, weight = layer?.weight, gloss = layer?.gloss;
+    return typeof asset === "string" &&
+      /^\/client-assets\/portrait-head\/(female|male)\/makeup\/(eyeliner|lipstick)\/\2_[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(asset)?.[1] === model &&
+      typeof weight === "number" && weight > 0 && weight <= 1 ?
+      [{ asset, weight, gloss: typeof gloss === "number" && gloss >= 0 && gloss <= 1 ? gloss : null }] : [];
+  });
   const piercings = (Array.isArray(appearance?.piercings) ? appearance.piercings : []).filter((url): url is string =>
     typeof url === "string" &&
     /^\/client-assets\/portrait-outfit\/(female|male)\/accessories\/(?:nose|lips|brow|earslow|earshigh)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(url)?.[1] === model);
@@ -6336,6 +6350,7 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
     apparel: layers,
     morphs,
     piercings,
+    makeup,
     iris: typeof iris === "string" &&
       /^\/client-assets\/portrait-head\/(female|male)\/eyes\/eyes_[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(iris)?.[1] === model ? iris : null,
     hairstyle: typeof hairstyle === "string" && /^hair_[a-z0-9_]+$/.test(hairstyle) ? hairstyle : null,

@@ -36,7 +36,7 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
   const nativeGender = gender === "female" ? 0 : 1;
   let outfit = null;
   let hairstyle = null;
-  let eyeStyle = null;
+  const faceStyles = {};
   const apparel = {};
   const piercings = {};
   for (const row of readModifiers(appearance)?.rows ?? []) {
@@ -61,23 +61,42 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
     } else if (location.modifierKey === "hair") {
       const style = /^hair\/(hair_[a-z0-9_]+)\/types\/\1\.type$/.exec(resourcePath)?.[1];
       if (style && portraitHairStyle(gender, style)) hairstyle = style;
-    } else if (location.modifierKey === "makeup/eyes") {
-      eyeStyle = /^makeup\/eyes\/(eyes_[a-z0-9_]+)\/types\/\1\.type$/.exec(resourcePath)?.[1] ?? null;
+    } else {
+      const face = /^makeup\/(eyes|lipstick|eyeliner)\/((?:eyes|lipstick|eyeliner)_[a-z0-9_]+)\/types\/\2\.type$/.exec(resourcePath);
+      if (face && `makeup/${face[1]}` === location.modifierKey && face[2].startsWith(face[1] + "_")) {
+        faceStyles[face[1]] = face[2];
+      }
     }
   }
-  return { outfit, apparel, hairstyle, piercings: Object.values(piercings), eyeStyle };
+  return { outfit, apparel, hairstyle, piercings: Object.values(piercings), faceStyles };
 }
 
-function portraitPreviewIris(appearance, gender, style, locations, names) {
-  if (!style) return null;
-  let palette = "default";
+function unitValue(field, fallback) {
+  const value = field?.type === "real" ? field.value : field;
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : fallback;
+}
+
+function portraitPreviewMakeup(appearance, gender, styles, locations, names) {
+  const selections = new Map();
   for (const row of readColors(appearance)?.rows ?? []) {
     const fields = colorRowValues(row);
-    if (!fields || !/^(?:paperdoll\/)?makeup\/eyes$/.test(locations?.[fields[1]]?.colorKey ?? "")) continue;
+    if (!fields) continue;
+    const location = locations?.[fields[1]];
+    const category = /^(?:paperdoll\/)?makeup\/(eyes|eyeliner|lipstick)$/.exec(location?.colorKey ?? "")?.[1];
+    if (!category || !styles[category]) continue;
     const color = names?.[fields[2]]?.colorName;
-    if (typeof color === "string" && /^[a-z0-9_]+$/i.test(color)) palette = color.toLowerCase();
+    const palette = typeof color === "string" && /^[a-z0-9_]+$/i.test(color) ? color.toLowerCase() : "default";
+    selections.set(category, { palette, weight: location.hasWeight ? unitValue(fields[4], 1) : 1,
+      gloss: location.hasGloss ? unitValue(fields[5], null) : null });
   }
-  return `/client-assets/portrait-head/${gender}/eyes/${style}/${palette}.json`;
+  const stem = `/client-assets/portrait-head/${gender}`;
+  const iris = styles.eyes ? `${stem}/eyes/${styles.eyes}/${selections.get("eyes")?.palette ?? "default"}.json` : null;
+  const makeup = ["eyeliner", "lipstick"].flatMap(category => {
+    const style = styles[category];
+    const { palette, weight, gloss } = selections.get(category) ?? { palette: "default", weight: 1, gloss: null };
+    return style && weight > 0 ? [{ asset: `${stem}/makeup/${category}/${style}/${palette}.json`, weight, gloss }] : [];
+  });
+  return { iris, makeup };
 }
 
-module.exports = { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewIris };
+module.exports = { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewMakeup };

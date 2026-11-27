@@ -21,7 +21,7 @@ const { createClientTextures } = require("./clientData/clientTextures");
 const { appearanceWithSkinTone, skinToneCatalog, skinToneID } = require("./clientData/portraitSkinTones");
 const { portraitSnapshotBytes } = require("./clientData/portraitSnapshot");
 const { appearanceWithHair, portraitHairChoices, portraitHairID } = require("./clientData/portraitHair");
-const { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewIris } = require("./clientData/portraitPreview");
+const { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewMakeup } = require("./clientData/portraitPreview");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
 const { createSkillplanImport } = require("./clientData/importSkillplan");
 const { createClientBuiltData } = require("./clientData/clientBuiltData");
@@ -19597,15 +19597,15 @@ app.get("/api/bridge/character/:characterID/preview-appearance", requireAuth, as
     const gender = readMailKeyVal(publicInfo, "gender");
     const bloodlineID = readMailKeyVal(publicInfo, "bloodlineID");
     const model = gender === false || gender === 0 ? "female" : gender === true || gender === 1 ? "male" : null;
-    const { eyeStyle, ...modifiers } = model ? portraitPreviewModifiers(appearance, model, locations, resources)
-      : { outfit: null, apparel: {}, hairstyle: null, piercings: [], eyeStyle: null };
-    const [colorLocations, colorNames] = eyeStyle ? await Promise.all([
+    const { faceStyles, ...modifiers } = model ? portraitPreviewModifiers(appearance, model, locations, resources)
+      : { outfit: null, apparel: {}, hairstyle: null, piercings: [], faceStyles: {} };
+    const [colorLocations, colorNames] = Object.keys(faceStyles).length ? await Promise.all([
       clientBuiltData.table("paperDollColorLocations"), clientBuiltData.table("paperDollColorNames"),
     ]) : [];
     return res.json({ ok: true, appearance: {
       model, bloodlineID: strictPositiveID(bloodlineID),
       morphs: portraitPreviewMorphs(sculpts, sculptLocations),
-      ...modifiers, iris: portraitPreviewIris(appearance, model, eyeStyle, colorLocations, colorNames),
+      ...modifiers, ...portraitPreviewMakeup(appearance, model, faceStyles, colorLocations, colorNames),
     } });
   } catch (error) { next(error); }
 });

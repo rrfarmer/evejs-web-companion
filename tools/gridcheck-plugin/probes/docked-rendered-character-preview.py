@@ -42,6 +42,10 @@ def observe(gender, outfit, hair, apparel=(), sculpts=(), colors=()):
             eyes = [item for item in manager.GetModifiersAsList(showHidden=True) if 'eyes' in item.GetResPath().lower()]
             result['eyes'] = [dict(name=item.name, path=item.GetResPath(), colors=list(item.colorizeData), diffuse=dict(item.mapL), zones=dict(item.mapZ))
                               for item in eyes]
+            result['makeup'] = [dict(path=item.GetResPath(), colors=list(item.colorizeData), weight=item.weight,
+                                     diffuse=dict(item.mapL), zones=dict(item.mapZ))
+                                for item in manager.GetModifiersAsList(showHidden=True)
+                                if item.GetResPath().lower().startswith(('makeup/lipstick/', 'makeup/eyeliner/'))]
         if sculpts:
             doll = preview.context.character.doll
             result['sculpts'] = [dict(location=row[0], prefix=cfg.paperdollSculptingLocations.Get(row[0]).weightKeyPrefix,
@@ -76,4 +80,6 @@ result = dict(female=observe(0, 15525, 407), male=observe(1, 15555, 127),
                                  sculpts=((5, 0.5, 0.0, 0.0),)),
               pierced=observe(0, None, 407, ((26, 3529), (25, 236), (22, 298), (12, 824), (4, 614)),
                               sculpts=((18, -0.75, 0.0, 0.0), (27, 0.0, 0.0, 0.4), (5, 0.5, 0.0, 0.0))),
-              iris=observe(0, 8649, 407, ((6, 79),), colors=((7, 153, 0, 0.0, 0.0),)))
+              iris=observe(0, 8649, 407, ((6, 79),), colors=((7, 153, 0, 0.0, 0.0),)),
+              makeup=observe(0, 8649, 407, ((7, 215), (17, 75)),
+                             colors=((8, 13, 0, 0.65, 0.2), (16, 24, 0, 0.45, 0.0))))
