@@ -56,17 +56,73 @@
   function quantity(row: JsonValue): number { const quantity = Number(readRowField(row, "quantity")); return quantity < 0 ? 1 : quantity; }
   const itemMenu = new ContextMenu();
   let menuRequest = 0;
-  let selectedItem = $state<number | null>(null);
+  interface TradeSelection {
+    readonly ids: ReadonlySet<number>;
+    readonly anchor: number | null;
+  }
+  let selections = $state.raw<Readonly<Record<number, TradeSelection>>>({});
+  const itemIDOf = (row: JsonValue) => Number(readRowField(row, "itemID"));
+  const typeIDOf = (row: JsonValue) => Number(readRowField(row, "typeID"));
+  const sideRows = (owner: number) => trade.state.items.filter(row => Number(readRowField(row, "ownerID")) === owner);
+  function setSelection(owner: number, ids: ReadonlySet<number>, anchor: number | null): void {
+    menuRequest++;
+    itemMenu.close();
+    selections = { ...selections, [owner]: { ids, anchor } };
+  }
+  function selectRow(event: MouseEvent | KeyboardEvent, owner: number, row: JsonValue): void {
+    const id = itemIDOf(row);
+    const previous = selections[owner];
+    const ids = sideRows(owner).map(itemIDOf);
+    const toggle = event.ctrlKey || event.metaKey;
+    const anchor = ids.indexOf(previous?.anchor ?? -1);
+    const index = ids.indexOf(id);
+    if (event.shiftKey && anchor !== -1 && index !== -1 && anchor !== index) {
+      const range = ids.slice(Math.min(anchor, index), Math.max(anchor, index) + 1);
+      setSelection(owner, new Set(toggle ? [...previous.ids, ...range] : range), previous.anchor);
+      return;
+    }
+    if (toggle && !event.shiftKey) {
+      const next = new Set(previous?.ids);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      setSelection(owner, next, id);
+      return;
+    }
+    setSelection(owner, new Set([id]), id);
+  }
+  function selectInPane(owner: number, invert = false): void {
+    const ids = sideRows(owner).map(itemIDOf);
+    const selected = selections[owner];
+    setSelection(owner, new Set(invert ? ids.filter(id => !selected?.ids.has(id)) : ids), selected?.anchor ?? null);
+  }
   const itemWords = {
     market: ["UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details"],
     buy: ["UI/Inventory/ItemActions/BuyThisType", "Buy This Type"],
+    buyAll: ["UI/Market/MarketQuote/BuyAll", "Buy All"],
     contracts: ["UI/Inventory/ItemActions/FindInContracts", "Find in Contracts"],
     assets: ["UI/Inventory/ItemActions/FindPersonalAssets", "Find in Personal Assets"],
     quickbar: ["UI/Inventory/ItemActions/AddTypeToMarketQuickbar", "Add to Market Quickbar"],
     info: ["UI/Commands/ShowInfo", "Show Info"],
     compare: ["UI/Compare/CompareButton", "Compare"],
+    selectAll: ["UI/Common/SelectAll", "Select All"],
+    invert: ["UI/Inventory/InvertSelection", "Invert Selection"],
   } as const;
-  async function openItemMenu(event: MouseEvent | KeyboardEvent, row: JsonValue): Promise<void> {
+  function itemEntry(key: keyof typeof itemWords, run: () => void, count?: number): ContextEntry {
+    const [path, fallback] = itemWords[key];
+    const label = word(path, fallback);
+    return { label: count === undefined ? label : `${label} (${count})`, path, run, info: key === "info" };
+  }
+  function paneEntries(owner: number): ContextEntry[] {
+    return [itemEntry("selectAll", () => selectInPane(owner)), itemEntry("invert", () => selectInPane(owner, true))];
+  }
+  function openPaneMenu(event: MouseEvent, owner: number): void {
+    event.preventDefault();
+    if (inFront && trade.abortOnClose) {
+      menuRequest++;
+      itemMenu.open(event.clientX, event.clientY, paneEntries(owner));
+    }
+  }
+  async function openItemMenu(event: MouseEvent | KeyboardEvent, row: JsonValue, owner: number): Promise<void> {
     event.preventDefault();
     event.stopPropagation();
     if (!inFront || !trade.abortOnClose) return;
@@ -74,44 +130,57 @@
     const rect = target.getBoundingClientRect();
     const x = "clientX" in event && event.clientX ? event.clientX : rect.left;
     const y = "clientY" in event && event.clientY ? event.clientY : rect.bottom;
-    const typeID = Number(readRowField(row, "typeID"));
-    const itemID = Number(readRowField(row, "itemID"));
+    const typeID = typeIDOf(row);
+    const itemID = itemIDOf(row);
     if (!Number.isSafeInteger(typeID) || typeID <= 0 || !Number.isSafeInteger(itemID) || itemID <= 0) return;
-    selectedItem = itemID;
+    if (!selections[owner]?.ids.has(itemID)) {
+      if ("clientX" in event) selectRow(event, owner, row);
+      else setSelection(owner, new Set([itemID]), itemID);
+    }
+    const selected = selections[owner]?.ids;
+    const subjects = sideRows(owner).filter(item => selected?.has(itemIDOf(item)))
+      .map(item => ({ typeID: typeIDOf(item), itemID: itemIDOf(item) }));
+    if (subjects.length === 0) return;
+    const typeIDs = [...new Set(subjects.map(subject => subject.typeID))];
     const request = ++menuRequest;
     itemMenu.close();
     const flow = session.flow;
     // inventoryrestrictions identifies non-tradable, soulbound and non-contractable types.
-    const [types, lists, comparison] = await Promise.all([
-      flow.typeFacts([typeID]).catch(() => null),
-      loadTypeListsHolding([typeID], [36, 142, 337], flow.requestOptions()).catch(() => null),
-      flow.comparisonTypes([typeID]).catch(() => null),
+    const [types, restrictions, comparison] = await Promise.all([
+      flow.typeFacts(typeIDs).catch(() => null),
+      Promise.all(Array.from({ length: Math.ceil(typeIDs.length / 32) }, (_, batch) =>
+        loadTypeListsHolding(typeIDs.slice(batch * 32, batch * 32 + 32), [36, 142, 337], flow.requestOptions())
+      )).then(lists => Object.assign({}, ...lists) as Readonly<Record<number, readonly number[] | null>>).catch(() => null),
+      flow.comparisonTypes(typeIDs).catch(() => null),
     ]);
     if (request !== menuRequest || !inFront || !target.isConnected || !trade.abortOnClose) return;
-    const type = types?.get(typeID);
-    const restrictions = lists?.[typeID];
-    const entries: (ContextEntry | null)[] = [];
-    const add = (key: keyof typeof itemWords, run: () => void) => {
-      const [path, fallback] = itemWords[key];
-      entries.push({ label: word(path, fallback), path, run, info: key === "info" });
-    };
-    add("info", () => showInfo({ kind: "type", typeID, itemID }));
-    entries.push(null);
-    const market = (type?.marketGroupID ?? 0) > 0 && restrictions && !restrictions.includes(36) && !restrictions.includes(142);
-    if (market) {
-      add("market", () => showMarketDetails(typeID));
-      add("buy", () => buyMarketType(typeID));
+    const availableIDs = new Set(sideRows(owner).map(itemIDOf));
+    if (subjects.some(subject => !availableIDs.has(subject.itemID))) return;
+    const marketable = typeIDs.filter(id => {
+      const held = restrictions?.[id];
+      return (types?.get(id)?.marketGroupID ?? 0) > 0 && held && !held.includes(36) && !held.includes(142);
+    });
+    const groups: ContextEntry[][] = [[], [], [], paneEntries(owner)];
+    const [infoEntries, marketEntries, compareEntries] = groups;
+    if (subjects.length === 1) {
+      infoEntries.push(itemEntry("info", () => showInfo({ kind: "type", typeID, itemID })));
+      if (marketable.length) {
+        marketEntries.push(itemEntry("market", () => showMarketDetails(typeID)), itemEntry("buy", () => buyMarketType(typeID)));
+      }
+      if (types?.get(typeID)?.published) {
+        const held = restrictions?.[typeID];
+        if (held && !held.includes(337) && !held.includes(142)) marketEntries.push(itemEntry("contracts", () => findInContracts(typeID)));
+        marketEntries.push(itemEntry("assets", () => findInPersonalAssets(resolvedName($names.resolved, "type", typeID, itemName(row)))));
+      }
+      if (marketable.length) marketEntries.push(itemEntry("quickbar", () => { changeQuickbar(bar => addType(bar, typeID)); }));
+    } else if (marketable.length) {
+      marketEntries.push(itemEntry("market", () => showMarketDetails(marketable[0])),
+        itemEntry("buyAll", () => void run(() => flow.openMultiBuy(new Map(typeIDs.map(id => [id, 1])))), subjects.length));
     }
-    if (type?.published) {
-      if (restrictions && !restrictions.includes(337) && !restrictions.includes(142)) add("contracts", () => findInContracts(typeID));
-      add("assets", () => findInPersonalAssets(resolvedName($names.resolved, "type", typeID, itemName(row))));
+    if (typeIDs.some(id => isComparable(comparison?.types.get(id) ?? null))) {
+      compareEntries.push(itemEntry("compare", () => typeCompareTarget.ask(subjects), subjects.length > 1 ? subjects.length : undefined));
     }
-    if (market) add("quickbar", () => { changeQuickbar(bar => addType(bar, typeID)); });
-    if (isComparable(comparison?.types.get(typeID) ?? null)) {
-      if (entries.at(-1) !== null) entries.push(null);
-      add("compare", () => typeCompareTarget.ask([{ typeID, itemID }]));
-    }
-    itemMenu.open(x, y, entries);
+    itemMenu.open(x, y, groups.filter(group => group.length).flatMap((group, i) => i ? [null, ...group] : group));
   }
   $effect(() => {
     if (!inFront || !trade.abortOnClose || geometry.minimized) {
@@ -173,15 +242,22 @@
             </div>
             {#if side === 0}<button class="money" type="button" disabled={busy || !trade.abortOnClose} onclick={() => void run(() => session.flow.directTrades.offerMoney(trade.state.containerID))}>{word("UI/PVPTrade/OfferMoney", "Offer Money")}</button>{/if}
           </div>
-          <div class="inventory"><table><thead><tr><th>{word("UI/Common/Name", "Name")}</th><th>{word("UI/Common/Quantity", "Quantity")}</th></tr></thead><tbody>
-            {#each trade.state.items.filter(row => Number(readRowField(row, "ownerID")) === ownerID) as row (Number(readRowField(row, "itemID")))}
-              <tr data-trade-item={Number(readRowField(row, "itemID"))}
-                oncontextmenu={event => void openItemMenu(event, row)}>
+          <div class="inventory" data-trade-owner={ownerID} role="group" aria-label={name(ownerID)}
+            oncontextmenu={event => openPaneMenu(event, ownerID)}><table><thead><tr><th>{word("UI/Common/Name", "Name")}</th><th>{word("UI/Common/Quantity", "Quantity")}</th></tr></thead><tbody>
+            {#each sideRows(ownerID) as row (itemIDOf(row))}
+              <tr data-trade-item={itemIDOf(row)}
+                oncontextmenu={event => void openItemMenu(event, row, ownerID)}>
                 <td><button class="item-name" type="button" aria-haspopup="menu"
-                  aria-pressed={selectedItem === Number(readRowField(row, "itemID"))}
-                  onclick={() => { selectedItem = Number(readRowField(row, "itemID")); }}
+                  aria-pressed={selections[ownerID]?.ids.has(itemIDOf(row)) ?? false}
+                  onclick={event => selectRow(event, ownerID, row)}
                   onkeydown={event => {
-                    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) void openItemMenu(event, row);
+                    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      selectInPane(ownerID);
+                    } else if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+                      void openItemMenu(event, row, ownerID);
+                    }
                   }}>{itemName(row)}</button></td>
                 <td>{quantity(row).toLocaleString()}</td>
               </tr>
