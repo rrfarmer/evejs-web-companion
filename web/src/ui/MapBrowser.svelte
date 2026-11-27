@@ -5,9 +5,10 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
-  import { ContextMenu } from "../play/contextMenu.ts";
+  import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { showInfo } from "./showInfo.ts";
   import { mapBrowserConnections, type MapBrowserConnection } from "./mapBrowserConnections.ts";
+  import { solarGeometry } from "./mapBrowserSolarGeometry.ts";
 
   let { store, flow, request, onClose, onShowSystem }: {
     store: ClientStore; flow: AppFlow; request: { systemID: number };
@@ -18,8 +19,10 @@
   const auth = $derived(store.session);
   const labelBase = "UI/Map/MapBrowser/";
   const universeLabel = "UI/Common/LocationTypes/Universe";
+  const showAbstractLabel = "UI/Map/Map2D/menuShowAbstract";
+  const showPhysicalLabel = "UI/Map/Map2D/menuShowNonAbstract";
   const sectionLabels = ["ListRegions", "ListConstellations", "ListSolarSystems", "ListCelestials"] as const;
-  type Point = { id: number; name: string; x: number; z: number; typeID: number; station?: boolean;
+  type Point = { id: number; name: string; x: number; y?: number; z: number; typeID: number; station?: boolean;
     groupID?: number | null; orbitID?: number | null };
   let data = $state.raw<StarMapData | null>(null);
   let objects = $state.raw<readonly SystemObjectRow[]>([]);
@@ -28,9 +31,11 @@
   let error = $state(false);
   let solarPlotWidth = $state(0);
   let alignment = $state<"left" | "right">("right");
-  const alignmentMenu = new ContextMenu();
-  onDestroy(() => alignmentMenu.close());
+  let abstract = $state(false);
+  const mapMenu = new ContextMenu();
+  onDestroy(() => mapMenu.close());
   const alignmentPreference = $derived(`evejs.user.${$auth.accountID ?? "local"}.mapbrowseralign`);
+  const abstractPreference = $derived(`evejs.user.${$auth.accountID ?? "local"}.solarsystemmapabstract`);
   const label = (key: string, fallback: string, name = "") =>
     plainText(formatTemplate($words.templates[key] ?? fallback, { name }, { nameOf: () => name }));
 
@@ -40,7 +45,7 @@
     void flow.loadStarMap().then(result => {
       if (current) { data = result; error = result.systems.length === 0; }
     }).catch(() => { if (current) error = true; });
-    flow.requestWords([universeLabel, ...["MapBrowser", "CloseMapBrowser", "ShowInWorldMap", "AlignLeft", "AlignRight",
+    flow.requestWords([universeLabel, showAbstractLabel, showPhysicalLabel, ...["MapBrowser", "CloseMapBrowser", "ShowInWorldMap", "AlignLeft", "AlignRight",
       "NameRegion", "NameConstellation", "NameSolarSystem", ...sectionLabels].map(key => labelBase + key)]);
     return () => { current = false; };
   });
@@ -48,6 +53,11 @@
     const key = alignmentPreference;
     try { alignment = localStorage.getItem(key) === "left" ? "left" : "right"; }
     catch { alignment = "right"; }
+  });
+  $effect(() => {
+    const key = abstractPreference;
+    try { abstract = localStorage.getItem(key) === "1"; }
+    catch { abstract = false; }
   });
   $effect(() => {
     const system = data?.systems.find(row => row[0] === request.systemID);
@@ -104,7 +114,7 @@
         const detail = row.groupID === 10 && row.destinationID
           ? data?.systems.find(other => other[0] === row.destinationID)?.[7] : row.celestialIndex ?? null;
         return [{ id: row.itemID, typeID: row.typeID, name: `${objectName || row.itemID}${!row.name && detail ? ` · ${detail}` : ""}`,
-          station, groupID: row.groupID, orbitID: row.orbitID, x: row.position[0], z: row.position[2] }];
+          station, groupID: row.groupID, orbitID: row.orbitID, x: row.position[0], y: row.position[1], z: row.position[2] }];
       });
       result.push({ name: label(labelBase + "NameSolarSystem", "Solar System: {name}", name),
         title: label(labelBase + sectionLabels[3], "List Celestials", name), id: system[0], points });
@@ -134,37 +144,6 @@
     }
     return { points: [...projected.values()], lines };
   }
-  // Map2D.DrawSolarsystem puts the sun at the origin and fills 80% of the square at the furthest object.
-  function solarGeometry(points: readonly Point[], width: number) {
-    const extent = Math.max(1, ...points.map(point => Math.hypot(point.x, point.z)));
-    const scale = 40 / extent;
-    const magnification = width > 0 ? Math.max(1, Math.floor(4096 / width)) : 1;
-    const byID = new Map(points.map(point => [point.id, point]));
-    function orbitingPlanet(point: Point): Point | undefined {
-      if (point.groupID === 6 || point.groupID === 7 || point.groupID === 10) return;
-      let orbitID = point.orbitID;
-      const seen = new Set([point.id]);
-      while (orbitID != null && !seen.has(orbitID)) {
-        const parent = byID.get(orbitID);
-        if (parent?.groupID === 7) return parent;
-        seen.add(orbitID);
-        orbitID = parent?.orbitID;
-      }
-    }
-    return {
-      points: points.map(point => {
-        // Map2D.AddChilds spreads descendants relative to the planet, including objects orbiting its moons.
-        const planet = orbitingPlanet(point);
-        const x = planet ? point.x + (point.x - planet.x) * magnification : point.x;
-        const z = planet ? point.z + (point.z - planet.z) * magnification : point.z;
-        return { ...point, planetID: planet?.id, left: point.groupID === 6 ? 50 : 50 - x * scale,
-          top: point.groupID === 6 ? 50 : 50 - z * scale };
-      }),
-      orbits: points.filter(point => point.groupID === 7).map(point => ({
-        id: point.id, diameter: 2 * Math.hypot(point.x, point.z) * scale,
-      })),
-    };
-  }
   function trackSolarWidth(node: HTMLElement, solar: boolean) {
     if (!solar) return;
     const measure = () => { solarPlotWidth = node.clientWidth; };
@@ -185,7 +164,7 @@
     else showInfo({ kind: "spaceObject", itemID: point.id, typeID: point.typeID });
     shownList = null;
   }
-  function openAlignmentMenu(event: MouseEvent | KeyboardEvent): void {
+  function openMapMenu(event: MouseEvent | KeyboardEvent): void {
     const target = event.target;
     if (!(target instanceof HTMLElement) || target.closest(".map-browser-point, .map-browser-choices")) return;
     event.preventDefault();
@@ -193,22 +172,33 @@
     const pointer = event instanceof MouseEvent && (event.clientX !== 0 || event.clientY !== 0);
     const next = alignment === "left" ? "right" : "left";
     const path = labelBase + (next === "left" ? "AlignLeft" : "AlignRight");
-    alignmentMenu.open(pointer ? event.clientX : bounds.left, pointer ? event.clientY : bounds.bottom, [{
+    const entries: (ContextEntry | null)[] = [{
       path, label: label(path, next === "left" ? "Align Left" : "Align Right"),
       run: () => {
         alignment = next;
         try { localStorage.setItem(alignmentPreference, next); } catch { /* The open panel still moves. */ }
       },
-    }]);
+    }];
+    if (target.closest(".map-browser-panel")?.querySelector(".solar")) {
+      const mode = abstract ? showPhysicalLabel : showAbstractLabel;
+      entries.push(null, {
+        path: mode, label: label(mode, abstract ? "Show Physical Layout" : "Show Abstract Layout"),
+        run: () => {
+          abstract = !abstract;
+          try { localStorage.setItem(abstractPreference, abstract ? "1" : "0"); } catch { /* The open map still changes. */ }
+        },
+      });
+    }
+    mapMenu.open(pointer ? event.clientX : bounds.left, pointer ? event.clientY : bounds.bottom, entries);
   }
   function alignmentEvents(element: HTMLElement) {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openAlignmentMenu(event);
+      if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openMapMenu(event);
     };
-    element.addEventListener("contextmenu", openAlignmentMenu);
+    element.addEventListener("contextmenu", openMapMenu);
     element.addEventListener("keydown", onKey);
     return { destroy: () => {
-      element.removeEventListener("contextmenu", openAlignmentMenu);
+      element.removeEventListener("contextmenu", openMapMenu);
       element.removeEventListener("keydown", onKey);
     } };
   }
@@ -222,7 +212,7 @@
   {:else if !data}<p role="status">Loading map…</p>
   {:else}
     {#each panels as panel, index (panel.id)}
-      {@const solar = index === 3 ? solarGeometry(panel.points, solarPlotWidth) : null}
+      {@const solar = index === 3 ? solarGeometry(panel.points, solarPlotWidth, abstract) : null}
       {@const chart = project(panel.points, panel.edges, panel.neighbors)}
       <section class="map-browser-panel" aria-label={panel.name} data-location={panel.id}>
         <button class="map-browser-list" type="button" title={panel.title} aria-expanded={shownList === index}

@@ -2,6 +2,7 @@ import blue
 from carbonui.uicore import uicore
 from eve.client.script.ui.shared.maps.browserwindow import MapBrowserWnd
 from eve.client.script.ui.shared.maps.map2D import FLIPMAP
+import localization
 
 
 def orbit_geometry(browser):
@@ -17,6 +18,9 @@ def orbit_geometry(browser):
                 fill=solar_map.fillSize, flip=FLIPMAP,
                 abstract=bool(settings.user.ui.Get('solarsystemmapabstract', 0)),
                 children=sorted(children, key=lambda child: child['id']),
+                gates=sorted([dict(id=item.itemID, x=item.x, z=item.z, position=solar_map.cordsAsPortion[item.itemID])
+                              for item in solar_map.mapitems if item.groupID == 10 and item.itemID in solar_map.cordsAsPortion],
+                             key=lambda gate: gate['id']),
                 orbits=[dict(id=planet.itemID, radius=radius, x=planet.x, z=planet.z)
                         for _, radius, planet, _ in solar_map.orbs])
 
@@ -30,6 +34,21 @@ def observe_alignment(window):
         samples.append(dict(label=label.GetText(), direction=args[0], rect=list(window.GetAbsolute()),
                             stored=settings.user.ui.Get('mapbrowseralign')))
     return samples
+
+
+def observe_abstract(browser):
+    solar_map = next(child for child in browser.children[3].children if getattr(child, 'drawlevel', None) == 4)
+    def select(path):
+        caption = localization.GetByLabel(path)
+        label, action, args = next(entry for entry in solar_map.GetMenu()
+                                  if entry and hasattr(entry[0], 'GetText') and entry[0].GetText() == caption)
+        action(*args)
+        blue.pyos.synchro.SleepWallclock(400)
+        return label.GetText()
+    show = select('UI/Map/Map2D/menuShowAbstract')
+    geometry = orbit_geometry(browser)
+    hide = select('UI/Map/Map2D/menuShowNonAbstract')
+    return dict(show=show, hide=hide, geometry=geometry, restored=not orbit_geometry(browser)['abstract'])
 
 
 def zoom_controls(window):
@@ -59,8 +78,10 @@ def observe():
     if MapBrowserWnd.GetIfOpen():
         raise RuntimeError('Map Browser is already open')
     original_align = settings.user.ui.Get('mapbrowseralign', 'right')
+    original_abstract = settings.user.ui.Get('solarsystemmapabstract', 0)
     try:
         settings.user.ui.Set('mapbrowseralign', 'right')
+        settings.user.ui.Set('solarsystemmapabstract', 0)
         menu = sm.GetService('menu')
         menu.ShowInMapBrowser(30000142)
         window = MapBrowserWnd.GetIfOpen()
@@ -73,6 +94,7 @@ def observe():
             blue.pyos.synchro.SleepWallclock(100)
         first = [list(ids) for ids in browser.ids]
         first_orbits = orbit_geometry(browser)
+        abstract = observe_abstract(browser)
         connections = observe_connections(browser)
         rect = list(window.GetAbsolute())
         desktop = [uicore.desktop.width, uicore.desktop.height]
@@ -84,12 +106,13 @@ def observe():
                     neocom=list(sm.GetService('neocom').GetNeocomContainer().GetAbsolute()),
                     firstOrbits=first_orbits, secondOrbits=orbit_geometry(browser),
                     alignment=observe_alignment(window), zoomControls=zoom_controls(window),
-                    connections=connections)
+                    connections=connections, abstractLayout=abstract)
     finally:
         window = MapBrowserWnd.GetIfOpen()
         if window:
             window.Close()
         settings.user.ui.Set('mapbrowseralign', original_align)
+        settings.user.ui.Set('solarsystemmapabstract', original_abstract)
 
 
 result = observe()
