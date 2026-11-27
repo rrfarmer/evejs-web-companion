@@ -4,6 +4,7 @@ const { readModifiers, modifierValues, portraitHairStyle } = require("./portrait
 const { readColors, colorRowValues } = require("./portraitSkinTones");
 const sculptingRowType = "eve.common.script.paperDoll.paperDollDefinitions.SculptingRow";
 const sculptAxes = [["down", "up"], ["right", "left"], ["back", "forward"]];
+const faceLayerOrder = ["eyeshadow", "blush", "eyeliner", "lipstick"];
 
 function previewSculptRows(appearance) {
   const fields = appearance?.type === "object" && appearance.args?.type === "dict" ? appearance.args.entries : null;
@@ -62,8 +63,8 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
       const style = /^hair\/(hair_[a-z0-9_]+)\/types\/\1\.type$/.exec(resourcePath)?.[1];
       if (style && portraitHairStyle(gender, style)) hairstyle = style;
     } else {
-      const face = /^makeup\/(eyes|lipstick|eyeliner)\/((?:eyes|lipstick|eyeliner)_[a-z0-9_]+)\/types\/\2\.type$/.exec(resourcePath);
-      if (face && `makeup/${face[1]}` === location.modifierKey && face[2].startsWith(face[1] + "_")) {
+      const face = /^makeup\/([a-z]+)\/(\1_[a-z0-9_]+)\/types\/\2\.type$/.exec(resourcePath);
+      if (face && (face[1] === "eyes" || faceLayerOrder.includes(face[1])) && `makeup/${face[1]}` === location.modifierKey) {
         faceStyles[face[1]] = face[2];
       }
     }
@@ -82,16 +83,18 @@ function portraitPreviewMakeup(appearance, gender, styles, locations, names) {
     const fields = colorRowValues(row);
     if (!fields) continue;
     const location = locations?.[fields[1]];
-    const category = /^(?:paperdoll\/)?makeup\/(eyes|eyeliner|lipstick)$/.exec(location?.colorKey ?? "")?.[1];
+    const category = /^(?:paperdoll\/)?makeup\/([a-z]+)$/.exec(location?.colorKey ?? "")?.[1];
     if (!category || !styles[category]) continue;
     const color = names?.[fields[2]]?.colorName;
     const palette = typeof color === "string" && /^[a-z0-9_]+$/i.test(color) ? color.toLowerCase() : "default";
-    selections.set(category, { palette, weight: location.hasWeight ? unitValue(fields[4], 1) : 1,
+    const secondary = category === "eyeshadow" && location.hasSecondary && fields[3] ? names?.[fields[3]]?.colorName : null;
+    selections.set(category, { palette: secondary && /^[a-z0-9_]+$/i.test(secondary) ? `${palette}~${secondary.toLowerCase()}` : palette,
+      weight: location.hasWeight ? unitValue(fields[4], 1) : 1,
       gloss: location.hasGloss ? unitValue(fields[5], null) : null });
   }
   const stem = `/client-assets/portrait-head/${gender}`;
   const iris = styles.eyes ? `${stem}/eyes/${styles.eyes}/${selections.get("eyes")?.palette ?? "default"}.json` : null;
-  const makeup = ["eyeliner", "lipstick"].flatMap(category => {
+  const makeup = faceLayerOrder.flatMap(category => {
     const style = styles[category];
     const { palette, weight, gloss } = selections.get(category) ?? { palette: "default", weight: 1, gloss: null };
     return style && weight > 0 ? [{ asset: `${stem}/makeup/${category}/${style}/${palette}.json`, weight, gloss }] : [];

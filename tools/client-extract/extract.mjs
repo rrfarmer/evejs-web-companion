@@ -10,7 +10,7 @@
 //        [--portrait-head <female|male>] (the skinned character-creation base head)
 //        [--portrait-morph <name>] (one sparse morph from that head)
 //        [--portrait-eyes <style/palette>] (a saved iris layer for that head)
-//        [--portrait-makeup <category/style/palette>] (a saved face layer for that head)
+//        [--portrait-makeup <category/style/palette[~secondary]>] (a saved face layer for that head)
 //        [--portrait-body <model stem>] (extract a sparse morph for an extracted outfit model)
 //        [--portrait-outfit <gender/[slot/]style/variant>] (an installed paper-doll garment)
 //        [--portrait-hands <female|male>] (the skinned base hands)
@@ -953,6 +953,7 @@ function portraitPngRect(buffer) {
 
 function extractPortraitMakeup(rf, gender, category, key, outRoot) {
   const [style, palette] = key.split("/");
+  const [primary, secondary] = palette.split("~");
   const root = `res:/graphics/character/${gender}/paperdoll/makeup/${category}`;
   const typePath = `${root}/${style}/types/${style}.type`;
   const type = parseYaml(rf.read(typePath).toString("utf8"), paperDollYaml);
@@ -960,12 +961,17 @@ function extractPortraitMakeup(rf, gender, category, key, outRoot) {
     throw new Error("Unknown makeup style");
   }
   const source = `${root}/${style}/colorize_head_l_512.png`, zone = `${root}/${style}/colorize_head_z_512.png`;
-  const palettePath = [`${root}/${style}/${palette}.color`, `${root}/colors/${palette}.color`,
-    `${root}/${style}/default.color`].find(path => rf.has(path));
-  const authored = palettePath ? parseYaml(rf.read(palettePath).toString("utf8"), paperDollYaml)?.colors : null;
-  const colors = Array.isArray(authored) && authored.length >= 3 &&
-    authored.slice(0, 3).every(rgb => Array.isArray(rgb) && rgb.length >= 3 && rgb.slice(0, 3).every(Number.isFinite))
-    ? authored.slice(0, 3).map(rgb => rgb.slice(0, 3)) : [[1, 1, 1], [1, 1, 1], [1, 1, 1]];
+  const readPalette = name => {
+    const file = [`${root}/${style}/${name}.color`, `${root}/colors/${name}.color`].find(path => rf.has(path));
+    const authored = file ? parseYaml(rf.read(file).toString("utf8"), paperDollYaml)?.colors : null;
+    const rows = Array.isArray(authored) ? authored.slice(0, 3) : [];
+    return rows.length === 3 && rows.every(rgb => Array.isArray(rgb) && rgb.length >= 3 && rgb.slice(0, 3).every(Number.isFinite))
+      ? rows.map(rgb => rgb.slice(0, 3)) : null;
+  };
+  const primaryColors = readPalette(primary) ?? (primary === "default" ? null : readPalette("default"));
+  const secondaryColors = secondary && readPalette(secondary);
+  const colors = primaryColors && secondaryColors ? [primaryColors[0], ...secondaryColors.slice(1)]
+    : primaryColors ?? [[1, 1, 1], [1, 1, 1], [1, 1, 1]];
   const slot = category === "eyes" ? "eyes" : `makeup/${category}`;
   const dir = path.join(outRoot, "portrait-head", gender, slot, style);
   fs.mkdirSync(dir, { recursive: true });
@@ -1143,8 +1149,8 @@ function parseArgs(argv) {
     }
     else if (a === "--portrait-makeup") {
       out.portraitMakeup = argv[++i];
-      if (!/^(eyeliner|lipstick)\/\1_[a-z0-9_]+\/[a-z0-9_]+$/.test(out.portraitMakeup ?? "")) {
-        throw new Error("--portrait-makeup needs category/style/palette");
+      if (!/^(blush|eyeshadow|eyeliner|lipstick)\/\1_[a-z0-9_]+\/[a-z0-9_]+(?:~[a-z0-9_]+)?$/.test(out.portraitMakeup ?? "")) {
+        throw new Error("--portrait-makeup needs category/style/palette[~secondary]");
       }
     }
     else if (a === "--portrait-body") {

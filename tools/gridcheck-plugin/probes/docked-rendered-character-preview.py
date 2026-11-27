@@ -45,7 +45,8 @@ def observe(gender, outfit, hair, apparel=(), sculpts=(), colors=()):
             result['makeup'] = [dict(path=item.GetResPath(), colors=list(item.colorizeData), weight=item.weight,
                                      diffuse=dict(item.mapL), zones=dict(item.mapZ))
                                 for item in manager.GetModifiersAsList(showHidden=True)
-                                if item.GetResPath().lower().startswith(('makeup/lipstick/', 'makeup/eyeliner/'))]
+                                if item.GetResPath().lower().startswith(('makeup/lipstick/', 'makeup/eyeliner/',
+                                                                         'makeup/eyeshadow/', 'makeup/blush/'))]
         if sculpts:
             doll = preview.context.character.doll
             result['sculpts'] = [dict(location=row[0], prefix=cfg.paperdollSculptingLocations.Get(row[0]).weightKeyPrefix,
@@ -72,6 +73,20 @@ def observe(gender, outfit, hair, apparel=(), sculpts=(), colors=()):
         PortraitWindow.CloseIfOpen()
 
 
+def makeup_selection(category, style, palette, weight, secondary=None):
+    key = 'makeup/' + category
+    modifier = next(row for row in cfg.paperdollModifierLocations if row.modifierKey == key)
+    style_path = '%s/%s/types/%s.type' % (key, style, style)
+    resource = next(row for row in cfg.paperdollResources
+                    if row.resGender == 0 and row.resPath.lower() == style_path)
+    location = next(row for row in cfg.paperdollColors if row.colorKey == key)
+    names = {row.colorName: row.colorNameID for row in cfg.paperdollColorNames}
+    return ((modifier.modifierLocationID, resource.paperdollResourceID),
+            (location.colorID, names[palette], names[secondary] if secondary else 0, weight, 0.0))
+
+
+extra_makeup = [makeup_selection('eyeshadow', 'eyeshadow_01', 'aqua_a', 0.55, 'gold_bc'),
+                makeup_selection('blush', 'blush_02', 'rosie', 0.35)]
 result = dict(female=observe(0, 15525, 407), male=observe(1, 15555, 127),
               layered=observe(0, 2225, 407, ((25, 236), (22, 298))),
               shirt=observe(0, None, 407, ((26, 3529), (25, 236), (22, 298))),
@@ -82,4 +97,7 @@ result = dict(female=observe(0, 15525, 407), male=observe(1, 15555, 127),
                               sculpts=((18, -0.75, 0.0, 0.0), (27, 0.0, 0.0, 0.4), (5, 0.5, 0.0, 0.0))),
               iris=observe(0, 8649, 407, ((6, 79),), colors=((7, 153, 0, 0.0, 0.0),)),
               makeup=observe(0, 8649, 407, ((7, 215), (17, 75)),
-                             colors=((8, 13, 0, 0.65, 0.2), (16, 24, 0, 0.45, 0.0))))
+                             colors=((8, 13, 0, 0.65, 0.2), (16, 24, 0, 0.45, 0.0))),
+              layeredMakeup=observe(0, 8649, 407, [modifier for modifier, _ in extra_makeup],
+                                    colors=[color for _, color in extra_makeup]))
+result['layeredMakeup']['selectionRows'] = extra_makeup

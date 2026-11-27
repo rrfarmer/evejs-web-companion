@@ -6322,7 +6322,7 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
     const layer = asObject(value);
     const asset = layer?.asset, weight = layer?.weight, gloss = layer?.gloss;
     return typeof asset === "string" &&
-      /^\/client-assets\/portrait-head\/(female|male)\/makeup\/(eyeliner|lipstick)\/\2_[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(asset)?.[1] === model &&
+      /^\/client-assets\/portrait-head\/(female|male)\/makeup\/(blush|eyeshadow|eyeliner|lipstick)\/\2_[a-z0-9_]+\/[a-z0-9_]+(?:~[a-z0-9_]+)?\.json$/.exec(asset)?.[1] === model &&
       typeof weight === "number" && weight > 0 && weight <= 1 ?
       [{ asset, weight, gloss: typeof gloss === "number" && gloss >= 0 && gloss <= 1 ? gloss : null }] : [];
   });
