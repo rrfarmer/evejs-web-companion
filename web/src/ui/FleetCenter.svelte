@@ -8,14 +8,17 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { CONTACT_STANDING } from "../bridge/contacts.ts";
   import { FLEET_POINTERS } from "../play/uiPointer.ts";
+  import type { FleetBarBroadcast } from "../bridge/fleetBroadcasts.ts";
+  import FleetBroadcastBar from "./FleetBroadcastBar.svelte";
   import FleetHistory from "./FleetHistory.svelte";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import type { FleetMember, FleetSquad, FleetWing } from "../bridge/boundFleet.ts";
   import type { FleetAdvert } from "../bridge/fleetAds.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
-  let { store, flow, openWatchlist, openComposition }: {
+  let { store, flow, openWatchlist, openComposition, onFleetBroadcast }: {
     store: ClientStore; flow: AppFlow; openWatchlist?: () => void; openComposition?: () => void;
+    onFleetBroadcast?: (name: FleetBarBroadcast) => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -641,6 +644,9 @@
         </ul>
       </section>
     {/if}
+  {/if}
+  {#if retail && inFleet && fleetTab !== "advert" && fleetTab !== "find" && onFleetBroadcast}
+    <FleetBroadcastBar {store} {flow} onBroadcast={onFleetBroadcast} />
   {/if}
 </section>
 

@@ -1,4 +1,7 @@
 import blue
+from eveexceptions import UserError
+from eve.client.script.ui.shared.fleet.fleetConst import FLEET_BROADCASTS_VISIBLE_SETTING
+from eve.client.script.ui.shared.fleet.fleetbroadcastexports import fleetBroadcastScopeSetting
 from eve.client.script.ui.shared.fleet.fleetwindow import (
     FleetWindow, PANEL_BROADCASTS, PANEL_FLEETFINDER, PANEL_MYFLEET, PANEL_RESPAWN)
 from eve.client.script.ui.shared.pointerTool import pointerToolConst as names, pointerToolUtil
@@ -31,6 +34,8 @@ def observe():
     if session.fleetid or FleetWindow.GetIfOpen():
         raise RuntimeError('A fresh docked pilot is required')
     fleet = sm.GetService('fleet')
+    old_visibility = FLEET_BROADCASTS_VISIBLE_SETTING.get()
+    old_scope = fleetBroadcastScopeSetting.get()
     try:
         window = FleetWindow.Open()
         finder_solo = sample(window, PANEL_FLEETFINDER)
@@ -43,12 +48,34 @@ def observe():
         if not session.fleetid:
             raise RuntimeError('The docked pilot did not enter a fleet')
         window = FleetWindow.Open()
+        FLEET_BROADCASTS_VISIBLE_SETTING.set(False)
+        window.broadcastCont.UpdateBroadcastButtonState()
+        roster = sample(window, PANEL_MYFLEET)
+        bar = window.broadcastCont
+        bar.ToggleBroadcasts()
+        collapsed = sample(window, PANEL_MYFLEET)
+        bar.ToggleBroadcasts()
+        expanded = sample(window, PANEL_MYFLEET)
+        fleetBroadcastScopeSetting.set(3)
+        scopes = [fleet.broadcastScope]
+        for _ in range(3):
+            bar.CycleBroadcastScope()
+            scopes.append(fleet.broadcastScope)
+        refusals = {}
+        for name in ('HealArmor', 'HealShield'):
+            try:
+                fleet.SendBroadcast(name)
+            except UserError as err:
+                refusals[name] = err.msg
         return dict(build=3698585, station=session.stationid, catalogue=catalogue,
-                    solo=finder_solo, roster=sample(window, PANEL_MYFLEET),
+                    solo=finder_solo, roster=roster, collapsed=collapsed, expanded=expanded,
+                    scopes=scopes, refusals=refusals,
                     finder=sample(window, PANEL_FLEETFINDER),
                     broadcasts=sample(window, PANEL_BROADCASTS),
                     respawn=sample(window, PANEL_RESPAWN))
     finally:
+        FLEET_BROADCASTS_VISIBLE_SETTING.set(old_visibility)
+        fleetBroadcastScopeSetting.set(old_scope)
         window = FleetWindow.GetIfOpen()
         if window:
             window.Close()

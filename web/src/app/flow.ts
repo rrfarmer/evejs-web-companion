@@ -1306,7 +1306,7 @@ import { keptByType, keptTypeAttributes, keptWhereKnown } from "../bridge/keptTy
 import { moduleActivation, type ModuleActivation } from "../nav/moduleActivation.ts";
 import type { AmmoPlace, AmmoSession } from "../bridge/dogmaWrites.ts";
 import type { DogmaItemInfo } from "../bridge/boundDogma.ts";
-import { FLEET_BROADCAST_SCOPE_ALL, decodeFleetBroadcastNotification, decodeFleetStateChangeNotification, isFleetBroadcastFresh } from "../bridge/fleetBroadcasts.ts";
+import { FLEET_BROADCAST_SCOPE_ALL, FLEET_SCOPE_LABELS, decodeFleetBroadcastNotification, decodeFleetStateChangeNotification, isFleetBroadcastFresh, type FleetBroadcastScope } from "../bridge/fleetBroadcasts.ts";
 import {
   decodeJamNotification,
   JAM_ASSUMED_DURATION_MS,
@@ -3038,6 +3038,8 @@ export interface AppFlow {
   broadcastHealMe(name: "HealArmor" | "HealShield" | "HealCapacitor", shipID: number): Promise<boolean>;
   /** fleetSvc.CycleBroadcastScope (CmdCycleFleetBroadcastScope): Down -> Up -> All -> Down, FleetBroadcastScopeChange said. */
   cycleBroadcastScope(): void;
+  setBroadcastScope(scope: FleetBroadcastScope): void;
+  readonly broadcastScopeState: ReadableSignal<FleetBroadcastScope>;
   /** fleetSvc.IsTimeRestricted: a broadcast of this name would still be held by the wait between broadcasts. */
   broadcastRestricted(name: string): boolean;
   /** menusvc.TagItem: CmdFleetTagTarget(itemID, tag) on the park; None takes the tag off. */
@@ -19220,8 +19222,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // SendBubbleBroadcast / SendGlobalBroadcast: CheckIsInFleet(inSpace=True) first (FleetNotInFleetInSpace)
     if (store.fleet.get().availability !== "ready") { sayDialog("FleetNotInFleetInSpace", null, "You are not in a fleet."); return false; }
     return name === "Target" || name === "HealTarget"
-      ? fleetBroadcasts.toBubble(name, broadcastScope, itemID)
-      : fleetBroadcasts.toSystem(name, broadcastScope, itemID, typeID);
+      ? fleetBroadcasts.toBubble(name, broadcastScope.get(), itemID)
+      : fleetBroadcasts.toSystem(name, broadcastScope.get(), itemID, typeID);
   }
   // fleetSvc.SendBroadcast_EnemySpotted (1011): SendGlobalBroadcast(BROADCAST_ENEMY_SPOTTED, GetNearestBall's itemID or None),
   // CheckIsInFleet(inSpace=True) first (FleetNotInFleetInSpace)
@@ -19230,7 +19232,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       sayDialog("FleetNotInFleetInSpace", null, "You are not in a fleet.");
       return false;
     }
-    return fleetBroadcasts.toFleet("EnemySpotted", broadcastScope, nearID as number);
+    return fleetBroadcasts.toFleet("EnemySpotted", broadcastScope.get(), nearID as number);
   }
   // fleetSvc.SendBroadcast_NeedBackup (1019), HoldPosition (1027), InPosition (1106: the nearest ball's type too),
   // Location (1123), JumpBeacon (1116: the pilot's own beacon, its item and type): SendGlobalBroadcast, CheckIsInFleet first
@@ -19239,17 +19241,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       sayDialog("FleetNotInFleetInSpace", null, "You are not in a fleet.");
       return false;
     }
-    return fleetBroadcasts.toFleet(name, broadcastScope, itemID as number, typeID);
+    return fleetBroadcasts.toFleet(name, broadcastScope.get(), itemID as number, typeID);
   }
   // fleetSvc.SendBroadcast_HealArmor / HealShield / HealCapacitor (1039 to 1049): SendBubbleBroadcast(name, session.shipid)
   // fleetBroadcastScopeSetting: a SessionSettingEnum (ALL, DOWN, UP), ALL by default - this session's, not kept
-  let broadcastScope = FLEET_BROADCAST_SCOPE_ALL;
+  const broadcastScope = createSignal<FleetBroadcastScope>(FLEET_BROADCAST_SCOPE_ALL);
   // fleetSvc.CycleBroadcastScope (1575): DOWN -> UP -> ALL -> DOWN; OnFleetBroadcastScopeChanged: the fsd dialog
   // FleetBroadcastScopeChange with GetBroadcastScopeName(scope) (BROADCAST_UNIVERSE: BroadcastRangeDown / Up / All)
   function cycleBroadcastScope(): void {
-    broadcastScope = broadcastScope === 1 ? 2 : broadcastScope === 2 ? 3 : 1;
-    const label = broadcastScope === 1 ? "UI/Fleet/FleetBroadcast/BroadcastRangeDown" : broadcastScope === 2 ? "UI/Fleet/FleetBroadcast/BroadcastRangeUp" : "UI/Fleet/FleetBroadcast/BroadcastRangeAll";
-    const own = broadcastScope === 1 ? "Down" : broadcastScope === 2 ? "Up" : "All";
+    const current = broadcastScope.get();
+    setBroadcastScope(current === 1 ? 2 : current === 2 ? 3 : 1);
+  }
+  function setBroadcastScope(scope: FleetBroadcastScope): void {
+    if (scope === broadcastScope.get()) return;
+    broadcastScope.set(scope);
+    const [label, own] = FLEET_SCOPE_LABELS[scope];
     const t = store.words.get().templates[label];
     const name = typeof t === "string" && t !== "" ? plainText(t) : own;
     sayDialog("FleetBroadcastScopeChange", { type: "dict", entries: [["name", name]] }, `Fleet broadcasts now go to: ${name}`);
@@ -19270,7 +19276,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       sayDialog("FleetNotInFleetInSpace", null, "You are not in a fleet.");
       return false;
     }
-    return fleetBroadcasts.toBubble(name, broadcastScope, shipID);
+    return fleetBroadcasts.toBubble(name, broadcastScope.get(), shipID);
   }
   async function broadcastTravelTo(destination: { systemID: number; typeID: number } | null):
     Promise<"sent" | "unsent" | "not-in-fleet" | "in-station" | "in-structure"> {
@@ -19287,7 +19293,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (now.solarSystemID === null) {
       return "in-station";
     }
-    return (await fleetBroadcasts.toFleet("TravelTo", broadcastScope, destination?.systemID ?? now.solarSystemID,
+    return (await fleetBroadcasts.toFleet("TravelTo", broadcastScope.get(), destination?.systemID ?? now.solarSystemID,
       destination?.typeID ?? null)) ? "sent" : "unsent";
   }
 
@@ -41787,7 +41793,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     broadcastRestricted: (name: string) => fleetBroadcasts.restricted(name as never),
     tagFleetItem,
     regroupFleet,
-    broadcastScope: () => broadcastScope,
+    broadcastScope: broadcastScope.get,
+    broadcastScopeState: readonlySignal(broadcastScope),
+    setBroadcastScope,
     compressItemAt,
     deployItems,
     renameSpaceItem,

@@ -71,6 +71,7 @@
   import { mountStarMapFilterControls } from "../play/starMapFilterControls.ts";
   import type { StarMapColorMode } from "../bridge/starMapFilters.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
+  import type { FleetBarBroadcast } from "../bridge/fleetBroadcasts.ts";
   import { ACADEMY_BUTTON, ACADEMY_TITLE } from "../bridge/academyShips.ts";
   import { isNpcOwner } from "../bridge/mail.ts";
   import { CONFIRM_MOVE_TO_NEWBIE_SHIP, GROUP_CORVETTE } from "../bridge/shipWrites.ts";
@@ -2628,9 +2629,21 @@
     return false;
   }
 
+  function sendFleetBarBroadcast(name: FleetBarBroadcast): void {
+    if (!session) return;
+    if (docked) {
+      const dialog = dockedStructureID === null ? "FleetCannotDoInStation" : "FleetCannotDoInStructure";
+      session.flow.sayDialog(dialog, null, "You must be in space to broadcast.");
+      return;
+    }
+    spaceCommand(`CmdFleetBroadcast_${name}`);
+  }
+
   function spaceCommand(cmd: string): boolean {
     const s = session;
-    if (!s || docked || planetInMode) return false;
+    if (!s || planetInMode) return false;
+    if (cmd === "CmdCycleFleetBroadcastScope") { s.flow.cycleBroadcastScope(); return true; }
+    if (docked) return false;
     const say = (title: string) => (cause: unknown) => notify({ kind: "danger", title, detail: cause instanceof Error ? cause.message : String(cause) });
     if (cmd === "OpenMiningScanResultsWindow") {
       if (wins.some(win => win.id === "miningScan")) wins = closeWindow(wins, "miningScan");
@@ -2777,8 +2790,6 @@
       void s.flow.broadcastToFleet(global, near?.itemID ?? null, global === "InPosition" ? near?.typeID ?? null : null).catch(say("Fleet"));
       return true;
     }
-    // CmdCycleFleetBroadcastScope: fleetSvc.CycleBroadcastScope (no fleet needed)
-    if (cmd === "CmdCycleFleetBroadcastScope") { s.flow.cycleBroadcastScope(); return true; }
     // CmdFleetGroup: in a fleet, a commander's (fleetCmdrRoles) fleetSvc.Regroup
     if (cmd === "CmdFleetGroup") {
       const fleetState = s.store.fleet.get();
@@ -5026,6 +5037,7 @@
             <FlyInventoryWindow store={session.store} flow={session.flow} />
           {:else}
             <PanelHost store={session.store} flow={session.flow} tab={win.id} chatUnread={win.id === "chat" ? chatUnread : undefined}
+              onFleetBroadcast={sendFleetBarBroadcast}
               {characterSheetExpanded} onCharacterSheetExpansionChange={setCharacterSheetExpanded}
               onOpen={(t) => open(t)} onClose={() => closePlayWindow(win.id)}
               {openParagonHub} {paragonHubRequest} onParagonHubRequestTaken={() => (paragonHubRequest = null)}

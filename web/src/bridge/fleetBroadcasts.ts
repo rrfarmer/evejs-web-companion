@@ -54,6 +54,19 @@ export const FLEET_BROADCAST_NAMES = [
 
 export type FleetBroadcastName = (typeof FLEET_BROADCAST_NAMES)[number];
 
+export const FLEET_BAR_BROADCASTS = [
+  "EnemySpotted", "HealArmor", "HealShield", "HealCapacitor",
+  "InPosition", "NeedBackup", "HoldPosition", "Location",
+] as const satisfies readonly FleetBroadcastName[];
+export type FleetBarBroadcast = (typeof FLEET_BAR_BROADCASTS)[number];
+
+export const FLEET_SCOPE_LABELS = {
+  1: ["UI/Fleet/FleetBroadcast/BroadcastRangeDown", "Down"],
+  2: ["UI/Fleet/FleetBroadcast/BroadcastRangeUp", "Up"],
+  3: ["UI/Fleet/FleetBroadcast/BroadcastRangeAll", "All"],
+} as const;
+export type FleetBroadcastScope = keyof typeof FLEET_SCOPE_LABELS;
+
 /** fleetBroadcastConst.iconsByBroadcastType: each broadcast's 16 px icon (the bracket's fleetBroadcastIcon). */
 export const BROADCAST_ICONS: Readonly<Record<FleetBroadcastName, string>> = {
   EnemySpotted: "classes/fleet/broadcast/16/enemyspotted.png",

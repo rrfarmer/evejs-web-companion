@@ -23,6 +23,7 @@
   import Market from "./Market.svelte";
   import Activity from "./Activity.svelte";
   import FleetCenter from "./FleetCenter.svelte";
+  import type { FleetBarBroadcast } from "../bridge/fleetBroadcasts.ts";
   import Scanner from "./Scanner.svelte";
   import MiningScanResults from "./MiningScanResults.svelte";
   import MiningLedger from "./MiningLedger.svelte";
@@ -133,6 +134,7 @@
     characterSheetExpanded,
     onCharacterSheetExpansionChange,
     upwellLpIssuer = null,
+    onFleetBroadcast,
   }: {
     store: ClientStore;
     flow: AppFlow;
@@ -141,6 +143,7 @@
     characterSheetExpanded?: boolean;
     onCharacterSheetExpansionChange?: (expanded: boolean) => void;
     upwellLpIssuer?: number | null;
+    onFleetBroadcast?: (name: FleetBarBroadcast) => void;
     /**
      * Lets a panel navigate to another tab (e.g. Agent Finder -> Travel).
      *
@@ -261,7 +264,8 @@
 {:else if tab === "activity"}
   <Activity {store} {flow} showMail={() => onOpen?.("mail")} openApplications={() => { flow.requestCorporationApplications(); onOpen?.("corporation"); }} />
 {:else if tab === "fleet"}
-  <FleetCenter {store} {flow} openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined} openComposition={onOpen ? () => onOpen?.("fleetComposition") : undefined} />
+  <FleetCenter {store} {flow} {onFleetBroadcast} openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined}
+    openComposition={onOpen ? () => onOpen?.("fleetComposition") : undefined} />
 {:else if tab === "fleetComposition"}
   <FleetComposition {store} {flow} openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined} />
 {:else if tab === "scanner"}
