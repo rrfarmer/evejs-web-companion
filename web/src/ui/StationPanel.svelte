@@ -66,6 +66,7 @@
     encodeDrag,
     type DragPayload,
   } from "./dragDrop.ts";
+  import { acceptPlexVaultDrag, plexDepositSource, readPlexVaultDrop } from "./plexVaultDrop.ts";
   import {
     amount,
     amountText,
@@ -1029,33 +1030,16 @@
     pending = { kind: "move", place, label };
   }
 
-  function plexDepositSource(place: InventoryPlace): Exclude<Parameters<AppFlow["depositVaultPlex"]>[0], "assets"> | null {
-    if (!isDocked) return null;
-    if (place.kind === "hangar" || place.kind === "cargo") return place.kind;
-    if (place.kind === "container" && $inventory.container?.itemID === place.itemID &&
-        flow.canDepositContainerPlex(place.itemID)) return place;
-    return null;
-  }
-
   function overPlexVault(event: DragEvent): void {
-    if (!isDocked || busy || !carriesOurPayload(event.dataTransfer?.types)) return;
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    if (isDocked && !busy) acceptPlexVaultDrag(event);
   }
 
   function dropInPlexVault(event: DragEvent): void {
     if (!isDocked || busy) return;
-    const payload = decodeDrag(event.dataTransfer?.getData(DRAG_MIME));
-    if (payload?.kind !== "inventoryItem") return;
-    event.preventDefault();
-    const source = plexDepositSource(payload.from);
-    if (source === null) return;
-    const dragged = new Set([payload.itemID, ...(payload.itemIDs ?? [])]);
-    const rows = typeof source === "string" ? $inventory[source].rows : $inventory.container?.rows ?? [];
-    const stacks = rows.filter(row => row.typeID === PLEX_TYPE_ID && dragged.has(row.itemID));
-    if (stacks.length === 0) return;
+    const deposit = readPlexVaultDrop(event, $inventory, flow);
+    if (!deposit) return;
     if (view !== "plexVault") goTo("plexVault");
-    void run(() => flow.depositVaultPlex(source, stacks));
+    void run(() => flow.depositVaultPlex(deposit.source, deposit.stacks));
   }
 
   // --- the groups a location is made of -------------------------------------
@@ -2562,7 +2546,7 @@
        is absolute rather than fixed. -->
   {#if menu}
     {@const repairItems = repairSelection(menu.row, menu.place)}
-    {@const plexSource = plexDepositSource(menu.place)}
+    {@const plexSource = isDocked ? plexDepositSource(menu.place, $inventory, flow) : null}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="stn-menu-shade" onclick={() => (menu = null)}></div>
     <div class="stn-menu" class:stn-context-menu={menu.contextAnchor !== undefined}

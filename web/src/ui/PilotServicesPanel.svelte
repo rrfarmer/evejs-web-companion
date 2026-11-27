@@ -94,7 +94,7 @@
 </script>
 
 <section class="pilot-services" aria-label="Pilot Services" data-pilot-services>
-  <PlexVaultBalance {flow} {store} storeActions={vaultStoreActions} />
+  <PlexVaultBalance {flow} {store} storeActions={vaultStoreActions} inventoryDrop />
   <div class="license">
     <h3>{word(labels.clone, "Clone State Omega")}</h3>
     <p>{word(labels.plex, "Use PLEX to extend Omega game time.")}</p>

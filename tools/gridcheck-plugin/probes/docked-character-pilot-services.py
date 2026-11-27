@@ -1,8 +1,10 @@
 import blue
 from carbonui.uicore import uicore
+from carbonui.util.bunch import Bunch
+from inventorycommon import const
 from eve.client.script.ui.shared.neocom.characterSheetWindow import CharacterSheetWindow, charsheet_expanded_setting
 from eve.client.script.ui.shared.neocom.charsheet import PANEL_PLEX, GetPanelName
-from eve.client.script.ui.shared.inventory.plexVault import PlexVaultActions
+from eve.client.script.ui.shared.inventory.plexVault import PlexVaultActions, Vault
 from eve.client.script.ui.shared.pointerTool.pointerChains import FindChainForPointer
 from localization import GetByLabel
 
@@ -14,6 +16,22 @@ def find_child(parent, cls):
         match = find_child(child, cls)
         if match:
             return match
+
+
+def observe_vault_drop(vault):
+    def row(item_id, type_id, group_id, units):
+        return Bunch(item=Bunch(itemID=item_id, typeID=type_id, groupID=group_id, stacksize=units))
+
+    deposits = []
+    original = vault.controller.DepositPlex
+    try:
+        vault.controller.DepositPlex = lambda item_id, quantity: deposits.append([item_id, quantity])
+        vault.OnDropData(None, [row(91, const.typePlex, const.groupCurrency, 2), row(92, 34, 18, 7),
+                                row(93, const.typePlex, const.groupCurrency, 4),
+                                row(None, const.typePlex, const.groupCurrency, 5)])
+    finally:
+        vault.controller.DepositPlex = original
+    return dict(height=vault.height, deposits=deposits)
 
 
 def observe():
@@ -35,8 +53,10 @@ def observe():
             raise RuntimeError('Pilot Services did not load')
         tab = window.mainTabGroup.GetTabByID(PANEL_PLEX)
         actions = find_child(panel, PlexVaultActions)
+        vault = find_child(panel, Vault)
         return dict(build=3698585, station=session.stationid, panel=PANEL_PLEX, label=GetPanelName(PANEL_PLEX),
                     pointer=tab.uniqueUiName, chain=repr(FindChainForPointer(tab.uniqueUiName)),
+                    vaultDrop=observe_vault_drop(vault),
                     balance=actions.controller.balance, cards=[GetByLabel('UI/PlexVault/' + label) for label in
                         ('SellPlexForIsk', 'AddOmegaTime', 'BuyMultipleTraining', 'OpenNewEdenStore', 'BuyPlexForMoney')],
                     cardCount=len(actions.children), headers=[GetByLabel('UI/CharacterSheet/CharacterSheetWindow/PilotLicense/' + label)

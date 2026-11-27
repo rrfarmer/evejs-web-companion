@@ -13,15 +13,18 @@
   import { decodeStoreOffers, IN_GAME_STORE_ID } from "../bridge/newEdenStore.ts";
   import { PLEX_TYPE_ID, readPlexVaultBalance } from "../bridge/plexVault.ts";
   import { decodePlexWalletNotice, PLEX_WALLET_NOTICE } from "../bridge/plexWalletNotice.ts";
-  import type { AppFlow } from "../app/flow.ts";
+  import { isSessionLost, type AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import { ContextMenu } from "../play/contextMenu.ts";
   import { showMarketDetails } from "./marketDetails.ts";
+  import { acceptPlexVaultDrag, readPlexVaultDrop } from "./plexVaultDrop.ts";
   import { showInfo } from "./showInfo.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
-  let { flow, store, storeActions }: { flow: AppFlow; store: ClientStore; storeActions?: PlexVaultStoreActions } = $props();
+  let { flow, store, storeActions, inventoryDrop = false }: {
+    flow: AppFlow; store: ClientStore; storeActions?: PlexVaultStoreActions; inventoryDrop?: boolean;
+  } = $props();
   const words = $derived(store.words);
   const plexTypeID = PLEX_TYPE_ID;
   const sellLabel = "UI/PlexVault/SellPlexForIsk";
@@ -38,6 +41,8 @@
   let balance = $state<bigint | null>(null);
   let loading = $state(false);
   let error = $state("");
+  let depositError = $state("");
+  let depositing = $state(false);
   let trainingPrice = $state<number | null>(null);
   const plexIcon = clientTexture("res:/UI/Texture/Plex/plex_128_gradient_yellow.png");
   const cards = $derived([
@@ -103,6 +108,21 @@
     void flow.openVaultPlexSale().catch(cause => { error = cause instanceof Error ? cause.message : String(cause); });
   }
 
+  async function drop(event: DragEvent) {
+    if (!docked || depositing) return;
+    const deposit = readPlexVaultDrop(event, store.inventory.get(), flow);
+    if (!deposit) return;
+    depositing = true;
+    depositError = "";
+    try {
+      await flow.depositVaultPlex(deposit.source, deposit.stacks);
+    } catch (cause) {
+      if (!isSessionLost(cause)) depositError = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      depositing = false;
+    }
+  }
+
   function showPlexMenu(x: number, y: number) {
     itemMenu.open(x, y, [
       { label: word(infoLabel, "Show Info"), path: infoLabel, run: () => showInfo({ kind: "type", typeID: plexTypeID }) },
@@ -112,7 +132,9 @@
 </script>
 
 <div class="plex-vault">
-  <div class="plex-vault-balance">
+  <div class="plex-vault-balance" role="group" aria-label="PLEX Vault balance" data-plex-vault-drop={inventoryDrop ? "" : undefined}
+    ondragover={inventoryDrop ? event => { if (docked && !depositing) acceptPlexVaultDrag(event); } : undefined}
+    ondrop={inventoryDrop ? drop : undefined}>
     <button type="button" class="plex-item" aria-label="PLEX actions" aria-haspopup="menu"
       onclick={(event) => {
         const bounds = event.currentTarget.getBoundingClientRect();
@@ -127,6 +149,7 @@
       {#if amount}<p role="status" class="plex-balance">{amount} PLEX</p>
       {:else if loading}<p role="status">Loading PLEX balance…</p>{/if}
       {#if error}<p role="alert">{error}</p>{/if}
+      {#if depositError}<p role="alert">{depositError}</p>{/if}
     </div>
     <button type="button" disabled={loading} onclick={() => void refresh()}>Refresh balance</button>
   </div>
