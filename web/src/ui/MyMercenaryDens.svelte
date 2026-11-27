@@ -10,7 +10,7 @@
   import { resolvedName } from "../store/names.ts";
   import { openAgencyGroup } from "./agencyRequests.ts";
   import BookmarkWindow from "./BookmarkWindow.svelte";
-  import { solarSystemMenu, solarSystemMenuWords } from "./solarSystemMenu.ts";
+  import { mapLocationMenu, mapLocationMenuWords } from "./mapLocationMenu.ts";
   import { notify } from "./notices.ts";
   import { showInfo } from "./showInfo.ts";
   import MercenaryDenManagement from "./MercenaryDenManagement.svelte";
@@ -130,7 +130,7 @@
         };
       }),
       { path: labels.location[0], label: word("location"),
-        sub: solarSystemMenu(store, flow, row.solarSystemID, () => systemName(row), place => { bookmark = place; }, onShowSystem, onShowMapBrowser) },
+        sub: mapLocationMenu(store, flow, row.solarSystemID, () => systemName(row), place => { bookmark = place; }, onShowSystem, onShowMapBrowser) },
     ] : [entry("reload", () => { void reloadRow(id); })]);
   }
   function menuFromKey(event: KeyboardEvent & { currentTarget: HTMLButtonElement }, id: number, row: MercenaryDenRow | undefined) {
@@ -170,7 +170,7 @@
     activityRevisions.clear();
     directory = null;
     error = "";
-    flow.requestWords([...Object.values(labels).map(([key]) => key), ...solarSystemMenuWords]);
+    flow.requestWords([...Object.values(labels).map(([key]) => key), ...mapLocationMenuWords]);
     void flow.loadMyMercenaryDens().then(result => {
       if (!current) return;
       directory = result;

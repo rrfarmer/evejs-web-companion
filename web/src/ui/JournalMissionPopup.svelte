@@ -18,7 +18,7 @@
   import MissionFittedRestrictionNotice from "./MissionFittedRestrictionNotice.svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import { LINK_WORDS, missionLinkFollower, startLinkDrag, type LinkFollower } from "./linkFollowers.ts";
-  import { solarSystemMenuWords } from "./solarSystemMenu.ts";
+  import { mapLocationMenuWords } from "./mapLocationMenu.ts";
   import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
@@ -142,7 +142,7 @@
     ownSecurityStatus: () => $station.ownSecurityStatus,
   }) : []);
   $effect(() => {
-    flow.requestWords([...Object.values(labels), ...PANE_WORD_LABELS, ...Object.keys(LINK_WORDS), ...solarSystemMenuWords]);
+    flow.requestWords([...Object.values(labels), ...PANE_WORD_LABELS, ...Object.keys(LINK_WORDS), ...mapLocationMenuWords]);
     flow.requestAgentRecord(agentID);
     flow.loadOwnerLogos();
   });

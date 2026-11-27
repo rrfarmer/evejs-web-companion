@@ -9,6 +9,8 @@ import { notify } from "./notices.ts";
 import { showInfo } from "./showInfo.ts";
 
 const labels = {
+  region: ["UI/Common/LocationTypes/Region", "Region"],
+  constellation: ["UI/Common/LocationTypes/Constellation", "Constellation"],
   system: ["UI/Common/SolarSystem", "Solar System"],
   info: ["UI/Commands/ShowInfo", "Show Info"],
   destination: ["UI/Inflight/SetDestination", "Set Destination"],
@@ -23,32 +25,33 @@ const labels = {
   stopAvoiding: ["UI/Inflight/StopAvoidingLocation", "Do Not Avoid {theLocation} ({locationType})"],
 } as const;
 
-export const solarSystemMenuWords = Object.values(labels).map(([path]) => path);
+export const mapLocationMenuWords = Object.values(labels).map(([path]) => path);
 
-export function solarSystemMenu(
-  store: ClientStore, flow: AppFlow, id: number, systemName: () => string,
+export function mapLocationMenu(
+  store: ClientStore, flow: AppFlow, id: number, locationName: () => string,
   onBookmark: ((place: BookmarkPlace) => void) | null, onShowSystem?: (id: number) => void,
-  onShowMapBrowser?: (id: number) => void,
+  onShowMapBrowser?: (id: number) => void, typeID: 3 | 4 | 5 = 5,
 ): (ContextEntry | null)[] {
   const templates = store.words.get().templates;
   const word = (key: keyof typeof labels, args: Record<string, string | number> = {}) => {
     const [path, fallback] = labels[key];
-    return plainText(formatTemplate(templates[path] ?? fallback, args, { nameOf: systemName }));
+    return plainText(formatTemplate(templates[path] ?? fallback, args, { nameOf: locationName }));
   };
   const entry = (key: keyof typeof labels, run: () => void, args?: Record<string, string | number>): ContextEntry =>
     ({ path: labels[key][0], label: word(key, args), run });
   const here = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
   const waypoint = isWaypointPlace(id);
   const route = celestialRouteEntries(id, waypoint, here, flow.waypoints.get());
+  const locationType = word(typeID === 3 ? "region" : typeID === 4 ? "constellation" : "system");
   const entries: (ContextEntry | null)[] = [
-    { ...entry("info", () => showInfo({ kind: "mapLocation", typeID: 5, itemID: id })), info: true },
+    { ...entry("info", () => showInfo({ kind: "mapLocation", typeID, itemID: id })), info: true },
   ];
   if (route.setDestination) entries.push(entry("destination", () => flow.setDestination(id)));
   if (route.addWaypoint) entries.push(entry("addWaypoint", () => flow.addWaypoint(id)));
   if (route.removeWaypoint) entries.push(entry("removeWaypoint", () => flow.clearWaypoints(id)));
   if (onBookmark) entries.push(null, entry("saveLocation", () => onBookmark({
-    itemID: id, askIfKnown: true, typeName: () => word("system"),
-    name: () => word("bookmarkLabel", { loc: id, group: word("system") }),
+    itemID: id, askIfKnown: true, typeName: () => locationType,
+    name: () => word("bookmarkLabel", { loc: id, group: locationType }),
   })));
   const travel = store.fleet.get().availability === "ready" && waypoint ? {
     ...entry("travelTo", () => {
@@ -59,8 +62,7 @@ export function solarSystemMenu(
     icon: "res:/UI/Texture/classes/Fleet/Broadcast/16/travelTo.png",
   } : null;
   if (!onBookmark && travel) entries.push(null, travel);
-  if (isAvoidablePlace(id)) {
-    const locationType = word("system");
+  if (typeID !== 3 && isAvoidablePlace(id)) {
     entries.push(null);
     if (onShowSystem) entries.push(entry("map", () => onShowSystem(id)));
     if (onShowMapBrowser) entries.push(entry("mapBrowser", () => onShowMapBrowser(id), { locationType }));

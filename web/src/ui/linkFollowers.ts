@@ -26,7 +26,7 @@ import { hyperNetOfferLinkText, hyperNetOfferUrl, parseHyperNetOfferUrl } from "
 import { dungeonBookmarkSystem, linkScheme, parseShowInfoUrl } from "../bridge/showInfoLink.ts";
 import type { ContextMenu } from "../play/contextMenu.ts";
 import type { ClientStore } from "../store/clientStore.ts";
-import { solarSystemMenu } from "./solarSystemMenu.ts";
+import { mapLocationMenu } from "./mapLocationMenu.ts";
 import { showInfo, subjectOfShowInfoLink } from "./showInfo.ts";
 import { parseAccessGroupUrl, showAccessGroupInfo } from "./accessGroupInfo.ts";
 import { COMBAT_REPORT_LABEL, parseCombatReportUrl } from "../bridge/combatLog.ts";
@@ -114,7 +114,7 @@ export function missionLinkFollower(url: string, flow: AppFlow, word: (label: st
     const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const pointer = event instanceof MouseEvent && (event.clientX !== 0 || event.clientY !== 0);
     bookmark.menu.open(pointer ? event.clientX : bounds.left, pointer ? event.clientY : bounds.bottom,
-      solarSystemMenu(bookmark.store, flow, system, () => text, null, bookmark.onShowSystem, bookmark.onShowMapBrowser));
+      mapLocationMenu(bookmark.store, flow, system, () => text, null, bookmark.onShowSystem, bookmark.onShowMapBrowser));
   } };
 }
 

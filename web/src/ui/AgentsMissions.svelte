@@ -41,7 +41,7 @@
   import { questionText, wordsLabels, wordsNameRefs, type ClientWording } from "../bridge/questions.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
   import { ContextMenu } from "../play/contextMenu.ts";
-  import { solarSystemMenuWords } from "./solarSystemMenu.ts";
+  import { mapLocationMenuWords } from "./mapLocationMenu.ts";
   import { objectiveSystemIDs } from "../bridge/locationWrapper.ts";
   import { AGENT_HEADER_WORD_LABELS, agentHeader, agentLocationNameRef } from "../bridge/agentHeader.ts";
   import { filetimeOf, journalRowAsks, journalRowText, journalRowWords } from "../bridge/journalWords.ts";
@@ -519,7 +519,7 @@
     const messages = objectives.dungeons.map((dungeon) => dungeon.briefingMessage).filter((message): message is MissionMessage => message !== null);
     flow.requestWords([
       ...PANE_WORD_LABELS,
-      ...solarSystemMenuWords,
+      ...mapLocationMenuWords,
       ...paneMessageIDs(objectives).map((id) => `#${id}`),
       ...wordsLabels(messages.flatMap(message => journalMessagePhrases(objectiveWords(message)))),
     ]);

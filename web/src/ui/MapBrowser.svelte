@@ -12,7 +12,7 @@
   import { solarGeometry } from "./mapBrowserSolarGeometry.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import BookmarkWindow from "./BookmarkWindow.svelte";
-  import { solarSystemMenu, solarSystemMenuWords } from "./solarSystemMenu.ts";
+  import { mapLocationMenu, mapLocationMenuWords } from "./mapLocationMenu.ts";
 
   let { store, flow, request, onClose, onShowLocation, onShowSystemInBrowser }: {
     store: ClientStore; flow: AppFlow; request: { systemID: number };
@@ -63,7 +63,7 @@
     void flow.loadStarMap().then(result => {
       if (current) { data = result; error = result.systems.length === 0; }
     }).catch(() => { if (current) error = true; });
-    flow.requestWords([...solarSystemMenuWords, universeLabel, showAbstractLabel, showPhysicalLabel, cannotShiftSelect, ...["MapBrowser", "CloseMapBrowser", "ShowInWorldMap", "AlignLeft", "AlignRight",
+    flow.requestWords([...mapLocationMenuWords, universeLabel, showAbstractLabel, showPhysicalLabel, cannotShiftSelect, ...["MapBrowser", "CloseMapBrowser", "ShowInWorldMap", "AlignLeft", "AlignRight",
       "NameRegion", "NameConstellation", "NameSolarSystem", ...sectionLabels].map(key => labelBase + key)]);
     return () => { current = false; };
   });
@@ -99,15 +99,16 @@
   const constellation = $derived(data?.constellations?.find(row => row[0] === selection[1]));
   const system = $derived(data?.systems.find(row => row[0] === selection[2]));
   const connections = $derived(data ? mapBrowserConnections(data) : null);
-  const constellationPoints = $derived((data?.constellations ?? []).map(([id, x, , z, name, region]) => ({ id, x, z, name, typeID: 4, region })));
-  const systemPoints = $derived((data?.systems ?? []).map(([id, x, , z, , , constellation, name]) => ({ id, x, z, name: name ?? String(id), typeID: 5, constellation })));
+  const regionPoints = $derived((data?.regions ?? []).map(([id, x, , z, name]) => ({ id, x, z, name, typeID: 3 as const })));
+  const constellationPoints = $derived((data?.constellations ?? []).map(([id, x, , z, name, region]) => ({ id, x, z, name, typeID: 4 as const, region })));
+  const systemPoints = $derived((data?.systems ?? []).map(([id, x, , z, , , constellation, name]) => ({ id, x, z, name: name ?? String(id), typeID: 5 as const, constellation })));
   const panels = $derived.by(() => {
     const result: { name: string; title: string; id: number; selected?: number; points: Point[];
       edges?: ReadonlyMap<string, MapBrowserConnection>; neighbors?: readonly Point[] }[] = [];
     if (!data) return result;
     result.push({
       name: label(universeLabel, "Universe"), title: label(labelBase + sectionLabels[0], "List Regions"),
-      id: 9, selected: selection[0], points: (data.regions ?? []).map(([id, x, , z, name]) => ({ id, x, z, name, typeID: 3 })),
+      id: 9, selected: selection[0], points: regionPoints,
       edges: connections?.universe,
     });
     if (region) result.push({
@@ -197,11 +198,16 @@
     const y = pointer ? event.clientY : bounds.bottom;
     const marker = target.closest<HTMLElement>(".map-browser-point");
     if (marker) {
-      const point = systemPoints.find(point => point.id === Number(marker.dataset.mapItem));
+      const id = Number(marker.dataset.mapItem);
+      const point = regionPoints.find(point => point.id === id)
+        ?? constellationPoints.find(point => point.id === id) ?? systemPoints.find(point => point.id === id);
       if (!point) return;
       event.preventDefault();
-      mapMenu.open(x, y, solarSystemMenu(store, flow, point.id, () => point.name, place => { bookmark = place; },
-        showInWorldMap, onShowSystemInBrowser));
+      mapMenu.open(x, y, mapLocationMenu(store, flow, point.id, () => point.name, place => { bookmark = place; },
+        showInWorldMap, () => {
+          if (point.typeID === 5) onShowSystemInBrowser(point.id);
+          else if (point.typeID === 4 && selection[1] !== point.id) select(1, point, false);
+        }, point.typeID));
       return;
     }
     event.preventDefault();
