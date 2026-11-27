@@ -3,23 +3,22 @@
   import type { AppFlow } from "../app/flow.ts";
   import { loadDungeons, type DungeonData } from "../app/api.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import { journalMessageMarkup, journalMessagePhrases, type JournalMissionDetails } from "../bridge/journalMission.ts";
+  import { journalMessageMarkup, journalMessagePhrases, missionMarkup, type JournalMissionDetails } from "../bridge/journalMission.ts";
   import { objectiveSystemIDs } from "../bridge/locationWrapper.ts";
   import { PANE_LABELS, PANE_WORD_LABELS, objectivePane, paneMessageIDs, paneNameRefs } from "../bridge/missionObjectivePane.ts";
   import type { MissionMessage } from "../bridge/missionObjectives.ts";
   import { questionMarkup, wordsLabels, wordsNameRefs, type ClientWording } from "../bridge/questions.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
-  import { dungeonBookmarkSystem, linkScheme, parseShowInfoUrl } from "../bridge/showInfoLink.ts";
+  import { dungeonBookmarkSystem } from "../bridge/showInfoLink.ts";
   import { ContextMenu } from "../play/contextMenu.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName, type NameKind } from "../store/names.ts";
   import type { QuestionWords } from "../store/types.ts";
   import LabelText from "./LabelText.svelte";
   import TypeIcon from "./TypeIcon.svelte";
-  import { LINK_WORDS, linkFollowerOf, startLinkDrag, type LinkFollower } from "./linkFollowers.ts";
+  import { LINK_WORDS, missionLinkFollower, startLinkDrag, type LinkFollower } from "./linkFollowers.ts";
   import { solarSystemMenu, solarSystemMenuWords } from "./solarSystemMenu.ts";
   import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
-  import { showInfo } from "./showInfo.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
   let { store, flow, agentID, openSerial, onClose, onShowSystem, onFittedRestrictions }: {
@@ -99,13 +98,7 @@
     return path ? clientTexture(path) : null;
   }
   function followerOf(url: string, text: string): LinkFollower | null {
-    const destination = linkScheme(url) === "showinfo" ? parseShowInfoUrl(url) : null;
-    if (destination?.itemID != null && destination.itemID >= 60_000_000 && destination.itemID < 64_000_000) {
-      const { typeID, itemID } = destination;
-      return { kind: "showInfo", hint: linkWord("UI/Commands/ShowInfo"),
-        follow: () => showInfo({ kind: "spaceObject", typeID, itemID }) };
-    }
-    const follower = linkFollowerOf(url, flow, null, linkWord, text);
+    const follower = missionLinkFollower(url, flow, linkWord, text);
     const system = docked ? dungeonBookmarkSystem(url) : null;
     if (system === null || follower === null) return follower;
     return { ...follower, contextMenu: event => {
@@ -117,11 +110,6 @@
     } };
   }
 
-  // The mission article uses HTML RGB colors. LabelText reads ARGB.
-  function missionMarkup(text: string): string {
-    return text.replace(/(<font\b[^<>]*?\bcolor\s*=\s*["']?)#([\da-f]{6})(?=["'\s>])/gi,
-      (_, attr: string, color: string) => `${attr}0xff${color}`);
-  }
   function restrictionNotice(special: boolean, link: string): string {
     const label = special ? PANE_LABELS.specialShipRestrictions : PANE_LABELS.normalShipRestrictions;
     const fallback = special ? "This site contains special {startHttpLink}ship restrictions{endHttpLink}."

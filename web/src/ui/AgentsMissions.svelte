@@ -22,11 +22,13 @@
   import { AGENT_CLOSE_LABEL, AGENT_MISSION_STATE, agentButtonWord, agentConversationFooter, offerOpen } from "../bridge/agents.ts";
   import { MISSION_REPLAY_WORD_LABELS, MISSION_TIME_WORD_LABELS, missionReplayText, missionTimeShown, missionTimeText } from "../bridge/missionTime.ts";
   import LabelText from "./LabelText.svelte";
+  import TypeIcon from "./TypeIcon.svelte";
   import OwnerPicture from "./OwnerPicture.svelte";
   import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { showInfo, subjectOfShowInfoLink } from "./showInfo.ts";
-  import { startLinkDrag } from "./linkFollowers.ts";
+  import { LINK_WORDS, missionLinkFollower, startLinkDrag } from "./linkFollowers.ts";
+  import { journalMessageMarkup, journalMessagePhrases, missionMarkup } from "../bridge/journalMission.ts";
   import { INTERVAL_WORD_LABELS, SHORT_INTERVAL_WORD_LABELS } from "../bridge/timeInterval.ts";
   import { PANE_WORD_LABELS, objectivePane, paneMessageIDs, paneNameRefs, type PaneBlock, type PaneMark } from "../bridge/missionObjectivePane.ts";
   import type { MissionMessage } from "../bridge/missionObjectives.ts";
@@ -63,6 +65,8 @@
   const skills = store.skills;
   // svelte-ignore state_referenced_locally
   const imageServer = flow.imageServer;
+  // svelte-ignore state_referenced_locally
+  const logos = flow.ownerLogos;
   // Where the pilot's session is now: the marks beside a mission's objectives go by it (bridge/sessionPlace.ts).
   const place = $derived(sessionPlace($flight.status, $station.online));
 
@@ -400,6 +404,7 @@
     }
     return objectivePane(objectives, {
       templates: $words.templates,
+      rich: true,
       nameOf: nameWithAgents,
       // session.locationid: the station (or structure) the pilot is in, or the solar system it is flying in.
       locationID: place.locationID,
@@ -472,12 +477,14 @@
     if (message.text !== null) {
       return message.text;
     }
-    const key = message.label ?? (message.messageID === null ? null : `#${message.messageID}`);
-    if (key === null || !hasWords(key)) {
-      return null;
-    }
     const keywords = message.contentID === null ? null : $agents.missionKeywords[`${agentID}:${message.contentID}`];
-    return questionText({ label: message.label, parameters: message.parameters, text: null, messageID: message.messageID ?? undefined }, saysName, { ...saysClient, extra: { ...((keywords ?? {}) as NonNullable<ClientWording["extra"]>), ...saysClient.extra } });
+    return journalMessageMarkup(objectiveWords(message), nameWithAgents, { ...saysClient, extra: { ...keywords, ...agentWordArgs } });
+  }
+  function objectiveWords(message: MissionMessage) {
+    return { label: message.label, parameters: message.parameters, text: message.text, messageID: message.messageID ?? undefined };
+  }
+  function objectiveFollower(url: string, text: string) {
+    return missionLinkFollower(url, flow, label => plainText($words.templates[label] ?? LINK_WORDS[label] ?? ""), text);
   }
   $effect(() => {
 
@@ -489,7 +496,7 @@
     flow.requestWords([
       ...PANE_WORD_LABELS,
       ...paneMessageIDs(objectives).map((id) => `#${id}`),
-      ...messages.map((message) => message.label ?? (message.messageID === null ? null : `#${message.messageID}`)).filter((key): key is string => key !== null),
+      ...wordsLabels(messages.flatMap(message => journalMessagePhrases(objectiveWords(message)))),
     ]);
     for (const message of messages) {
       if (message.contentID !== null) {
@@ -730,28 +737,49 @@
   <section class="mission-objectives">
     {#each pane as block}
       {#if block.kind === "warning"}
-        <p class="note mission-warning">{block.text}</p>
+        <div class="note mission-warning"><LabelText markup={missionMarkup(block.text ?? "")} followerOf={objectiveFollower} /></div>
       {:else if block.kind === "heading"}
         {#if block.cheated}
           <p class="note mission-cheated">Marked complete by a game master.</p>
         {/if}
-        <h2 class="mission-objectives-title {block.state}">{block.title}</h2>
+        <h2 class="mission-objectives-title {block.state}">{plainText(block.title)}</h2>
       {:else if block.kind === "overview"}
-        <p class="note">{block.text}</p>
+        <div class="note"><LabelText markup={missionMarkup(block.text ?? "")} followerOf={objectiveFollower} /></div>
       {:else}
-        <h3 class="mission-block-title">{block.title}</h3>
+        <h3 class="mission-block-title">{plainText(block.title ?? "")}</h3>
         {#if block.text}
-          <p class="mission-block-text" style="white-space: pre-line">
-            {#if block.outcome}<s>{block.text}</s> <span class="mission-outcome">{block.outcome}</span>{:else}{block.text}{/if}
-          </p>
+          <div class="mission-block-text">
+            <div style:text-decoration={block.outcome ? "line-through" : undefined}><LabelText markup={missionMarkup(block.text)} followerOf={objectiveFollower} /></div>
+            {#if block.outcome}<span class="mission-outcome">{plainText(block.outcome)}</span>{/if}
+          </div>
         {/if}
         {#if block.rows.length > 0}
           <ul class="mission-rows">
             {#each block.rows as row}
               <li>
                 {#if row.mark}<span class="mission-mark {row.mark}" title={MARKS[row.mark][1]}>{MARKS[row.mark][0]}</span>{/if}
-                {#if row.label}<span class="mission-row-label">{row.label}</span>{/if}
-                <span class="mission-row-text">{row.text}</span>
+                {#if row.info}
+                  {@const url = `showinfo:${row.info.typeID}${row.info.itemID ? `//${row.info.itemID}` : ""}`}
+                  {@const name = row.info.itemID ? nameWithAgents("owner", row.info.itemID) : nameWithAgents("type", row.info.typeID)}
+                  {@const follower = objectiveFollower(url, name)}
+                  {#if follower}
+                    <button type="button" class="mission-objective-info" title={follower.hint}
+                      aria-label={`${follower.hint} — ${name}`} draggable="true"
+                      onclick={follower.follow} ondragstart={event => startLinkDrag(event, url, name)}>
+                      {#if row.info.typeID === 1377 && row.info.itemID}
+                        {@const image = portraitUrl($imageServer, row.info.itemID, 32)}
+                        <OwnerPicture {name} urls={[...(image ? [image] : []), clientTexture(portraitDefaultPath(32))]} size={32} />
+                      {:else if row.info.itemID}
+                        {@const logo = row.info.typeID === 30 ? $logos?.factions[row.info.itemID] : $logos?.corporations[row.info.itemID]}
+                        <OwnerPicture {name} urls={logo ? [clientTexture(logo)] : []} size={32} />
+                      {:else}<TypeIcon typeID={row.info.typeID} {name} size="md" />{/if}
+                    </button>
+                  {/if}
+                {/if}
+                <div class="mission-row-text">
+                  {#if row.label}<span class="mission-row-label">{plainText(row.label)}</span>{/if}
+                  <LabelText markup={missionMarkup(row.text)} followerOf={objectiveFollower} />
+                </div>
               </li>
             {/each}
           </ul>
@@ -929,6 +957,7 @@
   .agent-header-info { display: inline-flex; padding: 0; border: 0; background: transparent; min-height: 0; }
   .agent-header-info img { width: 16px; height: 16px; }
   .agent-header-location, .agent-header-standing { margin-top: 0.65em; }
+  .mission-objective-info { padding: 0; border: 0; min-height: 0; background: transparent; align-self: center; }
   .agent-briefing-choice { margin: 0.75em 0; }
   .agent-briefing-choice button {
     padding: 0;

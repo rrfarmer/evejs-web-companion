@@ -57,6 +57,9 @@ def observe():
         observed['header'] = dict(
             html=window.GetAgentHeader({}),
             withLoyalty=window.GetAgentHeader({'loyaltyPoints': 1234}))
+        objective_data = window.GetAgentMoniker().GetMissionObjectiveInfo()
+        if objective_data:
+            observed['objectivesHTML'] = window._GetObjectiveHTML(objective_data)
         observed['tracking'] = observe_tracking(agent_id)
         observed['footer'] = window.buttonGroup.align == uiconst.TOBOTTOM
         special = [

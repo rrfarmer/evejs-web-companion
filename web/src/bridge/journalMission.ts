@@ -3,6 +3,12 @@ import { argumentsOf, questionMarkup, type ClientWording, type NameOf } from "./
 import { readDictEntry, unwrapLong, type JsonValue } from "./wire.ts";
 import type { QuestionWords } from "../store/types.ts";
 
+/** Mission HTML uses RGB font colors. LabelText expects ARGB. */
+export function missionMarkup(text: string): string {
+  return text.replace(/(<font\b[^<>]*?\bcolor\s*=\s*["']?)#([\da-f]{6})(?=["'\s>])/gi,
+    (_, attr: string, color: string) => `${attr}0xff${color}`);
+}
+
 export interface JournalMissionDetails {
   readonly contentID: number | null;
   readonly state: number | null;

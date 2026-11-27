@@ -94,6 +94,18 @@ export interface LinkFollower {
   readonly contextMenu?: (event: MouseEvent | KeyboardEvent) => void;
 }
 
+/** A mission's station link includes the instance as well as its type. */
+export function missionLinkFollower(url: string, flow: Parameters<typeof linkFollowerOf>[1],
+  word: (label: string) => string, text: string): LinkFollower | null {
+  const destination = linkScheme(url) === "showinfo" ? parseShowInfoUrl(url) : null;
+  if (destination?.itemID != null && destination.itemID >= 60_000_000 && destination.itemID < 64_000_000) {
+    const { typeID, itemID } = destination;
+    return { kind: "showInfo", hint: word("UI/Commands/ShowInfo"),
+      follow: () => showInfo({ kind: "spaceObject", typeID, itemID }) };
+  }
+  return linkFollowerOf(url, flow, null, word, text);
+}
+
 /**
  * How a link is followed, or null where the page does not follow it. openSkillPlanLink opens the Skills window on a
  * plan (none where the text's window cannot); word is the install's words for the hints (LINK_WORDS); text is the
