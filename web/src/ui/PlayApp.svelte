@@ -2495,8 +2495,7 @@
     // tool, the redeem window)
     OpenContracts: "contracts", OpenCorporationPanel: "corporation", OpenNotepad: "notepad", OpenCalculator: "calculator", OpenFittingMgmt: "fittingManagement", OpenPlanets: "planets", OpenCompare: "compare", ToggleRedeemItems: "redeem",
   };
-  // The star map (play/starMap.ts): the Neocom's Map button and F10 (the client's OpenMapBrowser shortcut, its map
-  // view) open it over the view and close it again; Escape closes it.
+  // The Neocom Map button and F10 toggle the star map. F11 toggles the side-panel Map Browser.
   let starMap: StarMap | null = null;
   let mapInFront = $state(false);
   let mapBrowserRequest = $state.raw<{ systemID: number } | null>(null);
@@ -3184,6 +3183,17 @@
     }
     // CmdToggleMap (F10): the map; OnEsc: the map closed first, else the system menu (EscapeCommand)
     if (cmd === "CmdToggleMap") { e.preventDefault(); toggleStarMap(); return; }
+    if (cmd === "OpenMapBrowser") {
+      if (!session || systemMenu || e.defaultPrevented) return;
+      const { solarSystemID } = sessionPlace(session.store.flight.get().status, session.store.station.get().online);
+      if (solarSystemID === null) return;
+      e.preventDefault();
+      if (!e.repeat) {
+        if (mapBrowserRequest) mapBrowserRequest = null;
+        else showSystemInMapBrowser(solarSystemID);
+      }
+      return;
+    }
     // CmdToggleAudio (Ctrl-Alt-Shift-F12): settings.public.audio audioEnabled flipped (the audio handler activated or
     // deactivated), nothing said
     if (cmd === "CmdToggleAudio") { e.preventDefault(); setGfx({ audioEnabled: !gfx().audioEnabled }); return; }
