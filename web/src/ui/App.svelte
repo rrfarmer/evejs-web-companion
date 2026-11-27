@@ -756,7 +756,8 @@
   <ErrorBoundary name="Direct trades"><div class="trade-window-layer">{#each sessions as session (session.id)}<DirectTradeWindows {session} inFront={session.id === activeId} onOpenIndustry={() => requestOpenInWorkspace("industry", session.id)} />{/each}</div></ErrorBoundary>
   <ErrorBoundary name="Client dialogs">
     {#each sessions as session (session.id)}
-      <ClientDialogs {session} inFront={session.id === activeId} windowHost={infoHost?.sessionID === session.id ? infoHost.host : null} />
+      <ClientDialogs {session} inFront={session.id === activeId} windowHost={infoHost?.sessionID === session.id ? infoHost.host : null}
+        onOpenIndustry={() => requestOpenInWorkspace("industry", session.id)} />
     {/each}
   </ErrorBoundary>
   <ErrorBoundary name="Information windows">

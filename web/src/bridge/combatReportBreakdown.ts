@@ -17,9 +17,12 @@ export const KILL_REPORT_PATH = "UI/Corporations/Wars/Killmails/";
 export const KILL_REPORT_BREAKDOWN_WORDS = [
   ...groups.map(group => KILL_REPORT_PATH + group.name),
   ...["InvolvedParties", "TotalDamage", "FinalBlow", "TopDamage", "DamageDone", "FittingAndContent",
-    "TotalWorth", "PendInsurance", "LPPaidOut", "BountyPaidOut", "KilledOnBehalf", "SaveFitting"].map(key => KILL_REPORT_PATH + key),
+    "TotalWorth", "PendInsurance", "LPPaidOut", "BountyPaidOut", "KilledOnBehalf", "SaveFitting", "Destroyed", "Dropped"].map(key => KILL_REPORT_PATH + key),
   "UI/Corporations/Assets/NoItemsFound", "UI/Common/Unknown", "UI/LPStore/AmountLP",
   "UI/Fitting/FittingWindow/SimulateShipFitting", "UI/Market/MarketQuote/BuyAll",
+  "UI/Commands/ShowInfo", "UI/Industry/ViewInIndustry", "UI/Inventory/ItemActions/ViewTypesMarketDetails",
+  "UI/Inventory/ItemActions/FindInContracts", "UI/Inventory/ItemActions/FindPersonalAssets",
+  "UI/Inventory/AssetSearch/KeywordTypeExact", "UI/Compare/CompareButton",
 ];
 
 export interface CombatReportItemLine {

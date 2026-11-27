@@ -1,12 +1,15 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import type { MapLocationInfo } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { CombatLogReport } from "../bridge/combatLog.ts";
-  import { combatReportBreakdown, KILL_REPORT_PATH, type CombatReportAttacker } from "../bridge/combatReportBreakdown.ts";
+  import { combatReportBreakdown, KILL_REPORT_PATH, type CombatReportAttacker, type CombatReportItemLine } from "../bridge/combatReportBreakdown.ts";
   import { combatReportDate } from "../bridge/combatReportPresentation.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
+  import { COMPARE_CATEGORIES } from "../bridge/dogmaAttributeGroups.ts";
+  import { assetSearchTextForType } from "../bridge/assetSearch.ts";
+  import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { shownSecurity } from "../bridge/systemSecurity.ts";
   import type { JsonValue } from "../bridge/wire.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -15,10 +18,18 @@
   import OwnerPicture from "./OwnerPicture.svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import { openFittingWindow } from "./fittingWindowTarget.ts";
+  import { findInPersonalAssets } from "./assetsSearch.ts";
+  import { findInContracts } from "./contractsSearch.ts";
+  import { startLinkDrag } from "./linkFollowers.ts";
+  import { showMarketDetails } from "./marketDetails.ts";
+  import { showInfo } from "./showInfo.ts";
+  import { compareType } from "./typeCompare.ts";
   import { allianceLogoUrl, portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
-  let { report, flow, store }: { report: CombatLogReport; flow: AppFlow; store: ClientStore } = $props();
+  let { report, flow, store, onOpenIndustry }: {
+    report: CombatLogReport; flow: AppFlow; store: ClientStore; onOpenIndustry: () => void;
+  } = $props();
   const names = $derived(store.names), words = $derived(store.words);
   const imageServer = $derived(flow.imageServer), logos = $derived(flow.corpLogos), logoLibrary = $derived(flow.corpLogoLibrary);
   const breakdown = $derived(combatReportBreakdown(report));
@@ -28,6 +39,14 @@
   let hull = $state<"ship" | "capsule" | null>(null);
   let working = $state(false);
   let actionError = $state("");
+  const itemMenu = new ContextMenu();
+  let menuRequest = 0;
+  onDestroy(() => { menuRequest++; itemMenu.close(); });
+  let selected = $state.raw<ReadonlySet<CombatReportItemLine>>(new Set());
+  let selectionAnchor: CombatReportItemLine | null = null;
+  const itemLines = $derived(breakdown.sections.flatMap(section => section.lines));
+  // Menusvc sends these types through CelestialMenu even without an item ID.
+  const celestialCategories = new Set([2, 23, 3, 6, 11, 18, 25, 22, 40, 65, 87, 46]);
   const number = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 0 });
   const say = (path: string, fallback: string, values: Record<string, JsonValue> = {}) =>
     plainText(formatTemplate($words.templates[path] || fallback, values, { nameOf: name }));
@@ -93,6 +112,69 @@
   function damageOf(attacker: CombatReportAttacker): string {
     const percentage = report.damageTaken ? attacker.damage * 100 / report.damageTaken : 0;
     return word("DamageDone", "{damage} damage ({percentage}%)", { damage: attacker.damage, percentage });
+  }
+
+  function info(typeID: number, event: MouseEvent | KeyboardEvent): void {
+    showInfo({ kind: "type", typeID }, { shift: event.shiftKey });
+  }
+
+  async function openItemMenu(event: MouseEvent | KeyboardEvent, typeID: number): Promise<void> {
+    event.preventDefault();
+    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const x = event instanceof MouseEvent ? event.clientX : bounds.left;
+    const y = event instanceof MouseEvent ? event.clientY : bounds.bottom;
+    const request = ++menuRequest;
+    itemMenu.close();
+    const facts = (await flow.typeFacts([typeID]).catch(() => null))?.get(typeID) ?? null;
+    if (request !== menuRequest) return;
+    const category = facts?.categoryID ?? 0;
+    const celestial = celestialCategories.has(category);
+    const option = (path: string, fallback: string, run: () => void): ContextEntry =>
+      ({ path, label: say(path, fallback), run });
+    const entries: ContextEntry[] = [
+      { ...option("UI/Commands/ShowInfo", "Show Info", () => info(typeID, event)), info: true },
+    ];
+    if (category === 9 || category === 34) entries.push(option("UI/Industry/ViewInIndustry", "View in Industry", () => {
+      flow.requestIndustryBlueprintPreview(typeID, category !== 34);
+      onOpenIndustry();
+    }));
+    if (facts?.marketGroupID != null && (!celestial || facts.published)) entries.push(
+      option("UI/Inventory/ItemActions/ViewTypesMarketDetails", "View Market Details", () => showMarketDetails(typeID)));
+    if (facts?.published) entries.push(
+      option("UI/Inventory/ItemActions/FindInContracts", "Find in Contracts", () => findInContracts(typeID)),
+      option("UI/Inventory/ItemActions/FindPersonalAssets", "Find in Personal Assets", () => {
+        findInPersonalAssets(assetSearchTextForType(say("UI/Inventory/AssetSearch/KeywordTypeExact", "typeexact"), typeName(typeID)));
+      }));
+    if (celestial ? facts?.published : COMPARE_CATEGORIES.includes(category)) entries.push(
+      option("UI/Compare/CompareButton", "Compare", () => compareType(typeID)));
+    itemMenu.open(x, y, entries);
+  }
+
+  function select(line: CombatReportItemLine, event: MouseEvent): void {
+    const next = new Set(event.ctrlKey || event.metaKey ? selected : []);
+    if (event.shiftKey && selectionAnchor) {
+      const start = itemLines.indexOf(selectionAnchor), end = itemLines.indexOf(line);
+      for (const item of itemLines.slice(Math.min(start, end), Math.max(start, end) + 1)) next.add(item);
+    } else if (next.has(line)) next.delete(line);
+    else next.add(line);
+    if (!event.shiftKey) selectionAnchor = line;
+    selected = next;
+  }
+
+  function copyItems(event: ClipboardEvent, line: CombatReportItemLine): void {
+    if (!event.clipboardData) return;
+    const copied = selected.has(line) ? itemLines.filter(item => selected.has(item)) : [line];
+    const text = copied.map(item => [
+      typeName(item.item.typeID), String(item.quantity), blueprintKind(item),
+      item.result === "destroyed" ? word("Destroyed", "Destroyed") : word("Dropped", "Dropped"),
+    ].join("\t")).join("\n");
+    event.clipboardData.setData("text/plain", text);
+    event.preventDefault();
+  }
+
+  function blueprintKind(line: CombatReportItemLine): string {
+    if (name("typeCategory", line.item.typeID).toLowerCase() !== "blueprint") return "";
+    return line.item.singleton === 2 ? say("UI/Generic/Copy", "Copy") : say("UI/Generic/Original", "Original");
   }
 </script>
 
@@ -185,15 +267,23 @@
             <h4>{section.name === "Other" ? section.fallback : word(section.name, section.fallback)}</h4>
             {#each section.lines as line}
               {@const type = typeName(line.item.typeID)}
-              {@const blueprint = name("typeCategory", line.item.typeID).toLowerCase() === "blueprint"}
-              {@const suffix = !blueprint ? "" : " (" + (line.item.singleton === 2
-                ? say("UI/Generic/Copy", "Copy") : say("UI/Generic/Original", "Original")).toLowerCase() + ")"}
-              <div class="kill-item" class:dropped={line.result === "dropped"} data-type={line.item.typeID}
-                data-result={line.result} data-depth={line.depth} style:padding-inline-start="{6 + line.depth * 16}px">
+              {@const blueprint = blueprintKind(line)}
+              {@const suffix = blueprint ? " (" + blueprint.toLowerCase() + ")" : ""}
+              <button type="button" class="kill-item" class:dropped={line.result === "dropped"} data-type={line.item.typeID}
+                data-result={line.result} data-depth={line.depth} style:padding-inline-start="{6 + line.depth * 16}px"
+                aria-pressed={selected.has(line)} draggable="true"
+                onclick={event => select(line, event)} ondblclick={event => info(line.item.typeID, event)}
+                oncontextmenu={event => void openItemMenu(event, line.item.typeID)}
+                onkeydown={event => {
+                  if (event.key === "ContextMenu" || event.shiftKey && event.key === "F10") void openItemMenu(event, line.item.typeID);
+                  else if (event.key === "Enter") { event.preventDefault(); info(line.item.typeID, event); }
+                }}
+                oncopy={event => copyItems(event, line)}
+                ondragstart={event => startLinkDrag(event, "showinfo:" + line.item.typeID, type)}>
                 <TypeIcon typeID={line.item.typeID} name={type} />
                 <span class="item-name" title={type + suffix}>{type}{suffix}</span>
                 <span class="quantity">{number(line.quantity)}</span>
-              </div>
+              </button>
             {/each}
           </div>
         {:else}
@@ -257,8 +347,10 @@
   .damage-taken, .total-destroyed > :last-child { color: var(--color-danger); }
   .item-groups { flex: 1; overflow: auto; scrollbar-width: thin; }
   .item-group h4 { padding: 4px 6px; margin: 0; background: var(--color-panel-2); }
-  .kill-item { display: flex; align-items: center; gap: 5px; min-height: 26px; padding-inline-end: 6px; }
+  .kill-item { display: flex; align-items: center; gap: 5px; min-height: 26px; width: 100%; padding: 0 6px;
+    border: 0; background: transparent; color: inherit; font: inherit; text-align: start; cursor: default; }
   .kill-item.dropped { background: color-mix(in srgb, #658e72 23%, transparent); }
+  .kill-item:hover, .kill-item[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--color-line-strong); }
   .item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .quantity { font-variant-numeric: tabular-nums; }
   .empty-items { padding: 6px; color: var(--color-muted); }

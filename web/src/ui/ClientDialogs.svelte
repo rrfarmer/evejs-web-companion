@@ -84,7 +84,9 @@
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { allianceLogoUrl, portraitUrl, portraitDefaultPath } from "./ownerImages.ts";
 
-  let { session, inFront, windowHost }: { session: Session; inFront: boolean; windowHost: InfoWindowHost | null } = $props();
+  let { session, inFront, windowHost, onOpenIndustry }: {
+    session: Session; inFront: boolean; windowHost: InfoWindowHost | null; onOpenIndustry: () => void;
+  } = $props();
   const academyTravel = $derived(session.flow.academyTravelConversation);
   const observatoryConversation = $derived(session.flow.observatoryConversation);
   // svelte-ignore state_referenced_locally
@@ -1117,7 +1119,7 @@
   }
 </script>
 
-<CombatReportWindows store={session.store} {flow} {inFront} host={windowHost} />
+<CombatReportWindows store={session.store} {flow} {inFront} host={windowHost} {onOpenIndustry} />
 
 {#if $academyTravel && inFront}
   <AcademyTravelConversation {session} />

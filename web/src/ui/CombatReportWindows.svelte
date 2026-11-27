@@ -14,7 +14,9 @@
   import { clientTexture } from "./skillGroupIcons.ts";
   import type { WindowRect } from "./windowResize.ts";
 
-  let { store, flow, inFront, host }: { store: ClientStore; flow: AppFlow; inFront: boolean; host: InfoWindowHost | null } = $props();
+  let { store, flow, inFront, host, onOpenIndustry }: {
+    store: ClientStore; flow: AppFlow; inFront: boolean; host: InfoWindowHost | null; onOpenIndustry: () => void;
+  } = $props();
   const windows = $derived(flow.combatReportWindows), words = $derived(store.words);
   const caption = $derived(plainText($words.templates[COMBAT_REPORT_LABEL] || "Kill Report"));
   const dragLabel = "UI/Corporations/Wars/DragToShare";
@@ -100,7 +102,7 @@
           <span class="report-link" role="presentation" draggable={hashes.has(view.report.killID)} ondragstart={event => drag(event, view)}
             onpointerdown={event => event.stopPropagation()} title={dragHint}>{dragHint}</span>
         {/snippet}
-        {#key view.report.killID}<CombatReportBreakdown report={view.report} {store} {flow} />{/key}
+        {#key view.report.killID}<CombatReportBreakdown report={view.report} {store} {flow} {onOpenIndustry} />{/key}
       </DesktopWindow>
     {/each}
   </div>

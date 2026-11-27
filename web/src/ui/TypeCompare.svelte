@@ -45,6 +45,8 @@
   import TypeIcon from "./TypeIcon.svelte";
   import { showInfo } from "./showInfo.ts";
   import { ASSET_ITEM_DRAG_MIME, decodeAssetItemDrag } from "./dragDrop.ts";
+  import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
+  import { parseShowInfoUrl } from "../bridge/showInfoLink.ts";
   import {
     comparisonKey,
     hiddenAttributes,
@@ -172,8 +174,12 @@
     }).finally(() => { pendingReads--; });
   }
 
+  function comparisonDrag(data: DataTransfer | null): data is DataTransfer {
+    return data !== null && (data.types.includes(ASSET_ITEM_DRAG_MIME) || data.types.includes(LINK_DRAG_TYPE));
+  }
+
   function overComparison(event: DragEvent, before: string | null = null): void {
-    if (!event.dataTransfer?.types.includes(ASSET_ITEM_DRAG_MIME)) return;
+    if (!comparisonDrag(event.dataTransfer)) return;
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = "copy";
@@ -181,11 +187,18 @@
   }
 
   function dropOnComparison(event: DragEvent, before: string | null = null): void {
-    if (!event.dataTransfer?.types.includes(ASSET_ITEM_DRAG_MIME)) return;
+    if (!comparisonDrag(event.dataTransfer)) return;
     event.preventDefault();
     event.stopPropagation();
     insertion = null;
-    const rows = decodeAssetItemDrag(event.dataTransfer.getData(ASSET_ITEM_DRAG_MIME));
+    const rows: ComparisonSubject[] = decodeAssetItemDrag(event.dataTransfer.getData(ASSET_ITEM_DRAG_MIME));
+    if (rows.length === 0) {
+      try {
+        const payload = JSON.parse(event.dataTransfer.getData(LINK_DRAG_TYPE)) as { readonly url?: unknown } | null;
+        const link = typeof payload?.url === "string" && /^showinfo:[1-9]\d*$/i.test(payload.url) ? parseShowInfoUrl(payload.url) : null;
+        if (link) rows.push({ typeID: link.typeID, itemID: null });
+      } catch { /* no type link in this drag */ }
+    }
     addTypes(before === null ? rows.slice(0, 20) : rows, before);
   }
 
