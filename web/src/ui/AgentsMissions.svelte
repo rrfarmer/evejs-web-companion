@@ -19,7 +19,7 @@
   import MissionBot from "./MissionBot.svelte";
   import MissionJobPage from "./MissionJobPage.svelte";
   import { panelErrorWords } from "../bridge/refusals.ts";
-  import { AGENT_MISSION_STATE, offerOpen } from "../bridge/agents.ts";
+  import { AGENT_CLOSE_LABEL, AGENT_MISSION_STATE, agentButtonWord, agentConversationFooter, offerOpen } from "../bridge/agents.ts";
   import { MISSION_TIME_WORD_LABELS, missionTimeShown, missionTimeText } from "../bridge/missionTime.ts";
   import { INTERVAL_WORD_LABELS, SHORT_INTERVAL_WORD_LABELS } from "../bridge/timeInterval.ts";
   import { PANE_WORD_LABELS, objectivePane, paneMessageIDs, paneNameRefs, type PaneBlock, type PaneMark } from "../bridge/missionObjectivePane.ts";
@@ -33,7 +33,9 @@
   import { AGENT_HEADER_WORD_LABELS, agentHeader, agentLocationNameRef } from "../bridge/agentHeader.ts";
   import { filetimeOf, journalRowAsks, journalRowText, journalRowWords } from "../bridge/journalWords.ts";
 
-  let { store, flow, conversationAgentID = null }: { store: ClientStore; flow: AppFlow; conversationAgentID?: number | null } = $props();
+  let { store, flow, conversationAgentID = null, onConversationClose }: {
+    store: ClientStore; flow: AppFlow; conversationAgentID?: number | null; onConversationClose?: () => void;
+  } = $props();
 
   // svelte-ignore state_referenced_locally
   const agents = store.agents;
@@ -66,6 +68,12 @@
   const missionTimes = $derived(layout?.missionTimes ?? null);
   const agentLocation = $derived(layout?.agentLocation ?? null);
   const conversationError = $derived(conversationAgentID === null ? null : $agents.conversationErrors[conversationAgentID]);
+  const footer = $derived(standalone && conversation ? agentConversationFooter(conversation) : null);
+  $effect(() => {
+    if (!footer) return;
+    const paths = footer.actions.map(action => agentButtonWord(action.buttonType)).filter(path => path !== null);
+    flow.requestWords(footer.close ? [...paths, AGENT_CLOSE_LABEL] : paths);
+  });
 
   // What the agent says, in the retail client's own words when the BFF has a
   // client to read. The client adds the agent's own IDs to every agent message
@@ -576,7 +584,8 @@
     <button type="button" onclick={() => run(() => flow.openConversation(id))}>Start Conversation</button>
   {/if}
 {:else}
-<div class:standalone-conversation={standalone}>
+<div class:agent-conversation-frame={standalone}>
+<div class:standalone-conversation={standalone} class:double-pane={standalone && (pane.length > 0 || !!briefing || !!conversation?.lastActionInfo.missionCompleted)}>
 {#if conversation}
   <section>
     <h2>Conversation · {agentName(conversationOwner)}</h2>
@@ -597,7 +606,7 @@
     {#if missionTime}
       <p class="note mission-time">{missionTime}</p>
     {/if}
-    <p class="controls">
+    {#if !standalone}<p class="controls">
       {#each conversation.actions as action (action.actionID)}
         <button
           type="button"
@@ -610,7 +619,7 @@
       {#if conversation.actions.length === 0}
         <span class="note">No actions available.</span>
       {/if}
-    </p>
+    </p>{/if}
     {#if conversation.lastActionInfo.missionCompleted}
       <p class="note">Mission completed — reward applied.</p>
     {/if}
@@ -726,6 +735,19 @@
   </section>
 {/if}
 </div>
+{#if footer && conversationOwner !== null}
+  {@const id = conversationOwner}
+  <footer class="agent-conversation-footer" aria-label={agentName(id)}>
+    {#each footer.actions as action (action.actionID)}
+      {@const path = agentButtonWord(action.buttonType)}
+      <button type="button" disabled={busy} onclick={() => run(() => flow.chooseAction(id, action))}>
+        {plainText((path === null ? null : $words.templates[path]) ?? action.label)}
+      </button>
+    {/each}
+    {#if footer.close}<button type="button" onclick={onConversationClose}>{plainText($words.templates[AGENT_CLOSE_LABEL] ?? "Close")}</button>{/if}
+  </footer>
+{/if}
+</div>
 {/if}
 
 {#if !standalone}
@@ -799,7 +821,10 @@
 {/if}
 
 <style>
-  .standalone-conversation { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 100%; }
-  .standalone-conversation > section { min-width: 0; padding: 0.8rem 1rem; }
+  .agent-conversation-frame { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+  .standalone-conversation { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-height: 0; }
+  .standalone-conversation.double-pane { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .standalone-conversation > section { min-width: 0; min-height: 0; overflow: auto; padding: 0.8rem 1rem; }
   .standalone-conversation > section + section { border-left: 1px solid rgb(255 255 255 / 14%); }
+  .agent-conversation-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.45rem; padding: 0.55rem; border-top: 1px solid rgb(255 255 255 / 14%); }
 </style>

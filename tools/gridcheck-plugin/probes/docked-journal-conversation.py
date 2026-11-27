@@ -1,4 +1,6 @@
 import blue
+from carbonui import uiconst
+from eve.common.lib import appConst
 from eve.client.script.ui.station.agents.agentDialogueWindow import AgentDialogueWindow
 
 
@@ -29,6 +31,15 @@ def observe():
                     minimum=list(AgentDialogueWindow.default_minSize),
                     panes=bool(window.leftPane and window.rightPane),
                     secondID=second.windowID, secondCaption=second.GetCaption())
+        def buttons():
+            return [getattr(button, 'label', None) for button in window.buttonGroup.buttons]
+
+        observed['offerButtons'] = buttons()
+        observed['footer'] = window.buttonGroup.align == uiconst.TOBOTTOM
+        window.ReconstructButtons([(1, appConst.agentDialogueButtonQuit)], {})
+        observed['quitButtons'] = buttons()
+        window.ReconstructButtons([(1, appConst.agentDialogueButtonAccept)], {'missionCantReplay': 10000000})
+        observed['replayButtons'] = buttons()
         window.Close()
         observed['independent'] = not second.destroyed
         return observed

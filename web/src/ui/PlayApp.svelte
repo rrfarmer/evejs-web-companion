@@ -5219,11 +5219,13 @@
     {/each}
     {#each journalConversations as popup (popup.id)}
         <DesktopWindow win={popup} title={conversationCaption(popup.agentID)} focused={activeWinKey === popup.id}
+          icon={clientTexture("res:/UI/Texture/WindowIcons/agent.png")}
           onFocus={() => focusJournal(popup)} onClose={() => closeJournalConversation(popup)}
           onToggleMinimize={() => toggleJournalMinimize(popup)}
           onMove={(x, y) => Object.assign(popup, { x, y })} onResizeRect={rect => Object.assign(popup, rect)}
           onGeometryCommit={() => keepPlace(popup)} minWidth={835} minHeight={545}>
-          {#key popup.serial}<AgentsMissions store={session.store} flow={session.flow} conversationAgentID={popup.agentID} />{/key}
+          {#key popup.serial}<AgentsMissions store={session.store} flow={session.flow} conversationAgentID={popup.agentID}
+            onConversationClose={() => closeJournalConversation(popup)} />{/key}
         </DesktopWindow>
     {/each}
     {#if fittedRestrictions}

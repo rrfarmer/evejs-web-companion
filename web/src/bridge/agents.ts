@@ -73,6 +73,28 @@ export function agentButtonLabel(buttonType: number): string {
   return BUTTON_LABELS[buttonType] ?? `Action ${buttonType}`;
 }
 
+/** agentConst.LABEL_BY_BUTTON_TYPE, indexed by the native button type. */
+const AGENT_BUTTON_LABELS = [
+  "", "ViewMission", "RequestMission", "AcceptMission", "AcceptThisChoice", "AcceptRemotely",
+  "CompleteMission", "CompleteRemotely", "Continue", "DeclineMission", "DeferMission", "QuitMission",
+  "StartResearch", "CancelResearch", "BuyDatacores", "LocateCharacter", "LocateCharacterAccept", "LocateCharacterReject",
+];
+
+export const AGENT_CLOSE_LABEL = "UI/Common/Buttons/Close";
+
+export function agentButtonWord(buttonType: number): string | null {
+  if (buttonType === AGENT_BUTTON.YES) return "UI/Common/Buttons/Yes";
+  if (buttonType === AGENT_BUTTON.NO) return "UI/Common/Buttons/No";
+  const key = AGENT_BUTTON_LABELS[buttonType];
+  return key ? `UI/Agents/Dialogue/Buttons/${key}` : null;
+}
+
+/** ReconstructButtons: ordinary actions and the additional Close button in the agent window. */
+export function agentConversationFooter(conversation: AgentConversation): { actions: AgentAction[]; close: boolean } {
+  const actions = conversation.lastActionInfo.missionCantReplay ? [] : conversation.actions.filter(action => action.buttonType > 0);
+  const closeActions: readonly number[] = [AGENT_BUTTON.REQUEST_MISSION, AGENT_BUTTON.CONTINUE, AGENT_BUTTON.QUIT, AGENT_BUTTON.CANCEL_RESEARCH];
+  return { actions, close: actions.length === 0 || (actions.length < 3 && actions.some(action => closeActions.includes(action.buttonType))) };
+}
 
 // --- marshaled-value helpers ----------------------------------------------
 
