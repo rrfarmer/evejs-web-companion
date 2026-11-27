@@ -1,16 +1,17 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText, templateNameRefs } from "../bridge/clientWords.ts";
   import {
     BROADCAST_ICONS, BROADCAST_NAME_LABELS, FLEET_BAR_BROADCASTS, FLEET_SCOPE_LABELS,
-    broadcastHistoryLabel, type FleetBarBroadcast,
+    broadcastHistoryLabel, type FleetBarBroadcast, type FleetBroadcast,
   } from "../bridge/fleetBroadcasts.ts";
   import { ContextMenu } from "../play/contextMenu.ts";
   import { FLEET_POINTERS } from "../play/uiPointer.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
+  import { fleetBroadcastPreferences, wantsFleetBroadcast } from "./fleetBroadcastPreferences.ts";
 
   let { store, flow, onBroadcast }: {
     store: ClientStore;
@@ -43,8 +44,18 @@
   let width = $state(0);
   const visible = $derived(broadcasts.filter(name => !hidden.includes(name)));
   const large = $derived(visible.length > 0 && width > visible.length * 40 + 50);
-  const last = $derived($fleet.broadcastHistory?.[0] ?? null);
+  let last = $state<FleetBroadcast | null>(null);
+  let seen: FleetBroadcast | null = null;
   const lastLabel = $derived(last ? broadcastHistoryLabel(last) : null);
+  $effect(() => {
+    const arriving = $fleet.lastBroadcast;
+    if (arriving === seen) return;
+    seen = arriving;
+    if (!arriving) last = null;
+    else if (untrack(() => wantsFleetBroadcast(fleetBroadcastPreferences($session.accountID).get(), arriving, $station.online?.characterID ?? null))) {
+      last = arriving;
+    }
+  });
 
   function word(label: string, own: string): string {
     const text = $words.templates[label];

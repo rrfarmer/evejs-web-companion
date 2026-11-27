@@ -11,13 +11,14 @@
   import { clientTexture } from "./skillGroupIcons.ts";
   import { applyWindowFlags, setWindowFlag, windowFlags, WINDOW_ACTION_WORDS, type WindowFlag } from "./windowFlags.ts";
 
-  let { store, flow, flat, onFlat, docked, onBroadcast, onWatchlist, onComposition }: {
+  let { store, flow, flat, onFlat, docked, onBroadcast, onBroadcastSettings, onWatchlist, onComposition }: {
     store: ClientStore;
     flow: AppFlow;
     flat: boolean;
     onFlat: (flat: boolean) => void;
     docked: boolean;
     onBroadcast: (name: FleetBarBroadcast) => void;
+    onBroadcastSettings: () => void;
     onWatchlist: () => void;
     onComposition: () => void;
   } = $props();
@@ -33,6 +34,7 @@
     leave: "UI/Fleet/LeaveMyFleet",
     regroup: F + "Regroup",
     broadcasts: F + "Broadcasts",
+    broadcastSettings: "UI/Fleet/FleetBroadcast/BroadcastSettings",
     travel: "UI/Fleet/FleetBroadcast/Commands/BroadcastTravelToMe",
     hierarchy: F + "ViewAsHierarchy",
     flat: F + "ViewAsFlatList",
@@ -72,6 +74,7 @@
       rows.push(null);
       if (commandRole) rows.push(action(labels.regroup, "Regroup", () => { if (!docked) run(flow.regroupFleet()); }));
       rows.push({ label: word(labels.broadcasts, "Broadcasts"), sub: broadcast }, null,
+        action(labels.broadcastSettings, "Broadcast Settings", onBroadcastSettings),
         flat ? action(labels.hierarchy, "View as Hierarchy", () => onFlat(false)) :
           action(labels.flat, "View as Flat List", () => onFlat(true)), null);
       if (own && isFleetCommander(own)) rows.push(action(labels.composition, "Show Fleet Composition", onComposition));

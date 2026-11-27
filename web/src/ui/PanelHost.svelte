@@ -23,6 +23,7 @@
   import Market from "./Market.svelte";
   import Activity from "./Activity.svelte";
   import FleetCenter from "./FleetCenter.svelte";
+  import FleetBroadcastSettings from "./FleetBroadcastSettings.svelte";
   import type { FleetBarBroadcast } from "../bridge/fleetBroadcasts.ts";
   import Scanner from "./Scanner.svelte";
   import MiningScanResults from "./MiningScanResults.svelte";
@@ -270,6 +271,8 @@
     openComposition={onOpen ? () => onOpen?.("fleetComposition") : undefined} />
 {:else if tab === "fleetComposition"}
   <FleetComposition {store} {flow} openWatchlist={onOpen ? () => onOpen?.("watchlist") : undefined} />
+{:else if tab === "fleetBroadcastSettings"}
+  <FleetBroadcastSettings {store} {flow} />
 {:else if tab === "scanner"}
   <Scanner {store} {flow} />
 {:else if tab === "miningScan"}

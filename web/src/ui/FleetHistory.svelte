@@ -2,15 +2,15 @@
   // The fleet window's History (fleetbroadcast.py BroadcastHistoryPanel): a choice of All, Broadcast History, Member
   // History and Loot History (the last kept by the pilot's settings, Broadcast History at first), a Clear, and the
   // events newest first, each in the client's words: "Event", the time and the event's own label (fleetSvc.AddBroadcast
-  // makes a broadcast's). A broadcast of the pilot's own is not among them unless the pilot asks for its own
-  // (WantBroadcast: BROADCAST_SHOW_OWN, off at first). Nothing is asked of the server.
+  // makes a broadcast's). WantBroadcast grants the own-broadcast override before checking the type preference.
   // Not here yet: the member history (AddToMemberHistory) and the loot history (OnFleetLootEvent), which list
-  // nothing; the other entries' menus and colour; the broadcast settings that leave a kind of broadcast out.
+  // nothing; the other entries' menus.
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { formatTemplate, plainText, templateNameRefs } from "../bridge/clientWords.ts";
   import { broadcastHistoryLabel, fleetTravelDestination, type FleetBroadcast } from "../bridge/fleetBroadcasts.ts";
   import { FLEET_POINTERS } from "../play/uiPointer.ts";
+  import { fleetBroadcastColor, fleetBroadcastPreferences, wantsFleetBroadcast } from "./fleetBroadcastPreferences.ts";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
   import { resolvedName, type NameKind } from "../store/names.ts";
   import type { JsonValue } from "../bridge/wire.ts";
@@ -26,6 +26,9 @@
   const station = store.station;
   // svelte-ignore state_referenced_locally
   const space = store.space;
+  // svelte-ignore state_referenced_locally
+  const session = store.session;
+  const preferences = $derived(fleetBroadcastPreferences($session.accountID));
 
   const WORDS = {
     all: "UI/Common/All",
@@ -68,8 +71,7 @@
   }
 
   const me = $derived($station.online?.characterID ?? null);
-  /** GetBroadcastHistory: the pilot's own left out (WantBroadcast). */
-  const heard = $derived(($fleet.broadcastHistory ?? []).filter((broadcast) => broadcast.senderCharID !== me));
+  const heard = $derived(($fleet.broadcastHistory ?? []).filter(broadcast => wantsFleetBroadcast($preferences, broadcast, me)));
   const shown = $derived(filter === "broadcasthistory" || filter === "all" ? heard : []);
 
   /** The thing a broadcast names, as the pilot's ballpark has it (_GetTargetNameAndType, _GetTypeNameTextFromBroadcastedItemID). */
@@ -133,7 +135,7 @@
     <ul>
       {#each shown as broadcast (broadcast.receivedAtMs + ":" + broadcast.name + ":" + broadcast.senderCharID)}
         {@const destination = fleetTravelDestination(broadcast)}
-        <li data-broadcast={broadcast.name}>
+        <li data-broadcast={broadcast.name} style:background-color={fleetBroadcastColor($preferences, broadcast.name)}>
           {#if destination !== null}
             <PlaceRouteMenu {store} {flow} placeID={destination} travelBroadcast={entryText(broadcast)} />
           {:else}

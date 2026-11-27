@@ -1914,7 +1914,7 @@
     mercenaryDens: { w: 900, h: 572 },
     shipSkinr: { w: 1024, h: 700 },
     hyperNet: { w: 1024, h: 720 },
-    fleetComposition: { w: 680, h: 420 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 570, h: 550 },
+    fleetComposition: { w: 680, h: 420 }, fleetBroadcastSettings: { w: 480, h: 380 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 570, h: 550 },
     structureBrowser: { w: 800, h: 600 }, accessGroups: { w: 800, h: 600 }, autoMoonMiner: { w: 700, h: 515 },
     metenoxTransfer: { w: 400, h: 340 }, metenoxFuel: { w: 435, h: 285 },
     moonMaterialBay: { w: 490, h: 355 },
@@ -1935,7 +1935,7 @@
     structureBrowser: { w: 600, h: 450 }, accessGroups: { w: 600, h: 400 },
     drones: { w: 240, h: 120 }, scanner: { w: 300, h: 150 }, inventory: { w: 170, h: 140 },
     market: { w: 650, h: 435 }, marketOrders: { w: 300, h: 300 }, contracts: { w: 700, h: 560 }, corporation: { w: 700, h: 832 },
-    fleet: { w: 270, h: 120 }, industry: { w: 1004, h: 650 }, reprocessing: { w: 600, h: 400 }, insurance: { w: 400, h: 400 }, lpStore: { w: 837, h: 430 },
+    fleet: { w: 270, h: 120 }, fleetBroadcastSettings: { w: 300, h: 200 }, industry: { w: 1004, h: 650 }, reprocessing: { w: 600, h: 400 }, insurance: { w: 400, h: 400 }, lpStore: { w: 837, h: 430 },
   };
   function flightWindowMinimum(tab: TabID): { w: number; h: number } {
     const size = FLIGHT_MINIMUMS[tab] ?? { w: MIN_W, h: MIN_H };
@@ -2146,6 +2146,7 @@
     assets: "Tooltips/Neocom/PersonalAssets", locations: "UI/PeopleAndPlaces/Locations", log: "UI/Accessories/Log/Log",
     planets: "UI/InfoWindow/TabNames/PlanetaryProduction", notepad: "UI/Notepad/Notepad", calendar: "UI/Calendar/CalendarWindow/Caption",
     fleetComposition: "UI/Fleet/FleetComposition/FleetComposition",
+    fleetBroadcastSettings: "UI/Fleet/FleetBroadcast/BroadcastSettings",
     memberDetails: "UI/Corporations/EditMemberDialog/EditMemberCaption",
     structureBrowser: "UI/Structures/Browser/StructureBrowser",
     accessGroups: "UI/Structures/AccessGroups/GroupWndName",
@@ -5038,6 +5039,7 @@
             {#if win.id === "log"}<GameLogActions store={session.store} flow={session.flow} />{/if}
             {#if win.id === "fleet"}<FleetWindowActions store={session.store} flow={session.flow} flat={fleetRosterFlat}
               onFlat={setFleetRosterFlat} {docked} onBroadcast={sendFleetBarBroadcast}
+              onBroadcastSettings={() => open("fleetBroadcastSettings")}
               onWatchlist={() => open("watchlist")} onComposition={() => open("fleetComposition")} />{/if}
             {#if win.id === "drones"}<DronesWindowActions store={session.store} flow={session.flow} />{/if}
             {#if win.id === "inventory" && !docked}<InventoryWindowActions store={session.store} flow={session.flow} />{/if}
