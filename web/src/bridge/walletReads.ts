@@ -43,6 +43,7 @@
 // THE ROUTE STILL STANDS (src/server.js). Nothing of the page's asks it now.
 
 import { failsTheReading, failureCode as codeOf, type Ask } from "./ask.ts";
+import { readCorporationRow } from "./corporationRow.ts";
 import type { JsonValue } from "./wire.ts";
 
 export type { Ask } from "./ask.ts";
@@ -144,8 +145,8 @@ function keptOnce(askIt: () => Promise<JsonValue>): Kept {
 }
 
 /**
- * The names a corporation has given its wallet divisions, from its own row (corpRegistry.GetCorporation: a
- * util.Row, a `header` of column names beside a `line` of values). By the division's ordinal, 1 to 7; null where
+ * The names a corporation has given its wallet divisions, from corpRegistry.GetCorporation.
+ * By the division's ordinal, 1 to 7; null where
  * the corporation has given none, and for anything that is no such row.
  *
  * As the client names them (bco_corporations.py GetDivisionNames, 138): the second to the seventh by the row's
@@ -154,22 +155,10 @@ function keptOnce(askIt: () => Promise<JsonValue>): Kept {
  * 2026-10-10 were read here in their place.
  */
 export function divisionNamesOf(corporation: JsonValue): Record<string, string | null> {
-  const row = corporation !== null && typeof corporation === "object" && !Array.isArray(corporation) ? (corporation as Record<string, JsonValue>) : {};
-  const args = row.type === "object" && row.args !== null && typeof row.args === "object" && !Array.isArray(row.args) ? (row.args as Record<string, JsonValue>) : {};
-  const entries = Array.isArray(args.entries) ? args.entries : [];
-  const listed = (name: string): readonly JsonValue[] => {
-    const entry = entries.find((each) => Array.isArray(each) && each[0] === name);
-    const list = Array.isArray(entry) ? entry[1] : null;
-    const items = list !== null && typeof list === "object" && !Array.isArray(list) ? (list as Record<string, JsonValue>).items : null;
-    return Array.isArray(items) ? items : [];
-  };
-  const header = listed("header");
-  const line = listed("line");
+  const fields = readCorporationRow(corporation);
   const names: Record<string, string | null> = {};
   for (let division = 1; division <= CORP_DIVISION_COUNT; division += 1) {
-    const at = division === 1 ? -1 : header.indexOf(`walletDivision${division}`);
-    const raw = at >= 0 ? line[at] : null;
-    const value = raw && typeof raw === "object" && "type" in raw && raw.type === "wstring" && "value" in raw ? raw.value : raw;
+    const value = division === 1 ? null : fields?.[`walletDivision${division}`];
     // bco_corporations.GetDivisionNames138-154 uses truthiness, retaining a
     // nonempty whitespace name as well as the native Unicode row value.
     names[String(division)] = typeof value === "string" && value !== "" ? value : null;

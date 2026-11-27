@@ -18,9 +18,14 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const zlib = require("node:zlib");
 const { marshalDecode, marshalDecodeExact, marshalEncode } = require("../src/gameProtocol/marshal");
-const { GamePortSession, GamePortError } = require("../src/gamePort/session");
+const { GamePortSession, GamePortError, RETAIL_CLIENT } = require("../src/gamePort/session");
+const { createPublicGateway, eveProtoSchema } = require("../src/gamePort/publicGateway");
 const { TYPE, buildPacket, clientAddress, nodeAddress, parsePacket, text, dictGet } = require("../src/gamePort/packets");
 const { caseFold, cryptoHash, passwordHash } = require("../src/gamePort/placebo");
 const { monikerKeywordOrder } = require("../src/gamePort/py27");
@@ -390,28 +395,105 @@ function v2402Version(frame, build = 3724492) {
   return marshalEncode([...version.slice(0, 3), 24.02, build, "V24.02@ccp"]);
 }
 
-test("the V24.02 profile is used in both version exchanges and the login credentials", { timeout: 5000 }, async (context) => {
-  const { transport } = await loggedIn(context, { replay: {
-    rewrite: (frame, index) => index === 0 || index === 2 ? v2402Version(frame) : frame.bytes,
-  } });
-  for (const index of [0, 2]) {
-    const reply = marshalDecodeExact(inflated(transport.sent[index]));
-    assert.deepEqual(reply.slice(0, 5), [170472, 496, 0, 24.02, 3724492]);
-    assert.equal(text(reply[5]), "V24.02@ccp");
+function installedClient(context, build) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "wc-client-"));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "tq"));
+  fs.writeFileSync(path.join(root, "tq", "start.ini"), `[main]\r\nbuild = ${build}\r\n`);
+  return root;
+}
+
+// Decode the actual protobuf envelopes on both public gateway streams.
+async function gatewayOrigins(clientRoot) {
+  const origins = [];
+  const schema = eveProtoSchema();
+  const socket = new EventEmitter();
+  socket.close = () => {};
+  socket.request = () => {
+    const stream = new EventEmitter();
+    stream.close = () => {};
+    stream.write = (frame, done) => {
+      const request = schema.decode("eve_public.Request", frame.subarray(5));
+      origins.push(request.external_origin);
+      if (request.payload) {
+        const reply = schema.encode("eve_public.Response", { correlation_uuid: request.correlation_uuid, status_code: 200 });
+        const header = Buffer.alloc(5);
+        header.writeUInt32BE(reply.length, 1);
+        stream.emit("data", Buffer.concat([header, reply]));
+      }
+      done();
+    };
+    return stream;
+  };
+  const gateway = createPublicGateway({ clientRoot, connect: () => socket });
+  try {
+    const pilot = { userID: 1, characterID: 2 };
+    const stop = gateway.consume(pilot, () => {});
+    const reply = await gateway.request(pilot, "eve_public.character.skill.plan.GetAllRequest");
+    assert.equal(reply.statusCode, 200);
+    stop();
+    return origins;
+  } finally {
+    gateway.close();
   }
-  const [, credentials] = marshalDecodeExact(inflated(transport.sent[5]));
-  assert.equal(dictGet(credentials, "boot_build"), 3724492);
-  assert.equal(dictGet(credentials, "boot_version"), 24.02);
-  assert.equal(text(dictGet(credentials, "boot_codename")), "V24.02");
+}
+
+for (const [version, build] of [[24.01, 3396210], [24.02, 3724492]]) {
+  test(`installed V${version} identifies both GamePort exchanges, credentials and the public gateway`, { timeout: 5000 }, async context => {
+    const clientRoot = installedClient(context, build);
+    const rewrite = (frame, index) => version === 24.02 && (index === 0 || index === 2) ? v2402Version(frame) : frame.bytes;
+    for (const options of [{ clientRoot }, { clientRoot, client: null }]) {
+      const { transport } = await loggedIn(context, { replay: { rewrite }, session: options });
+      for (const index of [0, 2]) {
+        const reply = marshalDecodeExact(inflated(transport.sent[index]));
+        assert.deepEqual(reply.slice(0, 5), [170472, 496, 0, version, build]);
+        assert.equal(text(reply[5]), `V${version}@ccp`);
+      }
+      const [, credentials] = marshalDecodeExact(inflated(transport.sent[5]));
+      assert.equal(dictGet(credentials, "boot_build"), build);
+      assert.equal(dictGet(credentials, "boot_version"), version);
+      assert.equal(text(dictGet(credentials, "boot_codename")), `V${version}`);
+    }
+    const origin = `eve-desktop-client/${build} V${version}`;
+    assert.deepEqual(await gatewayOrigins(clientRoot), [origin, origin]);
+  });
+}
+
+test("an installed client refuses the other supported release before sending a frame", async context => {
+  for (const build of [3396210, 3724492]) {
+    const transport = replayTransport({ rewrite: (frame, i) => build === 3396210 && i === 0 ? v2402Version(frame) : frame.bytes });
+    const session = new GamePortSession({ transport, clientRoot: installedClient(context, build), ...recordingSessionOptions() });
+    await assert.rejects(session.login(fixture.accountName, ""), error =>
+      error.code === "HANDSHAKE_INCOMPATIBLERELEASE" && error.message.includes("3396210") && error.message.includes("3724492"));
+    assert.equal(transport.sent.length, 0);
+    assert.equal(transport.closed, true);
+  }
 });
 
-test("V24.02 refuses a newer build or a release change before authentication", { timeout: 5000 }, async () => {
+test("a missing or unsupported installed build fails closed and an explicit profile keeps its identity", context => {
+  const root = installedClient(context, 12345);
+  for (const create of [() => new GamePortSession({ transport: {}, clientRoot: root }), () => createPublicGateway({ clientRoot: root })]) {
+    assert.throws(create, { code: "CLIENT_PROFILE_UNAVAILABLE" });
+  }
+  fs.unlinkSync(path.join(root, "tq", "start.ini"));
+  const transport = replayTransport();
+  assert.throws(() => new GamePortSession({ transport, clientRoot: root }), { code: "CLIENT_PROFILE_UNAVAILABLE" });
+  assert.equal(transport.closed, true);
+  assert.equal(transport.sent.length, 0);
+  const client = { ...RETAIL_CLIENT, version: 24.02, codename: "V24.02", build: 3724492 };
+  assert.equal(new GamePortSession({ transport: {}, clientRoot: null, client }).client, client);
+  assert.equal(new GamePortSession({ transport: {}, clientRoot: installedClient(context, client.build), client }).client, client);
+  assert.throws(() => new GamePortSession({ transport: {}, clientRoot: installedClient(context, 3396210), client }), { code: "CLIENT_PROFILE_MISMATCH" });
+});
+
+test("V24.02 refuses a newer build or a release change before authentication", { timeout: 5000 }, async context => {
+  const clientRoot = installedClient(context, 3724492);
   for (const [build, code, sent] of [
     [3724493, "HANDSHAKE_INCOMPATIBLEBUILD", 0],
     [3724492, "HANDSHAKE_INCOMPATIBLERELEASE", 2],
   ]) {
     const transport = replayTransport({ rewrite: (frame, index) => index === 0 ? v2402Version(frame, build) : frame.bytes });
-    const session = new GamePortSession({ transport, ...recordingSessionOptions() });
+    const session = new GamePortSession({ transport, clientRoot, ...recordingSessionOptions() });
     await assert.rejects(session.login(fixture.accountName, ""), { code });
     assert.equal(transport.sent.length, sent);
     assert.equal(transport.closed, true);

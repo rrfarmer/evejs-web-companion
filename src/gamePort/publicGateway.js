@@ -27,7 +27,7 @@
 const crypto = require("crypto");
 const http2 = require("http2");
 const { createSchema } = require("./protoCodec");
-const { RETAIL_CLIENT } = require("./session");
+const { retailClientProfile } = require("./session");
 
 const SEND_PATH = "/eve_public.gateway.Requests/Send";
 const CONSUME_PATH = "/eve_public.gateway.Notices/Consume";
@@ -117,7 +117,9 @@ function noticeTargetMatches(targetGroup, pilot) {
 function createPublicGateway({
   url = publicGatewayUrl(),
   tenant = "tranquility",
-  origin = `eve-desktop-client/${RETAIL_CLIENT.build} ${RETAIL_CLIENT.codename}`,
+  clientRoot,
+  client,
+  origin,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   idleCloseMs = IDLE_CLOSE_MS,
   consumeRetryMs = CONSUME_RETRY_MS,
@@ -125,6 +127,10 @@ function createPublicGateway({
   connect = (target) => http2.connect(target, { rejectUnauthorized: false }),
   now = () => Date.now(),
 } = {}) {
+  if (origin === undefined) {
+    const profile = retailClientProfile(clientRoot, client);
+    origin = `eve-desktop-client/${profile.build} ${profile.codename}`;
+  }
   const sanitizedTenant = String(tenant).replace(/\./g, "_").toLowerCase();
   const lines = new Map();
 

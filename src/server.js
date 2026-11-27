@@ -66,6 +66,7 @@ const { createInProcessFetch, hostedBotReach } = require("./inProcessFetch");
 const { registerProvisioningRoutes } = require("./provisioningRoutes");
 const { createFactorySkills } = require("./factorySkills");
 const { createTrainingOnboarding } = require("./trainingOnboarding");
+const { readCorporationRow } = require("../web/src/bridge/corporationRow.ts");
 const { readTrainingSettingsContext } = require("./trainingSettingsRead");
 const { createTrainingAccounts } = require("./trainingAccounts");
 const { createCharacterCreation } = require("./characterCreation");
@@ -3263,46 +3264,12 @@ function decodeOfficeRows(result) {
   return offices;
 }
 
-// Decode corpRegistry.GetCorporation (a util.Row: a `header` list of column
-// names paired with a `line` list of values) into division ordinal -> name.
-function decodeDivisionNames(result) {
-  const entries =
-    result && result.type === "object" && result.args && Array.isArray(result.args.entries)
-      ? result.args.entries
-      : [];
-  const header = (entries.find(([key]) => key === "header") || [])[1];
-  const line = (entries.find(([key]) => key === "line") || [])[1];
-  const names = (header && header.items) || [];
-  const values = (line && line.items) || [];
+// GetCorporation names all seven hangars. The client supplies the master wallet's own label.
+function decodeDivisionNames(result, column = "division") {
+  const fields = readCorporationRow(result);
   const byDivision = {};
   for (let division = 1; division <= CORP_DIVISION_COUNT; division += 1) {
-    const index = names.indexOf(`division${division}`);
-    const value = index >= 0 ? values[index] : null;
-    byDivision[division] = typeof value === "string" && value.trim() !== "" ? value : null;
-  }
-  return byDivision;
-}
-
-/**
- * The names of a corporation's WALLET divisions, by ordinal, from the same row. As the client names them
- * (bco_corporations.py GetDivisionNames, 138): the second to the seventh by `walletDivision2` to
- * `walletDivision7`, and the first by no column, since it is the master wallet and has the client's own word.
- * `division1` to `division7` are the hangar's (decodeDivisionNames), and were read for the wallet's until
- * 2026-10-10. The page works this out for itself now (web/src/bridge/walletReads.ts); this is the route's.
- */
-function decodeWalletDivisionNames(result) {
-  const entries =
-    result && result.type === "object" && result.args && Array.isArray(result.args.entries)
-      ? result.args.entries
-      : [];
-  const header = (entries.find(([key]) => key === "header") || [])[1];
-  const line = (entries.find(([key]) => key === "line") || [])[1];
-  const names = (header && header.items) || [];
-  const values = (line && line.items) || [];
-  const byDivision = {};
-  for (let division = 1; division <= CORP_DIVISION_COUNT; division += 1) {
-    const index = division === 1 ? -1 : names.indexOf(`walletDivision${division}`);
-    const value = index >= 0 ? values[index] : null;
+    const value = column === "walletDivision" && division === 1 ? null : fields?.[`${column}${division}`];
     byDivision[division] = typeof value === "string" && value.trim() !== "" ? value : null;
   }
   return byDivision;
@@ -7555,7 +7522,7 @@ app.get("/api/bridge/wallet", requireAuth, async (req, res, next) => {
       // division FLAG number is never shown.
       divisionNames:
         corporation.status === "fulfilled"
-          ? decodeWalletDivisionNames(corporation.value.result)
+          ? decodeDivisionNames(corporation.value.result, "walletDivision")
           : {},
       // R54 raw ledger shapes (decoded in web/src/bridge/wallet.ts).
       transactions: settledValue(transactions),

@@ -34,8 +34,21 @@ class InstalledPreferencesModules(object):
             raise ImportError('Not an installed preference/stdlib module: ' + name)
         return importer
 
+_installed_modules = InstalledPreferencesModules()
+sys.meta_path.insert(0, _installed_modules)
 
-sys.meta_path.insert(0, InstalledPreferencesModules())
+
+def _core_service_globals(host, logging, preferences, stopped):
+    namespace = {'__name__': 'carbon.common.script.sys.service',
+                 '__builtins__': __builtins__, 'blue': host, 'log': logging,
+                 'prefs': preferences, 'SERVICE_STOPPED': stopped}
+    # Import errors from a present package must surface. An older archive may omit it.
+    if _installed_modules.find_module('future.utils') is not None:
+        from future.utils import raise_
+        namespace['raise_'] = raise_
+    return namespace
+
+
 # A strictly bounded REAL host interface: these callbacks execute the source
 # Windows sharing/retry/file logic. It supplies no engine, paths or readiness.
 import _client_prefs_io
@@ -347,15 +360,10 @@ def _create_static_service_types(wallclock, logging, preferences, high, low, med
                                    '/carbon/common/script/sys/serviceConst.py'), service_constants)()
     core_code = definition(module_code('carbon.common.script.sys.service',
                                       '/carbon/common/script/sys/service.py'), 'CoreService')
-    core_globals = {'__name__': 'carbon.common.script.sys.service',
-                    '__builtins__': __builtins__, 'blue': host, 'log': logging,
-                    'prefs': preferences, 'SERVICE_STOPPED': service_constants['SERVICE_STOPPED']}
+    core_globals = _core_service_globals(host, logging, preferences, service_constants['SERVICE_STOPPED'])
     core_namespace = literal_prefix(core_code, core_globals['__name__'])
     for name in ('__init__', 'InitService', '__getattr__', '__setattr__'):
         core_namespace[name] = types.FunctionType(definition(core_code, name), core_globals)
-    if 'raise_' in core_namespace['__getattr__'].func_code.co_names:
-        from future.utils import raise_
-        core_globals['raise_'] = raise_
     core = type('CoreService', (object,), core_namespace)
     core_globals['CoreService'] = core
     # boot/counter services remain absent: the ORIGINAL static class has empty
