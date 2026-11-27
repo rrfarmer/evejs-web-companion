@@ -11,7 +11,7 @@ import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, dec
 import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
-import { decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, hyperNetCountBounds, hyperNetDetailNoticeIDs, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
+import { decodeHyperNetActiveTickets, decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, hyperNetCountBounds, hyperNetDetailNoticeIDs, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
@@ -4632,6 +4632,7 @@ export interface AppFlow {
   loadHyperNetAvailability(): Promise<boolean>;
   readonly hyperNetAvailabilityChanged: ReadableSignal<number>;
   loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null, scope?: HyperNetBrowseScope): Promise<readonly HyperNetOffer[]>;
+  loadHyperNetActiveTickets(): Promise<ReadonlyMap<number, number>>;
   loadHyperNetOfferDetails(id: number): Promise<HyperNetOfferDetails>;
   watchHyperNetOffer(id: number, changed: () => void): () => void;
   buyHyperNetNode(id: number, node: number): Promise<HyperNetOfferDetails>;
@@ -29299,6 +29300,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     };
   }
 
+  async function loadHyperNetActiveTickets(): Promise<ReadonlyMap<number, number>> {
+    const current = callOptions.captureRequestGuard!();
+    const reply = await bridgeAsk("raffleProxy", "GetMyActiveTickets", []);
+    current();
+    return decodeHyperNetActiveTickets(reply);
+  }
+
   async function loadHyperNetOfferDetails(id: number): Promise<HyperNetOfferDetails> {
     const current = callOptions.captureRequestGuard!();
     const reply = await bridgeAsk("raffleProxy", "GetRaffle", [id]);
@@ -41925,6 +41933,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadHyperNetAvailability: () => api.getHyperNetAvailability(callOptions),
     hyperNetAvailabilityChanged: readonlySignal(hyperNetAvailabilityChanged),
     loadHyperNetOffers,
+    loadHyperNetActiveTickets,
     loadHyperNetOfferDetails,
     watchHyperNetOffer,
     buyHyperNetNode,

@@ -2,20 +2,21 @@
   import { onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import { hyperNetCountBounds, hyperNetPriceBounds, isHyperNetItem, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetParticipation } from "../bridge/hyperNet.ts";
+  import { hyperNetCountBounds, hyperNetPriceBounds, isHyperNetItem, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import OwnerPicture from "./OwnerPicture.svelte";
   import HyperNetFilterSearch from "./HyperNetFilterSearch.svelte";
+  import HyperNetQuickBuy from "./HyperNetQuickBuy.svelte";
   import HyperNetSavedFilters from "./HyperNetSavedFilters.svelte";
   import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
   import { showInfo } from "./showInfo.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { typeIconUrl } from "./typeIcons.ts";
 
-  let { store, flow, pilot, openDetails }: { store: ClientStore; flow: AppFlow; pilot: number | undefined;
-    openDetails: (id: number) => void } = $props();
+  let { store, flow, pilot, now, visible, openDetails, onPurchase }: { store: ClientStore; flow: AppFlow; pilot: number | undefined; now: number; visible: boolean;
+    openDetails: (id: number) => void; onPurchase: (row: HyperNetOfferDetails, owned: number) => void } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
   const imageServer = $derived(flow.imageServer);
@@ -240,6 +241,14 @@
     return order || (group < 2 ? compare(nameOf(a), nameOf(b)) : endTime(b) - endTime(a)) || b.runningID - a.runningID;
   }));
 
+  function updateHistoryOffer(updated: HyperNetOfferDetails, owned: number) {
+    history = history.map(row => row.id === updated.id && updated.remaining <= row.remaining ? {
+      ...row, remaining: updated.remaining, status: updated.status, winnerID: updated.winnerID,
+      ended: updated.ended, owned, joined: owned > 0,
+    } : row);
+    onPurchase(updated, owned);
+  }
+
   onMount(() => {
     flow.requestWords(Object.values(labels).map(([path]) => path));
     let current = true;
@@ -451,7 +460,12 @@
           <time datetime={new Date(endTime(row)).toISOString()}>
             {new Date(endTime(row)).toLocaleString()}
           </time>
-          <button type="button" data-open-offer onclick={() => openDetails(row.id)}>{word("details")}</button>
+          <div class="offer-actions">
+            <button type="button" data-open-offer onclick={() => openDetails(row.id)}>{word("details")}</button>
+            {#if row.status === 6 && row.expires > now}
+              <HyperNetQuickBuy {store} {flow} {pilot} offer={row} owned={row.owned} enabled={visible} onUpdate={updateHistoryOffer} />
+            {/if}
+          </div>
         </li>
       {/each}
     </ul>
@@ -472,6 +486,7 @@
   h2, ul, dl, dd, p { margin: 0; }
   ul { list-style: none; padding: 0; display: grid; gap: 6px; }
   li { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr)); align-items: center; gap: 8px; padding: 8px; background: #ffffff08; }
+  .offer-actions { display: flex; align-items: center; gap: 6px; }
   .item { display: flex; align-items: center; gap: 6px; text-align: start; }
   img { width: 32px; height: 32px; object-fit: contain; }
   dl { display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; }

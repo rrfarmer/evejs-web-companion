@@ -9,8 +9,8 @@
   import { showInfo } from "./showInfo.ts";
   import { typeIconUrl } from "./typeIcons.ts";
 
-  let { store, flow, id, pilot, now }: {
-    store: ClientStore; flow: AppFlow; id: number; pilot: number | undefined; now: number;
+  let { store, flow, id, pilot, now, onPurchase }: {
+    store: ClientStore; flow: AppFlow; id: number; pilot: number | undefined; now: number; onPurchase: (row: HyperNetOfferDetails, owned: number) => void;
   } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
@@ -136,6 +136,7 @@
       const row = target === "multiple" ? await flow.buyHyperNetNodes(id, quantity) : await flow.buyHyperNetNode(id, target);
       if (generation !== offerGeneration) return;
       updateOffer(row);
+      if (details) onPurchase(details, bought);
     } catch (cause) {
       if (generation !== offerGeneration) return;
       const reason = failureCode(cause) === "CALL_REFUSED" && cause instanceof Error ? cause.message : "";

@@ -680,7 +680,7 @@ const TRANSPORT_OWN_CALLS = Object.freeze([
 const GAME_PORT_ONLY_CALLS = Object.freeze([
   "invbroker.WithdrawPlexFromVault", "invbroker.DepositPlexToVault", "marketProxy.GetPlexOrders", "marketProxy.PlacePlexSellOrder",
   "raffleProxy.Grab", "raffleProxy.FilteredGrab", "raffleProxy.GetMyRaffleHistory",
-  "raffleProxy.GetCreatedParticipated", "raffleProxy.GetRaffle",
+  "raffleProxy.GetCreatedParticipated", "raffleProxy.GetRaffle", "raffleProxy.GetMyActiveTickets",
   "raffleProxy.SubscribeToRaffle", "raffleProxy.UnsubscribeFromRaffle", "raffleProxy.BuyTicket", "raffleProxy.BuyRandomTickets",
   // Revisions of the gateway contract without the read-only NES catalogue.
   "storeManager.get_categories", "storeManager.get_offers",

@@ -17,6 +17,7 @@ export interface HyperNetHistoryOffer extends HyperNetOffer {
   readonly runningID: number;
   readonly ownerID: number;
   readonly joined: boolean;
+  readonly owned: number;
   readonly private: boolean;
   readonly copy: boolean;
   readonly groupID: number | null;
@@ -150,6 +151,17 @@ export function isHyperNetItem(value: unknown): value is HyperNetItem {
     (item.categoryID === undefined || Number.isSafeInteger(item.categoryID) && item.categoryID > 0);
 }
 
+export function decodeHyperNetActiveTickets(payload: unknown): ReadonlyMap<number, number> {
+  if (!isListValue(payload)) throw new Error("HyperNet active nodes are unavailable.");
+  const owned = new Map<number, number>();
+  for (const ticket of payload.items) {
+    const id = Number(unwrapLong(readKeyVal(ticket, "raffle_id")));
+    if (!Number.isSafeInteger(id) || id <= 0) throw new Error("HyperNet returned an unreadable active node.");
+    owned.set(id, (owned.get(id) ?? 0) + 1);
+  }
+  return owned;
+}
+
 export function decodeHyperNetOffers(payload: unknown): readonly HyperNetOffer[] {
   if (!isListValue(payload)) throw new Error("HyperNet offers are unavailable.");
   return payload.items.map(decodeHyperNetOffer);
@@ -191,11 +203,11 @@ export function decodeHyperNetHistoryPage(payload: unknown, pilot: number): { ro
       throw new Error("HyperNet returned an unreadable history offer.");
     }
     const sold = readKeyVal(row, "sold_tickets");
-    const joined = isListValue(sold) && sold.items.some(ticket => Number(unwrapLong(readKeyVal(ticket, "owner_id"))) === pilot);
+    const owned = isListValue(sold) ? sold.items.filter(ticket => Number(unwrapLong(readKeyVal(ticket, "owner_id"))) === pilot).length : 0;
     const restricted = unwrapLong(readKeyVal(row, "restriction_id")) === 1n;
     const copyFlag = readDictEntry(readKeyVal(row, "meta_data"), "is_copy");
     return { ...offer, runningID, ownerID, locationID, systemID, status, winnerID: winner > 0 ? winner : null,
-      ended, joined, private: restricted, copy: copyFlag === true || unwrapLong(copyFlag) === 1n,
+      ended, joined: owned > 0, owned, private: restricted, copy: copyFlag === true || unwrapLong(copyFlag) === 1n,
       groupID: null, categoryID: null, metaGroupID: null };
   });
   return { rows, size };

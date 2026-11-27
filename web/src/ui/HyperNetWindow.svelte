@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import { hyperNetCountBounds as countBounds, hyperNetPriceBounds as priceBounds, isHyperNetItem, type HyperNetConstraints, type HyperNetItem, type HyperNetOffer } from "../bridge/hyperNet.ts";
+  import { hyperNetCountBounds as countBounds, hyperNetPriceBounds as priceBounds, isHyperNetItem, type HyperNetConstraints, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails } from "../bridge/hyperNet.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { formatDuration } from "../bridge/skills.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -10,6 +10,7 @@
   import { showInfo } from "./showInfo.ts";
   import HyperNetDetails from "./HyperNetDetails.svelte";
   import HyperNetHistory from "./HyperNetHistory.svelte";
+  import HyperNetQuickBuy, { quickBuyWords } from "./HyperNetQuickBuy.svelte";
   import HyperNetSavedFilters from "./HyperNetSavedFilters.svelte";
   import { typeIconUrl } from "./typeIcons.ts";
 
@@ -215,6 +216,9 @@
   });
 
   let offers = $state.raw<readonly HyperNetOffer[]>([]);
+  let ownedTickets = $state.raw<ReadonlyMap<number, number>>(new Map());
+  let ownedPilot: number | undefined;
+  let ownedRevision = 0;
   let page = $state(0);
   let loading = $state(false);
   let error = $state("");
@@ -223,6 +227,27 @@
   const pageOffers = $derived(offers.slice(page * pageSize, (page + 1) * pageSize)
     .sort((left, right) => left.price === right.price ? 0 : left.price > right.price ? -1 : 1));
   const active = $derived(pageOffers.filter(offer => offer.expires > now));
+
+  $effect(() => {
+    const owner = pilot;
+    if (owner !== ownedPilot) {
+      ownedPilot = owner;
+      ownedTickets = new Map();
+    }
+    if (!owner || view !== "browse" || detailsID !== null) return;
+    const revision = ownedRevision;
+    let current = true;
+    void flow.loadHyperNetActiveTickets().then(counts => {
+      if (current && revision === ownedRevision) ownedTickets = counts;
+    }).catch(() => {});
+    return () => { current = false; };
+  });
+
+  function updateBrowseOffer(row: HyperNetOfferDetails, count: number) {
+    ++ownedRevision;
+    ownedTickets = new Map(ownedTickets).set(row.id, count);
+    offers = offers.map(offer => offer.id === row.id && row.remaining <= offer.remaining ? row : offer);
+  }
 
   function refreshBrowse() {
     const remaining = offers.filter(offer => offer.expires > Date.now());
@@ -235,7 +260,7 @@
   }
 
   onMount(() => {
-    flow.requestWords(Object.values(labels).map(([path]) => path));
+    flow.requestWords([...Object.values(labels).map(([path]) => path), ...quickBuyWords]);
     let current = true;
     void flow.loadHyperNetMetaGroups().then(groups => {
       if (current) metaGroups = groups;
@@ -301,12 +326,12 @@
   </nav>
   {#if detailsID !== null}
     {#key detailsID}
-      <HyperNetDetails {store} {flow} {pilot} id={detailsID} {now} />
+      <HyperNetDetails {store} {flow} {pilot} id={detailsID} {now} onPurchase={updateBrowseOffer} />
     {/key}
   {/if}
   <div class="catalogue" hidden={detailsID !== null}>
   {#if view === "history"}
-    <HyperNetHistory {store} {flow} {pilot} {openDetails} />
+    <HyperNetHistory {store} {flow} {pilot} {now} visible={detailsID === null} {openDetails} onPurchase={updateBrowseOffer} />
   {:else}
   <header>
     <details class="range-filters">
@@ -449,7 +474,11 @@
           </dl>
           <p data-ticket-count>{ticketCount(offer)}</p>
           <time datetime={new Date(offer.expires).toISOString()}>{formatDuration(offer.expires - now)}</time>
-          <button type="button" data-open-offer onclick={() => openDetails(offer.id)}>{word("details")}</button>
+          <div class="offer-actions">
+            <button type="button" data-open-offer onclick={() => openDetails(offer.id)}>{word("details")}</button>
+            <HyperNetQuickBuy {store} {flow} {pilot} {offer} owned={ownedTickets.get(offer.id) ?? 0}
+              enabled={detailsID === null} onUpdate={updateBrowseOffer} />
+          </div>
         </li>
       {/each}
     </ul>
@@ -475,6 +504,7 @@
   small { color: #b8c3cc; margin-inline-start: 4px; }
   ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr)); gap: 8px; padding: 0; margin: 0; list-style: none; }
   li { display: grid; gap: 8px; padding: 8px; background: #ffffff08; }
+  .offer-actions { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
   .item { display: flex; align-items: center; gap: 8px; text-align: start; }
   img { width: 32px; height: 32px; object-fit: contain; }
   dl { display: grid; grid-template-columns: 1fr auto; gap: 4px; }
