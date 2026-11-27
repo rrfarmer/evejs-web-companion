@@ -9,7 +9,7 @@
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
   import { capturePointer } from "./pointerCapture.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, outfit, apparel, morphs, piercings }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, outfit, apparel, morphs, piercings, iris }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
@@ -23,6 +23,7 @@
     apparel?: PortraitApparel;
     morphs?: readonly PortraitMorph[];
     piercings?: readonly string[];
+    iris?: string;
   } = $props();
   let canvas: HTMLCanvasElement;
   let renderer = $state.raw<THREE.WebGLRenderer | null>(null);
@@ -497,6 +498,7 @@
     const withSkin = hasSkinTones;
     const sculpts = morphs;
     const jewelry = piercings;
+    const irisAsset = iris;
     if (!active) return;
     let retired = false;
     let head: THREE.Group | null = null;
@@ -569,6 +571,30 @@
           };
         }
       }
+      let irisLayer: {
+        diffuse: THREE.Texture; zones: THREE.Texture; colors: THREE.Color[]; diffuseRect: THREE.Vector4; zonesRect: THREE.Vector4;
+      } | null = null;
+      if (irisAsset) {
+        try {
+          const response = await fetch(irisAsset);
+          if (!response.ok) throw new Error("Iris layer unavailable");
+          const eye = await response.json() as {
+            diffuse: string; zones: string; colors: [number, number, number][];
+            diffuseRect: number[]; zonesRect: number[];
+          };
+          const detail = await loadMap(eye.diffuse, true);
+          if (retired) { detail.texture.dispose(); detail.bitmap.close(); return; }
+          maps.push(detail);
+          const zones = await loadMap(eye.zones, false);
+          if (retired) { zones.texture.dispose(); zones.bitmap.close(); return; }
+          maps.push(zones);
+          irisLayer = { diffuse: detail.texture, zones: zones.texture,
+            colors: eye.colors.map(([r, g, b]) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace)),
+            diffuseRect: new THREE.Vector4().fromArray(eye.diffuseRect), zonesRect: new THREE.Vector4().fromArray(eye.zonesRect) };
+        } catch {
+          // The base head contains its own eye texture when the selected layer is unavailable.
+        }
+      }
       const { scene: avatar } = await loader.loadAsync(stem + ".glb");
       if (!retired && sculpts?.length) await applyPortraitMorphs(avatar, stem, sculpts, () => retired);
       if (retired) { release(avatar); return; }
@@ -578,7 +604,7 @@
       const skin = tint ? surface.clone() : surface;
       // The authored head normal packs tangent X in alpha and Y in green.
       // Read the two linear channels without premultiplying the PNG.
-      const configure = (material: THREE.MeshStandardMaterial, skinLayer: SkinUniforms | null) => {
+      const configure = (material: THREE.MeshStandardMaterial, skinLayer: SkinUniforms | null, eyes = false) => {
         material.onBeforeCompile = shader => {
           const layeredNormal = archetype ? `headNormal = mix(headNormal,
             texture2D( archetypeNormal, vNormalMapUv ).ag * 2.0 - 1.0, archetypeCoverage);` : "";
@@ -616,6 +642,32 @@
               #include <color_fragment>
             `);
           }
+          if (eyes && irisLayer) {
+            shader.uniforms.portraitIrisDetail = { value: irisLayer.diffuse };
+            shader.uniforms.portraitIrisZones = { value: irisLayer.zones };
+            shader.uniforms.portraitIrisColors = { value: irisLayer.colors };
+            shader.uniforms.portraitIrisRect = { value: irisLayer.diffuseRect };
+            shader.uniforms.portraitIrisZonesRect = { value: irisLayer.zonesRect };
+            shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
+              #include <map_pars_fragment>
+              uniform sampler2D portraitIrisDetail;
+              uniform sampler2D portraitIrisZones;
+              uniform vec3 portraitIrisColors[3];
+              uniform vec4 portraitIrisRect;
+              uniform vec4 portraitIrisZonesRect;
+            `).replace("#include <color_fragment>", `
+              vec2 irisUV = (vMapUv - portraitIrisRect.xy) / portraitIrisRect.zw;
+              vec2 irisZoneUV = (vMapUv - portraitIrisZonesRect.xy) / portraitIrisZonesRect.zw;
+              vec4 irisDetail = texture2D(portraitIrisDetail, irisUV);
+              vec3 irisZones = texture2D(portraitIrisZones, irisZoneUV).rgb;
+              float irisWeight = dot(irisZones, vec3(1.0));
+              vec3 irisTint = irisZones.r * portraitIrisColors[0] + irisZones.g * portraitIrisColors[1] + irisZones.b * portraitIrisColors[2];
+              irisTint = mix(portraitIrisColors[0], irisTint / max(irisWeight, 0.001), clamp(irisWeight, 0.0, 1.0));
+              float irisClip = step(0.0, irisUV.x) * step(0.0, irisUV.y) * step(irisUV.x, 1.0) * step(irisUV.y, 1.0);
+              diffuseColor.rgb = mix(diffuseColor.rgb, irisDetail.rgb * irisTint, irisDetail.a * irisClip);
+              #include <color_fragment>
+            `);
+          }
           shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>",
             THREE.ShaderChunk.normal_fragment_maps.replace(
               "vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;",
@@ -624,11 +676,20 @@
                vec3 mapN = vec3( headNormal, sqrt( max( 0.0, 1.0 - dot( headNormal, headNormal ) ) ) );`,
             ));
         };
-        material.customProgramCacheKey = () => `portrait:${Boolean(archetype)}:${Boolean(skinLayer)}`;
+        material.customProgramCacheKey = () => `portrait:${Boolean(archetype)}:${Boolean(skinLayer)}:${eyes}`;
       };
       configure(surface, null);
       if (tint) configure(skin, tint);
       applySurface(avatar, surface, new Set(transparent), new Set(eyelashMeshes), eyelashes, skin);
+      if (irisLayer) {
+        const eyes = surface.clone();
+        configure(eyes, null, true);
+        let attached = false;
+        avatar.traverse(node => {
+          if (node instanceof THREE.Mesh && /^eyeball/i.test(node.name)) { node.material = eyes; attached = true; }
+        });
+        if (!attached) eyes.dispose();
+      }
       for (const url of jewelry ?? []) {
         if (retired) return;
         try {

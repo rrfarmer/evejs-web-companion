@@ -9,6 +9,7 @@
 //        [--ship-info] (the Ship Info scene, faction backgrounds and light rig, needs --sde)
 //        [--portrait-head <female|male>] (the skinned character-creation base head)
 //        [--portrait-morph <name>] (one sparse morph from that head)
+//        [--portrait-eyes <style/palette>] (a saved iris layer for that head)
 //        [--portrait-body <model stem>] (extract a sparse morph for an extracted outfit model)
 //        [--portrait-outfit <gender/[slot/]style/variant>] (an installed paper-doll garment)
 //        [--portrait-hands <female|male>] (the skinned base hands)
@@ -949,6 +950,27 @@ function portraitPngRect(buffer) {
   return [...offset, ...scale].map(value => value / 1_000_000);
 }
 
+function extractPortraitEyes(rf, gender, key, outRoot) {
+  const [style, palette] = key.split("/");
+  const root = `res:/graphics/character/${gender}/paperdoll/makeup/eyes`;
+  const typePath = `${root}/${style}/types/${style}.type`;
+  const type = parseYaml(rf.read(typePath).toString("utf8"), paperDollYaml);
+  if (!Array.isArray(type) || type[0]?.toLowerCase() !== `makeup/eyes/${style}`) throw new Error("Unknown eye style");
+  const source = `${root}/${style}/colorize_head_l_512.png`, zone = `${root}/${style}/colorize_head_z_512.png`;
+  const palettePath = [`${root}/${style}/${palette}.color`, `${root}/colors/${palette}.color`,
+    `${root}/${style}/default.color`].find(path => rf.has(path));
+  const authored = palettePath ? parseYaml(rf.read(palettePath).toString("utf8"), paperDollYaml)?.colors : null;
+  const colors = Array.isArray(authored) && authored.length >= 3 &&
+    authored.slice(0, 3).every(rgb => Array.isArray(rgb) && rgb.length >= 3 && rgb.slice(0, 3).every(Number.isFinite))
+    ? authored.slice(0, 3).map(rgb => rgb.slice(0, 3)) : [[1, 1, 1], [1, 1, 1], [1, 1, 1]];
+  const dir = path.join(outRoot, "portrait-head", gender, "eyes", style);
+  fs.mkdirSync(dir, { recursive: true });
+  writeExtracted(path.join(dir, palette + ".json"), JSON.stringify({
+    style, palette, colors, diffuse: copyRes(rf, source, outRoot), zones: copyRes(rf, zone, outRoot),
+    diffuseRect: portraitPngRect(rf.read(source)), zonesRect: portraitPngRect(rf.read(zone)),
+  }));
+}
+
 async function extractPortraitOutfit(rf, outfit, outRoot) {
   const parts = outfit.split("/");
   const gender = parts[0], variant = parts.at(-1), style = parts.at(-2);
@@ -1110,6 +1132,10 @@ function parseArgs(argv) {
     else if (a === "--portrait-morph") {
       out.portraitMorph = argv[++i];
       if (!/^[a-z0-9_]+shape$/.test(out.portraitMorph ?? "")) throw new Error("--portrait-morph needs a morph name");
+    }
+    else if (a === "--portrait-eyes") {
+      out.portraitEyes = argv[++i];
+      if (!/^eyes_[a-z0-9_]+\/[a-z0-9_]+$/.test(out.portraitEyes ?? "")) throw new Error("--portrait-eyes needs style/palette");
     }
     else if (a === "--portrait-body") {
       out.portraitBody = argv[++i];
@@ -1422,6 +1448,7 @@ async function main() {
     if (args.portraitMorph) await extractPortraitMorph(rf,
       `res:/graphics/character/${args.portraitHead}/paperdoll/head/head_generic/head_generic.gr2`, args.portraitMorph,
       path.join(outRoot, "portrait-head", args.portraitHead, "morphs", args.portraitMorph + ".json"));
+    else if (args.portraitEyes) extractPortraitEyes(rf, args.portraitHead, args.portraitEyes, outRoot);
     else if (args.portraitHair) await extractPortraitHair(rf, args.portraitHead, args.portraitHair, outRoot);
     else if (args.portraitBloodline !== undefined) extractPortraitArchetype(rf, args.portraitHead, args.portraitBloodline, outRoot);
     else await extractPortraitHead(rf, args.portraitHead, outRoot);

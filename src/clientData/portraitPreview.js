@@ -1,6 +1,7 @@
 "use strict";
 
 const { readModifiers, modifierValues, portraitHairStyle } = require("./portraitHair");
+const { readColors, colorRowValues } = require("./portraitSkinTones");
 const sculptingRowType = "eve.common.script.paperDoll.paperDollDefinitions.SculptingRow";
 const sculptAxes = [["down", "up"], ["right", "left"], ["back", "forward"]];
 
@@ -35,6 +36,7 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
   const nativeGender = gender === "female" ? 0 : 1;
   let outfit = null;
   let hairstyle = null;
+  let eyeStyle = null;
   const apparel = {};
   const piercings = {};
   for (const row of readModifiers(appearance)?.rows ?? []) {
@@ -59,9 +61,23 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
     } else if (location.modifierKey === "hair") {
       const style = /^hair\/(hair_[a-z0-9_]+)\/types\/\1\.type$/.exec(resourcePath)?.[1];
       if (style && portraitHairStyle(gender, style)) hairstyle = style;
+    } else if (location.modifierKey === "makeup/eyes") {
+      eyeStyle = /^makeup\/eyes\/(eyes_[a-z0-9_]+)\/types\/\1\.type$/.exec(resourcePath)?.[1] ?? null;
     }
   }
-  return { outfit, apparel, hairstyle, piercings: Object.values(piercings) };
+  return { outfit, apparel, hairstyle, piercings: Object.values(piercings), eyeStyle };
 }
 
-module.exports = { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows };
+function portraitPreviewIris(appearance, gender, style, locations, names) {
+  if (!style) return null;
+  let palette = "default";
+  for (const row of readColors(appearance)?.rows ?? []) {
+    const fields = colorRowValues(row);
+    if (!fields || !/^(?:paperdoll\/)?makeup\/eyes$/.test(locations?.[fields[1]]?.colorKey ?? "")) continue;
+    const color = names?.[fields[2]]?.colorName;
+    if (typeof color === "string" && /^[a-z0-9_]+$/i.test(color)) palette = color.toLowerCase();
+  }
+  return `/client-assets/portrait-head/${gender}/eyes/${style}/${palette}.json`;
+}
+
+module.exports = { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewIris };

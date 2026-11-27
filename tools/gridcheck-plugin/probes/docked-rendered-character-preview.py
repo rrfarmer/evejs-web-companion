@@ -3,10 +3,10 @@ import utillib
 from characterdata.npccharacters import iter_npc_characters
 from eve.client.script.ui.shared.portraitWindow.portraitWindow import PortraitWindow
 from eve.client.script.ui.shared.preview import PreviewCharacterWnd
-from eve.common.script.paperDoll.paperDollDefinitions import ModifierRow, SculptingRow
+from eve.common.script.paperDoll.paperDollDefinitions import ColorSelectionRow, ModifierRow, SculptingRow
 
 
-def observe(gender, outfit, hair, apparel=(), sculpts=()):
+def observe(gender, outfit, hair, apparel=(), sculpts=(), colors=()):
     if PortraitWindow.GetIfOpen() or PreviewCharacterWnd.GetIfOpen():
         raise RuntimeError('A character preview is already open')
     candidate = next((char_id for char_id, info in iter_npc_characters()
@@ -14,7 +14,7 @@ def observe(gender, outfit, hair, apparel=(), sculpts=()):
     if candidate is None:
         raise RuntimeError('No reference character has the selected paper-doll gender')
     modifiers = ([(10, outfit)] if outfit is not None else []) + [(5, hair)] + list(apparel)
-    dna = utillib.KeyVal(sculpts=[SculptingRow(*row) for row in sculpts], colors=[],
+    dna = utillib.KeyVal(sculpts=[SculptingRow(*row) for row in sculpts], colors=[ColorSelectionRow(*row) for row in colors],
                         modifiers=[ModifierRow(slot, resource, 0) for slot, resource in modifiers])
     try:
         wnd = PreviewCharacterWnd.Open(charID=candidate, dna=dna)
@@ -37,6 +37,11 @@ def observe(gender, outfit, hair, apparel=(), sculpts=()):
                                for slot, resource in apparel],
                       minSize=wnd.default_minSize, bounds=bounds, target=list(camera.atPosition),
                       verticalPan=scene.verticalPanEnabled)
+        if colors:
+            manager = preview.context.character.doll.buildDataManager
+            eyes = [item for item in manager.GetModifiersAsList(showHidden=True) if 'eyes' in item.GetResPath().lower()]
+            result['eyes'] = [dict(name=item.name, path=item.GetResPath(), colors=list(item.colorizeData), diffuse=dict(item.mapL), zones=dict(item.mapZ))
+                              for item in eyes]
         if sculpts:
             doll = preview.context.character.doll
             result['sculpts'] = [dict(location=row[0], prefix=cfg.paperdollSculptingLocations.Get(row[0]).weightKeyPrefix,
@@ -70,4 +75,5 @@ result = dict(female=observe(0, 15525, 407), male=observe(1, 15555, 127),
               bodySculpt=observe(0, None, 407, ((26, 3529), (25, 236), (22, 298)),
                                  sculpts=((5, 0.5, 0.0, 0.0),)),
               pierced=observe(0, None, 407, ((26, 3529), (25, 236), (22, 298), (12, 824), (4, 614)),
-                              sculpts=((18, -0.75, 0.0, 0.0), (27, 0.0, 0.0, 0.4), (5, 0.5, 0.0, 0.0))))
+                              sculpts=((18, -0.75, 0.0, 0.0), (27, 0.0, 0.0, 0.4), (5, 0.5, 0.0, 0.0))),
+              iris=observe(0, 8649, 407, ((6, 79),), colors=((7, 153, 0, 0.0, 0.0),)))

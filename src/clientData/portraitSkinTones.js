@@ -66,4 +66,4 @@ function skinToneCatalog(bloodline, gender, colorNames, fileFor) {
   });
 }
 
-module.exports = { appearanceWithSkinTone, skinToneCatalog, skinToneID };
+module.exports = { appearanceWithSkinTone, skinToneCatalog, skinToneID, readColors, colorRowValues };

@@ -6299,6 +6299,7 @@ export interface CharacterPreviewAppearance {
   readonly apparel: PortraitApparel;
   readonly morphs: readonly PortraitMorph[];
   readonly piercings: readonly string[];
+  readonly iris: string | null;
   readonly hairstyle: string | null;
 }
 
@@ -6310,6 +6311,7 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
   const model = appearance?.model === "female" || appearance?.model === "male" ? appearance.model : null;
   const outfit = appearance?.outfit;
   const hairstyle = appearance?.hairstyle;
+  const iris = appearance?.iris;
   const piercings = (Array.isArray(appearance?.piercings) ? appearance.piercings : []).filter((url): url is string =>
     typeof url === "string" &&
     /^\/client-assets\/portrait-outfit\/(female|male)\/accessories\/(?:nose|lips|brow|earslow|earshigh)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(url)?.[1] === model);
@@ -6334,6 +6336,8 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
     apparel: layers,
     morphs,
     piercings,
+    iris: typeof iris === "string" &&
+      /^\/client-assets\/portrait-head\/(female|male)\/eyes\/eyes_[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(iris)?.[1] === model ? iris : null,
     hairstyle: typeof hairstyle === "string" && /^hair_[a-z0-9_]+$/.test(hairstyle) ? hairstyle : null,
   };
 }
