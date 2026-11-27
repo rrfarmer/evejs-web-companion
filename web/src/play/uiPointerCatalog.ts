@@ -3,7 +3,7 @@ import { helpPointerLinksFromDrop, helpPointerUrl, parseHelpPointerUrl } from ".
 import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
 import { clientTexture } from "../ui/skillGroupIcons.ts";
 import { EVE_MENU, NEOCOM_DEFAULT } from "./neocom.ts";
-import { INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, MARKET_POINTERS, neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
+import { FITTING_POINTERS, INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, MARKET_POINTERS, neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
 
 const industryParent = neocomPointerName("industry");
 const industryEntry = EVE_MENU.flatMap(group => group.items).find(item => item.id === "industry");
@@ -11,6 +11,14 @@ export const NEOCOM_POINTERS: readonly UiPointerTarget[] = [...NEOCOM_DEFAULT.ma
   name: neocomPointerName(item.id), label: item.label, icon: item.icon,
 })), ...(industryEntry ? [{ name: industryParent, label: industryEntry.label, icon: industryEntry.icon }] : [])];
 const tabIcon = clientTexture("res:/UI/Texture/Classes/HelpPointer/tabFlat.png");
+const fittingStats: readonly UiPointerTarget[] = ([
+  [FITTING_POINTERS.capacitor, "Capacitor"],
+  [FITTING_POINTERS.defense, "Defense"],
+  [FITTING_POINTERS.drones, "Drones"],
+  [FITTING_POINTERS.navigation, "Navigation"],
+  [FITTING_POINTERS.offense, "Offense"],
+  [FITTING_POINTERS.targeting, "Targeting"],
+] as const).map(([name, label]) => ({ name, label: `Fitting - ${label} Panel`, parent: FITTING_POINTERS.stats }));
 const industryTabs: readonly UiPointerTarget[] = ([
   [INDUSTRY_TAB_POINTERS.blueprints, "Blueprints"],
   [INDUSTRY_TAB_POINTERS.facilities, "Facilities"],
@@ -40,6 +48,12 @@ export const INTERFACE_POINTERS: readonly UiPointerTarget[] = [
   { name: INVENTORY_POINTERS.stackAll, label: "Inventory Stack All", parent: neocomPointerName("inventory") },
   { name: INVENTORY_POINTERS.viewMode, label: "Change Inventory View",
     icon: clientTexture("res:/UI/Texture/eveicon/system_icons/grid_view_16px.png"), parent: neocomPointerName("inventory") },
+  { name: FITTING_POINTERS.equipment, label: "Fitting Tab", icon: tabIcon, parent: neocomPointerName("fitting") },
+  { name: FITTING_POINTERS.simulate, label: "Simulate Ship", parent: FITTING_POINTERS.equipment },
+  { name: FITTING_POINTERS.stats, label: "Ship Attributes and Statistics",
+    icon: clientTexture("res:/UI/Texture/classes/Fitting/filterIconResources.png"), parent: FITTING_POINTERS.equipment },
+  ...fittingStats,
+  { name: FITTING_POINTERS.fighters, label: "Fitting - Fighters Panel" },
   ...industryTabs,
   ...industryActivities,
   { name: INDUSTRY_LOCATION_POINTERS.input, label: "Industry - Input material location" },

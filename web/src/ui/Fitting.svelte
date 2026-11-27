@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { FITTING_POINTERS } from "../play/uiPointer.ts";
   // The fitting window, modelled on EVE's own (goals R12 + R21): the active ship
   // inside a circular ring with its slots as SOCKETS on arcs around it, a slim
   // toolbar down the left, the ship's readings in a COLLAPSIBLE panel down the
@@ -217,6 +218,7 @@
    * there is no `window` at all.
    */
   let view = $state<"radial" | "list">("radial");
+  let showStats = $state(true);
   const VIEW_STORAGE_KEY = "evejs.fitting.view";
 
   /** Which socket the player has selected; its actions show beneath the ring. */
@@ -2825,8 +2827,11 @@
        expanded), its label 22 in, a white 0.05 fill, its header content shown expanded or not
        (hideHeaderContentOnMaximize False), 4 below each; the column PANEL_WIDTH_RIGHT 280 wide. -->
   <div class="fit-stats">
+    <button type="button" class="minor" aria-expanded={showStats} data-ui-pointer={FITTING_POINTERS.stats}
+      onclick={() => { showStats = !showStats; }}>Stats</button>
+    <div style:display={showStats ? "contents" : "none"}>
     <details class="fit-sec" open>
-      <summary class="fit-sec-head">
+      <summary class="fit-sec-head" data-ui-pointer={FITTING_POINTERS.capacitor}>
         <span class="fit-sec-name">Capacitor</span>
         {#if stats.capacitor.simulator}
           <span
@@ -2888,7 +2893,7 @@
     </details>
 
     <details class="fit-sec" open={!retail}>
-      <summary class="fit-sec-head">
+      <summary class="fit-sec-head" data-ui-pointer={FITTING_POINTERS.offense}>
         <span class="fit-sec-name">Offense</span>
         {#if clientOffense}
           <span class="fit-sec-headline">{clientOffense.header}</span>
@@ -2938,7 +2943,7 @@
     </details>
 
     <details class="fit-sec" open={!retail}>
-      <summary class="fit-sec-head">
+      <summary class="fit-sec-head" data-ui-pointer={FITTING_POINTERS.defense}>
         <span class="fit-sec-name">Defense</span>
         {#if stats.defense}
           <span class="fit-sec-headline">{defenseWord("UI/Fitting/FittingWindow/ColoredEffectiveHp", { effectiveHp: Math.trunc(stats.defense.effectiveHp) })}</span>
@@ -3072,7 +3077,7 @@
     </details>
 
     <details class="fit-sec" open={!retail}>
-      <summary class="fit-sec-head">
+      <summary class="fit-sec-head" data-ui-pointer={FITTING_POINTERS.targeting}>
         <span class="fit-sec-name">Targeting</span>
         {#if stats.defense || retail}
           <span class="fit-sec-headline">{knownWord(stats.targeting.maxTargetRange, (v) => shipWord("UI/Fitting/FittingWindow/TargetingHeader", { maxRange: v / 1000.0 }))}</span>
@@ -3119,7 +3124,7 @@
     </details>
 
     <details class="fit-sec" open={!retail}>
-      <summary class="fit-sec-head">
+      <summary class="fit-sec-head" data-ui-pointer={FITTING_POINTERS.navigation}>
         <span class="fit-sec-name">Navigation</span>
         {#if stats.defense || retail}
           <span class="fit-sec-headline">{knownWord(stats.navigation.maxVelocity, (v) => shipWord("UI/Fitting/FittingWindow/ColoredMaxVelocity", { maxVelocity: v }))}</span>
@@ -3167,7 +3172,7 @@
            controller has one, else the fighters'; fighterPanel.UpdateFighterStats and SetFighterDpsText): the squadrons
            in the tubes' damage a second, how many are full and how many short of full. -->
       <details class="fit-sec" open={!retail}>
-        <summary class="fit-sec-head">
+        <summary class="fit-sec-head" data-ui-pointer={FITTING_POINTERS.fighters}>
           <span class="fit-sec-name">{offenseWord("UI/Common/Fighters")}</span>
           <span class="fit-sec-headline">{offenseWord("UI/Fitting/FittingWindow/DpsLabel", { dps: simulation.fighterDps })}</span>
         </summary>
@@ -3178,7 +3183,7 @@
       </details>
     {:else}
     <details class="fit-sec" open={!retail} bind:this={dronesSection}>
-      <summary class="fit-sec-head">
+      <summary class="fit-sec-head" data-ui-pointer={FITTING_POINTERS.drones}>
         <span class="fit-sec-name">Drones</span>
         {#if clientDrones}
           <span class="fit-sec-headline">{clientDrones.header}</span>
@@ -3261,6 +3266,7 @@
       <img alt="" src="/client-res/ui/texture/classes/multisell/multibuy.png" />
     </div>
   {/if}
+    </div>
   </div>
 {/snippet}
 
@@ -3563,7 +3569,7 @@
       <div class="fit-stage">
         <!-- The slim left toolbar: Fitting (current) and Cargo. -->
         <nav class="fit-toolbar" aria-label="Fitting window views">
-          <button type="button" class="fit-tool active" aria-pressed="true" title="Fitting"
+          <button type="button" class="fit-tool active" data-ui-pointer={FITTING_POINTERS.equipment} aria-pressed="true" title="Fitting"
             onclick={() => chooseView("radial")} aria-label="Fitting">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none"
               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -3769,6 +3775,7 @@
                   draggable="true"
                   ondragstart={(event) => startFittingSourceDrag(event, "activeShip")}
                   class="fit-simulate"
+                  data-ui-pointer={FITTING_POINTERS.simulate}
                   class:simulating={simulation !== null}
                   title={simulateHint}
                   aria-pressed={simulation !== null}

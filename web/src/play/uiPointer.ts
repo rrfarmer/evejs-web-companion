@@ -17,6 +17,19 @@ export const INVENTORY_POINTERS = {
   viewMode: "unique_UI_inventoryListView",
 } as const;
 
+export const FITTING_POINTERS = {
+  equipment: "unique_UI_fittingEquipment",
+  simulate: "unique_UI_simulateShip",
+  stats: "unique_UI_fittingStats",
+  capacitor: "unique_UI_fittingCap",
+  offense: "unique_UI_fittingOffense",
+  defense: "unique_UI_fittingDefense",
+  targeting: "unique_UI_fittingTargeting",
+  navigation: "unique_UI_fittingNavigation",
+  drones: "unique_UI_fittingDrones",
+  fighters: "unique_UI_fittingFighters",
+} as const;
+
 export const INDUSTRY_TAB_POINTERS = {
   blueprints: "unique_UI_industryBlueprintsTab",
   facilities: "unique_UI_industryFacilitiesTab",
