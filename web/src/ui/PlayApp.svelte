@@ -219,6 +219,7 @@
   import NamePopup from "./NamePopup.svelte";
   import { compressItemsInSpace, compressibleTypes, HARVESTABLE_ORE_HOLDS } from "./compressInSpace.ts";
   import type { ContactAction } from "./contactAction.ts";
+  import type { ContactScope, NamedAddressBook } from "../bridge/contacts.ts";
   import SafeLogoffTimer from "./SafeLogoffTimer.svelte";
   import type { MySovHub, SovHubDetails, SovHubExtras } from "../app/flow.ts";
 
@@ -248,7 +249,13 @@
   let session = $state<Session | null>(null);
   // the Pilot submenu's Add Contact / Edit Contact: the address book's contactmanagement window
   let pilotContact = $state.raw<ContactAction | null>(null);
-  let guestCorporationContact = $state.raw<{ readonly sessionID: Session["id"]; readonly actions: readonly ContactAction[]; readonly assertCurrent: () => void } | null>(null);
+  type GuestContactScope = Exclude<ContactScope, "contact">;
+  let guestOrganizationContact = $state.raw<{
+    readonly sessionID: Session["id"];
+    readonly scope: GuestContactScope;
+    readonly actions: readonly ContactAction[];
+    readonly assertCurrent: () => void;
+  } | null>(null);
   /** menuFunctions.SetName's NamePopup for a thing in space (UI/Menusvc/SetName, TypeInNewName, at most 100). */
   let namingItem = $state.raw<{ itemID: number; value: string } | null>(null);
   /** playerOwned.EnterShipPassword open (the ship menu's Enter Starbase Forcefield Password). */
@@ -3097,42 +3104,52 @@
     const online = s.store.station.get().online;
     if (!online || !guests.length) return [];
     const me = online.characterID;
-    const corporateBook = (BigInt(online.corpRole ?? "0") & (1n | 17179869184n)) !== 0n
-      && guests.some(guest => !isNpcOwner(guest.characterID))
-      ? s.flow.addressBook("corpcontact").catch(() => null)
-      : null;
+    const contactTargets = guests.map(guest => guest.characterID).filter(id => !isNpcOwner(id));
+    const diplomat = contactTargets.length > 0 && (BigInt(online.corpRole ?? "0") & (1n | 17179869184n)) !== 0n;
     const current = () => {
       const pilot = s.store.station.get().online;
-      return session?.id === s.id && pilot?.characterID === me && pilot.corporationID === online.corporationID && pilot.corpRole === online.corpRole;
+      return session?.id === s.id && pilot?.characterID === me && pilot.corporationID === online.corporationID
+        && pilot.allianceID === online.allianceID && pilot.corpRole === online.corpRole;
     };
-    const corporationContacts = async (): Promise<ContextEntry[]> => {
-      const book = await corporateBook;
+    const contactEntries = (scope: GuestContactScope, book: NamedAddressBook | null): ContextEntry[] => {
       if (!book || !current()) return [];
-      const ids = guests.map(guest => guest.characterID).filter(id => !isNpcOwner(id));
-      const saved = ids.filter(id => book.contacts.some(contact => contact.contactID === id));
+      const alliance = scope === "alliancecontact";
+      const orgKey = alliance ? "Alliance" : "Corp";
+      const orgLabel = alliance ? "Alliance" : "Corporation";
+      const saved = contactTargets.filter(id => book.contacts.some(contact => contact.contactID === id));
       const labels = [
-        ["AddCorpContact", "Add Corporation Contact", "manage", ids.filter(id => !saved.includes(id))],
-        ["RemoveCorpContact", "Remove Corporation Contact", "remove", saved],
-        ["EditCorpContact", "Edit Corporation Contact", "manage", saved],
+        ["Add", "manage", contactTargets.filter(id => !saved.includes(id))],
+        ["Remove", "remove", saved],
+        ["Edit", "manage", saved],
       ] as const;
-      s.flow.requestWords(labels.map(([key]) => `UI/PeopleAndPlaces/${key}`));
-      return labels.flatMap(([key, fallback, kind, targets]) => {
+      const wordKey = (verb: string) => `UI/PeopleAndPlaces/${verb}${orgKey}Contact`;
+      s.flow.requestWords(labels.map(([verb]) => wordKey(verb)));
+      return labels.flatMap(([verb, kind, targets]) => {
         if (!targets.length) return [];
-        const title = plainText(s.store.words.get().templates[`UI/PeopleAndPlaces/${key}`] ?? fallback);
+        const title = plainText(s.store.words.get().templates[wordKey(verb)] ?? `${verb} ${orgLabel} Contact`);
         return [{
           label: targets.length > 1 ? `${title} (${targets.length})` : title,
           run: () => {
             if (!current()) return;
             const names = s.store.names.get().resolved;
-            guestCorporationContact = {
+            guestOrganizationContact = {
               sessionID: s.id,
+              scope,
               actions: targets.map(ownerID => ({ kind, ownerID, name: resolvedName(names, "owner", ownerID, String(ownerID)), book })),
-              assertCurrent: () => { if (!current()) throw new Error("Corporation contact access changed."); },
+              assertCurrent: () => { if (!current()) throw new Error(`${orgLabel} contact access changed.`); },
             };
           },
         }];
       });
     };
+    const organizationContacts = diplomat ? Promise.all([
+      s.flow.addressBook("corpcontact").catch(() => null),
+      online.allianceID ? s.flow.saveForAllianceOffered().then(offered => offered && current()
+        ? s.flow.addressBook("alliancecontact") : null).catch(() => null) : null,
+    ]).then(([corporation, alliance]) => [
+      ...contactEntries("corpcontact", corporation),
+      ...contactEntries("alliancecontact", alliance),
+    ]) : [];
     if (guests.length < 2) {
       const guest = guests[0];
       if (!guest) return [];
@@ -3146,9 +3163,9 @@
         if (book) cache.book = book;
         cache.invitable.set(guest.characterID, rooms);
       }
-      const contactEntries = await corporationContacts();
+      const entries = await organizationContacts;
       if (!current()) return [];
-      return pilotMenu(s, guest.characterID, guest, true, contactEntries).sub ?? [];
+      return pilotMenu(s, guest.characterID, guest, true, entries).sub ?? [];
     }
     const ids = guests.map(guest => guest.characterID);
     const pilotIDs = ids.filter(id => !isNpcOwner(id));
@@ -3165,14 +3182,14 @@
     const withCount = (label: string, count: number) => count > 1 ? `${label} (${count})` : label;
     const fleetKey = inFleet ? "UI/Fleet/InvitePilotToFleet" : "UI/Fleet/FormFleetWith";
     s.flow.requestWords([fleetKey, "UI/Commands/CapturePortrait", "UI/Commands/ShowInfo"]);
-    const contactEntries = await corporationContacts();
+    const entries = await organizationContacts;
     if (!current()) return [];
     return [
       { label: withCount(word("UI/Commands/ShowInfo", "Show Info"), ids.length), info: true, run: () => {
         for (const characterID of ids) showInfo({ kind: "character", characterID }, { new: true });
       } },
       null,
-      ...contactEntries,
+      ...entries,
       null,
       ...(pilotIDs.length ? [{ label: withCount(word("UI/Commands/CapturePortrait", "Capture Portrait"), pilotIDs.length), run: () => downloadPilotPortraits(s, pilotIDs) }] : []),
       ...(canInvite && invited.length ? [{ label: withCount(word(fleetKey, inFleet ? "Invite Pilot to Fleet" : "Form Fleet With..."), inFleet ? invited.length : pilotIDs.length),
@@ -3181,7 +3198,7 @@
   }
 
   function pilotMenu(s: Session, characterID: number, affiliation?: { corporationID: number | null; allianceID: number | null }, inLobby = false,
-    corporationContacts: readonly ContextEntry[] = []): ContextEntry {
+    organizationContacts: readonly ContextEntry[] = []): ContextEntry {
     const cache = pilotMenuData(s);
     // AddContactMenu: Edit Contact where the pilot is in the address book (IsInAddressBook), else Add Contact
     if (!inLobby && !cache.book) void s.flow.addressBook("contact").then((book) => { cache.book = book; }).catch(() => {});
@@ -3309,7 +3326,7 @@
       return { path: "UI/Common/Pilot", label: w("UI/Common/Pilot", `Pilot (${name})`, { character: characterID }), icon: "res:/UI/Texture/eveicon/system_icons/person_16px.png",
         sub: inLobby
           ? [showInfoEntry, null, ...fleetSubmenu, null, ...(director ? [] : [memberDetailsEntry]), null,
-            bountyEntry, null, ...corporationContacts, null, portraitEntry, ...formFleetEntry, null, ...(director ? [memberDetailsEntry] : [])]
+            bountyEntry, null, ...organizationContacts, null, portraitEntry, ...formFleetEntry, null, ...(director ? [memberDetailsEntry] : [])]
           : [showInfoEntry, null, memberDetailsEntry, null, bountyEntry, null, portraitEntry, ...fleetSubmenu, ...formFleetEntry] };
     }
     const guest = inLobby && !isNpcOwner(characterID)
@@ -3352,7 +3369,7 @@
       // OfferDuelMenuEntry checks solarsystemid, which is empty while docked and resolves to zero security.
       sub: inLobby
         ? [showInfoEntry, null, ...fleetSubmenu, null, moneyEntry, ...tradeEntries, ...(sameCorp && !director ? [memberDetailsEntry] : []), null,
-          ...(blocked ? [blockEntry] : []), bountyEntry, null, ...contacts, ...(blocked ? [] : [blockEntry]), ...corporationContacts, null,
+          ...(blocked ? [blockEntry] : []), bountyEntry, null, ...contacts, ...(blocked ? [] : [blockEntry]), ...organizationContacts, null,
           ...socialEntries, ...formFleetEntry, null, ...invite, null, ...(sameCorp && director ? [memberDetailsEntry] : [])]
         : [showInfoEntry, null, moneyEntry, null, bountyEntry, null, ...contacts, blockEntry, null,
           ...socialEntries, ...invite, ...fleetSubmenu, ...formFleetEntry, null, duelEntry],
@@ -5038,16 +5055,16 @@
     {@const action = pilotContact}
     <ErrorBoundary name="Contact"><ContactActionDialog store={session.store} flow={session.flow} {action} done={() => (pilotContact = null)} /></ErrorBoundary>
   {/if}
-  {#if guestCorporationContact?.sessionID === session.id}
-    {@const draft = guestCorporationContact}
+  {#if guestOrganizationContact?.sessionID === session.id}
+    {@const draft = guestOrganizationContact}
     {#each draft.actions as action (action)}
       <ErrorBoundary name="Contact">
-        <ContactActionDialog store={session.store} flow={session.flow} {action} contactType="corpcontact" current={draft.assertCurrent}
+        <ContactActionDialog store={session.store} flow={session.flow} {action} contactType={draft.scope} current={draft.assertCurrent}
           done={() => {
-            const current = guestCorporationContact;
+            const current = guestOrganizationContact;
             if (!current?.actions.includes(action)) return;
             const actions = current.actions.filter(each => each !== action);
-            guestCorporationContact = actions.length ? { ...current, actions } : null;
+            guestOrganizationContact = actions.length ? { ...current, actions } : null;
           }} />
       </ErrorBoundary>
     {/each}
