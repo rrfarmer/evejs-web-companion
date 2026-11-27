@@ -32,9 +32,9 @@
   {onFocus} {onClose} {onMove} onResizeRect={onResize}>
   <div class="character-preview" data-preview-character={characterID}>
     <div class="character-preview-stage">
-      {#if appearance.model && appearance.outfit}
+      {#if appearance.model && (appearance.outfit || appearance.apparel.topmiddle)}
         <PortraitBaseHead model={appearance.model} bloodlineID={appearance.bloodlineID}
-          outfit={appearance.outfit} apparel={appearance.apparel} hairstyle={appearance.hairstyle ?? undefined} />
+          outfit={appearance.outfit ?? appearance.apparel.topmiddle} apparel={appearance.apparel} hairstyle={appearance.hairstyle ?? undefined} />
       {:else}
         <p role="status">This character’s outfit could not be displayed.</p>
       {/if}

@@ -15,7 +15,7 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
     if (!location || resource?.resGender !== nativeGender || typeof resource.resPath !== "string") continue;
     const resourcePath = resource.resPath.toLowerCase()
       .replace(/^res:\/.*\/(?:modular\/(?:female|male)|(?:female|male)\/paperdoll)\//, "");
-    const garment = /^(outer|bottomouter|feet)\/([a-z0-9_]+)\/types\/([a-z0-9_]+)\.type$/.exec(resourcePath);
+    const garment = /^(outer|topmiddle|bottomouter|feet)\/([a-z0-9_]+)\/types\/([a-z0-9_]+)\.type$/.exec(resourcePath);
     if (garment && garment[1] === location.modifierKey) {
       const [, slot, style, variant] = garment;
       const root = `/client-assets/portrait-outfit/${gender}`;

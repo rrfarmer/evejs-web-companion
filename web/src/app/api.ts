@@ -6286,7 +6286,7 @@ export async function loadPortraitBackgrounds(options: ApiOptions = {}): Promise
 }
 
 export type PortraitHead = "female" | "male";
-export type PortraitApparel = Readonly<Partial<Record<"bottomouter" | "feet", string>>>;
+export type PortraitApparel = Readonly<Partial<Record<"topmiddle" | "bottomouter" | "feet", string>>>;
 export interface CharacterPreviewAppearance {
   readonly model: PortraitHead | null;
   readonly bloodlineID: number | null;
@@ -6305,10 +6305,10 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
   const hairstyle = appearance?.hairstyle;
   const apparel = asObject(appearance?.apparel);
   const layers: Partial<Record<keyof PortraitApparel, string>> = {};
-  for (const slot of ["bottomouter", "feet"] as const) {
+  for (const slot of ["topmiddle", "bottomouter", "feet"] as const) {
     const url = apparel?.[slot];
     if (typeof url !== "string") continue;
-    const match = /^\/client-assets\/portrait-outfit\/(female|male)\/(bottomouter|feet)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(url);
+    const match = /^\/client-assets\/portrait-outfit\/(female|male)\/(topmiddle|bottomouter|feet)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(url);
     if (match && match[1] === model && match[2] === slot) layers[slot] = url;
   }
   return {

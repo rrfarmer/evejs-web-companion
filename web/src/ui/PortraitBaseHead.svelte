@@ -226,6 +226,8 @@
     type Garment = {
       model: string; diffuse: string | null; zones: string | null; normal: string | null;
       colors: [number, number, number, number][]; occludes: string[]; skinMeshes: string[];
+      skinBase?: string; bodyParts?: string[];
+      diffuseRect?: number[]; zonesRect?: number[]; normalRect?: number[];
     };
     const manifest = async (url: string): Promise<Garment> => {
       const response = await fetch(url);
@@ -237,13 +239,51 @@
       const diffuse = await texture(data.diffuse, true);
       const zones = data.colors.length === 3 ? await texture(data.zones, false) : null;
       const normal = await texture(data.normal, false);
+      const skinBase = data.skinBase ? await texture(data.skinBase, true) : null;
       if (retired) return;
       const { scene: object } = await loader.loadAsync(data.model);
       if (retired) { release(object); return; }
       group.add(object);
+      for (const path of data.bodyParts ?? []) {
+        const { scene: part } = await loader.loadAsync(path);
+        if (retired) { release(part); return; }
+        object.add(part);
+      }
       const garment = new THREE.MeshStandardMaterial({ map: diffuse, normalMap: normal, roughness: 0.68, side: THREE.DoubleSide });
       garment.onBeforeCompile = shader => {
-        if (zones && diffuse) {
+        if (skinBase && diffuse) {
+          const rect = (rect?: number[]) => new THREE.Vector4().fromArray(rect ?? [0, 0, 1, 1]);
+          shader.uniforms.shirtSkin = { value: skinBase };
+          shader.uniforms.shirtDiffuseRect = { value: rect(data.diffuseRect) };
+          shader.uniforms.shirtZonesRect = { value: rect(data.zonesRect) };
+          shader.uniforms.shirtNormalRect = { value: rect(data.normalRect) };
+          if (zones) {
+            shader.uniforms.outfitZones = { value: zones };
+            shader.uniforms.outfitColors = { value: data.colors.map(([r, g, b]) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace)) };
+          }
+          shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
+            #include <map_pars_fragment>
+            uniform sampler2D shirtSkin;
+            uniform vec4 shirtDiffuseRect;
+            uniform vec4 shirtZonesRect;
+            uniform vec4 shirtNormalRect;
+            ${zones ? "uniform sampler2D outfitZones; uniform vec3 outfitColors[3];" : ""}
+            vec2 shirtUV(vec2 uv, vec4 bounds) { return (uv - bounds.xy) / bounds.zw; }
+            float shirtClip(vec2 uv) { return step(0.0, uv.x) * step(0.0, uv.y) * step(uv.x, 1.0) * step(uv.y, 1.0); }
+          `).replace("#include <map_fragment>", `
+            vec2 shirtSampleUV = shirtUV(vMapUv, shirtDiffuseRect);
+            vec4 shirtFabric = texture2D(map, shirtSampleUV);
+            float shirtAlpha = shirtFabric.a * shirtClip(shirtSampleUV);
+            ${zones ? `
+              vec2 zoneUV = shirtUV(vMapUv, shirtZonesRect);
+              vec3 zones = texture2D(outfitZones, zoneUV).rgb * shirtClip(zoneUV);
+              float coverage = dot(zones, vec3(1.0));
+              vec3 tint = zones.r * outfitColors[0] + zones.g * outfitColors[1] + zones.b * outfitColors[2];
+              shirtFabric.rgb *= mix(outfitColors[0], tint / max(coverage, 0.001), clamp(coverage, 0.0, 1.0));
+            ` : ""}
+            diffuseColor.rgb *= mix(texture2D(shirtSkin, vMapUv).rgb, shirtFabric.rgb, shirtAlpha);
+          `);
+        } else if (zones && diffuse) {
           shader.uniforms.outfitZones = { value: zones };
           shader.uniforms.outfitColors = { value: data.colors.map(([r, g, b]) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace)) };
           shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
@@ -261,9 +301,13 @@
         if (normal) shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>",
           THREE.ShaderChunk.normal_fragment_maps.replace(
             "vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;",
-            "vec2 xy = texture2D( normalMap, vNormalMapUv ).ag * 2.0 - 1.0; vec3 mapN = vec3(xy, sqrt(max(0.0, 1.0 - dot(xy, xy))));"));
+            `${skinBase && diffuse ? `
+              vec2 normalUV = shirtUV(vNormalMapUv, shirtNormalRect);
+              vec2 xy = (texture2D(normalMap, normalUV).ag * 2.0 - 1.0) * shirtAlpha * shirtClip(normalUV);
+            ` : "vec2 xy = texture2D(normalMap, vNormalMapUv).ag * 2.0 - 1.0;"}
+            vec3 mapN = vec3(xy, sqrt(max(0.0, 1.0 - dot(xy, xy))));`));
       };
-      garment.customProgramCacheKey = () => `outfit:${Boolean(zones && diffuse)}:${Boolean(normal)}`;
+      garment.customProgramCacheKey = () => `outfit:${Boolean(zones && diffuse)}:${Boolean(normal)}:${Boolean(skinBase)}`;
       const original = new Set<THREE.Material>();
       object.traverse(node => {
         if (!(node instanceof THREE.Mesh)) return;
@@ -275,7 +319,7 @@
     };
     void (async () => {
       const outer = await manifest(source);
-      if (!outer.occludes.includes("topouter")) throw new Error("This outfit requires an additional top layer");
+      if (!outer.skinBase && !outer.occludes.includes("topouter")) throw new Error("This outfit requires an additional top layer");
       const worn = [outer];
       const occludes = new Set(outer.occludes);
       for (const slot of ["bottomouter", "feet"] as const) {

@@ -13,7 +13,7 @@ def observe(gender, outfit, hair, apparel=()):
                       if info.gender == gender and info.bloodlineID == 8), None)
     if candidate is None:
         raise RuntimeError('No reference character has the selected paper-doll gender')
-    modifiers = [(10, outfit), (5, hair)] + list(apparel)
+    modifiers = ([(10, outfit)] if outfit is not None else []) + [(5, hair)] + list(apparel)
     dna = utillib.KeyVal(sculpts=[], colors=[], modifiers=[ModifierRow(slot, resource, 0) for slot, resource in modifiers])
     try:
         wnd = PreviewCharacterWnd.Open(charID=candidate, dna=dna)
@@ -31,7 +31,7 @@ def observe(gender, outfit, hair, apparel=()):
             raise RuntimeError('Character preview did not report bounds')
         bounds = [list(point) for point in measured]
         result = dict(station=session.stationid, characterID=candidate, windowID=wnd.windowID, outfit=outfit,
-                      resource=cfg.paperdollResources.Get(outfit).resPath,
+                      resource=cfg.paperdollResources.Get(outfit).resPath if outfit is not None else None,
                       apparel=[dict(slot=slot, resource=cfg.paperdollResources.Get(resource).resPath)
                                for slot, resource in apparel],
                       minSize=wnd.default_minSize, bounds=bounds, target=list(camera.atPosition),
@@ -48,4 +48,5 @@ def observe(gender, outfit, hair, apparel=()):
 
 
 result = dict(female=observe(0, 15525, 407), male=observe(1, 15555, 127),
-              layered=observe(0, 2225, 407, ((25, 236), (22, 298))))
+              layered=observe(0, 2225, 407, ((25, 236), (22, 298))),
+              shirt=observe(0, None, 407, ((26, 3529), (25, 236), (22, 298))))
