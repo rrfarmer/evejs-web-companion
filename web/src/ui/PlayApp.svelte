@@ -3119,8 +3119,8 @@
     };
     const expelEntry = expel ? [{
       label: expel.multiple ? word("ExpelCorpMembers", "Expel Members") : word("ExpelCorpMember", "Expel Member"),
-      sub: [expel.multiple ? action("ConfirmExpelMembers", "Confirm Expulsion", expel.confirm)
-        : action("ConfirmExpelMember", "Confirm Expulsion", expel.confirm)],
+      sub: [expel.multiple ? action("ConfirmExpelMembers", "Confirm Expel Members", expel.confirm, expel.targetCount)
+        : action("ConfirmExpelMember", "Confirm Expel Member", expel.confirm)],
     }] : [];
     return {
       other: [

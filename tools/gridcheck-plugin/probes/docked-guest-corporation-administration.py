@@ -76,6 +76,13 @@ paths = [
 ]
 award_path = 'UI/Corporations/Common/AwardCorpMemberDecoration'
 multi_award = presented_entries(MergeMenus([[[MenuLabel(award_path), lambda: None, [pilot_id]]] for pilot_id in guests]))
+expel_path = 'UI/Corporations/Common/ExpelCorpMembers'
+confirm_expel_path = 'UI/Corporations/Common/ConfirmExpelMembers'
+multi_expel = MergeMenus([[[MenuLabel(expel_path), [[MenuLabel(confirm_expel_path), lambda: None, [pilot_id]]]]]
+                          for pilot_id in guests])
+expel_submenu = next((entry[1] for entry in multi_expel if entry and entry[0][0] == expel_path), None)
+expel_confirmation = presented_entries(expel_submenu) if expel_submenu else []
 result = {'pilot': session.charid, 'station': session.stationid, 'structure': session.structureid,
           'corporationRole': str(session.corprole), 'rows': rows, 'multiAward': multi_award,
+          'multiExpelConfirmation': expel_confirmation,
           'presented': presented_entries([menu_entry(path) for path in paths])}

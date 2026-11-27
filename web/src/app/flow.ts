@@ -3166,7 +3166,7 @@ export interface AppFlow {
     readonly roles: readonly string[]; readonly acceptsRoles: boolean | null;
   }>;
   setMembershipAllowsRoles(allow: boolean): Promise<boolean>;
-  corporationExpelMenu(ownerIDs: readonly number[]): Promise<{ readonly multiple: boolean; readonly confirm: () => Promise<void> } | null>;
+  corporationExpelMenu(ownerIDs: readonly number[]): Promise<{ readonly multiple: boolean; readonly targetCount: number; readonly confirm: () => Promise<void> } | null>;
   corporationCEOMenu(ownerIDs: readonly number[]): Promise<{ readonly confirm: () => Promise<void> } | null>;
   readonly corporationCEOChoice: ReadableSignal<CorporationCEOChoice | null>;
   selectCorporationCEO(n: number, index: number): void;
@@ -22077,7 +22077,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   function cannotKickCorporationMember(): void {
     sayDialog("CrpAccessDenied", { type: "dict", entries: [["reason", [101, "UI/Corporations/BaseCorporationUI/CannotKickMember"]]] }, "You cannot remove this corporation member.");
   }
-  async function corporationExpelMenu(ownerIDs: readonly number[]): Promise<{ readonly multiple: boolean; readonly confirm: () => Promise<void> } | null> {
+  async function corporationExpelMenu(ownerIDs: readonly number[]): ReturnType<AppFlow["corporationExpelMenu"]> {
     // OfferExpelCorpMember151-160: native menu merge keeps only eligible peer entries.
     if (!store.station.get().online || (BigInt(store.station.get().online?.corpRole ?? "0") & 1n) === 0n) return null;
     const scope = captureMemberOperation(), multiple = ownerIDs.length > 1;
@@ -22085,7 +22085,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (members.corporationID !== scope.online.corporationID) throw new BridgeCallError("SESSION_REQUEST_RETIRED", "The corporation changed while its menu was being read.", 0);
     const targets = ownerIDs.filter(id => id !== scope.online.characterID && !isNpcOwner(id) && members.memberIDs.includes(id));
     if (!targets.length) return null;
-    return { multiple, confirm: async () => {
+    return { multiple, targetCount: targets.length, confirm: async () => {
       scope.current();
       try {
         const director = (BigInt(store.station.get().online?.corpRole ?? "0") & 1n) !== 0n;
