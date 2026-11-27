@@ -62,9 +62,10 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { AgentRow, SpaceEntity } from "../store/types.ts";
 
-  let { store: pilotStore, flow: pilotFlow, subject: windowSubject, corporationResult: windowCorporationResult, shipLiveOnly = false }: {
+  let { store: pilotStore, flow: pilotFlow, subject: windowSubject, corporationResult: windowCorporationResult, shipLiveOnly = false, toggleShipSkinr }: {
     store: ClientStore; flow: AppFlow; subject: ReadableSignal<InfoSubject | null>;
     corporationResult?: ReadableSignal<CorporationInfoRead | null | undefined> | null; shipLiveOnly?: boolean;
+    toggleShipSkinr?: () => void;
   } = $props();
   // A component belongs to one native window for its lifetime. Capture these
   // handles so chrome/focus changes cannot become dependencies of its reads.
@@ -144,15 +145,23 @@
   const typeID = $derived(subjectTypeID($subject));
   // infoContentBase.construct_layout: techicon (16 x 16, RELATIVE at 0, 0 of the main icon's parent) set by
   // uix.GetTechLevelIcon for a type's icon (and a blueprint's), hidden for the rest
-  let headMetaGroup = $state<{ typeID: number; metaGroupID: number | null } | null>(null);
+  let headFacts = $state<{ typeID: number; metaGroupID: number | null; groupID: number | null } | null>(null);
+  const openSkinrLabel = "UI/Personalization/ShipSkins/OpenSKINR";
+  const showSkinrAction = $derived($subject?.kind === "type" && headFacts?.typeID === typeID &&
+    (headFacts.groupID === 4725 || headFacts.groupID === 4726)); // Sequence Binders and Ship SKIN Design Components.
   $effect(() => {
     const t = typeID;
     if (t === null || t === undefined) return;
     let live = true;
-    void pilotFlow.typeFacts([t]).then((m) => { if (live) headMetaGroup = { typeID: t, metaGroupID: m?.get(t)?.metaGroupID ?? null }; }).catch(() => {});
+    void pilotFlow.typeFacts([t]).then((m) => {
+      if (!live) return;
+      const facts = m?.get(t);
+      headFacts = { typeID: t, metaGroupID: facts?.metaGroupID ?? null, groupID: facts?.groupID ?? null };
+    }).catch(() => {});
     return () => { live = false; };
   });
-  const headTech = $derived(headMetaGroup !== null && headMetaGroup.typeID === typeID ? techLevelIcon(headMetaGroup.metaGroupID) : null);
+  $effect(() => { if (showSkinrAction && toggleShipSkinr) flow.requestWords([openSkinrLabel]); });
+  const headTech = $derived(headFacts !== null && headFacts.typeID === typeID ? techLevelIcon(headFacts.metaGroupID) : null);
   // 3698585 type group 1408: Custom gate 1 (unpublished) and Ansiblex Jump Bridge.
   const jumpBridge = $derived(typeID === 35837 || typeID === 35841);
   const usedWithLabel = "UI/InfoWindow/TabNames/UsedWith";
@@ -1770,9 +1779,15 @@
       <InfoShipRequirements {store} {flow} {typeID} />
     {/if}
   {/if}
+  {#if showSkinrAction && toggleShipSkinr}
+    <footer class="info-actions">
+      <button type="button" onclick={toggleShipSkinr}>{plainText(word(openSkinrLabel)) || "Open SKINR"}</button>
+    </footer>
+  {/if}
 </section>
 
 <style>
+  .info-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
   /* infoContentBase techicon: 16 x 16 at the main icon's top left */
   .info-head-icon { position: relative; display: inline-block; flex: none; }
   .info-head-tech { position: absolute; left: 0; top: 0; width: 16px; height: 16px; max-width: none; z-index: 1; pointer-events: auto; }

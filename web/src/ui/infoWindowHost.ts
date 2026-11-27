@@ -7,4 +7,5 @@ export interface InfoWindowHost {
   topZ(): number;
   reveal(): void;
   closeTab?(id: TabID): void;
+  toggleShipSkinr?(): void;
 }

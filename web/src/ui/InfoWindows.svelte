@@ -86,7 +86,7 @@
         {@const expanded = w.w >= 640 && !host?.mobile}
         <ShipInfoContent store={session.store} flow={session.flow} subject={w.subject} typeID={w.entry.identity.typeID} {expanded} height={w.h - 46} requirementsRequest={w.requirementsRequest} skinsRequest={w.skinsRequest}
           active={visible && !w.minimized && (!host?.mobile || w.modal || w.id === mobileID)} />
-      {:else}<ShowInfo store={session.store} flow={session.flow} subject={w.subject} corporationResult={w.visibleCorporationResult} />{/if}
+      {:else}<ShowInfo store={session.store} flow={session.flow} subject={w.subject} corporationResult={w.visibleCorporationResult} toggleShipSkinr={host?.toggleShipSkinr} />{/if}
     </ErrorBoundary>{/if}</div>
   {/key}
 {/snippet}

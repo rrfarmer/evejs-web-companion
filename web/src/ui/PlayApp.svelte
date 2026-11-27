@@ -1026,6 +1026,7 @@
     topZ: () => topZ(),
     reveal: () => {},
     closeTab: closePlayWindow,
+    toggleShipSkinr: toggleShipSkinrWindow,
   };
   // Show Info asked anywhere on the page (a link in a panel, the radial menu) opens in the pilot's info windows, as the
   // app's own does (App.svelte).
@@ -3025,9 +3026,32 @@
     const tab = WINDOW_COMMANDS[cmd];
     if (!tab) return;
     e.preventDefault();
+    if (tab === "shipSkinr") {
+      toggleShipSkinrWindow();
+      return;
+    }
     const shown = wins.find((w) => w.id === tab);
     if (shown) closePlayWindow(tab);
     else wins = openFly(wins, tab);
+  }
+
+  function toggleShipSkinrWindow(): void {
+    const skinr = wins.find(w => w.id === "shipSkinr");
+    if (!skinr || skinr.minimized) {
+      open("shipSkinr");
+      return;
+    }
+    const window = windowsEl?.querySelector('[data-win="shipSkinr"]');
+    const bounds = window?.getBoundingClientRect();
+    // ToggleOpenClose raises a window when a higher window overlaps it.
+    const obscured = bounds && [...(windowsEl?.querySelectorAll(".win, .pw") ?? [])].some(other => {
+      if (other === window || Number(getComputedStyle(other).zIndex) <= skinr.z) return false;
+      const rect = other.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0 && rect.left < bounds.right && rect.right > bounds.left &&
+        rect.top < bounds.bottom && rect.bottom > bounds.top;
+    });
+    if (obscured) open("shipSkinr");
+    else closePlayWindow("shipSkinr");
   }
 
   /**
