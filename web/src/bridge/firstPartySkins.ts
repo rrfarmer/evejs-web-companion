@@ -1,4 +1,4 @@
-import { isListValue, readKeyVal, unwrapLong } from "./wire.ts";
+import { isListValue, readKeyVal, unwrapBool, unwrapLong } from "./wire.ts";
 
 export interface FirstPartySkin {
   readonly skinID: number;
@@ -10,6 +10,11 @@ export interface FirstPartySkin {
 
 export interface CharacterSkin extends FirstPartySkin {
   readonly types: readonly number[];
+}
+
+export interface CharacterSkinLicense {
+  readonly expires: bigint | null;
+  readonly singleUse: boolean;
 }
 
 let collection: Promise<readonly CharacterSkin[]> | undefined;
@@ -45,13 +50,16 @@ export function decodeFirstPartySkinLicenses(answer: unknown): Set<number> {
   return new Set(decodeCharacterSkinLicenses(answer).keys());
 }
 
-export function decodeCharacterSkinLicenses(answer: unknown): Map<number, bigint | null> {
+export function decodeCharacterSkinLicenses(answer: unknown): Map<number, CharacterSkinLicense> {
   const rows = isListValue(answer) ? answer.items : Array.isArray(answer) ? answer : null;
   if (!rows) throw new Error("The SKIN licenses could not be read.");
-  const licenses = new Map<number, bigint | null>();
+  const licenses = new Map<number, CharacterSkinLicense>();
   for (const row of rows) {
     const id = Number(unwrapLong(readKeyVal(row, "skinID")) ?? 0n);
-    if (Number.isSafeInteger(id) && id > 0) licenses.set(id, unwrapLong(readKeyVal(row, "expires")));
+    if (Number.isSafeInteger(id) && id > 0) licenses.set(id, {
+      expires: unwrapLong(readKeyVal(row, "expires")),
+      singleUse: unwrapBool(readKeyVal(row, "isSingleUse")) === true,
+    });
   }
   return licenses;
 }

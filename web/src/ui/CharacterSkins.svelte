@@ -2,12 +2,13 @@
   import { onMount } from "svelte";
   import { bridgeAsk } from "../app/api.ts";
   import { isSessionLost, type AppFlow } from "../app/flow.ts";
+  import { unixMsToFiletime } from "../bridge/activity.ts";
   import { formatTemplate, plainText, type TemplateArguments } from "../bridge/clientWords.ts";
-  import { decodeCharacterSkinLicenses, loadCharacterSkinCatalog, type CharacterSkin } from "../bridge/firstPartySkins.ts";
+  import { decodeCharacterSkinLicenses, loadCharacterSkinCatalog, type CharacterSkin, type CharacterSkinLicense } from "../bridge/firstPartySkins.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
+  import { intervalParts, shortWrittenInterval, SHORT_INTERVAL_WORD_LABELS } from "../bridge/timeInterval.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
-  import { CHARACTER_SHEET_POINTERS } from "../play/uiPointer.ts";
   import ShipInfoPreview from "./ShipInfoPreview.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { showInfo } from "./showInfo.ts";
@@ -22,25 +23,49 @@
     { id: "inactive", key: labelRoot + "Skins/ShowInactiveSkins", text: "Only show SKINs I don't have" },
   ] as const;
   const labels = { counter: "UI/Skins/YouHaveNumShipSkins", group: labelRoot + "SkinsGroupWithCount",
-    active: labelRoot + "Skins/Active", permanent: "UI/Skins/SkinDurationPermanent",
+    active: "Achievements/UI/active", permanent: "UI/Skins/SkinDurationPermanent",
+    singleUse: "UI/Skins/SkinDurationSingleUse", singleUseCountdown: "UI/Skins/SkinDurationSingleUseLicenseExpiresIn",
+    singleUseExpired: "UI/Skins/SkinDurationSingleUseLicenseExpired", countdown: "UI/Skins/LicenseExpiresIn",
+    expired: "UI/Skins/ExpiredLicense",
     empty: "UI/SkillQueue/NoResultsForFilters", filter: "UI/Inventory/Filter" };
   type Mode = typeof options[number]["id"];
   function key() { return `evejs.user.${store.session.get().accountID}.characterSheetSkins`; }
   let mode = $state<Mode>("all");
   let filter = $state("");
   let rows = $state.raw<readonly CharacterSkin[]>([]);
-  let licenses = $state.raw<Map<number, bigint | null>>(new Map());
+  let licenses = $state.raw<ReadonlyMap<number, CharacterSkinLicense>>(new Map());
   let loading = $state(true);
   let error = $state("");
   let expanded = $state<number | null>(null);
   let preview = $state<{ typeID: number; skin: CharacterSkin } | null>(null);
   let readSequence = 0;
+  let nowMs = $state(Date.now());
+  let clockOffsetMs = $state(0);
+  const timed = $derived([...licenses.values()].some(license => license.expires !== null));
+
+  $effect(() => {
+    if (!timed || expanded === null) return;
+    nowMs = Date.now();
+    const timer = setInterval(() => { nowMs = Date.now(); }, 1000);
+    return () => clearInterval(timer);
+  });
 
   const word = (label: string, fallback: string, args: TemplateArguments = {}) =>
     plainText(formatTemplate($words.templates[label] || fallback, args, { nameOf: () => "" }));
   const skinName = (skin: CharacterSkin) => plainText($words.templates[`#${skin.nameID}`] || `SKIN ${skin.nameID}`);
   const hullName = (typeID: number) => resolvedName($names.resolved, "type", typeID, `Ship ${typeID}`);
   const compareNames = (a: string, b: string) => a < b ? -1 : Number(a > b);
+  function duration(license: CharacterSkinLicense): string {
+    if (license.expires === null) return license.singleUse ? word(labels.singleUse, "Volatile") : word(labels.permanent, "Permanent");
+    const remaining = license.expires - unixMsToFiletime(nowMs + clockOffsetMs);
+    if (remaining < 0n) return license.singleUse ? word(labels.singleUseExpired, "Volatile - Expired") : word(labels.expired, "Expired");
+    const interval = shortWrittenInterval(remaining, $words.templates, "day", "minute") ??
+      (intervalParts(remaining, "day", "minute", true)?.filter(([, amount]) => amount > 0n)
+        .map(([unit, amount]) => `${amount}${unit[0]}`).join(" ") || "0m");
+    return license.singleUse ? word(labels.singleUseCountdown, "Volatile - Expires in {expires}", { expires: interval }) :
+      word(labels.countdown, "Expires in {expires}", { expires: interval });
+  }
+
   const owned = $derived(rows.reduce((count, skin) => count + (licenses.has(skin.skinID) ? skin.types.length : 0), 0));
   const groups = $derived.by(() => {
     const query = filter.trim().toLowerCase();
@@ -48,7 +73,7 @@
     const prefer = (candidate: CharacterSkin, incumbent: CharacterSkin) => {
       if (!licenses.has(candidate.skinID)) return false;
       if (!licenses.has(incumbent.skinID)) return true;
-      const nextExpiry = licenses.get(candidate.skinID), oldExpiry = licenses.get(incumbent.skinID);
+      const nextExpiry = licenses.get(candidate.skinID)?.expires, oldExpiry = licenses.get(incumbent.skinID)?.expires;
       return oldExpiry != null && (nextExpiry == null || nextExpiry > oldExpiry);
     };
     for (const skin of rows) {
@@ -76,7 +101,11 @@
     error = "";
     try {
       const [catalog, answer] = await Promise.all([loadCharacterSkinCatalog(),
-        bridgeAsk(flow.requestOptions())("shipCosmeticsMgr", "GetLicencedSkins", [])]);
+        bridgeAsk(flow.requestOptions(), serverNowMs => {
+          if (request !== readSequence) return;
+          nowMs = Date.now();
+          clockOffsetMs = Math.trunc(serverNowMs) - nowMs;
+        })("shipCosmeticsMgr", "GetLicencedSkins", [])]);
       if (request !== readSequence) return;
       licenses = decodeCharacterSkinLicenses(answer);
       rows = catalog;
@@ -100,7 +129,7 @@
   onMount(() => {
     const saved = localStorage.getItem(key());
     mode = options.find(option => option.id === saved)?.id ?? "all";
-    flow.requestWords([...Object.values(labels), ...options.map(option => option.key)]);
+    flow.requestWords([...Object.values(labels), ...options.map(option => option.key), ...SHORT_INTERVAL_WORD_LABELS]);
     void load();
     const relevant = () => store.live.get().notifications.findLast(note =>
       note.method === "OnSkinLicenseActivated" || note.method === "OnSkinLicenseRemoved");
@@ -140,12 +169,11 @@
         {#if expanded === group.id}
           <ul>
             {#each [...group.hulls].sort((a, b) => compareNames(hullName(a[0]), hullName(b[0]))) as [typeID, skin] (typeID)}
-              {@const ownedSkin = licenses.has(skin.skinID)}
-              {@const expiry = licenses.get(skin.skinID)}
-              <li class:unlicensed={!ownedSkin} data-skin-hull={typeID} data-license-active={ownedSkin}>
+              {@const license = licenses.get(skin.skinID)}
+              <li class:unlicensed={!license} data-skin-hull={typeID} data-license-active={!!license}>
                 <button type="button" onclick={() => showInfo({ kind: "type", typeID })}>{hullName(typeID)}</button>
-                {#if ownedSkin}
-                  <span>{word(labels.active, "Active")} · {expiry ? formatTemplate("{[datetime]expiry}", { expiry: String(expiry) }, { nameOf: () => "" }) : word(labels.permanent, "Permanent")}</span>
+                {#if license}
+                  <span data-skin-duration>{word(labels.active, "Active")}: {duration(license)}</span>
                 {/if}
                 {#if skin.materialSetID}
                   <button type="button" aria-label={`Preview ${group.name} ${hullName(typeID)}`} onclick={() => (preview = { typeID, skin })}>Preview</button>

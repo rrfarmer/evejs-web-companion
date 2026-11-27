@@ -1,8 +1,10 @@
 import blue
+from cosmetics.client.cosmeticsSvc import FirstPartySkin
 from carbonui.uicore import uicore
 from eve.client.script.ui.shared.neocom.characterSheetWindow import CharacterSheetWindow, charsheet_expanded_setting
 from eve.client.script.ui.shared.neocom.charsheet import PANEL_PERSONALIZATION, PANEL_SHIPSKINS, GetPanelName, GetPanelUniqueName
 from eve.client.script.ui.shared.pointerTool.pointerChains import FindChainForPointer
+from localization import GetByLabel
 
 
 class SettingsMenu(object):
@@ -11,6 +13,23 @@ class SettingsMenu(object):
 
     def AddRadioButton(self, **attrs):
         self.options.append([attrs['text'], attrs['checked']])
+
+
+def observe_durations():
+    static = sm.GetService('cosmeticsSvc').static
+    skin = static.GetSkinByID(3288)
+    material = static.GetMaterialByID(skin.skinMaterialID)
+    now = blue.os.GetWallclockTime()
+    minute = 600000000
+    later = now + (2 * 24 * 60 + 3 * 60 + 4) * minute + minute // 2
+    soon = now + minute // 2
+    past = now - minute
+    cases = (('permanent', None, False), ('limited', later, False), ('singleUse', None, True),
+             ('timedSingleUse', later, True), ('lastMinute', soon, True), ('expired', past, False),
+             ('expiredSingleUse', past, True), ('unlicensed', None, False))
+    return dict(prefix=GetByLabel('Achievements/UI/active'), labels=dict((name,
+        FirstPartySkin(material, skin=skin, licensed=name != 'unlicensed', expires=expires,
+                       isSingleUse=single_use).GetExpiresLabel()) for name, expires, single_use in cases))
 
 
 def observe():
@@ -38,7 +57,7 @@ def observe():
         parent_tab = window.mainTabGroup.GetTabByID(PANEL_PERSONALIZATION)
         return dict(build=3698585, station=session.stationid, tabs=[GetPanelName(PANEL_PERSONALIZATION), GetPanelName(PANEL_SHIPSKINS)],
                     pointer=pointer, parent=parent_tab.uniqueUiName, chain=repr(FindChainForPointer(pointer)),
-                    counter=panel.counterText.text, options=options.options, groupCount=len(groups),
+                    counter=panel.counterText.text, options=options.options, groupCount=len(groups), durations=observe_durations(),
                     sample=[dict(label=row.label, children=[child.label for child in panel._GetSkinsSubContent(row)][:4]) for row in groups[:6]])
     finally:
         if opened:
