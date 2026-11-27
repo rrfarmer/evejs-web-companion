@@ -5,8 +5,8 @@
     "bffWritePolicy": "evejs-web-poc/src/bridgeCallPolicy.js#BRIDGE_WRITE_PAIR_KEYS"
   },
   "gatewayAllowlist": {
-    "count": 720,
-    "sha256": "318e071c8dbd1ee7c22fd95f19aa9980373c10d0bd9ef8b8b47e40909a06e3eb",
+    "count": 721,
+    "sha256": "84ece07a46496cbd63fcad6c547d1f48dd89d130003506a4187afdd824980207",
     "pairs": [
       "LPStoreMgr.GetAvailableOffersFromCorp",
       "LPStoreMgr.TakeOfferForCharacter",
@@ -668,6 +668,7 @@
       "skillHandler.GetSkills",
       "skillHandler.InjectSkillIntoBrain",
       "skillHandler.InjectSkillpoints",
+      "skillHandler.RespecCharacter",
       "skillHandler.SplitSkillInjector",
       "skillMgr.SaveNewQueue",
       "skillMgr2.GetMySkillHandler",
@@ -731,8 +732,8 @@
     ]
   },
   "bffWritePolicy": {
-    "count": 489,
-    "sha256": "2b76b3e2d8581264cb405ce6e22197c19cb389e675289d907dcc128e519dfb03",
+    "count": 490,
+    "sha256": "ab058c7556dc44fd0e2f68b9ba995a5eff208d1f87db4abbf74490d562b0e8c7",
     "pairs": [
       "LPStoreMgr.TakeOfferForCharacter",
       "LPStoreMgr.TakeOfferForCorporation",
@@ -1184,6 +1185,7 @@
       "skillHandler.InjectSkillIntoBrain",
       "skillHandler.InjectSkillpoints",
       "skillHandler.PurchaseSkills",
+      "skillHandler.RespecCharacter",
       "skillHandler.SaveNewQueue",
       "skillHandler.SplitSkillInjector",
       "skillMgr.SaveNewQueue",
@@ -1553,6 +1555,7 @@
       "skillHandler.ApplyFreeSkillPoints",
       "skillHandler.ApplyFreeSkillPointsToSkills",
       "skillHandler.PurchaseSkills",
+      "skillHandler.RespecCharacter",
       "skillHandler.SaveNewQueue",
       "slash.SlashCmd",
       "sovMgr.SetSovHubFuelAccessGroup",

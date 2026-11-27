@@ -3078,6 +3078,7 @@ const RETAIL_CALLS = Object.freeze({
   ),
   "skillHandler.GetSkillChangesForISIS": same(`${SKILL_SVC}:379`, "GetSkillHandler().GetSkillChangesForISIS(), no arguments"),
   "skillHandler.GetRespecInfo": same(`${SKILL_SVC}:802`, "GetSkillHandler().GetRespecInfo(), no arguments"),
+  "skillHandler.RespecCharacter": same("eve/client/script/ui/shared/neocom/attributes.py:268", "RespecCharacter({attributeID: points}) after the pilot confirms the allocation"),
   "skillHandler.GetFreeSkillPoints": same(`${SKILL_SVC}:852`, "GetSkillHandler().GetFreeSkillPoints(), no arguments"),
   "skillHandler.GetBoosters": same(`${SKILL_SVC}:962`, "GetSkillHandler().GetBoosters(), no arguments: asked once and kept. Recorded on Tranquility as the call the handler's bind carried."),
   "skillHandler.GetImplants": same(`${SKILL_SVC}:967`, "GetSkillHandler().GetImplants(), no arguments: the implants in the pilot's head, asked once and kept (godma's 'implants' of the character is this). Recorded on Tranquility at login."),

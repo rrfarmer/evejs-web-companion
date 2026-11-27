@@ -153,7 +153,7 @@ const FEATURE_WRITE_METHODS = freezeMethodMap({
   // books window; a page's write since 2026-10-16 (the Factory route it was kept for went with Pilot Training).
   // SaveNewQueue is the client's own saving of a queue, on its skill handler (skillQueueSvc.py 153). The game
   // port carries it; the web gateway's list has skillMgr's and not this.
-  skillHandler: ["PurchaseSkills", "SaveNewQueue"],
+  skillHandler: ["PurchaseSkills", "SaveNewQueue", "RespecCharacter"],
   // A character setting saved and deleted at the server, by the client's character settings service
   // (characterSettingsSvc.py 44 to 58). The game port carries both; the web gateway's list has neither.
   charMgr: ["SaveCharacterSetting", "DeleteCharacterSetting"],
@@ -957,6 +957,7 @@ function isBridgeWritePair(service, method) {
  *   charMgr.RemoveOwnerNote   RemoveOwnerNote(noteID): that note gone (a folder's notes deleted, a setting's spare part).
  */
 const PAGE_WRITE_PAIR_KEYS = Object.freeze([
+  "skillHandler.RespecCharacter",
   "billMgr.PayCorporationBill", "billMgr.SendAutomaticPaySettings", "allianceRegistry.PayBill",
   "invbroker.WithdrawPlexFromVault", "invbroker.DepositPlexToVault", "marketProxy.PlacePlexSellOrder",
   "ownerGroupManager.Create", "ownerGroupManager.UpdateName", "ownerGroupManager.UpdateDescription", "ownerGroupManager.Delete",

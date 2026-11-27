@@ -158,6 +158,7 @@ function createPilotSkills() {
       return "reset";
     } else if (ATTRIBUTES_AGAIN.has(method)) {
       if (method === "OnRespecInfoChanged") kept.delete("respecInfo");
+      kept.delete("attributes");
       return "attributes";
     }
     return null;

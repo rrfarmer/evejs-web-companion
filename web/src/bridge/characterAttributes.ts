@@ -11,6 +11,7 @@ export const CHARACTER_ATTRIBUTES = [
 
 export const REMAP_MIN = 17;
 export const REMAP_MAX = 27;
+export const REMAP_TOTAL = 99;
 
 export interface CharacterAttributeSnapshot {
   readonly attributes: ReadonlyMap<number, number>;

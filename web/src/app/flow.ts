@@ -4001,6 +4001,8 @@ export interface AppFlow {
   loadCharacterSheet(): Promise<void>;
   loadCharacterAttributes(): Promise<CharacterAttributeSnapshot>;
   loadCharacterAttributeOverview(): Promise<readonly CharacterAttributeOverviewRow[]>;
+  remapCharacterAttributes(attributes: Readonly<Record<number, number>>): Promise<void>;
+  readonly characterAttributesChanged: ReadableSignal<number>;
   loadHomeStationCandidates(): Promise<readonly HomeStationCandidate[]>;
   setHomeStation(candidate: HomeStationCandidate): Promise<void>;
   /**
@@ -6391,6 +6393,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const hyperNetAvailabilityChanged = createSignal(0);
   const logonSkillsTrainedSignal = createSignal<{ readonly n: number; readonly args: readonly unknown[] } | null>(null);
   const moonExtractionChanged = createSignal(0);
+  const characterAttributesChanged = createSignal(0);
   const accessGroupsChanged = createSignal(0);
   const moonFuelChanged = createSignal(0);
   const moonFracturing = createSignal<{ structureID: number; extractionID: number; endsAtMs: number } | null>(null);
@@ -7974,6 +7977,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       for (const listener of plexTransferListeners) listener(method, args);
     }
     if (method === "OnMoonExtractionUpdate") moonExtractionChanged.update(revision => revision + 1);
+    if (method === "OnRespecInfoChanged" || method === "OnServerImplantsChanged" || method === "OnServerBoostersChanged" ||
+        method === "OnJumpCloneTransitionCompleted" || method === "OnCloneDestruction") {
+      characterAttributesChanged.update(revision => revision + 1);
+    }
     if (method === "OnOwnerGroupsUpdated") accessGroupsChanged.update(revision => revision + 1);
     if (method === "OnStructureServiceChanged" || method === "OnDockingAccessChangedForCurrentSolarSystem") {
       const structureID = store.station.get().online?.structureID;
@@ -27988,6 +27995,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return characterAttributeSnapshot(attributes, remap);
   }
 
+  async function remapCharacterAttributes(attributes: Readonly<Record<number, number>>): Promise<void> {
+    await bridgeDo("skillHandler", "RespecCharacter", [{ type: "dict", entries: CHARACTER_ATTRIBUTES.map(({ id }) => [id, attributes[id]!]) }]);
+  }
+
   async function loadCharacterAttributeOverview(): Promise<readonly CharacterAttributeOverviewRow[]> {
     const [attributes, implants, boosters] = await Promise.all([
       bridgeAsk("skillHandler", "GetAttributes", []),
@@ -42217,6 +42228,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadCharacterSheet,
     loadCharacterAttributes,
     loadCharacterAttributeOverview,
+    remapCharacterAttributes,
+    characterAttributesChanged: readonlySignal(characterAttributesChanged),
     loadHomeStationCandidates,
     setHomeStation,
     loadSkillHistory,

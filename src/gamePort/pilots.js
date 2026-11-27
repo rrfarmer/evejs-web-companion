@@ -5709,6 +5709,11 @@ function createGamePortPilots({
     if (method === "SaveNewQueue") return skillsDoes(entry, () => saveOnHandler(entry, args, kwargs));
     // skillsvc.ApplyFreeSkillPoints: the points applied, with what the client's skill service does around it.
     if (method === "ApplyFreeSkillPoints") return skillsDoes(entry, () => freePointsApplied(entry, args, kwargs));
+    if (method === "RespecCharacter") return skillsDoes(entry, async () => {
+      const result = await onSkillHandler(entry, method, args, kwargs);
+      entry.skills.feed({ method: "OnRespecInfoChanged", args: [] });
+      return result;
+    });
     // skillQueueSvc.ApplyFreeSkillPointsToSkills: the points spread, and what the handler answers kept as the free
     // points left, as the client's skill service has them from then on.
     if (method === "ApplyFreeSkillPointsToSkills") {
