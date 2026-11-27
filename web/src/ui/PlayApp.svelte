@@ -225,6 +225,7 @@
   import type { ContactScope, NamedAddressBook } from "../bridge/contacts.ts";
   import SafeLogoffTimer from "./SafeLogoffTimer.svelte";
   import JournalMissionPopup from "./JournalMissionPopup.svelte";
+  import AgentsMissions from "./AgentsMissions.svelte";
   import FittedModuleRestrictions from "./FittedModuleRestrictions.svelte";
   import type { MySovHub, SovHubDetails, SovHubExtras } from "../app/flow.ts";
 
@@ -290,16 +291,23 @@
   }
   type JournalPopupWindow = WindowRect & { id: string; agentID: number; z: number; minimized: boolean; serial: number };
   let journalPopups = $state<JournalPopupWindow[]>([]);
+  let journalConversation = $state<JournalPopupWindow | null>(null);
   const FITTED_RESTRICTIONS_WINDOW = "type_list_window";
   const FITTED_RESTRICTIONS_CAPTION = "UI/Agents/Dialogue/DungeonDisallowedFittedTypesRestrictionsCaption";
   let fittedRestrictions = $state<(WindowRect & { id: string; z: number; minimized: boolean; serial: number; listID: number; nameID: number | null }) | null>(null);
   const journalWords = $derived(session?.store.words);
   const journalNames = $derived(session?.store.names);
+  const journalAgents = $derived(session?.store.agents);
   const JOURNAL_CAPTION = "UI/Agents/MissionJournalWithAgent";
+  const CONVERSATION_CAPTION = "UI/Agents/Dialogue/AgentConversationWith";
+  const CONVERSATION_AGENT_NAME = "UI/Agents/AgentEntryNameAndLevel";
+  let journalOwner = "";
   $effect(() => {
-    void session?.id;
-    void $station?.online?.characterID;
+    const owner = `${session?.id ?? ""}:${$station?.online?.characterID ?? ""}`;
+    if (owner === journalOwner) return;
+    journalOwner = owner;
     journalPopups = [];
+    journalConversation = null;
     fittedRestrictions = null;
   });
   function focusJournal(w: JournalPopupWindow): void {
@@ -339,6 +347,38 @@
     const name = resolvedName($journalNames?.resolved ?? {}, "agent", agentID, "Agent");
     const template = $journalWords?.templates[JOURNAL_CAPTION];
     return template ? plainText(formatTemplate(template, { agentID }, { nameOf: () => name })) : `Mission Journal with ${name}`;
+  }
+  setContext("openJournalConversation", (flow: AppFlow, agentID: number) => {
+    if (session?.flow !== flow) return;
+    const existing = journalConversation;
+    if (existing?.agentID === agentID) {
+      existing.serial++;
+      existing.minimized = false;
+      focusJournal(existing);
+      return;
+    }
+    const id = `journalConversation:${agentID}`;
+    const desktop = flightDesktopSize();
+    const size = keptPlace(id) ?? { x: Math.max(0, (desktop.w - 900) / 2), y: Math.max(0, (desktop.h - 650) / 2), w: 900, h: 650 };
+    journalConversation = { ...size, id, agentID, w: Math.min(desktop.w, Math.max(835, size.w)),
+      h: Math.min(desktop.h, Math.max(545, size.h)), z: topZ() + 1, minimized: false, serial: 0 };
+    activeWinKey = id;
+    flow.requestNames([{ kind: "agent", id: agentID }]);
+    flow.requestAgentRecord(agentID);
+    flow.requestWords([CONVERSATION_CAPTION, CONVERSATION_AGENT_NAME]);
+  });
+  function conversationCaption(agentID: number): string {
+    const name = resolvedName($journalNames?.resolved ?? {}, "agent", agentID, "Agent");
+    const templates = $journalWords?.templates;
+    const level = $journalAgents?.agentRecords[agentID]?.level;
+    const agentNameAndLevel = level == null ? name : formatTemplate(templates?.[CONVERSATION_AGENT_NAME] ??
+      `${name} Level ${level}`, { ownerID: agentID, level }, { nameOf: () => name });
+    return plainText(formatTemplate(templates?.[CONVERSATION_CAPTION] ?? "Agent Conversation - {agentNameAndLevel}",
+      { agentNameAndLevel }, { nameOf: () => name }));
+  }
+  function closeJournalConversation(): void {
+    if (activeWinKey === journalConversation?.id) activeWinKey = null;
+    journalConversation = null;
   }
   function openFittedRestrictions(listID: number, nameID: number | null): void {
     if (!session) return;
@@ -2728,6 +2768,11 @@
         else toggleJournalMinimize(journal);
         return true;
       }
+      if (journalConversation && activeWinKey === journalConversation.id && !journalConversation.minimized) {
+        if (close) { void playUiEvent("ui_object_close_play"); closeJournalConversation(); }
+        else toggleJournalMinimize(journalConversation);
+        return true;
+      }
       if (fittedRestrictions && activeWinKey === fittedRestrictions.id && !fittedRestrictions.minimized) {
         if (close) { void playUiEvent("ui_object_close_play"); closeFittedRestrictions(); }
         else { fittedRestrictions.minimized = true; activeWinKey = null; }
@@ -2749,10 +2794,11 @@
     // (the space view's own windows too: one that can be closed (IsKillable) closed, one that cannot minimized)
     if (cmd === "CmdCloseAllWindows") {
       const guarded = wins.filter(win => closeGuards.has(win.id));
-      const othersOpen = guarded.length !== wins.length || journalPopups.length > 0 || fittedRestrictions !== null;
+      const othersOpen = guarded.length !== wins.length || journalPopups.length > 0 || fittedRestrictions !== null || journalConversation !== null;
       if (othersOpen) void playUiEvent("ui_object_close_play");
       wins = guarded;
       journalPopups = [];
+      closeJournalConversation();
       closeFittedRestrictions();
       for (const win of guarded) closePlayWindow(win.id, !othersOpen);
       for (const w of spaceWindows()) {
@@ -5150,6 +5196,18 @@
           onClose={() => closeJournal(popup)} onShowSystem={showSystemOnMap} onFittedRestrictions={openFittedRestrictions} />
       </DesktopWindow>
     {/each}
+    {#if journalConversation}
+      {@const popup = journalConversation}
+      {#key popup.id}
+        <DesktopWindow win={popup} title={conversationCaption(popup.agentID)} focused={activeWinKey === popup.id}
+          onFocus={() => focusJournal(popup)} onClose={closeJournalConversation}
+          onToggleMinimize={() => toggleJournalMinimize(popup)}
+          onMove={(x, y) => Object.assign(popup, { x, y })} onResizeRect={rect => Object.assign(popup, rect)}
+          onGeometryCommit={() => keepPlace(popup)} minWidth={835} minHeight={545}>
+          {#key popup.serial}<AgentsMissions store={session.store} flow={session.flow} conversationAgentID={popup.agentID} />{/key}
+        </DesktopWindow>
+      {/key}
+    {/if}
     {#if fittedRestrictions}
       {@const popup = fittedRestrictions}
       <DesktopWindow win={popup} title={plainText($journalWords?.templates[FITTED_RESTRICTIONS_CAPTION] ?? "Fitting Restrictions")}

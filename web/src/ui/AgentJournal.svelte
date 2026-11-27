@@ -26,6 +26,7 @@
   };
   const menu = new ContextMenu();
   const openJournalMission = getContext<((flow: AppFlow, agentID: number) => void) | undefined>("openJournalMission");
+  const openJournalConversation = getContext<((flow: AppFlow, agentID: number) => void) | undefined>("openJournalConversation");
   let failure = $state("");
   const missions = $derived([...($agents.journal?.active ?? []), ...($agents.journal?.offered ?? [])]);
   const nameOf = (kind: NameKind, id: number) => resolvedName($names.resolved, kind === "owner" ? "agent" : kind, id, "");
@@ -77,7 +78,10 @@
     const entries: ContextEntry[] = [
       { label: plainText(word(labels.details, "Read Details")), run: () => details(id) },
       { label: plainText(formatTemplate(word(labels.talk, `Start Conversation with ${agentName(id)}`), { agentID: id }, { nameOf })),
-        run: () => { openAgents(); run(() => flow.openConversation(id)); } },
+        run: () => {
+          if (openJournalConversation) openJournalConversation(flow, id);
+          else { openAgents(); run(() => flow.openConversation(id)); }
+        } },
     ];
     if (row.missionState === 1) entries.push({ label: plainText(word(labels.remove, "Remove Offer")), run: () => run(() => flow.removeOffer(id)) });
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();

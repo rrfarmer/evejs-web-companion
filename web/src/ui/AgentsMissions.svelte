@@ -33,7 +33,7 @@
   import { AGENT_HEADER_WORD_LABELS, agentHeader, agentLocationNameRef } from "../bridge/agentHeader.ts";
   import { filetimeOf, journalRowAsks, journalRowText, journalRowWords } from "../bridge/journalWords.ts";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, conversationAgentID = null }: { store: ClientStore; flow: AppFlow; conversationAgentID?: number | null } = $props();
 
   // svelte-ignore state_referenced_locally
   const agents = store.agents;
@@ -57,6 +57,8 @@
 
   let busy = $state(false);
   let error = $state("");
+  const standalone = $derived(conversationAgentID !== null);
+  const showConversation = $derived(!standalone || $agents.activeAgentID === conversationAgentID);
 
   // What the agent says, in the retail client's own words when the BFF has a
   // client to read. The client adds the agent's own IDs to every agent message
@@ -221,6 +223,11 @@
   }
 
   onMount(() => {
+    if (conversationAgentID !== null) {
+      const id = conversationAgentID;
+      void run(() => flow.openConversation(id));
+      return;
+    }
     void run(async () => {
       await flow.loadAgents();
       await flow.loadJournal();
@@ -476,6 +483,7 @@
   </li>
 {/snippet}
 
+{#if !standalone}
 <section class="panel">
   <header class="panel-head">
     <h2 class="panel-title">Agents &amp; Missions</h2>
@@ -548,6 +556,20 @@
   {/if}
 </section>
 
+{/if}
+{#if standalone && error}
+  <p role="alert">{error}</p>
+{:else if standalone && $agents.actionError && !$agents.actionErrorSaid}
+  <p role="alert">{$agents.actionError}</p>
+{/if}
+{#if !showConversation || (standalone && !$agents.conversation)}
+  {#if busy}<p role="status">Opening conversation…</p>
+  {:else if conversationAgentID !== null}
+    {@const id = conversationAgentID}
+    <button type="button" onclick={() => run(() => flow.openConversation(id))}>Start Conversation</button>
+  {/if}
+{:else}
+<div class:standalone-conversation={standalone}>
 {#if $agents.conversation}
   <section>
     <h2>Conversation · {agentName($agents.activeAgentID)}</h2>
@@ -696,7 +718,10 @@
     {/if}
   </section>
 {/if}
+</div>
+{/if}
 
+{#if !standalone}
 <MissionJobPage {store} {flow} />
 
 {#if $rewards.loaded}
@@ -764,3 +789,10 @@
 </section>
 
 <MissionBot {store} {flow} />
+{/if}
+
+<style>
+  .standalone-conversation { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 100%; }
+  .standalone-conversation > section { min-width: 0; padding: 0.8rem 1rem; }
+  .standalone-conversation > section + section { border-left: 1px solid rgb(255 255 255 / 14%); }
+</style>
