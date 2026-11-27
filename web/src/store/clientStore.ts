@@ -412,6 +412,7 @@ const INITIAL_FLEET: FleetCenterState = Object.freeze({
   watchlist: [],
   broadcastHistory: [],
   lootHistory: [],
+  memberHistory: [],
   authoritativeFleetID: null,
 });
 
@@ -1706,6 +1707,7 @@ export function createClientStore(): ClientStore {
           pendingInvite: event.availability === "ready" ? null : current.pendingInvite,
           lastBroadcast: switchedFleet ? null : current.lastBroadcast,
           lootHistory: switchedFleet && current.authoritativeFleetID !== null ? [] : current.lootHistory,
+          memberHistory: switchedFleet && current.authoritativeFleetID !== null ? [] : current.memberHistory,
           targetTags: switchedFleet ? null : current.targetTags,
           watchlist: switchedFleet || event.availability === "not-in-fleet" ? [] : current.watchlist,
           // Only an authoritative read moves the basis; a blip leaves it alone.
@@ -1758,6 +1760,14 @@ export function createClientStore(): ClientStore {
       }
       case "fleet/loot-history-cleared":
         fleet.set({ ...fleet.get(), lootHistory: [] });
+        break;
+      case "fleet/member-history": {
+        const current = fleet.get();
+        fleet.set({ ...current, memberHistory: [...event.entries, ...current.memberHistory].slice(0, MAX_BROADCAST_HISTORY) });
+        break;
+      }
+      case "fleet/member-history-cleared":
+        fleet.set({ ...fleet.get(), memberHistory: [] });
         break;
       case "fleet/target-tags":
         fleet.set({ ...fleet.get(), targetTags: event.tags });

@@ -1232,6 +1232,7 @@ import { decodeAccessGroupAudit, type AccessGroupAuditRow } from "../bridge/acce
 import { agentsAtStation, readAgentsTable } from "../bridge/agentReads.ts";
 import { authoritativeFleetMemberCharacterIDs, decodeFleetCenter, decodeFleetInviteAnswerNotification, decodeFleetInviteNotification, fleetInviteAnswerWords, memberWhereabouts, type FleetInviteAnswer } from "../bridge/fleetCenter.ts";
 import { decodeFleetLoot, fleetLootFile } from "../bridge/fleetLoot.ts";
+import { decodeFleetMemberHistory } from "../bridge/fleetMemberHistory.ts";
 import { decodeJoinRequest, type FleetMemberOptOuts } from "../bridge/boundFleet.ts";
 import { FLEET_MAX_SIZE, FLEET_SETUP_NAME_LENGTH, FLEET_SETUPS_KEY, fleetSetupHierarchy, readSavedFleetSetups, removeSavedFleetSetup, writeFleetSetup, type FleetSetupOptions, type FleetSetupSource, type SavedFleetSetup } from "../bridge/fleetSetups.ts";
 import { FLEET_JOB_CREATOR, canTagInFleet } from "../bridge/fleetCommand.ts";
@@ -3078,6 +3079,7 @@ export interface AppFlow {
   /** The fleet window's History cleared of its broadcasts (BroadcastHistoryPanel.ClearHistory): nothing is asked. */
   clearFleetBroadcastHistory(): void;
   clearFleetLootHistory(): void;
+  clearFleetMemberHistory(): void;
   exportFleetLootHistory(): Promise<void>;
   /**
    * The fleet finder, for a pilot that has been told which fleet to join: the
@@ -8822,6 +8824,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (characterID !== null && characterID > 0) store.apply({ type: "fleet/jump-beacon", characterID, beacon: null });
     }
     if (method !== null && fleetSnapshotNotifications.has(method)) {
+      if (method === "OnFleetJoin" || method === "OnFleetLeave" || method === "OnFleetMemberChanged") {
+        const me = onlineCharacterID();
+        if (me !== null) {
+          const entries = decodeFleetMemberHistory(method, args, me, receivedAtMs);
+          if (entries.length) store.apply({ type: "fleet/member-history", entries });
+        }
+      }
       if (method === "OnFleetOptionsChanged") fleetAdvertRevision.update(revision => revision + 1);
       if (method === "OnFleetJoinRequest" || method === "OnJoinRequestUpdate") {
         const { fleetID, isBoss } = fleetStanding();
@@ -42020,6 +42029,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
     clearFleetLootHistory() {
       store.apply({ type: "fleet/loot-history-cleared" });
+    },
+    clearFleetMemberHistory() {
+      store.apply({ type: "fleet/member-history-cleared" });
     },
     exportFleetLootHistory,
     readFleetFinder,

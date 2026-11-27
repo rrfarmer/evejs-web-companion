@@ -105,6 +105,7 @@ import type { MailLabel, MailingList } from "../bridge/mail.ts";
 import type { BoundFleet } from "../bridge/boundFleet.ts";
 import type { FleetBroadcast } from "../bridge/fleetBroadcasts.ts";
 import type { FleetLootEntry } from "../bridge/fleetLoot.ts";
+import type { FleetMemberHistoryEntry } from "../bridge/fleetMemberHistory.ts";
 import type { JamEvent } from "../bridge/jamNotifications.ts";
 import type { PiRecipeBook } from "../bridge/piRecipes.ts";
 import type { TargetEvent, TargeterEvent } from "../bridge/targetNotifications.ts";
@@ -460,6 +461,8 @@ export type FeedEvent =
   | { readonly type: "fleet/broadcast-history-cleared" }
   | { readonly type: "fleet/loot-history-cleared" }
   | { readonly type: "fleet/loot"; readonly entries: readonly FleetLootEntry[] }
+  | { readonly type: "fleet/member-history"; readonly entries: readonly FleetMemberHistoryEntry[] }
+  | { readonly type: "fleet/member-history-cleared" }
   // An invitation answered or turned down: the window's no longer, where it is the one held.
   | { readonly type: "fleet/invite-settled"; readonly fleetID: number }
   // A one-shot fleet call (OnFleetBroadcast). Pure push-to-store, same shape

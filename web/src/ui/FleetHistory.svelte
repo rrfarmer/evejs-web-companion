@@ -3,12 +3,12 @@
   // History and Loot History (the last kept by the pilot's settings, Broadcast History at first), a Clear, and the
   // events newest first, each in the client's words: "Event", the time and the event's own label (fleetSvc.AddBroadcast
   // makes a broadcast's). WantBroadcast grants the own-broadcast override before checking the type preference.
-  // Member history and row context menus are separate from the broadcast and loot lists.
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { QUANTITY_AND_ITEM, formatTemplate, plainText, templateNameRefs } from "../bridge/clientWords.ts";
   import { broadcastHistoryLabel, fleetTravelDestination, type FleetBroadcast } from "../bridge/fleetBroadcasts.ts";
   import { fleetLootTime, type FleetLootEntry } from "../bridge/fleetLoot.ts";
+  import { memberHistoryLabel, type FleetMemberHistoryEntry } from "../bridge/fleetMemberHistory.ts";
   import { FLEET_POINTERS } from "../play/uiPointer.ts";
   import { fleetBroadcastColor, fleetBroadcastPreferences, wantsFleetBroadcast } from "./fleetBroadcastPreferences.ts";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
@@ -80,12 +80,16 @@
     const loot = filter === "loothistory" || filter === "all" ? $fleet.lootHistory.map(entry => ({
       entry, at: entry.atMs, key: `loot:${entry.characterID}:${entry.typeID}:${entry.solarSystemID}`,
     })) : [];
-    return [...broadcasts, ...loot].sort((a, b) => filter === "all" ? b.at - a.at : 0);
+    const members = filter === "memberhistory" || filter === "all" ? $fleet.memberHistory.map(member => ({
+      member, at: member.atMs, key: member,
+    })) : [];
+    return [...broadcasts, ...members, ...loot].sort((a, b) => filter === "all" ? b.at - a.at : 0);
   });
 
   function clear(): void {
     if (filter === "broadcasthistory" || filter === "all") flow.clearFleetBroadcastHistory();
     if (filter === "loothistory" || filter === "all") flow.clearFleetLootHistory();
+    if (filter === "memberhistory" || filter === "all") flow.clearFleetMemberHistory();
   }
 
   /** The thing a broadcast names, as the pilot's ballpark has it (_GetTargetNameAndType, _GetTypeNameTextFromBroadcastedItemID). */
@@ -129,6 +133,21 @@
       { nameOf: (kind, id) => kind === "type" && id === entry.typeID ? quantityName : nameOf(kind, id) }));
   }
 
+  function memberText(entry: FleetMemberHistoryEntry): string {
+    const charID = entry.characterID;
+    const role = entry.rank ? word(entry.rank, entry.rank.split("/").at(-1) ?? "") : "";
+    const fallback = {
+      Joined: "{[character]charID} joined as {role}",
+      Left: "{[character]charID} left fleet",
+      ChangedRole: "{[character]charID} now has role {role}",
+      IsBoss: "{[character]charID} is now fleet boss",
+      IsNotBoss: "{[character]charID} is no longer fleet boss",
+    };
+    const eventLabel = formatTemplate(word(memberHistoryLabel(entry.event), fallback[entry.event]), { charID, role }, { nameOf });
+    const time = String(BigInt(Math.trunc(entry.atMs)) * 10_000n + 116_444_736_000_000_000n);
+    return plainText(formatTemplate(word(WORDS.event, "{[datetime]time, date=none, time=medium} · {eventLabel}"), { time, eventLabel }, { nameOf }));
+  }
+
   $effect(() => {
     flow.requestWords([...Object.values(WORDS), QUANTITY_AND_ITEM, ...heard.map((broadcast) => broadcastHistoryLabel(broadcast).label)]);
   });
@@ -142,6 +161,11 @@
   });
   $effect(() => {
     flow.requestNames($fleet.lootHistory.flatMap(row => [{ kind: "character" as const, id: row.characterID }, { kind: "type" as const, id: row.typeID }]));
+  });
+  $effect(() => {
+    const members = $fleet.memberHistory;
+    flow.requestWords(members.flatMap(row => row.rank ? [memberHistoryLabel(row.event), row.rank] : [memberHistoryLabel(row.event)]));
+    flow.requestNames(members.map(row => ({ kind: "character" as const, id: row.characterID })));
   });
 </script>
 
@@ -171,6 +195,8 @@
               {entryText(broadcast)}
             {/if}
           </li>
+        {:else if "member" in row}
+          <li data-fleet-history-member={row.member.characterID} data-fleet-history-event={row.member.event}>{memberText(row.member)}</li>
         {:else}
           <li data-fleet-loot={row.entry.typeID}>{lootText(row.entry)}</li>
         {/if}
