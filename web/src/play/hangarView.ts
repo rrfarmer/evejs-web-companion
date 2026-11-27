@@ -255,11 +255,12 @@ export class HangarView {
     // point (SHIP_FLOATING_HEIGHT up where the hangar has none), moved by half its bounding sphere's centre.
     const dock = hangar && hangarGraphics?.modular ? modularDock(hangar, hangarGraphics.modular.dock) : undefined;
     this.capitalCamera = hangarGraphics?.modular?.dock === "capital";
+    const lod = model.getObjectByProperty("type", "LOD") as THREE.LOD | undefined;
+    const hull = lod?.levels[0]?.object ?? model;
     const capitalOffset = new THREE.Vector3();
     if (this.capitalCamera && dock) {
       // ModularCapitalHangarShipBehaviour.GetShipOffset uses the hull's local negative Z extent, excluding VFX.
-      const lod = model.getObjectByProperty("type", "LOD") as THREE.LOD | undefined;
-      const local = new THREE.Box3().setFromObject(lod?.levels[0]?.object ?? model);
+      const local = new THREE.Box3().setFromObject(hull);
       const display = (model.userData.locatorSets as Record<string, number[][]> | undefined)?.display_offset?.[0];
       capitalOffset.set(display?.[0] ?? 0, display?.[1] ?? 0, 2 * Math.abs(local.max.z) - (display?.[2] ?? 0));
     }
@@ -277,12 +278,18 @@ export class HangarView {
     this.turntable.add(model);
     this.switchFade = switching;
     const radius = (model.userData as { radius?: number }).radius ?? 50;
-    const look = new THREE.Box3().setFromObject(model).getCenter(new THREE.Vector3());
+    const modularFraming = dock !== undefined && !this.capitalCamera;
+    const framingBounds = new THREE.Box3().setFromObject(modularFraming ? hull : model);
+    // ModularHangarCamera._CalculateFocalPoint rotates the ship's shape centre into its translated dock pose.
+    const shapeCentre = modularFraming ? (model.userData.shapeEllipsoid as { center: number[] } | null | undefined)?.center : null;
+    const look = shapeCentre
+      ? model.localToWorld(new THREE.Vector3(shapeCentre[0], shapeCentre[1], -shapeCentre[2]!))
+      : framingBounds.getCenter(new THREE.Vector3());
     this.controls.target.copy(look);
     // HangarCamera.UpdateMinMaxZoom: nearest 1.5 x (bounding radius + its centre off the origin), farthest 2050 m; the
     // hull's own bounding sphere (its SOF hull's, as model.boundingSphereRadius is), else one measured round the meshes
     const bs = (model.userData as { boundingSphere?: number[] | null }).boundingSphere ?? null;
-    const measured = new THREE.Box3().setFromObject(model).getBoundingSphere(new THREE.Sphere());
+    const measured = framingBounds.getBoundingSphere(new THREE.Sphere());
     const sphere = bs && bs.length >= 4
       ? { radius: bs[3]!, centre: Math.hypot(bs[0]!, bs[1]!, bs[2]!) }
       : { radius: measured.radius, centre: measured.center.distanceTo(model.position) };
