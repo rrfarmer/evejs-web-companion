@@ -890,6 +890,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // list has the character manager's GetSettingsInfo, which is another thing, and not this.
   "charMgr.GetCharacterSettings",
   "sharedSettingsMgr.StoreSettingLinkAndGetID", "sharedSettingsMgr.GetStoredSharedSetting",
+  "fleetObjectHandler.SetTakesFleetWarp", "fleetObjectHandler.SetAcceptsConduitJumpsValue", "fleetObjectHandler.SetAcceptsRegroupValue",
   // An overview profile's link stored as it is dropped into a chat, and read as it is followed (the gateway's list
   // has neither).
   "overviewPresetMgr.StoreLinkAndGetID", "overviewPresetMgr.GetStoredPreset",
@@ -2792,6 +2793,9 @@ const RETAIL_CALLS = Object.freeze({
   "fleetObjectHandler.MoveMember": same(`${FLEET_SVC}:518`, "self.fleet.MoveMember(charID, wingID, squadID, role)"),
   "fleetObjectHandler.MakeLeader": same(`${FLEET_SVC}:604`, "self.fleet.MakeLeader(charID), once the user has agreed"),
   "fleetObjectHandler.SetMotdEx": same(`${FLEET_SVC}:1961`, "self.fleet.SetMotdEx(motd)"),
+  "fleetObjectHandler.SetTakesFleetWarp": same(`${FLEET_SVC}:425`, "self.fleet.SetTakesFleetWarp(value)"),
+  "fleetObjectHandler.SetAcceptsConduitJumpsValue": same(`${FLEET_SVC}:429`, "self.fleet.SetAcceptsConduitJumpsValue(value)"),
+  "fleetObjectHandler.SetAcceptsRegroupValue": same(`${FLEET_SVC}:433`, "self.fleet.SetAcceptsRegroupValue(value)"),
   "fleetObjectHandler.KickMember": judged(`${FLEET_SVC}:611`, kickingAnother, "self.fleet.KickMember(charID), for any member but the pilot's own"),
   "fleetObjectHandler.SendBroadcast": judged(`${FLEET_SVC}:989`, aGlobalBroadcast, "self.fleet.SendBroadcast(name, self.broadcastScope, itemID, typeID), on the fleet's object, after the client's own checks and wait"),
   "fleetObjectHandler.DisbandFleet": judged(`${FLEET_SVC}:617`, disbandingAsBoss, "self.fleet.DisbandFleet(), no arguments, for the fleet's boss"),

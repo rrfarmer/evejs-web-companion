@@ -28,6 +28,12 @@
   const menu = new ContextMenu();
   const W = "/Carbon/UI/Controls/Window/";
   const F = "UI/Fleet/FleetWindow/";
+  const participation = [
+    ["acceptsFleetWarp", F + "AcceptFleetWarp", "Accept Fleet Warps"],
+    ["acceptsConduitJumps", F + "AcceptConduitJumps", "Accept Conduit Jumps"],
+    ["acceptsFleetRegroups", F + "AcceptRegroup", "Accept Fleet Regroups"],
+  ] as const;
+  let participationBusy = $state(false);
   const labels = {
     more: "UI/Common/More",
     form: F + "FormFleet",
@@ -65,6 +71,7 @@
     if ($fleet.availability === "not-in-fleet") {
       rows.push(null, action(labels.form, "Form Fleet", () => run(flow.formFleet())));
     } else if ($fleet.authoritativeFleetID !== null) {
+      const fleetID = $fleet.authoritativeFleetID;
       const own = $fleet.fleet?.initState.value.members.find(member => Number(member.charID) === $station.online?.characterID);
       const commandRole = own && FLEET_CMDR_ROLES.includes(own.role);
       const broadcast = FLEET_BAR_BROADCASTS.map(name => action(
@@ -77,6 +84,19 @@
         action(labels.broadcastSettings, "Broadcast Settings", onBroadcastSettings),
         flat ? action(labels.hierarchy, "View as Hierarchy", () => onFlat(false)) :
           action(labels.flat, "View as Flat List", () => onFlat(true)), null);
+      if (own && $fleet.availability === "ready") {
+        rows.push(...participation.map(([key, label, fallback]) => {
+          const checked = own.memberOptOuts[key];
+          return {
+            ...action(label, fallback, () => {
+              if (participationBusy) return;
+              participationBusy = true;
+              run(flow.setFleetParticipation(fleetID, key, !checked).finally(() => { participationBusy = false; }));
+            }),
+            checkbox: true, checked, disabled: participationBusy ? "Updating fleet participation" : null,
+          };
+        }), null);
+      }
       if (own && isFleetCommander(own)) rows.push(action(labels.composition, "Show Fleet Composition", onComposition));
       rows.push(action(labels.watchlist, "Open Fleet Watch List", onWatchlist),
         null, action(labels.leave, "Leave Fleet", () => run(flow.fleetMenuAction({ kind: "leave" }))));
@@ -86,7 +106,8 @@
   }
   onMount(() => {
     applyWindowFlags("fleet");
-    flow.requestWords([...WINDOW_ACTION_WORDS, ...Object.values(labels), ...FLEET_BAR_BROADCASTS.map(name => BROADCAST_NAME_LABELS[name])]);
+    flow.requestWords([...WINDOW_ACTION_WORDS, ...Object.values(labels), ...participation.map(([, label]) => label),
+      ...FLEET_BAR_BROADCASTS.map(name => BROADCAST_NAME_LABELS[name])]);
   });
   onDestroy(() => menu.close());
 </script>

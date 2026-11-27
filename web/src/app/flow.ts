@@ -1231,6 +1231,7 @@ import { decodeAccessGroup, decodeAccessGroups, decodeAccessGroupMembers, type A
 import { decodeAccessGroupAudit, type AccessGroupAuditRow } from "../bridge/accessGroupAudit.ts";
 import { agentsAtStation, readAgentsTable } from "../bridge/agentReads.ts";
 import { authoritativeFleetMemberCharacterIDs, decodeFleetCenter, decodeFleetInviteAnswerNotification, decodeFleetInviteNotification, fleetInviteAnswerWords, memberWhereabouts, type FleetInviteAnswer } from "../bridge/fleetCenter.ts";
+import type { FleetMemberOptOuts } from "../bridge/boundFleet.ts";
 import { FLEET_JOB_CREATOR, canTagInFleet } from "../bridge/fleetCommand.ts";
 import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
 import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert, type FleetAdvert } from "../bridge/fleetAds.ts";
@@ -3004,6 +3005,7 @@ export interface AppFlow {
   fleetMenuAction(action: FleetMenuAction): Promise<"watchlist" | null>;
   /** Give a member another place in the fleet, as the fleet's menu for a member does (Move Fleet Member); the fleet read again. */
   moveFleetMember(characterID: number, wingID: number | null, squadID: number | null, role: number): Promise<void>;
+  setFleetParticipation(fleetID: number, option: keyof FleetMemberOptOuts, value: boolean): Promise<void>;
   /** Warp to a member of the pilot's fleet at a range, as the fleet's menu for a member does. */
   warpToFleetMember(characterID: number, range: number): Promise<void>;
   /** Warp the pilot's fleet, wing or squad to a member at a range, as the fleet's menu for a member does for a commander. */
@@ -18986,6 +18988,27 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function formFleet(): Promise<void> {
     // (The page's own call, bridge/fleetWrites.ts: none from a pilot the Fleet window knows to be in a fleet.)
     await runFleetAction("form", () => formFleetCall(bridgeDo, store.fleet.get().availability === "ready"), "ready");
+  }
+
+  async function setFleetParticipation(fleetID: number, option: keyof FleetMemberOptOuts, value: boolean): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    const pilot = onlineCharacterID();
+    const own = () => {
+      const state = store.fleet.get();
+      return state.availability === "ready" && state.authoritativeFleetID === fleetID
+        ? state.fleet?.initState.value.members.find(member => Number(member.charID) === pilot) : undefined;
+    };
+    if (pilot === null || !own()) throw new Error("Fleet membership changed before the setting could be updated.");
+    const method = {
+      acceptsFleetWarp: "SetTakesFleetWarp",
+      acceptsConduitJumps: "SetAcceptsConduitJumpsValue",
+      acceptsFleetRegroups: "SetAcceptsRegroupValue",
+    }[option];
+    await bridgeDo("fleetObjectHandler", method, [value], null, fleetID);
+    current();
+    await loadFleet(fleetDetailViews === 0);
+    current();
+    if (own()?.memberOptOuts[option] !== value) throw new Error("The fleet participation update could not be confirmed.");
   }
 
   async function inviteFleetMember(characterID: number, assertCurrent?: () => void, expectedFleetID?: number, place?: { readonly wingID: number | null; readonly squadID: number | null; readonly role: number | null }): Promise<void> {
@@ -41652,6 +41675,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     makeFleetLeader,
     fleetMenuAction,
     moveFleetMember,
+    setFleetParticipation,
     warpToFleetMember,
     warpFleetToMember,
     warpDistance,

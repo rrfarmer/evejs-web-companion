@@ -1559,6 +1559,11 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
     res.status(400).json({ ok: false, error: "INVALID_FLEET_ID", message: "A positive fleetID is required." });
     return;
   }
+  if (objectKind === "fleetParticipation" && (strictPositiveID(body.of) === null ||
+      !Array.isArray(body.args) || body.args.length !== 1 || typeof body.args[0] !== "boolean" || body.kwargs != null)) {
+    res.status(400).json({ ok: false, error: "INVALID_FLEET_PARTICIPATION", message: "Choose a fleet and a single true or false participation value." });
+    return;
+  }
   if (objectKind === "corporationExpected" && strictPositiveID(body.of) === null) {
     res.status(400).json({ ok: false, error: "INVALID_CORPORATION", message: "A corporation action names the corporation it was opened for." });
     return;
@@ -1801,6 +1806,14 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       : objectKind === "fleetExpected"
       ? { ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => inviteToFleetCall(
         heldBridgeSession, req.webSessionID, inviteeOf(body.args), saysWhich ? strictPositiveID(body.of) : null, invitedPlaceOf(body.args))), service: body.service, method: body.method }
+      : objectKind === "fleetParticipation"
+      ? { ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => {
+        const fleetID = strictPositiveID(body.of);
+        if (String(fleetID) !== heldBridgeSession.fleetID) {
+          throw Object.assign(new Error("Fleet membership changed before this setting was sent."), { code: "FLEET_CHANGED", statusCode: 409 });
+        }
+        return boundCall(heldBridgeSession, req.webSessionID, fleetIDBindSpec(fleetID), body.method, body.args, null);
+      }), service: body.service, method: body.method }
       // (A follow, as its routes made it: held back where the ship already flies it, and through the gateway
       // with the throttle opened first. bridgeCallPolicy.js, PAGE_FOLLOW_CALLS.)
       : ordersAFollow(body.service, body.method)
