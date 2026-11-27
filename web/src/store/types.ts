@@ -3370,6 +3370,7 @@ export interface AssetItemRow {
   readonly units: number;
   /** An assembled, unique thing (a ship, a fitted module) rather than a stack. */
   readonly singleton: boolean;
+  readonly blueprintCopy?: true;
   readonly categoryID: number;
   readonly groupID: number;
   /** m³ per unit from static data; null when the type's volume is unknown. */

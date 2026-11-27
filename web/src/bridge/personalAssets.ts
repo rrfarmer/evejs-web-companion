@@ -130,7 +130,9 @@ export function decodeAssetItems(
     if (itemID <= 0 || typeID <= 0) {
       continue;
     }
-    const singleton = toNumber(readRowField(row, "singleton")) === 1;
+    const singletonCode = toNumber(readRowField(row, "singleton"));
+    const blueprintCopy = singletonCode === 2;
+    const singleton = singletonCode === 1 || blueprintCopy;
     const stacksize = toNumber(readRowField(row, "stacksize"));
     const quantity = toNumber(readRowField(row, "quantity"));
     const volume = Number(volumes[String(typeID)]);
@@ -145,6 +147,7 @@ export function decodeAssetItems(
       // reports -1 there. This is the server's own rule.
       units: singleton ? 1 : Math.max(0, stacksize || quantity || 0),
       singleton,
+      ...(blueprintCopy ? { blueprintCopy: true as const } : {}),
       categoryID: toNumber(readRowField(row, "categoryID")),
       groupID: toNumber(readRowField(row, "groupID")),
       volume: Number.isFinite(volume) && volume >= 0 && volumes[String(typeID)] !== null && volumes[String(typeID)] !== undefined ? volume : null,

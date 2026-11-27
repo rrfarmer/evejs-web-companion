@@ -4644,6 +4644,8 @@ export interface AppFlow {
   buyHyperNetNodes(id: number, quantity: number): Promise<HyperNetOfferDetails>;
   claimHyperNetReward(id: number): Promise<HyperNetOfferDetails>;
   loadHyperNetTypeStatistics(typeID: number): Promise<ReturnType<typeof decodeHyperNetTypeStatistics>>;
+  loadHyperNetHangarLocations(): Promise<readonly number[]>;
+  loadHyperNetHangar(stationID: number): Promise<readonly InventoryItemRow[]>;
   loadHyperNetPrizeRules(): Promise<HyperNetPrizeRules>;
   loadHyperNetDynamicTypes(typeIDs: readonly number[]): Promise<ReadonlySet<number>>;
   loadHyperNetPricing(): Promise<{ plexPrice: number; estimates: ReadonlyMap<number, number | null> | null }>;
@@ -29438,6 +29440,24 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return decodeHyperNetTypeStatistics(result);
   }
 
+  async function loadHyperNetHangarLocations(): Promise<readonly number[]> {
+    const current = callOptions.captureRequestGuard!();
+    const { stations } = await readAssetStations(bridgeAsk);
+    current();
+    const ids = [...new Set(stations.map(row => row.stationID).filter(id => locationKind(id) === "station"))];
+    requestNames(ids.map(id => ({ kind: "station", id })));
+    return ids;
+  }
+
+  async function loadHyperNetHangar(stationID: number): Promise<readonly InventoryItemRow[]> {
+    const current = callOptions.captureRequestGuard!();
+    if (locationKind(stationID) !== "station") throw new Error("Select an NPC station hangar.");
+    const { listed } = await readAssetStationItems(bridgeAsk, stationID);
+    current();
+    return decodeAssetItems(listed).filter(row => row.locationID === stationID && row.flagID === 4 && row.units > 0)
+      .map(({ units, ...row }) => ({ ...row, quantity: units, flagID: 4 }));
+  }
+
   let hyperNetPrizeRules: HyperNetPrizeRules | undefined;
   async function loadHyperNetPrizeRules(): Promise<HyperNetPrizeRules> {
     if (hyperNetPrizeRules) return hyperNetPrizeRules;
@@ -29480,9 +29500,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function createHyperNetOffer(draft: HyperNetCreationDraft): Promise<number> {
     const current = callOptions.captureRequestGuard!();
     const pilot = store.station.get().online;
-    const place = sessionPlace(store.flight.get().status, pilot);
-    if (!pilot || place.stationID !== draft.stationID) throw new Error("Return to the station holding the prize and HyperCores.");
-    const { itemID, typeID, tokenID, count, nodePrice, stationID, privateOffer } = draft;
+    const { itemID, typeID, tokenID, count, nodePrice, stationID, tokenStationID, privateOffer } = draft;
+    if (!pilot || ![stationID, tokenStationID].every(id => Number.isSafeInteger(id) && locationKind(id) === "station")) {
+      throw new Error("Select NPC station hangars for the prize and HyperCores.");
+    }
     if (![itemID, typeID, tokenID, nodePrice].every(value => Number.isSafeInteger(value) && value > 0) ||
         !hyperNetCountBounds.includes(count) || hyperNetCreationQuote(nodePrice * count, count, 1).nodePrice !== nodePrice) {
       throw new Error("Review the HyperNet offer terms.");
@@ -29490,7 +29511,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const reply = await bridgeDo("raffleProxy", "CreateRaffle", [{
       type: "object", name: "raffles.common.raffle_data.RaffleCreationData", args: { type: "dict", entries: [
         ["owner_id", pilot.characterID], ["location_id", stationID], ["solar_system_id", null],
-        ["token_id", tokenID], ["token_location_id", stationID], ["item_id", itemID], ["type_id", typeID],
+        ["token_id", tokenID], ["token_location_id", tokenStationID], ["item_id", itemID], ["type_id", typeID],
         ["ticket_count", count], ["ticket_price", nodePrice], ["restriction_id", privateOffer ? 1 : null],
       ] },
     }]);
@@ -42099,6 +42120,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     buyHyperNetNodes,
     claimHyperNetReward,
     loadHyperNetTypeStatistics,
+    loadHyperNetHangarLocations,
+    loadHyperNetHangar,
     loadHyperNetPrizeRules,
     loadHyperNetDynamicTypes,
     loadHyperNetPricing,

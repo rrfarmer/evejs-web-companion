@@ -25,9 +25,20 @@
   const words = $derived(store.words);
   const pilot = $derived($station.online?.characterID);
   const stationID = $derived(sessionPlace($flight.status, $station.online).stationID);
-  const hangar = $derived($inventory.hangar.rows.filter(row => row.flagID === 4 &&
+  const localHangar = $derived($inventory.hangar.rows.filter(row => row.flagID === 4 &&
     (row.locationID === undefined || row.locationID === stationID) && (row.ownerID === undefined || row.ownerID === pilot)));
-  const candidates = $derived(hangar.filter(row => row.quantity > 0 && row.typeID !== hyperNetCoreType && row.itemID !== $flight.status?.shipID));
+  let prizeStation = $state(0);
+  let coreStation = $state(0);
+  let assetStations = $state.raw<readonly number[]>([]);
+  let assetsError = $state("");
+  let hangarError = $state("");
+  let remoteHangars = $state.raw<Readonly<Record<number, readonly InventoryItemRow[]>>>({});
+  const pendingHangars = new Map<number, Promise<readonly InventoryItemRow[]>>();
+  const stations = $derived(stationID ? [stationID, ...assetStations.filter(id => id !== stationID)] : assetStations);
+  const stationName = (id: number) => resolvedName($names.resolved, "station", id, String(id));
+  const rowsAt = (id: number) => id === stationID ? localHangar : remoteHangars[id] ?? [];
+  const isPending = (id: number) => id > 0 && id !== stationID && remoteHangars[id] === undefined;
+  const candidates = $derived(rowsAt(prizeStation).filter(row => row.quantity > 0 && row.typeID !== hyperNetCoreType && row.itemID !== $flight.status?.shipID));
   let prizeRules = $state.raw<HyperNetPrizeRules>();
   let dynamic = $state.raw<ReadonlySet<number>>(new Set());
   let loadingDynamic = $state(false);
@@ -35,10 +46,11 @@
     !prizeRules?.restricted.has(row.typeID) && !prizeRules?.singleton.has(row.typeID)).map(row => row.typeID))]
     .sort((a, b) => a - b).join(",") : "");
   const prizes = $derived(prizeRules ? candidates.filter(row => !hyperNetPrizeRefusal(row, prizeRules!, dynamic)) : []);
-  const cores = $derived(hangar.filter(row => row.typeID === hyperNetCoreType).sort((a, b) => b.quantity - a.quantity));
+  const cores = $derived(rowsAt(coreStation).filter(row => row.typeID === hyperNetCoreType).sort((a, b) => b.quantity - a.quantity));
 
   const labels = {
     item: ["UI/HyperNet/FilterItemLabel", "Item"],
+    coreLocation: ["UI/HyperNet/TokenLocation", "HyperCore location"],
     blueprintOriginal: ["UI/Generic/Original", "Original"],
     blueprintCopy: ["UI/Generic/Copy", "Copy"],
     stackHint: ["UI/HyperNet/CreateQuantityStackHint", "One item from the stack of {stack_size} will be listed."],
@@ -113,9 +125,10 @@
   const estimate = $derived(prize && !prize.blueprintCopy && pricing?.estimates?.get(prize.typeID));
   const quote = $derived(total !== undefined && Number.isFinite(total) && pricing
     ? hyperNetCreationQuote(total, count, pricing.plexPrice) : undefined);
-  const ready = $derived(!loading && !loadError && stationID !== null && prize && token && quote && token.quantity >= quote.cores);
-  const terms = $derived(ready && quote && token ? [pilot, stationID, itemID, token.itemID, count, quote.nodePrice, privateOffer].join("/") : "");
+  const ready = $derived(!loading && !loadError && prize && token && quote && token.quantity >= quote.cores);
+  const terms = $derived(ready && quote && token ? [pilot, prizeStation, coreStation, itemID, token.itemID, count, quote.nodePrice, privateOffer].join("/") : "");
   let generation = 0;
+  let dropRevision = 0;
 
   $effect(() => {
     flow.requestWords([...Object.values(labels).map(([path]) => path), ...READABLE_ISK_LABELS,
@@ -157,16 +170,28 @@
     flow.requestNames(prizes.map(row => ({ kind: "type", id: row.typeID })));
   });
   $effect(() => {
-    if (!pilot || stationID === null) return;
+    if (!pilot) return;
     const current = ++generation;
+    prizeStation = stationID ?? 0;
+    coreStation = stationID ?? 0;
+    assetStations = [];
+    remoteHangars = {};
+    pendingHangars.clear();
     itemID = 0;
     tokenID = 0;
     result = undefined;
     loadError = "";
     dropError = "";
+    assetsError = "";
+    hangarError = "";
     loading = true;
     submitting = false;
-    Promise.all([flow.loadInventory(), flow.loadHyperNetPricing(), flow.loadHyperNetPrizeRules()]).then(([, result, rules]) => {
+    void flow.loadHyperNetHangarLocations().then(ids => {
+      if (generation === current) assetStations = ids;
+    }).catch(cause => {
+      if (generation === current) assetsError = panelErrorWords(cause);
+    });
+    Promise.all([stationID ? flow.loadInventory() : Promise.resolve(), flow.loadHyperNetPricing(), flow.loadHyperNetPrizeRules()]).then(([, result, rules]) => {
       if (generation === current) {
         pricing = result;
         prizeRules = rules;
@@ -179,12 +204,46 @@
     return () => { generation++; };
   });
 
-  function selectPrize(id: number) {
+  function selectPrize(id: number, item = prizes.find(row => row.itemID === id)) {
+    dropRevision++;
     itemID = id;
     dropError = "";
-    const item = prizes.find(row => row.itemID === id);
     const market = item && !item.blueprintCopy && pricing?.estimates?.get(item.typeID);
     total = market && pricing ? hyperNetCreationQuote(market * 1.4, count, pricing.plexPrice).total : hyperNetMinimumPrice;
+  }
+
+  function fetchHangar(id: number, refresh = false): Promise<readonly InventoryItemRow[]> {
+    if (id === stationID) return Promise.resolve(localHangar);
+    const pending = pendingHangars.get(id);
+    if (pending) return pending;
+    const known = remoteHangars[id];
+    if (known && !refresh) return Promise.resolve(known);
+    const current = generation;
+    const read = flow.loadHyperNetHangar(id).then(rows => {
+      if (generation === current) remoteHangars = { ...remoteHangars, [id]: rows };
+      return rows;
+    }).finally(() => {
+      if (pendingHangars.get(id) === read) pendingHangars.delete(id);
+    });
+    pendingHangars.set(id, read);
+    return read;
+  }
+
+  function changeHangar(kind: "prize" | "core", id: number) {
+    dropRevision++;
+    hangarError = "";
+    if (kind === "prize") {
+      prizeStation = id;
+      selectPrize(0);
+    } else {
+      coreStation = id;
+      tokenID = 0;
+    }
+    if (!id) return;
+    const current = generation;
+    void fetchHangar(id).catch(cause => {
+      if (generation === current && (id === prizeStation || id === coreStation)) hangarError = panelErrorWords(cause);
+    });
   }
 
   function cancelConfirmation() {
@@ -218,31 +277,52 @@
     onCreated(id);
   }
 
-  function drop(event: DragEvent) {
+  async function drop(event: DragEvent) {
     event.preventDefault();
     if (loading || loadingDynamic || submitting || !prizeRules) return;
     const drag = decodeDrag(event.dataTransfer?.getData(DRAG_MIME));
     const assets = decodeAssetItemDrag(event.dataTransfer?.getData(ASSET_ITEM_DRAG_MIME));
     const id = drag?.kind === "inventoryItem" && drag.from.kind === "hangar" ? drag.itemID : assets[0]?.itemID;
     if (id === undefined) return;
-    if (cores.some(row => row.itemID === id)) {
-      tokenID = id;
-      dropError = "";
+    const place = assets[0]?.stationID ?? stationID;
+    if (!place || (place !== stationID && !stations.includes(place))) {
+      dropError = "Choose an item from a personal hangar at an NPC station.";
       return;
     }
-    const item = candidates.find(row => row.itemID === id);
-    if (!item) {
-      dropError = "Choose an item from your personal hangar at this station.";
-      return;
+    const current = generation;
+    const revision = ++dropRevision;
+    const valid = () => generation === current && dropRevision === revision && !submitting;
+    try {
+      const rows = await fetchHangar(place);
+      if (!valid()) return;
+      const item = rows.find(row => row.itemID === id && id !== $flight.status?.shipID);
+      if (!item) {
+        dropError = "Choose an item from a personal hangar at an NPC station.";
+        return;
+      }
+      if (item.typeID === hyperNetCoreType) {
+        coreStation = place;
+        tokenID = id;
+        dropError = "";
+        return;
+      }
+      const dynamicTypes = item.singleton && !prizeRules.restricted.has(item.typeID) && !prizeRules.singleton.has(item.typeID)
+        ? await flow.loadHyperNetDynamicTypes([item.typeID]) : dynamic;
+      if (!valid()) return;
+      const reason = hyperNetPrizeRefusal(item, prizeRules, dynamicTypes);
+      if (reason) dropError = creationRefusal(reason);
+      else {
+        prizeStation = place;
+        selectPrize(id, item);
+      }
+    } catch (cause) {
+      if (valid()) dropError = panelErrorWords(cause);
     }
-    const reason = hyperNetPrizeRefusal(item, prizeRules, dynamic);
-    if (reason) dropError = creationRefusal(reason);
-    else selectPrize(id);
   }
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (submitting || result || !terms || !pilot || stationID === null || !prize || !token || !quote) return;
+    if (submitting || result || !terms || !pilot || !prize || !token || !quote) return;
     const learnedKey = `evejs-hypernet-confirm:${pilot}`;
     if (armedFor !== terms) {
       cancelConfirmation();
@@ -261,11 +341,17 @@
     try { localStorage.setItem(learnedKey, "1"); } catch {}
     try {
       const id = await flow.createHyperNetOffer({
-        stationID, itemID: prize.itemID, typeID: prize.typeID, tokenID: token.itemID, count, nodePrice: quote.nodePrice, privateOffer,
+        stationID: prizeStation, tokenStationID: coreStation, itemID: prize.itemID, typeID: prize.typeID,
+        tokenID: token.itemID, count, nodePrice: quote.nodePrice, privateOffer,
       });
       if (generation === current) {
         result = { id, item };
-        void flow.loadInventory().catch(() => undefined);
+        for (const place of new Set([prizeStation, coreStation])) {
+          const read = place === stationID ? flow.loadInventory() : fetchHangar(place, true);
+          void read.catch(cause => {
+            if (generation === current) hangarError = panelErrorWords(cause);
+          });
+        }
       }
     } catch (cause) {
       if (generation === current) result = { error: describeFailure(cause) };
@@ -275,8 +361,8 @@
   }
 </script>
 
-{#if stationID === null}
-  <p class="create-status">Dock at an NPC station to select the item and HyperCores for your offer.</p>
+{#if !pilot}
+  <p class="create-status">Select a pilot to create an offer.</p>
 {:else if submitting}
   <div class="create-result" data-hypernet-create-result="pending" role="status">{word("creating")}</div>
 {:else if result && "id" in result}
@@ -305,9 +391,23 @@
     <fieldset disabled={loading || loadingDynamic || submitting || !!loadError} ondrop={drop} ondragover={event => {
       if (event.dataTransfer?.types.some(type => type === DRAG_MIME || type === ASSET_ITEM_DRAG_MIME)) event.preventDefault();
     }}>
+      <label>Prize location
+        <select data-hypernet-create-prize-location value={prizeStation} onchange={event => changeHangar("prize", Number(event.currentTarget.value))}>
+          <option value={0}>Select a station</option>
+          {#each stations as id (id)}<option value={id}>{stationName(id)}</option>{/each}
+        </select>
+      </label>
+      <label>{word("coreLocation")}
+        <select data-hypernet-create-core-location value={coreStation} onchange={event => changeHangar("core", Number(event.currentTarget.value))}>
+          <option value={0}>Select a station</option>
+          {#each stations as id (id)}<option value={id}>{stationName(id)}</option>{/each}
+        </select>
+      </label>
+      {#if assetsError || hangarError}<p role="status">{hangarError || assetsError}</p>{/if}
       <label>{word("item")}
         <select data-hypernet-create-item value={itemID} onchange={event => selectPrize(Number(event.currentTarget.value))}>
-          <option value={0}>{prizes.length ? "Select an item" : "No eligible items in this hangar"}</option>
+          <option value={0}>{isPending(prizeStation) && !hangarError ? "Loading hangar…" :
+            prizes.length ? "Select an item" : "No eligible items in this hangar"}</option>
           {#each prizes as item (item.itemID)}
             <option value={item.itemID}>{prizeOption(item)}</option>
           {/each}
@@ -319,7 +419,7 @@
       {#if dropError}<p role="status" data-hypernet-drop-error>{dropError}</p>{/if}
       <label>HyperCores
         <select data-hypernet-create-token value={token?.itemID ?? 0} onchange={event => tokenID = Number(event.currentTarget.value)}>
-          {#if !cores.length}<option value={0}>No HyperCores in this hangar</option>{/if}
+          {#if !cores.length}<option value={0}>{isPending(coreStation) && !hangarError ? "Loading hangar…" : "No HyperCores in this hangar"}</option>{/if}
           {#each cores as stack (stack.itemID)}
             <option value={stack.itemID}>{stack.quantity.toLocaleString()} HyperCores</option>
           {/each}

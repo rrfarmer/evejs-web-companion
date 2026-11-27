@@ -40,6 +40,7 @@ export interface HyperNetCreationDraft {
   readonly itemID: number;
   readonly typeID: number;
   readonly tokenID: number;
+  readonly tokenStationID: number;
   readonly count: HyperNetNodeCount;
   readonly nodePrice: number;
   readonly privateOffer: boolean;

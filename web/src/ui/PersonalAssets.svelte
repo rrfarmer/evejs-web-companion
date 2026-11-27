@@ -293,7 +293,9 @@
       const id = Number(row.dataset.assetItem);
       if (!selectedItems.has(id)) continue;
       const typeID = Number(row.dataset.assetType);
-      payload.push({ itemID: id, typeID, name: itemName(typeID), shipOwnerID: row.dataset.assetOwnedShip ? assetPilot : null });
+      const stationID = Number(row.dataset.assetStation);
+      payload.push({ itemID: id, typeID, name: itemName(typeID), shipOwnerID: row.dataset.assetOwnedShip ? assetPilot : null,
+        ...(stationID > 0 ? { stationID } : {}) });
     }
     event.dataTransfer.setData(ASSET_ITEM_DRAG_MIME, JSON.stringify(payload));
     event.dataTransfer.effectAllowed = "copy";

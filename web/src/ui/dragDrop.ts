@@ -60,6 +60,7 @@ export interface AssetItemDrag {
   readonly typeID: number;
   readonly name: string;
   readonly shipOwnerID: number | null;
+  readonly stationID?: number;
 }
 
 function positiveID(id: unknown): id is number {
@@ -79,12 +80,12 @@ export function decodeAssetItemDrag(raw: string | undefined): AssetItemDrag[] {
   const rows: AssetItemDrag[] = [];
   for (const row of parsed) {
     if (row === null || typeof row !== "object") return [];
-    const { itemID, typeID, name, shipOwnerID } = row as Record<string, unknown>;
+    const { itemID, typeID, name, shipOwnerID, stationID } = row as Record<string, unknown>;
     if (!positiveID(itemID) || !positiveID(typeID) || typeof name !== "string"
         || (shipOwnerID !== null && !positiveID(shipOwnerID))) return [];
     if (seen.has(itemID)) continue;
     seen.add(itemID);
-    rows.push({ itemID, typeID, name, shipOwnerID });
+    rows.push({ itemID, typeID, name, shipOwnerID, ...(positiveID(stationID) ? { stationID } : {}) });
   }
   return rows;
 }
