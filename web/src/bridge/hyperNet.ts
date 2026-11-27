@@ -83,6 +83,20 @@ export function decodeHyperNetOfferDetails(payload: unknown): HyperNetOfferDetai
     winningNumber: ticketNumber(winner), ended: filetimeToUnixMs(unwrapLong(readKeyVal(payload, "end_date"))) };
 }
 
+/** The storage notices address an offer directly or carry a dict of offer IDs to sold counts. */
+export function hyperNetDetailNoticeIDs(method: string, args: readonly unknown[]): readonly number[] {
+  const idOf = (value: unknown): number[] => {
+    const id = Number(unwrapLong(value));
+    return Number.isSafeInteger(id) && id > 0 ? [id] : [];
+  };
+  if (method === "OnRaffleUpdatedServer" || method === "OnRaffleFinishedServer") return idOf(args[0]);
+  if (method !== "OnTicketsUpdatedServer" || args[0] === null || typeof args[0] !== "object") return [];
+  const updates = args[0] as { type?: unknown; entries?: unknown };
+  return updates.type === "dict" && Array.isArray(updates.entries)
+    ? updates.entries.flatMap(entry => Array.isArray(entry) ? idOf(entry[0]) : [])
+    : [];
+}
+
 export interface HyperNetParticipation {
   readonly created: number;
   readonly completed: number;

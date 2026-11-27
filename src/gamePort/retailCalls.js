@@ -681,6 +681,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "invbroker.WithdrawPlexFromVault", "invbroker.DepositPlexToVault", "marketProxy.GetPlexOrders", "marketProxy.PlacePlexSellOrder",
   "raffleProxy.Grab", "raffleProxy.FilteredGrab", "raffleProxy.GetMyRaffleHistory",
   "raffleProxy.GetCreatedParticipated", "raffleProxy.GetRaffle",
+  "raffleProxy.SubscribeToRaffle", "raffleProxy.UnsubscribeFromRaffle",
   // Revisions of the gateway contract without the read-only NES catalogue.
   "storeManager.get_categories", "storeManager.get_offers",
   "ProjectDiscovery.get_player_state",

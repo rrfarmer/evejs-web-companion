@@ -59,14 +59,47 @@
     onlyAvailable = false;
     if (!pilot) return;
     let current = true;
-    void app.loadHyperNetOfferDetails(offerID).then(row => {
-      if (!current) return;
-      details = row;
+    let dirty = false;
+    let reading = false;
+    let timer: number | undefined;
+    let stopWatching: (() => void) | undefined;
+    function scheduleRead() {
+      dirty = true;
+      if (!current || reading || timer !== undefined) return;
+      // EveJS can send count, full-row and winner notices for the same sale.
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        void read();
+      }, 150);
+    }
+    async function read() {
+      dirty = false;
+      reading = true;
+      try {
+        const row = await app.loadHyperNetOfferDetails(offerID);
+        if (!current) return;
+        const first = details === null;
+        details = row;
+        requestOfferNames(row);
+        if (first) {
+          readTypeInfo(row);
+          if (row.status < 7) stopWatching = app.watchHyperNetOffer(offerID, scheduleRead);
+        }
+      } catch {
+        if (current && details === null) failed = true;
+      } finally {
+        reading = false;
+        if (dirty) scheduleRead();
+      }
+    }
+    function requestOfferNames(row: HyperNetOfferDetails) {
       app.requestNames([
         { kind: "type", id: row.typeID }, { kind: "station", id: row.locationID }, { kind: "system", id: row.systemID },
         ...[...new Set([row.ownerID, ...row.ticketOwners.values(), ...(row.winnerID ? [row.winnerID] : [])])]
           .map(id => ({ kind: "character" as const, id })),
       ]);
+    }
+    function readTypeInfo(row: HyperNetOfferDetails) {
       void app.typeFacts([row.typeID]).then(facts => {
         const group = facts?.get(row.typeID)?.groupID;
         if (!current || !group) return;
@@ -76,8 +109,13 @@
       if (!row.copy) void app.cfgAveragePrices().then(prices => {
         if (current) estimate = prices?.get(row.typeID) ?? null;
       }).catch(() => {});
-    }).catch(() => { if (current) failed = true; });
-    return () => { current = false; };
+    }
+    void read();
+    return () => {
+      current = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+      stopWatching?.();
+    };
   });
 </script>
 

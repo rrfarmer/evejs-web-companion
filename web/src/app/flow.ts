@@ -11,7 +11,7 @@ import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, dec
 import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
-import { decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
+import { decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, hyperNetDetailNoticeIDs, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
@@ -4633,6 +4633,7 @@ export interface AppFlow {
   readonly hyperNetAvailabilityChanged: ReadableSignal<number>;
   loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null, scope?: HyperNetBrowseScope): Promise<readonly HyperNetOffer[]>;
   loadHyperNetOfferDetails(id: number): Promise<HyperNetOfferDetails>;
+  watchHyperNetOffer(id: number, changed: () => void): () => void;
   loadHyperNetHistory(): Promise<readonly HyperNetHistoryOffer[]>;
   readonly hyperNetHistoryChanged: ReadableSignal<number>;
   loadHyperNetParticipation(): Promise<HyperNetParticipation>;
@@ -6321,6 +6322,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const onlineCharacterID = (): number | null => store.station.get().online?.characterID ?? null;
   const academyChangedSignal = createSignal(0);
   const hyperNetHistoryChanged = createSignal(0);
+  const hyperNetDetailWatches = new Map<number, { listeners: Set<() => void>; attempted: boolean }>();
+  let hyperNetSubscriptionQueue = Promise.resolve();
   const hyperNetAvailabilityChanged = createSignal(0);
   const logonSkillsTrainedSignal = createSignal<{ readonly n: number; readonly args: readonly unknown[] } | null>(null);
   const moonExtractionChanged = createSignal(0);
@@ -7885,6 +7888,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (method === "OnRaffleUpdatedServer" || method === "OnTicketsUpdatedServer" ||
         method === "OnRaffleFinishedServer" || method === "OnRaffleCreatedServer") {
       hyperNetHistoryChanged.update(revision => revision + 1);
+      for (const id of hyperNetDetailNoticeIDs(method, args)) {
+        for (const changed of hyperNetDetailWatches.get(id)?.listeners ?? []) changed();
+      }
     }
     if (method === "OnPlexItemAddedToInventory" || method === "OnPlexWithdrawFailed" ||
         method === "OnPlexDeposited" || method === "OnPlexDepositFailed") {
@@ -29255,6 +29261,42 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return decodeHyperNetOffers(reply);
   }
 
+  function watchHyperNetOffer(id: number, changed: () => void): () => void {
+    const current = callOptions.captureRequestGuard!();
+    const owner = onlineCharacterID();
+    function queue(action: () => Promise<void>): void {
+      // A quick Back and Forward must release the old server subscription before reacquiring the same ID.
+      hyperNetSubscriptionQueue = hyperNetSubscriptionQueue.then(async () => {
+        current();
+        if (owner === onlineCharacterID()) await action();
+      }).catch(() => {});
+    }
+
+    let watch = hyperNetDetailWatches.get(id);
+    if (!watch) {
+      const registered = { listeners: new Set<() => void>(), attempted: false };
+      hyperNetDetailWatches.set(id, registered);
+      watch = registered;
+      queue(async () => {
+        if (hyperNetDetailWatches.get(id) !== registered) return;
+        registered.attempted = true;
+        await bridgeAsk("raffleProxy", "SubscribeToRaffle", [id]);
+        // Catch up on any purchase between the initial GetRaffle and subscription.
+        for (const notify of registered.listeners) notify();
+      });
+    }
+    const registered = watch;
+    registered.listeners.add(changed);
+    return () => {
+      registered.listeners.delete(changed);
+      if (registered.listeners.size || hyperNetDetailWatches.get(id) !== registered) return;
+      hyperNetDetailWatches.delete(id);
+      queue(async () => {
+        if (registered.attempted) await bridgeAsk("raffleProxy", "UnsubscribeFromRaffle", [id]);
+      });
+    };
+  }
+
   async function loadHyperNetOfferDetails(id: number): Promise<HyperNetOfferDetails> {
     const current = callOptions.captureRequestGuard!();
     const reply = await bridgeAsk("raffleProxy", "GetRaffle", [id]);
@@ -41853,6 +41895,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     hyperNetAvailabilityChanged: readonlySignal(hyperNetAvailabilityChanged),
     loadHyperNetOffers,
     loadHyperNetOfferDetails,
+    watchHyperNetOffer,
     loadHyperNetHistory,
     hyperNetHistoryChanged: readonlySignal(hyperNetHistoryChanged),
     loadHyperNetParticipation,
