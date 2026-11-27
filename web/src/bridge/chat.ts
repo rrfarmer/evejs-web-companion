@@ -81,6 +81,7 @@ export function decodeChatChannel(raw: JsonValue | undefined): ChatChannelState 
     : [];
   return {
     roomName: typeof chat.roomName === "string" ? chat.roomName : null,
+    ...(typeof chat.motd === "string" && chat.motd.trim() ? { motd: chat.motd } : {}),
     corporationID: numOrNull(chat.corporationID),
     solarSystemID: numOrNull(chat.solarSystemID),
     roster,

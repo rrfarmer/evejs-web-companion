@@ -3,7 +3,7 @@ import { helpPointerLinksFromDrop, helpPointerUrl, parseHelpPointerUrl } from ".
 import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
 import { clientTexture } from "../ui/skillGroupIcons.ts";
 import { EVE_MENU, NEOCOM_DEFAULT } from "./neocom.ts";
-import { CHARACTER_SHEET_POINTERS, CONTRACT_POINTERS, CORPORATION_POINTERS, FITTING_POINTERS, INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, MARKET_POINTERS, neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
+import { CHARACTER_SHEET_POINTERS, CHAT_POINTERS, CONTRACT_POINTERS, CORPORATION_POINTERS, FITTING_POINTERS, INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, MARKET_POINTERS, neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
 
 const industryParent = neocomPointerName("industry");
 const contractsParent = neocomPointerName("contracts");
@@ -17,6 +17,19 @@ export const NEOCOM_POINTERS: readonly UiPointerTarget[] = [...NEOCOM_DEFAULT, .
   name: neocomPointerName(item.id), label: item.label, icon: item.icon,
 }));
 const tabIcon = clientTexture("res:/UI/Texture/Classes/HelpPointer/tabFlat.png");
+const chat = CHAT_POINTERS;
+const chatPointers: readonly UiPointerTarget[] = [
+  { name: chat.local, label: "Local Chat Channel", icon: tabIcon },
+  { name: chat.corp, label: "Corporation Chat Channel", icon: tabIcon },
+  { name: chat.corpSettings, label: "Corporation Chat Settings", parent: chat.corp },
+  { name: chat.corpMotd, label: "Reload Corporation Chat MOTD", parent: chat.corpSettings },
+  { name: chat.fleet, label: "Fleet Chat Channel", icon: tabIcon },
+  { name: chat.fleetSettings, label: "Fleet Chat Settings", parent: chat.fleet },
+  { name: chat.fleetMotd, label: "Reload Fleet Chat MOTD", parent: chat.fleetSettings },
+  { name: chat.channels, label: "Open Channel Window" },
+  { name: chat.create, label: "Chat Channels - Create", parent: chat.channels,
+    icon: clientTexture("res:/UI/Texture/Classes/HelpPointer/buttonFlat.png") },
+];
 const corp = CORPORATION_POINTERS;
 const corporationPointers: readonly UiPointerTarget[] = [
   { name: corp.corporation, label: "Corporation Tab", icon: tabIcon, parent: corporationParent },
@@ -93,6 +106,7 @@ export const INTERFACE_POINTERS: readonly UiPointerTarget[] = [
   { name: CONTRACT_POINTERS.options, label: "Show/Hide more contract search options", parent: CONTRACT_POINTERS.search },
   { name: CONTRACT_POINTERS.availability, label: "Contract Availability Setting", parent: CONTRACT_POINTERS.options },
   ...corporationPointers,
+  ...chatPointers,
   { name: sheet.expand, label: "Expand/Collapse Character Sheet", parent: characterSheetParent,
     icon: clientTexture("res:/UI/Texture/Shared/DarkStyle/forward.png") },
   ...characterSheetTabs,

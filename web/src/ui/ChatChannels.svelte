@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { CHAT_POINTERS } from "../play/uiPointer.ts";
   import { onMount } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import type { AppFlow } from "../app/flow.ts";
@@ -316,7 +317,8 @@
   <input type="search" class="grow" maxlength="60" aria-label={locale(paths.channelName, "Channel Name")}
     placeholder={locale(paths.channelName, "Channel Name")} value={query} disabled={membershipBusy} oninput={(event) => changeQuery(event.currentTarget.value)} />
   <button type="submit" disabled={!query.trim() || searching || membershipBusy || $conversations.busy}>{locale(paths.join, "Join")}</button>
-  <button type="button" disabled={!query.trim() || searching || membershipBusy || $conversations.busy} onclick={() => actOnName(true)}>{locale(paths.create, "Create")}</button>
+  <button type="button" data-ui-pointer={CHAT_POINTERS.create}
+    disabled={!query.trim() || searching || membershipBusy || $conversations.busy} onclick={() => actOnName(true)}>{locale(paths.create, "Create")}</button>
   <button type="button" disabled={!query.trim() || searching || membershipBusy} onclick={findChannel}>Find Channel</button>
 </form>
 {#if error}

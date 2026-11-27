@@ -1118,9 +1118,9 @@ class XmppChatSession {
     const slash = from.indexOf("/");
     if (slash === -1) {
       const [roomName, domain] = from.split("@");
-      const subject = /<subject>([\s\S]*?)<\/subject>/i.exec(xml);
-      if (domain === this.conferenceDomain && this.rooms.has(roomName) && subject) {
-        const text = decodeXml(subject[1]);
+      const subject = /<subject>([\s\S]*?)<\/subject>|<subject\s*\/>/i.exec(xml);
+      if (subject && domain === this.conferenceDomain && [...this.rooms.values()].some(room => room.roomName === roomName)) {
+        const text = decodeXml(subject[1] ?? "");
         this.roomSubjects.set(roomName, text);
         const key = `subject:${roomName}`;
         const pending = this.infoRequests.get(key);
@@ -1812,6 +1812,7 @@ class XmppChatSession {
     const roomName = room && room.roomName ? room.roomName : null;
     const roster = roomName ? this.rosters.get(roomName) || new Map() : new Map();
     const log = roomName ? this.messages.get(roomName) || [] : [];
+    const motd = roomName ? this.roomSubjects.get(roomName) : "";
     const delayed = channel === "local" && isDelayedLocal(roomName);
     const visibleSince = Date.now() - LOCAL_SPEAKER_IDLE_MS;
     const capped = Math.max(1, Math.min(Number(limit) || 50, MAX_BUFFERED_MESSAGES));
@@ -1822,6 +1823,7 @@ class XmppChatSession {
     return {
       channel,
       roomName,
+      ...(motd ? { motd } : {}),
       seenMembers: [...(room?.seenMembers || [])],
       solarSystemID: channel === "local" ? suffix || this.localSystemID || null : null,
       ...(channel === "local" && !roomName ? { loaded: false } : {}),

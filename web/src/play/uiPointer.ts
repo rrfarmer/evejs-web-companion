@@ -23,6 +23,18 @@ export const CONTRACT_POINTERS = {
   availability: "unique_UI_contractAvailabilitySetting",
 } as const;
 
+export const CHAT_POINTERS = {
+  local: "unique_UI_localChat",
+  corp: "unique_UI_corpChannelWnd",
+  corpSettings: "unique_UI_corpChatSettings",
+  corpMotd: "unique_UI_corpChatReloadMotd",
+  fleet: "unique_UI_fleetChat",
+  fleetSettings: "unique_UI_fleetChatSettings",
+  fleetMotd: "unique_UI_fleetChatReloadMotd",
+  channels: "unique_UI_channelWindow",
+  create: "unique_UI_createChatChannelBtn",
+} as const;
+
 export const CORPORATION_POINTERS = {
   corporation: "unique_UI_corpCorporationTab",
   admin: "unique_UI_corpAdminTab",

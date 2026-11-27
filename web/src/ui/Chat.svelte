@@ -33,18 +33,20 @@
   import { doubleClickOwner } from "./ownerDoubleClick.ts";
   import { dragCharacter } from "./characterDrag.ts";
   import { ContextMenu } from "../play/contextMenu.ts";
+  import { CHAT_POINTERS } from "../play/uiPointer.ts";
   import { chatWordPattern } from "../bridge/chatWordFilters.ts";
   import ChatWordFilters from "./ChatWordFilters.svelte";
   import ChatModeration from "./ChatModeration.svelte";
   import type { ChatMember } from "../store/types.ts";
 
-  let { store, flow, unread, openSkillPlanLink = null, openInventoryFilterLink = null }: {
+  let { store, flow, unread, openSkillPlanLink = null, openInventoryFilterLink = null, openChannels }: {
     store: ClientStore;
     flow: AppFlow;
     unread?: ReadonlySet<string>;
     /** A skill plan's link in a message, clicked. */
     openSkillPlanLink?: ((url: string) => void) | null;
     openInventoryFilterLink?: ((url: string) => void) | null;
+    openChannels?: () => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -57,6 +59,10 @@
   const channelMenu = new ContextMenu();
   const BLINK_LABEL = "UI/Chat/BlinkOnNewActivity";
   const FILTERS_LABEL = "UI/Chat/ConfigureWordFiltersAndHighlights";
+  const MOTD_LABEL = "UI/Chat/ReloadChannelMOTD";
+  const SETTINGS_LABEL = "UI/Chat/ChannelSettingsSection";
+  const CHANNELS_LABEL = "UI/Neocom/ChatChannelsBtn";
+  let displayedMotd = $state<{ room: string; pilotID: number | null; text: string } | null>(null);
   let wordFiltersOpen = $state(false);
   let moderation = $state<{ room: string; action: "mute" | "kick"; member: ChatMember } | null>(null);
   // svelte-ignore state_referenced_locally
@@ -118,6 +124,13 @@
     event.preventDefault();
     const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const pointer = event instanceof MouseEvent && (event.clientX || event.clientY) ? event : null;
+    const state = channel === "local" || channel === "corp" ? store.chat.get()[channel] :
+      flow.conversations.state.get().rooms.find(room => room.channel === channel)?.state;
+    const room = state?.roomName;
+    const fleet = store.fleet.get();
+    const fleetMotd = channel === "fleet" && room === `fleet_${fleet.authoritativeFleetID}` && fleet.fleet
+      ? fleet.fleet.motd.value ?? fleet.fleet.initState.value?.motd : undefined;
+    const text = fleetMotd ?? state?.motd;
     channelMenu.open(pointer?.clientX ?? bounds.left, pointer?.clientY ?? bounds.bottom, [
       {
         label: linkWord(BLINK_LABEL) || "Blink on New Activity", path: BLINK_LABEL,
@@ -127,6 +140,15 @@
         label: linkWord(FILTERS_LABEL) || "Configure Word Filters and Highlights", path: FILTERS_LABEL,
         run: () => { wordFiltersOpen = true; },
       },
+      ...(room && text ? [{
+        label: linkWord(MOTD_LABEL) || "Reload Channel MOTD", path: MOTD_LABEL,
+        pointer: channel === "corp" ? CHAT_POINTERS.corpMotd : channel === "fleet" ? CHAT_POINTERS.fleetMotd : undefined,
+        run: () => {
+          if (channel === "local" || channel === "corp") void switchChannel(channel);
+          else flow.conversations.select(channel);
+          displayedMotd = { room, pilotID, text };
+        },
+      }] : []),
     ]);
   }
 
@@ -330,7 +352,8 @@
   }
 
   onMount(() => {
-    flow.requestWords([...Object.keys(LINK_WORDS), BLINK_LABEL, FILTERS_LABEL, ...["Channel", "Mute", "Unmute", "Kick"].map(label => `UI/Chat/${label}`)]);
+    flow.requestWords([...Object.keys(LINK_WORDS), BLINK_LABEL, FILTERS_LABEL, MOTD_LABEL, SETTINGS_LABEL, CHANNELS_LABEL,
+      ...["Channel", "Mute", "Unmute", "Kick"].map(label => `UI/Chat/${label}`)]);
     void refresh();
     poller.start();
   });
@@ -350,6 +373,10 @@
   // The active channel's decoded state (roster + backlog).
   const activeRoom = $derived($conversations.rooms.find(room => room.channel === $conversations.active) ?? null);
   const active = $derived(activeRoom?.state ?? $chat[$chat.activeChannel]);
+  const settingsPointer = $derived(activeKey === "corp" ? CHAT_POINTERS.corpSettings :
+    activeKey === "fleet" ? CHAT_POINTERS.fleetSettings : undefined);
+  const visibleMotd = $derived(displayedMotd && displayedMotd.room === active.roomName &&
+    displayedMotd.pilotID === pilotID ? displayedMotd.text : "");
   const localMode = $derived(!activeRoom && $chat.activeChannel === "local" ? active.roomName?.split("_")[0] : undefined);
   const delayedLocal = $derived(localMode === "wormhole" || localMode === "nullsec" || localMode === "triglavian");
 
@@ -385,6 +412,7 @@
       <button
         type="button"
         class:active={$conversations.active === null && $chat.activeChannel === channel.id}
+        data-ui-pointer={CHAT_POINTERS[channel.id]}
         data-unread={unread?.has(channel.id) || undefined}
         disabled={busy}
         oncontextmenu={(event) => openChannelMenu(event, channel.id)}
@@ -396,10 +424,18 @@
     {/each}
     {#each $conversations.rooms as room (room.channel)}
       <button type="button" class:active={$conversations.active === room.channel} data-unread={unread?.has(room.channel) || undefined}
+        data-ui-pointer={room.channel === "fleet" ? CHAT_POINTERS.fleet : undefined}
         disabled={busy} onclick={() => flow.conversations.select(room.channel)}
         oncontextmenu={(event) => openChannelMenu(event, room.channel)}
         onkeydown={(event) => { if (event.key === "ContextMenu" || event.shiftKey && event.key === "F10") openChannelMenu(event, room.channel); }}>{room.title}</button>
     {/each}
+    {#if openChannels}
+      <button type="button" class="minor" data-ui-pointer={CHAT_POINTERS.channels} onclick={openChannels}>
+        {linkWord(CHANNELS_LABEL) || "Open Channels"}
+      </button>
+    {/if}
+    <button type="button" class="minor" data-ui-pointer={settingsPointer} onclick={event => openChannelMenu(event, activeKey)}
+      aria-label={linkWord(SETTINGS_LABEL) || "Channel Settings"} title={linkWord(SETTINGS_LABEL) || "Channel Settings"}>⚙</button>
     {#if activeRoom}<button type="button" class="minor" disabled={busy || $conversations.busy} aria-label="Close conversation" onclick={() => run(() => flow.conversations.close(activeRoom!.channel))}>×</button>{/if}
     <button type="button" disabled={busy} onclick={() => refresh()}>Refresh</button>
   </nav>
@@ -427,6 +463,9 @@
     <div class="chat-grid">
       <div class="messages">
         <h3>Messages</h3>
+        {#if visibleMotd}
+          <p class="note" role="status" data-chat-motd>{plainText(visibleMotd)}</p>
+        {/if}
         {#if active.messages.length === 0}
           <p class="empty">No recent messages.</p>
         {:else}

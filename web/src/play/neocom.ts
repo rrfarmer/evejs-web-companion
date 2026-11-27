@@ -3,7 +3,7 @@
 // EVE-time clock at the bottom. A button opens its window where the play page has one, and says so where not yet.
 
 import { clientTexture } from "./window.ts";
-import { neocomPointerName } from "./uiPointer.ts";
+import { CHAT_POINTERS, neocomPointerName } from "./uiPointer.ts";
 import { shortcutOf } from "./shortcutKeys.ts";
 import { hideLabelShortcutTooltip, showLabelShortcutTooltip, tooltipDue, showSkillTrainingTooltip, type SkillTrainingTip, type TooltipValue } from "./labelShortcutTooltip.ts";
 import { playUiEvent } from "./uiAudio.ts";
@@ -584,6 +584,7 @@ export class Neocom {
       chatPanel.replaceChildren(...rows.map((row, index) => {
         const button = entry(row.label, index === 0 ? icon("chatchannels") :
           clientTexture("res:/UI/Texture/eveicon/system_icons/chat_bubble_16px.png"), false);
+        if (index === 0) button.dataset.uiPointer = CHAT_POINTERS.channels;
         if (index > 0) {
           button.classList.add("nc-chat-channel");
           button.title = row.label;

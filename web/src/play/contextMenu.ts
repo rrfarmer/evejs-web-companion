@@ -10,6 +10,7 @@ export interface ContextEntry {
   readonly label: string;
   /** The menu label's path (MenuLabel), which the Selected Item's buttons look for (_GetValidActionsByName). */
   readonly path?: string;
+  readonly pointer?: string;
   /** A res: path, or null for none. */
   readonly icon?: string | null;
   /** Show Info's own icon (classes/Menu/Icons/info.png on circleBG in FOCUS_BLUE). */
@@ -217,6 +218,7 @@ export class ContextMenu {
       return row;
     }
     row.dataset.entry = entry.label;
+    if (entry.pointer) row.dataset.uiPointer = entry.pointer;
     const disabled = !!entry.disabled;
     // (a check box or radio entry 24 high: MenuEntryViewCheckbox / MenuEntryViewRadioButton, g373)
     const rowH = entry.checked !== undefined ? 24 : ROW;

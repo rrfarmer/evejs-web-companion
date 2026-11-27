@@ -3062,6 +3062,7 @@ export interface ChatMessage {
 /** One channel's decoded state: its room, roster, and recent backlog. */
 export interface ChatChannelState {
   readonly roomName: string | null;
+  readonly motd?: string;
   readonly corporationID: number | null;
   readonly solarSystemID: number | null;
   readonly roster: readonly ChatMember[];
