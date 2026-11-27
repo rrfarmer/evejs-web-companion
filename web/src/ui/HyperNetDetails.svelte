@@ -2,17 +2,20 @@
   import type { AppFlow } from "../app/flow.ts";
   import { failureCode } from "../bridge/ask.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import type { HyperNetOfferDetails } from "../bridge/hyperNet.ts";
+  import type { HyperNetItem, HyperNetOffer, HyperNetOfferDetails } from "../bridge/hyperNet.ts";
   import { labelEscaped } from "../bridge/labelMarkup.ts";
   import { formatDuration } from "../bridge/skills.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
+  import HyperNetOfferCard from "./HyperNetOfferCard.svelte";
   import HyperNetShare from "./HyperNetShare.svelte";
   import { showInfo } from "./showInfo.ts";
   import { typeIconUrl } from "./typeIcons.ts";
 
-  let { store, flow, id, pilot, now, onPurchase }: {
-    store: ClientStore; flow: AppFlow; id: number; pilot: number | undefined; now: number; onPurchase: (row: HyperNetOfferDetails, owned: number) => void;
+  let { store, flow, id, pilot, now, ownedTickets, openDetails, browseSimilar, onPurchase }: {
+    store: ClientStore; flow: AppFlow; id: number; pilot: number | undefined; now: number;
+    ownedTickets: ReadonlyMap<number, number>; openDetails: (id: number) => void; browseSimilar: (item?: HyperNetItem) => void;
+    onPurchase: (row: HyperNetOfferDetails, owned: number) => void;
   } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
@@ -33,6 +36,8 @@
     only: ["UI/HyperNet/ShowOnlyAvailable", "Show only available"],
     expired: ["UI/HyperNet/CardExpired", "Expired"],
     winner: ["UI/HyperNet/CardWinner", "Winner"],
+    similar: ["UI/HyperNet/SimilarRaffles", "Similar offers"],
+    more: ["UI/HyperNet/ViewMore", "View More"],
     claim: ["UI/HyperNet/ClaimReward", "Claim prize"],
     claimed: ["UI/HyperNet/RewardClaimed", "{item_name} delivered to"],
     claimFailed: ["UI/HyperNet/ClaimItemFailed", "The prize could not be claimed."],
@@ -50,6 +55,27 @@
   $effect(() => flow.requestWords(Object.values(labels).map(([path]) => path)));
 
   let details = $state.raw<HyperNetOfferDetails | null>(null);
+  let similarOffers = $state.raw<readonly HyperNetOffer[]>([]);
+  let similarLoading = $state(false);
+  const winnerType = $derived(details?.winnerID ? details.typeID : null);
+
+  $effect(() => {
+    const typeID = winnerType;
+    if (typeID === null) return;
+    similarLoading = true;
+    let current = true;
+    void flow.loadHyperNetSimilarOffers(typeID).then(rows => {
+      if (!current) return;
+      similarOffers = rows;
+      flow.requestNames(rows.map(offer => ({ kind: "type", id: offer.typeID })));
+    }).catch(() => {}).finally(() => { if (current) similarLoading = false; });
+    return () => { current = false; };
+  });
+
+  function updateSimilarOffer(row: HyperNetOfferDetails, owned: number) {
+    similarOffers = similarOffers.map(offer => offer.id === row.id && row.remaining <= offer.remaining ? row : offer);
+    onPurchase(row, owned);
+  }
   let estimate = $state<number | null>(null);
   let groupID = $state<number | null>(null);
   let failed = $state(false);
@@ -386,6 +412,24 @@
         </li>
       {/each}
     </ul>
+    {#if offer.winnerID !== null}
+      <section class="similar" aria-label={word("similar")}>
+        <header>
+          <h3>{word("similar")}</h3>
+          <button type="button" data-hypernet-view-more disabled={similarLoading} onclick={() => browseSimilar(
+            similarOffers[0]?.typeID === offer.typeID ? {
+              key: "type_id", id: offer.typeID, name: resolvedName($names.resolved, "type", offer.typeID, String(offer.typeID)),
+            } : undefined
+          )}>{word("more")}</button>
+        </header>
+        <ul>
+          {#each similarOffers.filter(row => row.expires > now) as row (row.id)}
+            <HyperNetOfferCard {store} {flow} {pilot} offer={row} {now} owned={ownedTickets.get(row.id) ?? 0}
+              {openDetails} onPurchase={updateSimilarOffer} similar />
+          {/each}
+        </ul>
+      </section>
+    {/if}
   {:else}
     <p role="status">Loading HyperNet offer…</p>
   {/if}
@@ -399,6 +443,11 @@
   .offer-item p, dt { color: #b8c3cc; }
   dl { display: flex; flex-wrap: wrap; gap: 10px 24px; }
   dl, dd, h2, p { margin: 0; }
+  .similar { display: grid; gap: 6px; }
+  .similar header { justify-content: space-between; }
+  .similar h3 { margin: 0; }
+  .similar ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 6px;
+    list-style: none; margin: 0; padding: 0; }
   .tickets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; padding: 0; margin: 0; list-style: none; }
   .tickets li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 5px; background: #ffffff10; }
   .tickets .sold { background: #ffffff06; }

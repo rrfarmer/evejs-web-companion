@@ -4636,6 +4636,7 @@ export interface AppFlow {
   takeHyperNetOfferLink(): number | null;
   readonly hyperNetAvailabilityChanged: ReadableSignal<number>;
   loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null, scope?: HyperNetBrowseScope): Promise<readonly HyperNetOffer[]>;
+  loadHyperNetSimilarOffers(typeID: number): Promise<readonly HyperNetOffer[]>;
   loadHyperNetActiveTickets(): Promise<ReadonlyMap<number, number>>;
   loadHyperNetOfferDetails(id: number): Promise<HyperNetOfferDetails>;
   watchHyperNetOffer(id: number, changed: () => void): () => void;
@@ -29284,6 +29285,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return decodeHyperNetOffers(reply);
   }
 
+  async function loadHyperNetSimilarOffers(typeID: number): Promise<readonly HyperNetOffer[]> {
+    const current = callOptions.captureRequestGuard!();
+    const size = 3;
+    const reply = await bridgeAsk("raffleProxy", "FilteredGrab", [], {
+      filters: { type: "dict", entries: [["type_id", typeID]] }, constraints: { type: "dict", entries: [] }, size,
+    });
+    current();
+    const matching = decodeHyperNetOffers(reply);
+    if (matching.length > 0) return matching.slice(0, size);
+    const fallback = await bridgeAsk("raffleProxy", "Grab", []);
+    current();
+    return decodeHyperNetOffers(fallback).slice(0, size);
+  }
+
   function watchHyperNetOffer(id: number, changed: () => void): () => void {
     const current = callOptions.captureRequestGuard!();
     const owner = onlineCharacterID();
@@ -41969,6 +41984,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     takeHyperNetOfferLink,
     hyperNetAvailabilityChanged: readonlySignal(hyperNetAvailabilityChanged),
     loadHyperNetOffers,
+    loadHyperNetSimilarOffers,
     loadHyperNetActiveTickets,
     loadHyperNetOfferDetails,
     watchHyperNetOffer,

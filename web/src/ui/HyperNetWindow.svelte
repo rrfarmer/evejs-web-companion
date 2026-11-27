@@ -1,36 +1,29 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
-  import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { plainText } from "../bridge/clientWords.ts";
   import { hyperNetCountBounds as countBounds, hyperNetPriceBounds as priceBounds, isHyperNetItem, type HyperNetConstraints, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails } from "../bridge/hyperNet.ts";
   import { hyperNetLinkLabel } from "../bridge/hyperNetOfferLink.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
-  import { formatDuration } from "../bridge/skills.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import { resolvedName } from "../store/names.ts";
-  import { startHyperNetOfferDrag } from "./linkFollowers.ts";
-  import { showInfo } from "./showInfo.ts";
+  import HyperNetOfferCard from "./HyperNetOfferCard.svelte";
   import HyperNetDetails from "./HyperNetDetails.svelte";
   import HyperNetHistory from "./HyperNetHistory.svelte";
-  import HyperNetQuickBuy, { quickBuyWords } from "./HyperNetQuickBuy.svelte";
+  import { quickBuyWords } from "./HyperNetQuickBuy.svelte";
   import HyperNetSavedFilters from "./HyperNetSavedFilters.svelte";
-  import { typeIconUrl } from "./typeIcons.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
   const words = $derived(store.words);
-  const names = $derived(store.names);
   const station = $derived(store.station);
   const pilot = $derived($station.online?.characterID);
   const labels = {
     browse: ["UI/HyperNet/TabNameBrowse", "Browse"],
     history: ["UI/HyperNet/TabNameMyRaffles", "History"],
-    details: ["UI/HyperNet/PageTitleDetails", "Offer details"],
     back: ["UI/Common/Previous", "Back"],
     forward: ["UI/Common/Next", "Forward"],
     refresh: ["UI/HyperNet/Refresh", "Refresh"],
     empty: ["UI/HyperNet/NoRafflesFoundError", "No HyperNet offers found"],
     price: ["UI/HyperNet/TicketPrice", "HyperNode price"],
-    tickets: ["UI/HyperNet/RemainingTickets", "{remaining_ticket_count}/{ticket_count} HyperNodes"],
     count: ["UI/HyperNet/TicketCountLabel", "HyperNode count"],
     filters: ["UI/Calendar/CalendarWindow/Filters", "Filters"],
     reset: ["UI/HyperNet/Reset", "Reset"],
@@ -51,30 +44,28 @@
     blueprintCopy: ["UI/Generic/Copy", "Copy"],
   } as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
-  const ticketCount = (offer: HyperNetOffer) => plainText(formatTemplate(word("tickets"),
-    { remaining_ticket_count: offer.remaining, ticket_count: offer.tickets }, { nameOf: () => "" }));
   const pageSize = 12;
-  let view = $state<"browse" | "history">("browse");
-  let detailsID = $state<number | null>(null);
-  let nextDetailsID = $state<number | null>(null);
+  type Location = { readonly view: "browse" | "history"; readonly offer: number | null };
+  let locations = $state.raw<readonly Location[]>([{ view: "browse", offer: null }]);
+  let locationIndex = $state(0);
+  const view = $derived(locations[locationIndex]!.view);
+  const detailsID = $derived(locations[locationIndex]!.offer);
   let navigation = $state<HTMLElement>();
-  function changeView(next: typeof view) {
-    detailsID = null;
-    nextDetailsID = null;
-    view = next;
+  function navigate(next: Location) {
+    if (next.view === view && next.offer === detailsID) return;
+    locations = [...locations.slice(0, locationIndex + 1), next];
+    locationIndex++;
+    navigation?.scrollIntoView({ block: "nearest" });
+  }
+  function changeView(next: Location["view"]) {
+    navigate({ view: next, offer: null });
   }
   function openDetails(id: number) {
-    detailsID = id;
-    nextDetailsID = null;
-    navigation?.scrollIntoView({ block: "nearest" });
+    navigate({ view, offer: id });
   }
   $effect(() => flow.hyperNetOfferLink.subscribe(id => {
     if (id !== null && flow.takeHyperNetOfferLink() !== null) openDetails(id);
   }));
-  function goBack() {
-    nextDetailsID = detailsID;
-    detailsID = null;
-  }
   const defaults = { minPrice: 0, maxPrice: 0, minCount: 8, maxCount: 512 };
   type Ranges = typeof defaults;
   type Option = { readonly id: number; readonly name: string };
@@ -131,6 +122,13 @@
     filter = { owner, values: next };
     selectedFilter = name;
     try { localStorage.setItem(storageKey(owner), JSON.stringify(next)); } catch { /* keep the current selection */ }
+  }
+
+  function browseSimilar(item?: HyperNetItem) {
+    search = "";
+    systemSearch = "";
+    applyFilters(item ? { ...defaults, item } : defaults);
+    changeView("browse");
   }
 
   function applyRanges(next: Ranges) {
@@ -239,7 +237,7 @@
       ownedPilot = owner;
       ownedTickets = new Map();
     }
-    if (!owner || view !== "browse" || detailsID !== null) return;
+    if (!owner) return;
     const revision = ownedRevision;
     let current = true;
     void flow.loadHyperNetActiveTickets().then(counts => {
@@ -322,16 +320,17 @@
   <nav aria-label="HyperNet Relay" bind:this={navigation}>
     <button type="button" aria-pressed={detailsID === null && view === "browse"} onclick={() => changeView("browse")}>{word("browse")}</button>
     <button type="button" aria-pressed={detailsID === null && view === "history"} onclick={() => changeView("history")}>{word("history")}</button>
-    {#if detailsID !== null}
-      <button type="button" data-hypernet-back onclick={goBack}>{word("back")}</button>
-    {:else if nextDetailsID !== null}
-      {@const offerID = nextDetailsID}
-      <button type="button" data-hypernet-forward onclick={() => openDetails(offerID)}>{word("forward")}</button>
+    {#if locationIndex > 0}
+      <button type="button" data-hypernet-back onclick={() => { locationIndex--; }}>{word("back")}</button>
+    {/if}
+    {#if locationIndex < locations.length - 1}
+      <button type="button" data-hypernet-forward onclick={() => { locationIndex++; }}>{word("forward")}</button>
     {/if}
   </nav>
   {#if detailsID !== null}
     {#key detailsID}
-      <HyperNetDetails {store} {flow} {pilot} id={detailsID} {now} onPurchase={updateBrowseOffer} />
+      <HyperNetDetails {store} {flow} {pilot} id={detailsID} {now} {ownedTickets} {openDetails} {browseSimilar}
+        onPurchase={updateBrowseOffer} />
     {/key}
   {/if}
   <div class="catalogue" hidden={detailsID !== null}>
@@ -469,23 +468,8 @@
   {:else}
     <ul>
       {#each active as offer (offer.id)}
-        <li data-offer-id={offer.id} draggable="true" ondragstart={event => startHyperNetOfferDrag(event, offer.id,
-          resolvedName($names.resolved, "type", offer.typeID, String(offer.typeID)), $words.templates[hyperNetLinkLabel])}>
-          <button class="item" type="button" onclick={() => showInfo({ kind: "type", typeID: offer.typeID })}>
-            <img src={typeIconUrl(offer.typeID)} alt="" />
-            {resolvedName($names.resolved, "type", offer.typeID, String(offer.typeID))}
-          </button>
-          <dl>
-            <dt>{word("price")}</dt><dd data-ticket-price>{offer.price.toLocaleString()} ISK</dd>
-          </dl>
-          <p data-ticket-count>{ticketCount(offer)}</p>
-          <time datetime={new Date(offer.expires).toISOString()}>{formatDuration(offer.expires - now)}</time>
-          <div class="offer-actions">
-            <button type="button" data-open-offer onclick={() => openDetails(offer.id)}>{word("details")}</button>
-            <HyperNetQuickBuy {store} {flow} {pilot} {offer} owned={ownedTickets.get(offer.id) ?? 0}
-              enabled={detailsID === null} onUpdate={updateBrowseOffer} />
-          </div>
-        </li>
+        <HyperNetOfferCard {store} {flow} {pilot} {offer} {now} owned={ownedTickets.get(offer.id) ?? 0}
+          enabled={detailsID === null} {openDetails} onPurchase={updateBrowseOffer} />
       {/each}
     </ul>
   {/if}
@@ -509,11 +493,5 @@
   .meta-group { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
   small { color: #b8c3cc; margin-inline-start: 4px; }
   ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 245px), 1fr)); gap: 8px; padding: 0; margin: 0; list-style: none; }
-  li { display: grid; gap: 8px; padding: 8px; background: #ffffff08; }
-  .offer-actions { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-  .item { display: flex; align-items: center; gap: 8px; text-align: start; }
-  img { width: 32px; height: 32px; object-fit: contain; }
-  dl { display: grid; grid-template-columns: 1fr auto; gap: 4px; }
-  dl, dd, p { margin: 0; }
-  time { color: #b8c3cc; }
+  p { margin: 0; }
 </style>
