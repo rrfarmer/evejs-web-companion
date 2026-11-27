@@ -3,6 +3,7 @@
   import type { StarMapData, SystemObjectRow } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import type { BookmarkPlace } from "../bridge/locationsList.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
@@ -10,10 +11,13 @@
   import { mapBrowserConnections, type MapBrowserConnection } from "./mapBrowserConnections.ts";
   import { solarGeometry } from "./mapBrowserSolarGeometry.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
+  import BookmarkWindow from "./BookmarkWindow.svelte";
+  import { solarSystemMenu, solarSystemMenuWords } from "./solarSystemMenu.ts";
 
-  let { store, flow, request, onClose, onShowLocation }: {
+  let { store, flow, request, onClose, onShowLocation, onShowSystemInBrowser }: {
     store: ClientStore; flow: AppFlow; request: { systemID: number };
     onClose: () => void; onShowLocation: (locationID: number) => void;
+    onShowSystemInBrowser: (systemID: number) => void;
   } = $props();
   const names = $derived(store.names);
   const words = $derived(store.words);
@@ -30,6 +34,7 @@
   let objects = $state.raw<readonly SystemObjectRow[]>([]);
   let selection = $state<readonly number[]>([]);
   let shownList = $state<number | null>(null);
+  let bookmark = $state.raw<BookmarkPlace | null>(null);
   let error = $state(false);
   let solarPlotWidth = $state(0);
   let alignment = $state<"left" | "right">("right");
@@ -58,7 +63,7 @@
     void flow.loadStarMap().then(result => {
       if (current) { data = result; error = result.systems.length === 0; }
     }).catch(() => { if (current) error = true; });
-    flow.requestWords([universeLabel, showAbstractLabel, showPhysicalLabel, cannotShiftSelect, ...["MapBrowser", "CloseMapBrowser", "ShowInWorldMap", "AlignLeft", "AlignRight",
+    flow.requestWords([...solarSystemMenuWords, universeLabel, showAbstractLabel, showPhysicalLabel, cannotShiftSelect, ...["MapBrowser", "CloseMapBrowser", "ShowInWorldMap", "AlignLeft", "AlignRight",
       "NameRegion", "NameConstellation", "NameSolarSystem", ...sectionLabels].map(key => labelBase + key)]);
     return () => { current = false; };
   });
@@ -185,10 +190,21 @@
   }
   function openMapMenu(event: MouseEvent | KeyboardEvent): void {
     const target = event.target;
-    if (!(target instanceof HTMLElement) || target.closest(".map-browser-point, .map-browser-choices")) return;
-    event.preventDefault();
+    if (!(target instanceof HTMLElement) || target.closest(".map-browser-choices")) return;
     const bounds = target.getBoundingClientRect();
     const pointer = event instanceof MouseEvent && (event.clientX !== 0 || event.clientY !== 0);
+    const x = pointer ? event.clientX : bounds.left;
+    const y = pointer ? event.clientY : bounds.bottom;
+    const marker = target.closest<HTMLElement>(".map-browser-point");
+    if (marker) {
+      const point = systemPoints.find(point => point.id === Number(marker.dataset.mapItem));
+      if (!point) return;
+      event.preventDefault();
+      mapMenu.open(x, y, solarSystemMenu(store, flow, point.id, () => point.name, place => { bookmark = place; },
+        showInWorldMap, onShowSystemInBrowser));
+      return;
+    }
+    event.preventDefault();
     const next = alignment === "left" ? "right" : "left";
     const path = labelBase + (next === "left" ? "AlignLeft" : "AlignRight");
     const entries: (ContextEntry | null)[] = [{
@@ -208,7 +224,7 @@
         },
       });
     }
-    mapMenu.open(pointer ? event.clientX : bounds.left, pointer ? event.clientY : bounds.bottom, entries);
+    mapMenu.open(x, y, entries);
   }
   function alignmentEvents(element: HTMLElement) {
     const onKey = (event: KeyboardEvent) => {
@@ -272,6 +288,10 @@
     {/each}
   {/if}
 </aside>
+
+{#if bookmark}
+  {#key bookmark.itemID}<BookmarkWindow {store} {flow} place={bookmark} onDone={() => { bookmark = null; }} />{/key}
+{/if}
 
 <style>
   .map-browser { position: fixed; inset: 0 0 0 auto; width: min(calc(25dvh + 5px), 90vw); z-index: 18;

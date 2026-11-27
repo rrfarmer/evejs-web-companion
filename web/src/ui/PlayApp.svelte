@@ -5162,6 +5162,7 @@
   <div class="fly-map" class:foreground={mapInFront} bind:this={mapHost}></div>
   {#if session && mapBrowserRequest}
     <MapBrowser store={session.store} flow={session.flow} request={mapBrowserRequest} onShowLocation={(id) => showLocationOnMap(id, true)}
+      onShowSystemInBrowser={showSystemInMapBrowser}
       onClose={() => { mapBrowserRequest = null; }} />
   {/if}
   {#if planetInMode}
