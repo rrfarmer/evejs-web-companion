@@ -22,6 +22,7 @@ export interface MissionLocation {
   readonly solarsystemID: number | null;
   readonly typeID: number | null;
   readonly locationType: string | null;
+  readonly bookmark?: { readonly coordinates: readonly number[]; readonly agentID: number; readonly referringAgentID: number | null };
   /** A ship in space to go to, by its type (the client words the place by it). */
   readonly shipTypeID: number | null;
 }
@@ -155,12 +156,19 @@ function location(value: Value): MissionLocation | null {
     return null;
   }
   const locationType = read(value, "locationType");
+  const coordinates = items(read(value, "coords")).map(real);
+  const agentID = integer(read(value, "agentID"));
+  const bookmark = agentID !== null && coordinates.length === 3 &&
+    coordinates.every((coordinate): coordinate is number => coordinate !== null && Number.isFinite(coordinate))
+    ? { coordinates, agentID, referringAgentID: integer(read(value, "referringAgentID")) }
+    : null;
   return {
     locationID: integer(read(value, "locationID")),
     solarsystemID: integer(read(value, "solarsystemID")),
     typeID: integer(read(value, "typeID")),
     locationType: typeof locationType === "string" ? locationType : null,
     shipTypeID: integer(read(value, "shipTypeID")),
+    ...(bookmark ? { bookmark } : {}),
   };
 }
 

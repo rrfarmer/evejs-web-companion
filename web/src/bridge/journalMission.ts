@@ -1,5 +1,7 @@
 import { decodeObjectives, type MissionObjectives } from "./missionObjectives.ts";
-import { readDictEntry, unwrapLong } from "./wire.ts";
+import { argumentsOf, questionMarkup, type ClientWording, type NameOf } from "./questions.ts";
+import { readDictEntry, unwrapLong, type JsonValue } from "./wire.ts";
+import type { QuestionWords } from "../store/types.ts";
 
 export interface JournalMissionDetails {
   readonly contentID: number | null;
@@ -38,4 +40,32 @@ export function decodeJournalMissionDetails(raw: unknown): JournalMissionDetails
     image,
     objectives,
   };
+}
+
+/** Agent ProcessMessage resolves tuple-valued arguments before filling the outer label. */
+function nestedPhrase(value: JsonValue | undefined): QuestionWords | null {
+  if (value == null || typeof value !== "object") return null;
+  const tuple = Array.isArray(value) ? value : "type" in value && value.type === "tuple" ? value.items : null;
+  if (!Array.isArray(tuple) || tuple.length !== 2) return null;
+  const [key, args] = tuple;
+  if (args == null || typeof args !== "object" || Array.isArray(args) || args.type !== "dict") return null;
+  if (typeof key === "string") return { label: key, parameters: args, text: null };
+  const id = unwrapLong(key);
+  if (id === null || id <= 0n || id > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+  return { label: null, messageID: Number(id), parameters: args, text: null };
+}
+
+export function journalMessagePhrases(phrase: QuestionWords): QuestionWords[] {
+  return [phrase, ...Object.values(argumentsOf(phrase.parameters)).flatMap(value => {
+    const child = nestedPhrase(value);
+    return child ? journalMessagePhrases(child) : [];
+  })];
+}
+
+export function journalMessageMarkup(phrase: QuestionWords, nameOf: NameOf, client: ClientWording): string | null {
+  const parameters = Object.entries(argumentsOf(phrase.parameters)).map(([key, value]) => {
+    const child = nestedPhrase(value);
+    return [key, child ? journalMessageMarkup(child, nameOf, client) ?? "" : value];
+  });
+  return questionMarkup({ ...phrase, parameters: { type: "dict", entries: parameters } }, nameOf, client);
 }

@@ -1,4 +1,5 @@
 import blue
+import re
 from eve.client.script.ui.station.agents import agents as agents_module
 from eve.client.script.ui.station.agents.agentDialogueUtil import GetMissionDetailsWindowHTML
 from eve.client.script.ui.station.agents.missionDetailsWindow import MissionDetailsWindow
@@ -28,10 +29,19 @@ def observe():
             if wnd and wnd.agentID == agent_id:
                 break
             blue.pyos.synchro.SleepWallclock(100)
+        html = GetMissionDetailsWindowHTML(mission, agent_id)
+        links = re.findall(r'<a href=["\']?(showinfo:[^"\'\s>]+)["\']?>(.*?)</a>', html, re.I | re.S)
+        colors = re.findall(r'<font\s+color\s*=\s*["\']?(#[0-9a-f]{6}|0x[0-9a-f]{8})["\']?>(.*?)</font>', html, re.I | re.S)
+        bold = re.findall(r'<b>(.*?)</b>', html, re.I | re.S)
         return dict(build=3698585, station=session.stationid, agent=agent_id,
                     title=wnd.GetCaption(), dimensions=[MissionDetailsWindow.default_width, MissionDetailsWindow.default_height],
                     minimum=list(MissionDetailsWindow.default_minSize), missionState=mission['missionState'],
-                    fields=sorted(mission.keys()), html=GetMissionDetailsWindowHTML(mission, agent_id)[:8000])
+                    fields=sorted(mission.keys()), html=html[:8000],
+                    links=[dict(url=url, text=re.sub(r'<[^>]*>', '', body).strip(),
+                                image=body.startswith('<img')) for url, body in links],
+                    colors=[dict(color=color, text=re.sub(r'<[^>]*>', '', text).strip())
+                            for color, text in colors if text],
+                    bold=bold)
     finally:
         agents_module.are_missions_in_job_board_available = original
         if agent_id in svc.missionDetailsWindows:
