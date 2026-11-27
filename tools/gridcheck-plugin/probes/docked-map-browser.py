@@ -1,7 +1,9 @@
 import blue
+from carbonui import const as uiconst
 from carbonui.uicore import uicore
 from eve.client.script.ui.shared.maps.browserwindow import MapBrowserWnd
 from eve.client.script.ui.shared.maps.map2D import FLIPMAP
+from eve.client.script.ui.shared.maps import browser as browser_module
 import localization
 
 
@@ -74,6 +76,43 @@ def observe_connections(browser):
     return result
 
 
+def observe_shift(browser):
+    upper = []
+    for index, ids in enumerate(([10000002, 10000033], [20000020, 20000021]), 1):
+        try:
+            browser.children[index].GetMapData(ids, index, index + 1)
+        except Exception as error:
+            upper.append(str(error))
+        else:
+            upper.append(None)
+
+    class ShiftInput(object):
+        def Key(self, key):
+            return key == uiconst.VK_SHIFT or uicore.uilib.Key(key)
+
+    class ProjectedCore(object):
+        uilib = ShiftInput()
+
+        def __getattr__(self, name):
+            return getattr(uicore, name)
+
+    prompts = []
+    original_prompt = browser_module.prompt_player_fsd_dialog
+    original_core = browser_module.uicore
+    try:
+        browser_module.uicore = ProjectedCore()
+        browser_module.prompt_player_fsd_dialog = lambda key, params: prompts.append(dict(key=key, text=params['info']))
+        browser.OnMapSelection(browser.children[2], 30000144)
+        for _ in range(30):
+            if prompts and browser.ids[3] == [30000144] and not browser.loadingMap:
+                break
+            blue.pyos.synchro.SleepWallclock(100)
+        return dict(upper=upper, prompts=prompts, selected=list(browser.ids[3]))
+    finally:
+        browser_module.uicore = original_core
+        browser_module.prompt_player_fsd_dialog = original_prompt
+
+
 def observe():
     if MapBrowserWnd.GetIfOpen():
         raise RuntimeError('Map Browser is already open')
@@ -98,6 +137,7 @@ def observe():
         connections = observe_connections(browser)
         rect = list(window.GetAbsolute())
         desktop = [uicore.desktop.width, uicore.desktop.height]
+        shift = observe_shift(browser)
         menu.ShowInMapBrowser(30000144)
         second = [list(ids) for ids in browser.ids]
         return dict(build=3698585, station=session.stationid, windowID=window.windowID,
@@ -106,7 +146,7 @@ def observe():
                     neocom=list(sm.GetService('neocom').GetNeocomContainer().GetAbsolute()),
                     firstOrbits=first_orbits, secondOrbits=orbit_geometry(browser),
                     alignment=observe_alignment(window), zoomControls=zoom_controls(window),
-                    connections=connections, abstractLayout=abstract)
+                    connections=connections, abstractLayout=abstract, shiftSelection=shift)
     finally:
         window = MapBrowserWnd.GetIfOpen()
         if window:

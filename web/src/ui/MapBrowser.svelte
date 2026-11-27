@@ -21,6 +21,7 @@
   const universeLabel = "UI/Common/LocationTypes/Universe";
   const showAbstractLabel = "UI/Map/Map2D/menuShowAbstract";
   const showPhysicalLabel = "UI/Map/Map2D/menuShowNonAbstract";
+  const cannotShiftSelect = "UI/Map/MapBrowser/CannotShiftSelect";
   const sectionLabels = ["ListRegions", "ListConstellations", "ListSolarSystems", "ListCelestials"] as const;
   type Point = { id: number; name: string; x: number; y?: number; z: number; typeID: number; station?: boolean;
     groupID?: number | null; orbitID?: number | null };
@@ -45,7 +46,7 @@
     void flow.loadStarMap().then(result => {
       if (current) { data = result; error = result.systems.length === 0; }
     }).catch(() => { if (current) error = true; });
-    flow.requestWords([universeLabel, showAbstractLabel, showPhysicalLabel, ...["MapBrowser", "CloseMapBrowser", "ShowInWorldMap", "AlignLeft", "AlignRight",
+    flow.requestWords([universeLabel, showAbstractLabel, showPhysicalLabel, cannotShiftSelect, ...["MapBrowser", "CloseMapBrowser", "ShowInWorldMap", "AlignLeft", "AlignRight",
       "NameRegion", "NameConstellation", "NameSolarSystem", ...sectionLabels].map(key => labelBase + key)]);
     return () => { current = false; };
   });
@@ -152,14 +153,20 @@
     measure();
     return { destroy: () => observer.disconnect() };
   }
-  function select(index: number, point: Point): void {
+  function select(index: number, point: Point, shiftKey: boolean): void {
     if (index === 0) selection = [point.id];
     else if (index === 1) {
       const parent = constellationPoints.find(row => row.id === point.id);
       if (parent) selection = [parent.region, point.id];
     } else if (index === 2) {
       const parent = data?.systems.find(row => row[0] === point.id);
-      if (parent) selection = [parent[5], parent[6], point.id];
+      if (parent) {
+        selection = [parent[5], parent[6], point.id];
+        if (shiftKey) {
+          const info = label(cannotShiftSelect, "You cannot Shift-select solar systems.");
+          flow.sayDialog("CustomInfo", { info }, info);
+        }
+      }
     }
     else showInfo({ kind: "spaceObject", itemID: point.id, typeID: point.typeID });
     shownList = null;
@@ -238,13 +245,14 @@
               class:outside={"outside" in point && point.outside}
               class:satellite={"planetID" in point && point.planetID !== undefined}
               style:left={`${point.left}%`} style:top={`${point.top}%`} title={point.name} aria-label={point.name}
-              aria-pressed={index < 3 ? panel.selected === point.id : undefined} data-map-item={point.id} onclick={() => select(index, point)}></button>
+              aria-pressed={index < 3 ? panel.selected === point.id : undefined} data-map-item={point.id}
+              onclick={event => select(index, point, event.shiftKey)}></button>
           {/each}
         </div>
         {#if shownList === index}
           <ul class="map-browser-choices">
             {#each [...panel.points].sort((a, b) => a.name.localeCompare(b.name)) as point (point.id)}
-              <li><button type="button" onclick={() => select(index, point)}>{point.name}</button></li>
+              <li><button type="button" onclick={event => select(index, point, event.shiftKey)}>{point.name}</button></li>
             {/each}
           </ul>
         {/if}
