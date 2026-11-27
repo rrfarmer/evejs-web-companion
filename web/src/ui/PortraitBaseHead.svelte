@@ -207,6 +207,7 @@
     const source = outfit;
     const extra = apparel;
     const gender = model;
+    const bodyMorphs = morphs?.filter(morph => morph.body) ?? [];
     if (!active || !source) return;
     let retired = false;
     let body: THREE.Group | null = null;
@@ -237,18 +238,27 @@
       return await response.json() as Garment;
     };
     let skin: THREE.MeshStandardMaterial | undefined;
+    const loadBodyModel = async (path: string): Promise<THREE.Group | null> => {
+      const { scene: mesh } = await loader.loadAsync(path);
+      if (!retired && bodyMorphs.length) {
+        await applyPortraitMorphs(mesh, path.replace(/\.glb$/, ""), bodyMorphs, () => retired);
+      }
+      if (!retired) return mesh;
+      release(mesh);
+      return null;
+    };
     const loadGarment = async (data: Garment, group: THREE.Group) => {
       const diffuse = await texture(data.diffuse, true);
       const zones = data.colors.length === 3 ? await texture(data.zones, false) : null;
       const normal = await texture(data.normal, false);
       const skinBase = data.skinBase ? await texture(data.skinBase, true) : null;
       if (retired) return;
-      const { scene: object } = await loader.loadAsync(data.model);
-      if (retired) { release(object); return; }
+      const object = await loadBodyModel(data.model);
+      if (!object) return;
       group.add(object);
       for (const path of data.bodyParts ?? []) {
-        const { scene: part } = await loader.loadAsync(path);
-        if (retired) { release(part); return; }
+        const part = await loadBodyModel(path);
+        if (!part) return;
         object.add(part);
       }
       const garment = new THREE.MeshStandardMaterial({ map: diffuse, normalMap: normal, roughness: 0.68, side: THREE.DoubleSide });
@@ -339,8 +349,8 @@
       for (const layer of worn) await loadGarment(layer, body);
       if (retired) return;
       if (!occludes.has("hands") && !occludes.has("hand")) {
-        const { scene: hands } = await loader.loadAsync(`/client-assets/portrait-outfit/${gender}/hands.glb`);
-        if (retired) { release(hands); return; }
+        const hands = await loadBodyModel(`/client-assets/portrait-outfit/${gender}/hands.glb`);
+        if (!hands) return;
         hands.traverse(node => {
           if (!(node instanceof THREE.Mesh)) return;
           for (const material of Array.isArray(node.material) ? node.material : [node.material]) material.dispose();

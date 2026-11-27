@@ -42,7 +42,7 @@ def observe(gender, outfit, hair, apparel=(), sculpts=()):
             result['sculpts'] = [dict(location=row[0], prefix=cfg.paperdollSculptingLocations.Get(row[0]).weightKeyPrefix,
                                       upDown=row[1], leftRight=row[2], forwardBack=row[3]) for row in sculpts]
             result['morphs'] = dict((key, value) for key, value in doll.buildDataManager.GetMorphTargets().iteritems()
-                                    if value and ('jaw' in key.lower() or 'nose' in key.lower()))
+                                    if value and key in ('jaw_downshape', 'nose_forwardshape', 'fatshape'))
             paths = {}
             for modifier in doll.buildDataManager.GetModifiersAsList():
                 paths.update(modifier.meshGeometryResPaths)
@@ -64,4 +64,6 @@ def observe(gender, outfit, hair, apparel=(), sculpts=()):
 result = dict(female=observe(0, 15525, 407), male=observe(1, 15555, 127),
               layered=observe(0, 2225, 407, ((25, 236), (22, 298))),
               shirt=observe(0, None, 407, ((26, 3529), (25, 236), (22, 298))),
-              sculpted=observe(0, 8649, 407, sculpts=((18, -0.75, 0.0, 0.0), (27, 0.0, 0.0, 0.4))))
+              sculpted=observe(0, 8649, 407, sculpts=((18, -0.75, 0.0, 0.0), (27, 0.0, 0.0, 0.4))),
+              bodySculpt=observe(0, None, 407, ((26, 3529), (25, 236), (22, 298)),
+                                 sculpts=((5, 0.5, 0.0, 0.0),)))

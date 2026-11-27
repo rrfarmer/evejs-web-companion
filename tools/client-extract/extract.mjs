@@ -9,6 +9,7 @@
 //        [--ship-info] (the Ship Info scene, faction backgrounds and light rig, needs --sde)
 //        [--portrait-head <female|male>] (the skinned character-creation base head)
 //        [--portrait-morph <name>] (one sparse morph from that head)
+//        [--portrait-body <model stem>] (extract a sparse morph for an extracted outfit model)
 //        [--portrait-outfit <gender/[slot/]style/variant>] (an installed paper-doll garment)
 //        [--portrait-hands <female|male>] (the skinned base hands)
 //        [--observatory-environment] (the anchor template and its postprocessing textures)
@@ -40,7 +41,7 @@ import { childEffectRoots, hullOverlays, readEffectFile, readHullChildren, readH
 import { readGranny } from "./lib/granny.mjs";
 import { readAnimations } from "./lib/grannyAnim.mjs";
 import { meshArrays, meshSkinArrays } from "./lib/mesh.mjs";
-import { writeGlb, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
+import { writeGlb, readGlbDocument, glbBuildOf, GLB_BUILD } from "./lib/glb.mjs";
 import { buildTypeGraphics, buildSystemScenes, buildTypeNames, findSystemCelestials, buildGfxTurrets, indexedHullGeometry, CELESTIAL_BUILD } from "./lib/typeGraphics.mjs";
 import { readFsdStatic } from "./lib/fsdStatic.mjs";
 import { buildFirstPartySkins, buildGraphicSofDefaults, buildShipEmblemLicenses, loadGraphicMaterialSets, graphicsFile, mapSdeDir, solarSystemContentFile } from "./lib/assetSde.mjs";
@@ -842,8 +843,7 @@ async function extractPortraitHead(rf, gender, outRoot) {
   console.log(`portrait-head/${gender}.glb: ${lods.length} meshes, ${bones.length} bones`);
 }
 
-async function extractPortraitMorph(rf, gender, name, outRoot) {
-  const source = `res:/graphics/character/${gender}/paperdoll/head/head_generic/head_generic.gr2`;
+async function extractPortraitMorph(rf, source, name, file) {
   const { root } = await readGranny(rf.read(source), source);
   const model = root.Models.find(entry => entry.Skeleton?.Bones?.length && entry.MeshBindings?.length);
   const meshes = [];
@@ -866,9 +866,8 @@ async function extractPortraitMorph(rf, gender, name, outRoot) {
     }
     if (deltas.length) meshes.push({ name: Mesh.Name, vertices: vertexData.Vertices.count, deltas });
   }
-  const dir = path.join(outRoot, "portrait-head", gender, "morphs");
-  fs.mkdirSync(dir, { recursive: true });
-  writeExtracted(path.join(dir, name + ".json"), JSON.stringify({ name, source, meshes }));
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  writeExtracted(file, JSON.stringify({ name, source, meshes }));
 }
 
 // paperDollBloodLineAssets.bloodlineAssets in 3698585. The head metadata names its archetype dependency.
@@ -1107,6 +1106,12 @@ function parseArgs(argv) {
     else if (a === "--portrait-morph") {
       out.portraitMorph = argv[++i];
       if (!/^[a-z0-9_]+shape$/.test(out.portraitMorph ?? "")) throw new Error("--portrait-morph needs a morph name");
+    }
+    else if (a === "--portrait-body") {
+      out.portraitBody = argv[++i];
+      if (!/^(?:female|male)(?:\/[a-z0-9_]+){1,4}$/.test(out.portraitBody ?? "")) {
+        throw new Error("--portrait-body needs an outfit model stem");
+      }
     }
     else if (a === "--drifter-collection-explosion") out.drifterCollectionExplosion = true;
     else if (a === "--observatory-environment") out.observatoryEnvironment = true;
@@ -1399,8 +1404,20 @@ async function main() {
     await extractPortraitMesh(rf, `res:/graphics/character/${args.portraitHands}/paperdoll/hands/hands_nude/hands_nude.gr2`,
       path.join(outRoot, "portrait-outfit", args.portraitHands, "hands.glb"), "hands");
   }
+  if (args.portraitBody) {
+    if (!args.portraitMorph) throw new Error("--portrait-body needs --portrait-morph");
+    const stem = path.join(outRoot, "portrait-outfit", args.portraitBody);
+    const model = readGlbDocument(fs.readFileSync(stem + ".glb"));
+    const source = model.nodes?.[0]?.extras?.source;
+    const gender = args.portraitBody.split("/")[0];
+    if (typeof source !== "string" || !source.toLowerCase().startsWith(`res:/graphics/character/${gender}/paperdoll/`) ||
+      !source.toLowerCase().endsWith(".gr2") || !rf.has(source)) throw new Error("Unknown portrait model source");
+    await extractPortraitMorph(rf, source, args.portraitMorph, path.join(stem, "morphs", args.portraitMorph + ".json"));
+  }
   if (args.portraitHead) {
-    if (args.portraitMorph) await extractPortraitMorph(rf, args.portraitHead, args.portraitMorph, outRoot);
+    if (args.portraitMorph) await extractPortraitMorph(rf,
+      `res:/graphics/character/${args.portraitHead}/paperdoll/head/head_generic/head_generic.gr2`, args.portraitMorph,
+      path.join(outRoot, "portrait-head", args.portraitHead, "morphs", args.portraitMorph + ".json"));
     else if (args.portraitHair) await extractPortraitHair(rf, args.portraitHead, args.portraitHair, outRoot);
     else if (args.portraitBloodline !== undefined) extractPortraitArchetype(rf, args.portraitHead, args.portraitBloodline, outRoot);
     else await extractPortraitHead(rf, args.portraitHead, outRoot);
@@ -1480,7 +1497,7 @@ async function main() {
     }
     console.log(`overview presets -> ${path.relative(outRoot, file)}`);
   }
-  if (!done.length && !args.shipBannerTextures && !args.shipBannerLayout && !args.shipEmblems && !args.firstPartySkins && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.wormholeTransit && !args.warpTunnel && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.asteroidRules && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.portraitHead && !args.portraitOutfit && !args.portraitHands && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
+  if (!done.length && !args.shipBannerTextures && !args.shipBannerLayout && !args.shipEmblems && !args.firstPartySkins && !args.typeGraphics && !args.sofDefaults && !args.overview && !args.scenes.length && !args.wormholeNebulas.length && !args.wormholeTransit && !args.warpTunnel && !args.types.length && !args.typeSkins.length && !args.graphics.length && !args.dnas.length && !args.celestials.length && !args.turrets.length && !args.missiles.length && !args.gfxTurrets && !args.ammoColors && !args.asteroidRules && !args.fx.length && !args.effects.length && !args.starMap && !args.fittingScene && !args.shipInfo && !args.portraitHead && !args.portraitBody && !args.portraitOutfit && !args.portraitHands && !args.drifterCollectionExplosion && !args.observatoryEnvironment && !args.observatoryVortex && !args.dscanHologram && !args.dscanCones && !args.systemCelestials.length) throw new Error("nothing to do: give --hull, --type, --type-skin, --scene or --type-graphics");
   await compression.prepareAssets(writtenAssets, (file, error) => console.warn(`Brotli ${path.relative(outRoot, file)}: ${error.message}`));
   if (!process.env.EVEJS_DEFER_HULL_COLOR_ENCODING) {
     await hullColorCompression.prepareHullColors(writtenAssets, path.dirname(outRoot),

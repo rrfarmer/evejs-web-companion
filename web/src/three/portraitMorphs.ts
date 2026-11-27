@@ -7,7 +7,7 @@ interface MorphMesh {
   deltas: number[];
 }
 
-export async function applyPortraitMorphs(head: THREE.Object3D, stem: string, morphs: readonly PortraitMorph[],
+export async function applyPortraitMorphs(model: THREE.Object3D, stem: string, morphs: readonly PortraitMorph[],
   retired: () => boolean): Promise<void> {
   if (!morphs.length) return;
   const layers = await Promise.all(morphs.map(async ({ name, weight }) => {
@@ -25,7 +25,7 @@ export async function applyPortraitMorphs(head: THREE.Object3D, stem: string, mo
   for (const layer of layers) {
     if (!layer) continue;
     const applied = new Set<THREE.BufferAttribute>();
-    head.traverse(node => {
+    model.traverse(node => {
       if (!(node instanceof THREE.Mesh)) return;
       const mesh = layer.meshes.find(mesh => mesh.name === node.name || mesh.name === node.name.replace(/_\d+$/, ""));
       const geometry = node.geometry;
@@ -46,7 +46,7 @@ export async function applyPortraitMorphs(head: THREE.Object3D, stem: string, mo
   }
   for (const geometry of changed) {
     geometry.getAttribute("position").needsUpdate = true;
-    geometry.normalizeNormals();
+    if (geometry.hasAttribute("normal")) geometry.normalizeNormals();
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
   }

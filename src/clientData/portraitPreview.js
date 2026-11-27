@@ -24,10 +24,11 @@ function portraitPreviewMorphs(rows, locations) {
       if (!Number.isFinite(weight) || !weight) return;
       const name = /^(thin|fat|muscular)$/.test(prefix) ? `${prefix}shape`
         : `${prefix}_${weight < 0 ? negative : positive}shape`;
-      morphs.set(name, Math.min(Math.abs(weight), 1));
+      morphs.set(name, { name, weight: Math.min(Math.abs(weight), 1),
+        ...(location.weightKeyCategory === "bodyShapes" ? { body: true } : {}) });
     });
   }
-  return Array.from(morphs, ([name, weight]) => ({ name, weight }));
+  return Array.from(morphs.values());
 }
 
 function portraitPreviewModifiers(appearance, gender, locations, resources) {

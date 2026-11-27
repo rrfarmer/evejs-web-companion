@@ -6290,6 +6290,7 @@ export type PortraitApparel = Readonly<Partial<Record<"topmiddle" | "bottomouter
 export interface PortraitMorph {
   readonly name: string;
   readonly weight: number;
+  readonly body?: true;
 }
 export interface CharacterPreviewAppearance {
   readonly model: PortraitHead | null;
@@ -6312,7 +6313,8 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
     const morph = asObject(value);
     const name = morph?.name, weight = morph?.weight;
     return typeof name === "string" && /^[a-z0-9_]+shape$/.test(name) &&
-      typeof weight === "number" && weight > 0 && weight <= 1 ? [{ name, weight }] : [];
+      typeof weight === "number" && weight > 0 && weight <= 1
+      ? [{ name, weight, ...(morph?.body === true ? { body: true as const } : {}) }] : [];
   });
   const apparel = asObject(appearance?.apparel);
   const layers: Partial<Record<keyof PortraitApparel, string>> = {};

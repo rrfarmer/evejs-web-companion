@@ -12,11 +12,18 @@ const ARRAY_BUFFER = 34962, ELEMENT_ARRAY_BUFFER = 34963;
 
 /** The GLBs' build: one older than this (or without one) is extracted again (2: COLOR_0, the vertex colour). */
 export const GLB_BUILD = 2;
+export function readGlbDocument(bytes) {
+  const len = bytes.readUInt32LE(12);
+  if (bytes.readUInt32LE(0) !== 0x46546c67 || bytes.readUInt32LE(16) !== 0x4e4f534a || len > bytes.length - 20) {
+    throw new Error("Invalid GLB JSON chunk");
+  }
+  return JSON.parse(bytes.subarray(20, 20 + len).toString("utf8"));
+}
+
 /** A GLB file's build (its root node's extras.glbBuild; 1 before builds were written). */
 export function glbBuildOf(bytes) {
   try {
-    const len = bytes.readUInt32LE(12);
-    const json = JSON.parse(bytes.subarray(20, 20 + len).toString("utf8"));
+    const json = readGlbDocument(bytes);
     return Number(json.nodes?.[0]?.extras?.glbBuild ?? 1);
   } catch { return 0; }
 }

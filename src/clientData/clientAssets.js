@@ -176,6 +176,13 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   if (outfit) return { file: await ensure(rel.slice(1), ["--portrait-outfit", outfit[1]], '"outfitBuild":4') };
   const hands = /^\/portrait-outfit\/(female|male)\/hands\.glb$/.exec(rel);
   if (hands) return { file: await ensure(rel.slice(1), ["--portrait-hands", hands[1]]) };
+  const bodyMorph = /^\/portrait-outfit\/((?:female|male)(?:\/[a-z0-9_]+){1,4})\/morphs\/([a-z0-9_]+shape)\.json$/.exec(rel);
+  if (bodyMorph) {
+    const base = path.join(dir, "portrait-outfit", bodyMorph[1] + ".glb");
+    if (fileExists(base) && isWithin(dir, fs.realpathSync(base))) {
+      return { file: await ensure(rel.slice(1), ["--portrait-body", bodyMorph[1], "--portrait-morph", bodyMorph[2]]) };
+    }
+  }
   const generated = GENERATED.get(rel);
   if (generated) {
     const oldManifest = rel === "/observatoryEnvironment.json" ? '"environmentBuild":'
