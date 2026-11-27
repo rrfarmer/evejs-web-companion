@@ -42,6 +42,7 @@
   import ExpertSystems from "./ExpertSystems.svelte";
   import CharacterMembership from "./CharacterMembership.svelte";
   import CharacterDecorations from "./CharacterDecorations.svelte";
+  import CharacterAttributes from "./CharacterAttributes.svelte";
   import SecurityStatusHistory from "./SecurityStatusHistory.svelte";
   import CombatLog from "./CombatLog.svelte";
   import { CHARACTER_SHEET_POINTERS as pointers } from "../play/uiPointer.ts";
@@ -66,6 +67,7 @@
     "Tooltips/CharacterSheet/Decorations": "Decorations",
     "Tooltips/CharacterSheet/Augmentations": "Implants",
     "Tooltips/CharacterSheet/JumpClones": "Jump Clones",
+    "Tooltips/CharacterSheet/Attributes": "Attributes",
     "Tooltips/CharacterSheet/Bio": "Bio",
     "Tooltips/CharacterSheet/ExpertSystems": "Expert systems",
     "Tooltips/CharacterSheet/EmploymentHistory": "Corporations",
@@ -285,7 +287,7 @@
   </nav>
   {#if sheetTab === "character"}
   <nav class="sheet-tabs sub" aria-label="Character">
-    {#each [["home", "Tooltips/CharacterSheet/HomeStation"], ["memberships", "Tooltips/CharacterSheet/Memberships"], ["implants", "Tooltips/CharacterSheet/Augmentations"], ["jumpClones", "Tooltips/CharacterSheet/JumpClones"], ["bio", "Tooltips/CharacterSheet/Bio"], ["decorations", "Tooltips/CharacterSheet/Decorations"], ["expert", "Tooltips/CharacterSheet/ExpertSystems"]] as [id, label] (id)}
+    {#each [["home", "Tooltips/CharacterSheet/HomeStation"], ["memberships", "Tooltips/CharacterSheet/Memberships"], ["implants", "Tooltips/CharacterSheet/Augmentations"], ["jumpClones", "Tooltips/CharacterSheet/JumpClones"], ["attributes", "Tooltips/CharacterSheet/Attributes"], ["bio", "Tooltips/CharacterSheet/Bio"], ["decorations", "Tooltips/CharacterSheet/Decorations"], ["expert", "Tooltips/CharacterSheet/ExpertSystems"]] as [id, label] (id)}
       <button type="button" data-ui-pointer={characterPointers[id as CharacterTab]} class:active={characterTab === id}
         aria-pressed={characterTab === id} onclick={() => (characterTab = id as CharacterTab)}>{tabWord(label!)}</button>
     {/each}
@@ -298,6 +300,9 @@
   {/if}
   {#if characterTab === "jumpClones"}
     {#key $activeCharacter.selectedCharacterID}<JumpClonesPanel {store} {flow} />{/key}
+  {/if}
+  {#if characterTab === "attributes"}
+    {#key $activeCharacter.selectedCharacterID}<CharacterAttributes {store} {flow} />{/key}
   {/if}
   {#if characterTab === "decorations"}
     <CharacterDecorations {store} {flow} />

@@ -430,6 +430,9 @@ import {
   untrainedSkills, type PersonalSkillPlan, type PersonalSkillPlansRead, type SkillPlanDetail,
 } from "../bridge/skillPlans.ts";
 import { createCharacterSheetReads } from "../bridge/characterSheetReads.ts";
+import { CHARACTER_ATTRIBUTES, REMAP_MIN, REMAP_MAX, characterAttributeSnapshot,
+  type CharacterAttributeSnapshot, type CharacterAttributeOverviewRow } from "../bridge/characterAttributes.ts";
+import { decodeImplants } from "../bridge/boundSkills.ts";
 import { readJournal } from "../bridge/journalReads.ts";
 import {
   applyFreePoints, applyFreePointsToSkills, freePointsAppliedToSkills, pauseTraining, purchaseSkills, saveQueue, type QueuePlace, type SkillLevel,
@@ -3996,6 +3999,8 @@ export interface AppFlow {
    * with every entity id resolved to a name (R7d). Called on the panel's mount.
    */
   loadCharacterSheet(): Promise<void>;
+  loadCharacterAttributes(): Promise<CharacterAttributeSnapshot>;
+  loadCharacterAttributeOverview(): Promise<readonly CharacterAttributeOverviewRow[]>;
   loadHomeStationCandidates(): Promise<readonly HomeStationCandidate[]>;
   setHomeStation(candidate: HomeStationCandidate): Promise<void>;
   /**
@@ -27976,6 +27981,39 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     store.apply({ type: "standings/detail-cleared" });
   }
 
+  async function loadCharacterAttributes(): Promise<CharacterAttributeSnapshot> {
+    const [attributes, remap] = await Promise.all([
+      bridgeAsk("skillHandler", "GetAttributes", []), bridgeAsk("skillHandler", "GetRespecInfo", []),
+    ]);
+    return characterAttributeSnapshot(attributes, remap);
+  }
+
+  async function loadCharacterAttributeOverview(): Promise<readonly CharacterAttributeOverviewRow[]> {
+    const [attributes, implants, boosters] = await Promise.all([
+      bridgeAsk("skillHandler", "GetAttributes", []),
+      bridgeAsk("skillHandler", "GetImplants", []),
+      bridgeAsk("skillHandler", "GetBoosters", []),
+    ]);
+    const snapshot = characterAttributeSnapshot(attributes, null);
+    const validID = (id: number) => Number.isSafeInteger(id) && id > 0;
+    const implantTypes = decodeImplants(implants).map(row => Number(row.fields.typeID)).filter(validID);
+    const boosterTypes = readDictPairs(boosters).map(([id]) => Number(id)).filter(validID);
+    const [implantBonuses, accelerators] = await Promise.all([
+      implantTypes.length ? api.fetchTypeDogma([...new Set(implantTypes)], [...ATTRIBUTE_BONUS_BY_ATTRIBUTE.values()], callOptions) : null,
+      boosterTypes.length ? skillAccelerators(boosterTypes) : new Map<number, ReadonlyMap<number, number>>(),
+    ]);
+    return CHARACTER_ATTRIBUTES.flatMap(({ id }) => {
+      const points = snapshot.attributes.get(id);
+      const bonusID = ATTRIBUTE_BONUS_BY_ATTRIBUTE.get(id);
+      if (points === undefined || bonusID === undefined) return [];
+      const implantBonus = implantTypes.reduce((sum, type) => sum + (implantBonuses?.[type]?.[bonusID] ?? 0), 0);
+      let acceleratorBonus = 0;
+      for (const bonuses of accelerators.values()) acceleratorBonus += bonuses.get(id) ?? 0;
+      const base = Math.min(REMAP_MAX, Math.max(REMAP_MIN, points - implantBonus - acceleratorBonus));
+      return [{ id, base, implantBonus }];
+    });
+  }
+
   async function loadHomeStationCandidates(): Promise<readonly HomeStationCandidate[]> {
     const candidates = decodeHomeStationCandidates(await bridgeAsk("home_station", "get_home_station_candidates", []));
     requestNames(candidates.map(({ id }) => ({ kind: isStation(id) ? "station" : "structure", id })));
@@ -42177,6 +42215,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     closeStandingDetail,
 
     loadCharacterSheet,
+    loadCharacterAttributes,
+    loadCharacterAttributeOverview,
     loadHomeStationCandidates,
     setHomeStation,
     loadSkillHistory,
