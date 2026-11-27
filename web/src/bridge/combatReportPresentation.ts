@@ -24,7 +24,7 @@ export function combatReportNameRefs(reports: readonly CombatLogReport[]): NameR
   };
   for (const row of reports) {
     add("owner", row.victimCharacterID, row.victimCorporationID, row.victimAllianceID, row.victimFactionID,
-      row.finalCharacterID, row.finalCorporationID, row.finalAllianceID);
+      row.finalCharacterID, row.finalCorporationID, row.finalAllianceID, row.finalFactionID, row.killRightSupplied);
     add("type", row.victimShipTypeID, row.finalShipTypeID, row.finalWeaponTypeID);
     add("system", row.solarSystemID);
     add("evelocation", row.moonID);

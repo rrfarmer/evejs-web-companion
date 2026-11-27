@@ -9,6 +9,11 @@ export interface CombatLogReport extends KillReport {
   readonly finalDamageDone: number | null;
   readonly finalFactionID: number | null;
   readonly finalSecurityStatus: number | null;
+  readonly iskLost: number | null;
+  readonly iskDestroyed: number | null;
+  readonly bountyClaimed: number | null;
+  readonly loyaltyPoints: number | null;
+  readonly killRightSupplied: number | null;
   readonly killBlob: string;
 }
 
@@ -35,6 +40,11 @@ export function decodeCombatReport(row: JsonValue): CombatLogReport | null {
     finalDamageDone: unwrapReal(readRowField(row, "finalDamageDone")),
     finalFactionID: id("finalFactionID"),
     finalSecurityStatus: unwrapReal(readRowField(row, "finalSecurityStatus")),
+    iskLost: unwrapReal(readRowField(row, "iskLost")),
+    iskDestroyed: unwrapReal(readRowField(row, "iskDestroyed")),
+    bountyClaimed: unwrapReal(readRowField(row, "bountyClaimed")),
+    loyaltyPoints: unwrapReal(readRowField(row, "loyaltyPoints")),
+    killRightSupplied: id("killRightSupplied"),
     killBlob: typeof blob === "string" ? blob : "",
   };
 }
@@ -57,6 +67,16 @@ export async function combatReportHash(row: CombatLogReport): Promise<string> {
     .map(value => value === null ? "None" : String(value)).join("");
   const digest = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(input));
   return Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, "0")).join("");
+}
+
+export interface CombatReportItem {
+  readonly typeID: number;
+  readonly dropped: number;
+  readonly destroyed: number;
+  readonly flag: number;
+  readonly singleton: number;
+  readonly contained: boolean;
+  readonly contents: readonly CombatReportItem[];
 }
 
 export function combatReportDetails(row: CombatLogReport) {
@@ -85,9 +105,14 @@ export function combatReportDetails(row: CombatLogReport) {
     weaponTypeID: row.finalWeaponTypeID ?? 0, damage: row.finalDamageDone ?? 0,
     security: row.finalSecurityStatus?.toFixed(1) ?? "0.0", final: true,
   });
-  const items = [...doc.querySelectorAll("items i")].map(node => ({
-    typeID: number(node, "t"), dropped: number(node, "d"), destroyed: number(node, "x"),
-    flag: number(node, "f"), singleton: number(node, "s"), contained: node.parentElement?.localName === "i",
-  })).filter(item => item.typeID > 0 && (item.dropped > 0 || item.destroyed > 0));
-  return { attackers: attackers.sort((left, right) => right.damage - left.damage), items };
+  const itemsFrom = (parent: Element, contained = false): CombatReportItem[] =>
+    [...parent.children].filter(node => node.localName === "i").map(node => ({
+      typeID: number(node, "t"), dropped: number(node, "d"), destroyed: number(node, "x"),
+      flag: number(node, "f"), singleton: number(node, "s"), contained, contents: itemsFrom(node, true),
+    })).filter(item => item.typeID > 0 && (item.dropped > 0 || item.destroyed > 0 || item.contents.length > 0));
+  const container = doc.querySelector("mail > items");
+  const itemRoots = container ? itemsFrom(container) : [];
+  const flatten = (entries: readonly CombatReportItem[]): CombatReportItem[] =>
+    entries.flatMap(item => [item, ...flatten(item.contents)]);
+  return { attackers: attackers.sort((left, right) => right.damage - left.damage), items: flatten(itemRoots), itemRoots };
 }
