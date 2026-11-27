@@ -1,4 +1,5 @@
 import blue
+import evetypes
 from eve.client.script.ui.shared.fleet.fleetbroadcast import BroadcastHistoryPanel
 from eve.client.script.ui.shared.fleet.fleetwindow import FleetWindow
 from utillib import KeyVal
@@ -38,7 +39,8 @@ def observe():
             blue.pyos.synchro.SleepWallclock(200)
         FleetWindow.Open()
         events = {}
-        for name in ('HoldPosition', 'NeedBackup', 'TravelTo', 'Location', 'JumpBeacon', 'WarpTo', 'AlignTo', 'JumpTo', 'Target', 'HealArmor'):
+        for name in ('HoldPosition', 'NeedBackup', 'TravelTo', 'Location', 'JumpBeacon', 'WarpTo', 'AlignTo', 'JumpTo',
+                     'Target', 'HealArmor', 'HealShield', 'HealCapacitor', 'HealTarget'):
             target = 60003760 if name == 'TravelTo' else 30000142
             events[name] = labels(BroadcastHistoryPanel.GetBroadcastMenu(None, entry(
                 name=name, charID=session.charid, solarSystemID=30000142, itemID=target,
@@ -58,11 +60,19 @@ def observe():
         finally:
             if not favorites and fleet.GetFavorite(session.charid):
                 fleet.RemoveFavorite(session.charid)
+        industry_types = []
+        blueprint_svc = sm.GetService('blueprintSvc')
+        for type_id in (785, 784, 30187):
+            menu = BroadcastHistoryPanel.GetLootMenu(None, entry(charID=session.charid, typeID=type_id))
+            copy = blueprint_svc.GetBlueprintTypeCopy(type_id)
+            industry_types.append(dict(typeID=type_id, name=evetypes.GetName(type_id), category=evetypes.GetCategoryID(type_id),
+                                       original=copy.original, menu=labels(menu)))
         return dict(build=3698585, station=session.stationid, broadcasts=events,
                     distance=distance, selfWatch=self_watch,
                     member=labels(BroadcastHistoryPanel.GetMemberMenu(None, entry(charID=session.charid))),
                     left=labels(BroadcastHistoryPanel.GetMemberMenu(None, entry(charID=140000002))),
-                    loot=labels(BroadcastHistoryPanel.GetLootMenu(None, entry(charID=session.charid, typeID=1230))))
+                    loot=labels(BroadcastHistoryPanel.GetLootMenu(None, entry(charID=session.charid, typeID=1230))),
+                    industryTypes=industry_types)
     finally:
         FleetWindow.CloseIfOpen()
         if session.fleetid:

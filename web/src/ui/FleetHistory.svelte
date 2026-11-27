@@ -196,7 +196,9 @@
         return itemID === null && systemID === null ? [] : routeMenu(itemID ?? systemID!);
       case "WarpTo": case "AlignTo": case "JumpTo":
         return locationMenu(itemID);
-      case "Target": case "HealArmor": case "HealCapacitor": case "HealShield": case "HealTarget":
+      // BroadcastHistoryPanel looks up GetMenu_<name>. HealTarget's handler is
+      // named GetMenu_Heal_Target, so only the common row entries appear.
+      case "Target": case "HealArmor": case "HealCapacitor": case "HealShield":
         return itemID !== null && !$targeting.lockedTargetIDs.includes(itemID) && !$targeting.acquiringTargetIDs.includes(itemID)
           ? [action("lock", () => { if (ballOf(itemID)) report(flow.lockTarget(itemID)); })] : [];
       default: return [];

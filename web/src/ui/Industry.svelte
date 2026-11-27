@@ -1081,6 +1081,7 @@
     const t = $words.templates[label];
     return typeof t === "string" ? t : "";
   }
+  const previewModeHint = $derived(plainText(industryWord("UI/Industry/PreviewModeHint")) || "Preview mode");
 </script>
 
 <section class="panel">
@@ -1110,7 +1111,7 @@
     <!-- industryWnd.Industry's browser tabs (TabGroup 26 high, labels padded 12): Blueprints, Facilities, Jobs,
          Research - one browser shown at a time; the job's view (Start a job) stays above them -->
     <div class="ind-cv" class:job={startingBlueprint !== null} style={`--job: ${viewColor}`}>
-      <div class="ind-cv-top" data-blueprint-item={startingBlueprint?.itemID}>{startingBlueprint ? typeName(startingBlueprint.typeID) : ""}{#if typePreview} · {industryWord("UI/Industry/PreviewModeHint") || "Preview mode"}{/if}</div>
+      <div class="ind-cv-top" data-blueprint-item={startingBlueprint?.itemID}>{startingBlueprint ? typeName(startingBlueprint.typeID) : ""}{#if typePreview} · {previewModeHint.split("\n")[0]}{/if}</div>
       <div class="ind-cv-main">
         <div class="ind-cv-inputs" style={`--bg: url(/client-res/ui/texture/classes/industry/input/${inputGroups.background}.png)`}>
           {#if inputGroups.groups.length === 0}
@@ -1162,7 +1163,7 @@
         <div class="ind-cv-outputs" class:on={startingBlueprint !== null}>
           <span class="bgflip"></span>
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <div class="ind-cv-box fac" class:preview={facilityPreview} title={facilityPreview ? industryWord("UI/Industry/PreviewModeHint") || "Preview mode" : ""}
+          <div class="ind-cv-box fac" class:preview={facilityPreview} title={facilityPreview ? previewModeHint : ""}
             onclick={() => { if (facilityPreview && startingBlueprint) chooseFacility(startingBlueprint.facilityID); }}>
             {#if facilityPreview}<span class="x">✕</span>{/if}
             <small>{industryWord("UI/Industry/Facility") || "Facility"}</small>
@@ -1234,7 +1235,7 @@
                     }}
                     onkeydown={(event) => { if (event.key === "Escape") closeEfficiencyPreview(key); }} />
                   <button class="ind-cv-mete-reset" type="button" aria-label={`Reset ${name} preview`}
-                    title={industryWord("UI/Industry/PreviewModeHint") || "Preview mode"}
+                    title={previewModeHint}
                     onclick={() => closeEfficiencyPreview(key)}>×</button>
                 {:else if canEditEfficiency}
                   <button class="ind-cv-mete-open" type="button" aria-label={`${name} ${value}%`}
@@ -1277,7 +1278,7 @@
       </div>
       {#if startingBlueprint}
         <button type="button" class="ind-js-submit" style={`--job: ${viewColor}`} disabled={busy || cannotAsk || !confirming || efficiencyOpen}
-          title={typePreview || efficiencyOpen ? industryWord("UI/Industry/PreviewModeHint") || "Preview mode" : confirming ? "" : "Waiting for the job's preview"}
+          title={typePreview || efficiencyOpen ? previewModeHint : confirming ? "" : "Waiting for the job's preview"}
           onclick={confirmInstall}>{industryWord("UI/Industry/Start") || "Start"}</button>
       {/if}
     </div>
