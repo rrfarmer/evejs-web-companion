@@ -3,6 +3,7 @@
   import { failureCode } from "../bridge/ask.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { HyperNetOfferDetails } from "../bridge/hyperNet.ts";
+  import { labelEscaped } from "../bridge/labelMarkup.ts";
   import { formatDuration } from "../bridge/skills.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
@@ -32,6 +33,9 @@
     only: ["UI/HyperNet/ShowOnlyAvailable", "Show only available"],
     expired: ["UI/HyperNet/CardExpired", "Expired"],
     winner: ["UI/HyperNet/CardWinner", "Winner"],
+    claim: ["UI/HyperNet/ClaimReward", "Claim prize"],
+    claimed: ["UI/HyperNet/RewardClaimed", "{item_name} delivered to"],
+    claimFailed: ["UI/HyperNet/ClaimItemFailed", "The prize could not be claimed."],
     multiBuy: ["UI/HyperNet/MultiBuy", "Multi-buy"],
     quantity: ["UI/HyperNet/NumberOfTickets", "Number of HyperNodes"],
     total: ["UI/HyperNet/TotalPrice", "Total price"],
@@ -50,6 +54,8 @@
   let groupID = $state<number | null>(null);
   let failed = $state(false);
   let onlyAvailable = $state(false);
+  let claiming = $state(false);
+  let claimError = $state(false);
   type PurchaseTarget = number | "multiple";
   let armed = $state<PurchaseTarget | null>(null);
   let confirmationReady = $state(false);
@@ -74,6 +80,25 @@
         .filter(node => !active || !onlyAvailable || node.owner === null)
     : []);
   const pilotName = (characterID: number) => resolvedName($names.resolved, "character", characterID, String(characterID));
+
+  async function claimReward() {
+    if (!details || details.status !== 7 || !pilot || details.winnerID !== pilot || claiming) return;
+    claiming = true;
+    claimError = false;
+    const generation = offerGeneration;
+    try {
+      const row = await flow.claimHyperNetReward(id);
+      if (generation !== offerGeneration) return;
+      updateOffer(row);
+      if (details) onPurchase(details, bought);
+    } catch {
+      if (generation !== offerGeneration) return;
+      claimError = true;
+      refreshOffer?.();
+    } finally {
+      if (generation === offerGeneration) claiming = false;
+    }
+  }
 
   function clearConfirmation() {
     window.clearTimeout(readyTimer);
@@ -170,6 +195,8 @@
     groupID = null;
     failed = false;
     onlyAvailable = false;
+    claiming = false;
+    claimError = false;
     buying = null;
     purchaseError = null;
     quantity = 0;
@@ -293,6 +320,20 @@
     {:else if offer.winnerID !== null}
       {@const winner = offer.winnerID}
       <p data-hypernet-winner>{word("winner")} · <button type="button" onclick={() => showInfo({ kind: "character", characterID: winner })}>{pilotName(winner)}</button></p>
+      {#if winner === pilot}
+        {#if offer.status === 7}
+          <div class="claim">
+            <button type="button" data-hypernet-claim disabled={claiming} aria-busy={claiming}
+              onclick={() => void claimReward()}>{claiming ? "Claiming…" : word("claim")}</button>
+            {#if claimError}<p class="purchase-error" role="alert">{word("claimFailed")}</p>{/if}
+          </div>
+        {:else if offer.status === 8}
+          <div class="claim" data-hypernet-delivered role="status">
+            <p>{word("claimed", { item_name: labelEscaped(resolvedName($names.resolved, "type", offer.typeID, String(offer.typeID))) })}</p>
+            <p data-hypernet-delivery-location>{resolvedName($names.resolved, "station", offer.locationID, String(offer.locationID))}</p>
+          </div>
+        {/if}
+      {/if}
     {/if}
     {#if active}
       <div class="ticket-controls">
@@ -368,6 +409,8 @@
   .multi-buy-panel input { width: 5em; }
   .multi-buy-panel button { justify-self: end; }
   .confirm { border-color: #66cddd; background: #00506666; }
+  .claim { display: grid; justify-items: start; gap: 4px; }
+  .claim button { border-color: #e0be70; }
   .purchase-error { width: 100%; color: #ffbf68; }
   .tickets .own { background: #00506666; }
   .tickets .winning { outline: 1px solid #e0be70; }

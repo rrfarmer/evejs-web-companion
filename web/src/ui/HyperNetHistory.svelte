@@ -28,6 +28,7 @@
     empty: ["UI/Common/NoDataAvailable", "No Data Available"],
     expired: ["UI/HyperNet/CardExpired", "Expired"],
     winner: ["UI/HyperNet/CardWinner", "Winner"],
+    claim: ["UI/HyperNet/CardClaimPrize", "Claim Prize"],
     created: ["UI/HyperNet/CreatedByPlayerHint", "Created by you"],
     joined: ["UI/HyperNet/FilterJoined", "Joined"],
     price: ["UI/HyperNet/TicketPrice", "HyperNode price"],
@@ -442,6 +443,7 @@
   {:else}
     <ul>
       {#each rows as row (row.id)}
+        {@const claimable = row.status === 7 && pilot !== undefined && row.winnerID === pilot}
         <li data-history-id={row.id} data-history-status={row.status} draggable="true"
           ondragstart={event => startHyperNetOfferDrag(event, row.id,
             resolvedName($names.resolved, "type", row.typeID, String(row.typeID)), $words.templates[hyperNetLinkLabel])}>
@@ -465,7 +467,8 @@
             {new Date(endTime(row)).toLocaleString()}
           </time>
           <div class="offer-actions">
-            <button type="button" data-open-offer onclick={() => openDetails(row.id)}>{word("details")}</button>
+            <button type="button" data-open-offer data-hypernet-claim-offer={claimable ? "" : undefined}
+              class:claimable onclick={() => openDetails(row.id)}>{word(claimable ? "claim" : "details")}</button>
             {#if row.status === 6 && row.expires > now}
               <HyperNetQuickBuy {store} {flow} {pilot} offer={row} owned={row.owned} enabled={visible} onUpdate={updateHistoryOffer} />
             {/if}
@@ -490,6 +493,7 @@
   h2, ul, dl, dd, p { margin: 0; }
   ul { list-style: none; padding: 0; display: grid; gap: 6px; }
   li { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr)); align-items: center; gap: 8px; padding: 8px; background: #ffffff08; }
+  .claimable { border-color: #e0be70; }
   .offer-actions { display: flex; align-items: center; gap: 6px; }
   .item { display: flex; align-items: center; gap: 6px; text-align: start; }
   img { width: 32px; height: 32px; object-fit: contain; }

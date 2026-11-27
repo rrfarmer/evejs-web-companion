@@ -4641,6 +4641,7 @@ export interface AppFlow {
   watchHyperNetOffer(id: number, changed: () => void): () => void;
   buyHyperNetNode(id: number, node: number): Promise<HyperNetOfferDetails>;
   buyHyperNetNodes(id: number, quantity: number): Promise<HyperNetOfferDetails>;
+  claimHyperNetReward(id: number): Promise<HyperNetOfferDetails>;
   loadHyperNetHistory(): Promise<readonly HyperNetHistoryOffer[]>;
   readonly hyperNetHistoryChanged: ReadableSignal<number>;
   loadHyperNetParticipation(): Promise<HyperNetParticipation>;
@@ -29364,6 +29365,19 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return details;
   }
 
+  async function claimHyperNetReward(id: number): Promise<HyperNetOfferDetails> {
+    const current = callOptions.captureRequestGuard!();
+    const pilot = onlineCharacterID();
+    if (pilot === null || !Number.isSafeInteger(id) || id <= 0) throw new Error("Select a HyperNet offer.");
+    // AwardItem returns None. The offer's delivered state is read back from the server.
+    await bridgeDo("raffleProxy", "AwardItem", [id]);
+    current();
+    const row = await loadHyperNetOfferDetails(id);
+    current();
+    if (row.status !== 8 || row.winnerID !== pilot) throw new Error("HyperNet did not confirm delivery.");
+    return row;
+  }
+
   async function loadHyperNetMetaGroups(): Promise<readonly { readonly id: number; readonly name: string }[]> {
     const data = await api.getTypeMeta([], callOptions);
     if (!data.available) throw new Error("Meta groups are unavailable.");
@@ -41960,6 +41974,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     watchHyperNetOffer,
     buyHyperNetNode,
     buyHyperNetNodes,
+    claimHyperNetReward,
     loadHyperNetHistory,
     hyperNetHistoryChanged: readonlySignal(hyperNetHistoryChanged),
     loadHyperNetParticipation,
