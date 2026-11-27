@@ -34,6 +34,7 @@ export const CHARACTER_SHEET_POINTERS = {
   decorations: "unique_UI_decorationsTab",
   titles: "unique_UI_titlesTab",
   standings: "unique_UI_standingsTabInCharactersheet",
+  securityStatus: "unique_UI_securityStatusTab",
 } as const;
 
 export const FITTING_POINTERS = {

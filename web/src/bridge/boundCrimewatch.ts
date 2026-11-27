@@ -17,8 +17,7 @@
 //     IGNORE any injected charID (Farmer injecting Test Two's id still returned
 //     Farmer's own 0.1404; Test Two injecting Farmer's id still returned 0 — the
 //     distinct values make it decisive).
-//   - GetSecurityStatusTransactions takes no args and returns [] (no history is
-//     persisted server-side — a legitimately empty private-history read).
+//   - GetSecurityStatusTransactions takes no args and reads the session pilot's private history.
 //   - GetCharacterSecurityStatus(charID) returns ONLY the requested char's PUBLIC
 //     sec-status FLOAT (rendered on every EVE overview), never private crimewatch
 //     state — public-by-design, no leak.
@@ -42,8 +41,7 @@
 //  GetMySecurityStatus: a BARE float (Farmer 0.1404) — the session char's own sec.
 //  GetCharacterSecurityStatus: a BARE float (Farmer own 0.1404; foreign public
 //    lookup returns THAT char's public sec, e.g. Test Two 0).
-//  GetSecurityStatusTransactions: {type:"list", items:[]} — the sec-change history,
-//    EMPTY (the handler returns buildList([]) unconditionally; no history persisted).
+//  GetSecurityStatusTransactions: a list of util.KeyVal transaction rows, empty in that capture.
 //
 // This module decodes the raw marshaled reads for GET /api/bridge/bound-crimewatch;
 // The HUD, security panels and native Duel guard consume these decoded values.
@@ -217,13 +215,7 @@ export function decodeSecurityStatus(result: JsonValue | undefined): number | nu
 
 // --- GetSecurityStatusTransactions ------------------------------------------
 //
-// The server returns buildList([]) unconditionally — no sec-change history is
-// persisted, so the real wire is an EMPTY list for every character. This decoder
-// reads the list items faithfully (empty in every live capture) rather than
-// fabricating a populated row schema that never appears on this wire; a future UI
-// decodes row fields once the handler actually emits rows.
-
-/** Decode GetSecurityStatusTransactions — the (empty) sec-change history list. */
+/** Read the list payload shared by the bridge envelope and the typed history view. */
 export function decodeSecurityStatusTransactions(
   result: JsonValue | undefined,
 ): readonly JsonValue[] {

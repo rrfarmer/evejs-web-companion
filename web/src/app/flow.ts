@@ -439,6 +439,7 @@ import { setSafetyLevel as setSafetyLevelCall } from "../bridge/crimewatchWrites
 import { acceptContract as acceptContractCall } from "../bridge/contractWrites.ts";
 import { removeLaunch } from "../bridge/launchWrites.ts";
 import { readClientStates, readMySecurityStatus } from "../bridge/crimewatchReads.ts";
+import { decodeSecurityStatusHistory, type SecurityStatusTransaction } from "../bridge/securityStatusHistory.ts";
 import { INCURSION_TEMPLATE_CLASSES, decodeIncursionReport, decodeInfluence, incursionsOfTaleData, type IncursionData, type IncursionReport } from "../bridge/incursion.ts";
 import { decodeDungeonSites, isCurrentDungeonSite, relevantDungeonSystems, WAR_DUNGEON_PROVIDERS, warDungeonCanBrowse, dungeonJobID, warDungeonProviders, type WarDungeonKind } from "../bridge/dungeonJobs.ts";
 import { RESOURCE_ORDER, SITE_TRACKERS, agencyFactionWarfareSystems as factionWarfareSystemsForAgency, agencyInsurgencySystems as insurgencySystemsForAgency, agencySiteSystems, insurgencySiteCandidates, signatureSites, trackerSites, type AgencyFactionWarfareFilters, type AgencyFactionWarfareSystem, type AgencyInsurgencyFilters, type AgencyInsurgencySystem, type AgencySite, type AgencySiteFilters, type AgencySiteSystem, type InsurgencyStages, type SiteTrackerKind } from "../bridge/agencySites.ts";
@@ -3971,6 +3972,7 @@ export interface AppFlow {
    * corporation's, in one pull, with every entity id resolved to a name.
    */
   loadStandings(): Promise<void>;
+  securityStatusHistory(): Promise<readonly SecurityStatusTransaction[]>;
   /**
    * R55 — load one entity's drill-down: a char row's standing history or a corp
    * row's per-member composition. `scope` says which section the row is in.
@@ -42055,6 +42057,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     redeemTokens,
 
     loadStandings,
+    async securityStatusHistory() {
+      return decodeSecurityStatusHistory(await bridgeAsk("crimewatch", "GetSecurityStatusTransactions", []));
+    },
 
     loadStandingDetail,
 
