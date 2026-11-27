@@ -31,6 +31,10 @@
     only: ["UI/HyperNet/ShowOnlyAvailable", "Show only available"],
     expired: ["UI/HyperNet/CardExpired", "Expired"],
     winner: ["UI/HyperNet/CardWinner", "Winner"],
+    multiBuy: ["UI/HyperNet/MultiBuy", "Multi-buy"],
+    quantity: ["UI/HyperNet/NumberOfTickets", "Number of HyperNodes"],
+    total: ["UI/HyperNet/TotalPrice", "Total price"],
+    buy: ["UI/HyperNet/BuyButtonLabel", "Buy"],
     confirm: ["UI/HyperNet/ConfirmPurchaseButtonLabel", "Confirm"],
     unavailableNode: ["UI/HyperNet/TicketUnavailableError", "This HyperNode is unavailable."],
     insufficientISK: ["UI/HyperNet/NotEnoughISKError", "You do not have enough ISK."],
@@ -45,10 +49,16 @@
   let groupID = $state<number | null>(null);
   let failed = $state(false);
   let onlyAvailable = $state(false);
-  let armed = $state<number | null>(null);
+  type PurchaseTarget = number | "multiple";
+  let armed = $state<PurchaseTarget | null>(null);
   let confirmationReady = $state(false);
-  let buying = $state<number | null>(null);
-  let purchaseError = $state<{ node: number; label: "unavailableNode" | "insufficientISK" | "purchaseError" } | null>(null);
+  let buying = $state<PurchaseTarget | null>(null);
+  let purchaseError = $state<{ target: PurchaseTarget; label: "unavailableNode" | "insufficientISK" | "purchaseError" } | null>(null);
+  let multiBuyOpen = $state(false);
+  let quantity = $state(0);
+  let multiBuyArea = $state<HTMLElement>();
+  let multiBuyTrigger = $state<HTMLButtonElement>();
+  let quantityField = $state<HTMLInputElement>();
   let readyTimer: number | undefined;
   let expiryTimer: number | undefined;
   let offerGeneration = 0;
@@ -56,6 +66,8 @@
   const bought = $derived(details ? [...details.ticketOwners.values()].filter(owner => owner === pilot).length : 0);
   const expired = $derived(details !== null && (details.status === 9 || (details.status < 7 && details.expires <= now)));
   const active = $derived(details?.status === 6 && !expired);
+  const maximum = $derived(active ? details?.remaining ?? 0 : 0);
+  const total = $derived(details ? details.price * BigInt(quantity) : 0n);
   const shownNodes = $derived(details
     ? Array.from({ length: details.tickets }, (_, number) => ({ number, owner: details!.ticketOwners.get(number) ?? null }))
         .filter(node => !active || !onlyAvailable || node.owner === null)
@@ -73,16 +85,41 @@
     // A detail read may have started before a purchase reply. Sold nodes never become available again.
     if (details && (row.status < details.status || row.remaining > details.remaining)) return;
     details = row;
-    if (armed !== null && (row.status !== 6 || row.ticketOwners.has(armed))) clearConfirmation();
+    if (typeof armed === "number" && row.ticketOwners.has(armed)) clearConfirmation();
   }
 
-  async function chooseNode(node: number) {
-    if (!details || !active || details.ticketOwners.has(node) || buying !== null || !pilot) return;
+  function closeMultiBuy(restoreFocus = false) {
+    multiBuyOpen = false;
+    if (armed === "multiple") clearConfirmation();
+    if (restoreFocus) multiBuyTrigger?.focus();
+  }
+
+  function onOutsidePurchase(event: PointerEvent) {
+    if (multiBuyOpen && event.target instanceof Node && !multiBuyArea?.contains(event.target)) closeMultiBuy();
+  }
+
+  function setQuantity(value: number) {
+    if (value === quantity) return;
+    quantity = value;
+    if (armed === "multiple") clearConfirmation();
+    if (purchaseError?.target === "multiple") purchaseError = null;
+  }
+
+  function editQuantity(input: HTMLInputElement) {
+    const value = Number(input.value);
+    const next = Number.isFinite(value) ? Math.min(maximum, Math.max(0, Math.trunc(value))) : 0;
+    if (input.value !== "" && String(next) !== input.value) input.value = String(next);
+    setQuantity(next);
+  }
+
+  async function choosePurchase(target: PurchaseTarget) {
+    if (!details || !active || buying !== null || !pilot) return;
+    if (target === "multiple" ? quantity < 1 || quantity > maximum : details.ticketOwners.has(target)) return;
     const learnedKey = `evejs-hypernet-confirm:${pilot}`;
-    if (armed !== node) {
+    if (armed !== target) {
       clearConfirmation();
       purchaseError = null;
-      armed = node;
+      armed = target;
       let learned = false;
       try { learned = localStorage.getItem(learnedKey) === "1"; } catch {}
       readyTimer = window.setTimeout(() => { confirmationReady = true; }, 400);
@@ -91,17 +128,18 @@
     }
     if (!confirmationReady) return;
     clearConfirmation();
-    buying = node;
+    if (target === "multiple") closeMultiBuy();
+    buying = target;
     const generation = offerGeneration;
     try { localStorage.setItem(learnedKey, "1"); } catch {}
     try {
-      const row = await flow.buyHyperNetNode(id, node);
+      const row = target === "multiple" ? await flow.buyHyperNetNodes(id, quantity) : await flow.buyHyperNetNode(id, target);
       if (generation !== offerGeneration) return;
       updateOffer(row);
     } catch (cause) {
       if (generation !== offerGeneration) return;
       const reason = failureCode(cause) === "CALL_REFUSED" && cause instanceof Error ? cause.message : "";
-      purchaseError = { node, label: reason === "TicketUnavailableError" ? "unavailableNode" :
+      purchaseError = { target, label: reason === "TicketUnavailableError" ? "unavailableNode" :
         reason === "NotEnoughISKError" ? "insufficientISK" : "purchaseError" };
     } finally {
       if (generation === offerGeneration) {
@@ -112,7 +150,14 @@
   }
 
   $effect(() => {
-    if (!active) clearConfirmation();
+    if (!active) {
+      clearConfirmation();
+      closeMultiBuy();
+    }
+    if (quantity > maximum) setQuantity(maximum);
+  });
+  $effect(() => {
+    if (multiBuyOpen) quantityField?.focus();
   });
 
   $effect(() => {
@@ -125,6 +170,8 @@
     onlyAvailable = false;
     buying = null;
     purchaseError = null;
+    quantity = 0;
+    multiBuyOpen = false;
     if (!pilot) return;
     let current = true;
     let dirty = false;
@@ -191,6 +238,8 @@
   });
 </script>
 
+<svelte:document onpointerdown={onOutsidePurchase} />
+
 <section class="offer-details" data-hypernet-details={id} aria-label={word("title")}>
   <header>
     <h2>{word("title")}</h2>
@@ -246,6 +295,31 @@
         <label><input type="checkbox" bind:checked={onlyAvailable} /> {word("only")}</label>
         <p data-detail-available>{word("available", { remaining_ticket_count: offer.remaining })}</p>
         <p data-detail-owned>{word("owned", { owned_ticket_count: bought })}</p>
+        <div class="multi-buy" bind:this={multiBuyArea}>
+          <button type="button" data-hypernet-multi-buy bind:this={multiBuyTrigger} aria-expanded={multiBuyOpen}
+            disabled={maximum === 0 || buying !== null} onclick={() => {
+              if (multiBuyOpen) closeMultiBuy();
+              else { clearConfirmation(); purchaseError = null; multiBuyOpen = true; }
+            }}>{buying === "multiple" ? "Purchasing…" : word("multiBuy")}</button>
+          {#if multiBuyOpen}
+            <form class="multi-buy-panel" onsubmit={event => { event.preventDefault(); void choosePurchase("multiple"); }}
+              onkeydown={event => {
+                if (event.key === "Escape") { event.stopPropagation(); event.preventDefault(); closeMultiBuy(true); }
+              }}>
+              <label>
+                {word("quantity")}
+                <input data-multi-quantity type="number" min="0" max={maximum} step="1" value={quantity}
+                  bind:this={quantityField} oninput={event => editQuantity(event.currentTarget)} />
+              </label>
+              <p>{word("total")} <strong data-multi-total>{total.toLocaleString()} ISK</strong></p>
+              <button type="submit" data-multi-confirm disabled={quantity === 0 || buying !== null}
+                class:confirm={armed === "multiple"} aria-disabled={armed === "multiple" && !confirmationReady}>
+                {armed === "multiple" ? word("confirm") : word("buy")}
+              </button>
+            </form>
+          {/if}
+        </div>
+        {#if purchaseError?.target === "multiple"}<p class="purchase-error" role="alert">{word(purchaseError.label)}</p>{/if}
       </div>
     {/if}
     <ul class="tickets">
@@ -259,11 +333,11 @@
           {:else if active}
             <button type="button" class:confirm={armed === node.number} data-buy-node
               aria-pressed={armed === node.number} aria-disabled={armed === node.number && !confirmationReady} disabled={buying !== null}
-              onclick={() => void chooseNode(node.number)}>
+              onclick={() => void choosePurchase(node.number)}>
               {buying === node.number ? "Purchasing…" : armed === node.number ? word("confirm") : `${offer.price.toLocaleString()} ISK`}
             </button>
           {:else}<span>—</span>{/if}
-          {#if purchaseError?.node === node.number}<p class="purchase-error" role="alert">{word(purchaseError.label)}</p>{/if}
+          {#if purchaseError?.target === node.number}<p class="purchase-error" role="alert">{word(purchaseError.label)}</p>{/if}
         </li>
       {/each}
     </ul>
@@ -283,7 +357,13 @@
   .tickets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; padding: 0; margin: 0; list-style: none; }
   .tickets li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 5px; background: #ffffff10; }
   .tickets .sold { background: #ffffff06; }
-  .tickets .confirm { border-color: #66cddd; background: #00506666; }
+  .multi-buy { position: relative; margin-inline-start: auto; }
+  .multi-buy-panel { position: absolute; inset-inline-end: 0; top: calc(100% + 4px); z-index: 1; width: max-content;
+    max-width: 250px; display: grid; gap: 8px; padding: 10px; background: #171e27; border: 1px solid #667184; }
+  .multi-buy-panel label, .multi-buy-panel p { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+  .multi-buy-panel input { width: 5em; }
+  .multi-buy-panel button { justify-self: end; }
+  .confirm { border-color: #66cddd; background: #00506666; }
   .purchase-error { width: 100%; color: #ffbf68; }
   .tickets .own { background: #00506666; }
   .tickets .winning { outline: 1px solid #e0be70; }
