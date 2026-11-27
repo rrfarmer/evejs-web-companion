@@ -30,6 +30,7 @@
   import { addGameLogLine, beginGameLog } from "./gameLog.ts";
   import GameLogActions from "./GameLogActions.svelte";
   import FleetWindowActions from "./FleetWindowActions.svelte";
+  import { FLEET_JOB_CREATOR } from "../bridge/fleetCommand.ts";
   import DronesWindowActions from "./DronesWindowActions.svelte";
   import InventoryWindowActions from "./InventoryWindowActions.svelte";
   import ScannerWindowActions from "./ScannerWindowActions.svelte";
@@ -314,6 +315,14 @@
     };
     window.addEventListener("evejs:fleet-broadcast-settings", show);
     return () => window.removeEventListener("evejs:fleet-broadcast-settings", show);
+  });
+  $effect(() => {
+    const show = (event: Event) => {
+      const request = (event as CustomEvent<{ characterID: number; fleetID: number }>).detail;
+      if (stage === "game" && request?.characterID === chosenCharacterID && request.fleetID === bossFleetID) open("fleetJoinRequests");
+    };
+    window.addEventListener("evejs:fleet-join-requests", show);
+    return () => window.removeEventListener("evejs:fleet-join-requests", show);
   });
   // ghostFittingSvc.SimulateFitting's OpenFittingWindowIfNeeded: a simulation started from elsewhere (an inventory bay's
   // Simulate Fit) shows the Fitting window
@@ -1922,7 +1931,7 @@
     mercenaryDens: { w: 900, h: 572 },
     shipSkinr: { w: 1024, h: 700 },
     hyperNet: { w: 1024, h: 720 },
-    fleetComposition: { w: 680, h: 420 }, fleetBroadcastSettings: { w: 480, h: 380 }, fleetAdvertEditor: { w: 600, h: 460 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 570, h: 550 },
+    fleetComposition: { w: 680, h: 420 }, fleetBroadcastSettings: { w: 480, h: 380 }, fleetAdvertEditor: { w: 600, h: 460 }, fleetJoinRequests: { w: 310, h: 145 }, miningScan: { w: 520, h: 400 }, miningLedger: { w: 850, h: 650 }, moonMining: { w: 570, h: 550 },
     structureBrowser: { w: 800, h: 600 }, accessGroups: { w: 800, h: 600 }, autoMoonMiner: { w: 700, h: 515 },
     metenoxTransfer: { w: 400, h: 340 }, metenoxFuel: { w: 435, h: 285 },
     moonMaterialBay: { w: 490, h: 355 },
@@ -1943,7 +1952,7 @@
     structureBrowser: { w: 600, h: 450 }, accessGroups: { w: 600, h: 400 },
     drones: { w: 240, h: 120 }, scanner: { w: 300, h: 150 }, inventory: { w: 170, h: 140 },
     market: { w: 650, h: 435 }, marketOrders: { w: 300, h: 300 }, contracts: { w: 700, h: 560 }, corporation: { w: 700, h: 832 },
-    fleet: { w: 270, h: 120 }, fleetBroadcastSettings: { w: 300, h: 200 }, industry: { w: 1004, h: 650 }, reprocessing: { w: 600, h: 400 }, insurance: { w: 400, h: 400 }, lpStore: { w: 837, h: 430 },
+    fleet: { w: 270, h: 120 }, fleetBroadcastSettings: { w: 300, h: 200 }, fleetJoinRequests: { w: 310, h: 145 }, industry: { w: 1004, h: 650 }, reprocessing: { w: 600, h: 400 }, insurance: { w: 400, h: 400 }, lpStore: { w: 837, h: 430 },
   };
   function flightWindowMinimum(tab: TabID): { w: number; h: number } {
     const size = FLIGHT_MINIMUMS[tab] ?? { w: MIN_W, h: MIN_H };
@@ -2043,6 +2052,7 @@
     if (tab === "moonMaterialBay" && !moonMaterialBay) return;
     if (tab === "metenoxTransfer" && !metenoxTransfer || tab === "metenoxFuel" && !metenoxControl) return;
     if (tab === "watchlist" && !session?.store.fleet.get().authoritativeFleetID) return;
+    if (tab === "fleetJoinRequests" && bossFleetID === null) return;
     if (tab === "miningScan" && !canOpenMiningScan()) {
       const s = session;
       if (s && !docked) {
@@ -2085,6 +2095,11 @@
     untrack(() => open("memberDetails"));
   });
   let lastFleetID: number | null = null;
+  const bossFleetID = $derived($fleet?.fleet?.initState.value.members.some(member =>
+    Number(member.charID) === chosenCharacterID && (member.job & FLEET_JOB_CREATOR) !== 0) ? $fleet.authoritativeFleetID : null);
+  $effect(() => {
+    if (bossFleetID === null && wins.some(win => win.id === "fleetJoinRequests")) wins = closeWindow(wins, "fleetJoinRequests");
+  });
   $effect(() => {
     const characterID = chosenCharacterID;
     if (stage !== "game" || characterID === null) {
@@ -2156,6 +2171,7 @@
     fleetComposition: "UI/Fleet/FleetComposition/FleetComposition",
     fleetBroadcastSettings: "UI/Fleet/FleetBroadcast/BroadcastSettings",
     fleetAdvertEditor: "UI/Fleet/CreateAdvert",
+    fleetJoinRequests: "UI/Fleet/FleetWindow/JoinRequests",
     memberDetails: "UI/Corporations/EditMemberDialog/EditMemberCaption",
     structureBrowser: "UI/Structures/Browser/StructureBrowser",
     accessGroups: "UI/Structures/AccessGroups/GroupWndName",
@@ -3499,7 +3515,7 @@
   setContext("flightSpaceView", () => view);
   setContext("flightMiningSurvey", flightMiningSurvey);
   setContext("flightSimNow", () => live?.simNow() || null);
-  setContext("killRightOwnerMenu", async (event: MouseEvent | KeyboardEvent, characterID: number) => {
+  setContext("characterOwnerMenu", async (event: MouseEvent | KeyboardEvent, characterID: number) => {
     event.preventDefault();
     event.stopPropagation();
     const s = session, current = s?.store.station.get().online;
@@ -5050,6 +5066,7 @@
               onFlat={setFleetRosterFlat} {docked} onBroadcast={sendFleetBarBroadcast}
               onBroadcastSettings={() => open("fleetBroadcastSettings")}
               onAdvert={() => open("fleetAdvertEditor")}
+              onJoinRequests={() => open("fleetJoinRequests")}
               onWatchlist={() => open("watchlist")} onComposition={() => open("fleetComposition")} />{/if}
             {#if win.id === "drones"}<DronesWindowActions store={session.store} flow={session.flow} />{/if}
             {#if win.id === "inventory" && !docked}<InventoryWindowActions store={session.store} flow={session.flow} />{/if}

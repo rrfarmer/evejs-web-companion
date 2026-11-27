@@ -892,6 +892,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   "sharedSettingsMgr.StoreSettingLinkAndGetID", "sharedSettingsMgr.GetStoredSharedSetting",
   "fleetObjectHandler.SetTakesFleetWarp", "fleetObjectHandler.SetAcceptsConduitJumpsValue", "fleetObjectHandler.SetAcceptsRegroupValue",
   "fleetObjectHandler.GetFleetMaxSize", "fleetObjectHandler.SetFleetMaxSize",
+  "fleetObjectHandler.RejectJoinRequest",
   // An overview profile's link stored as it is dropped into a chat, and read as it is followed (the gateway's list
   // has neither).
   "overviewPresetMgr.StoreLinkAndGetID", "overviewPresetMgr.GetStoredPreset",
@@ -2777,6 +2778,7 @@ const RETAIL_CALLS = Object.freeze({
   "fleetObjectHandler.GetWings": same(`${FLEET_SVC}:1165`, "self.fleet.GetWings(), no arguments"),
   "fleetObjectHandler.GetMotd": same(`${FLEET_SVC}:1967`, "self.fleet.GetMotd(), no arguments"),
   "fleetObjectHandler.GetJoinRequests": same(`${FLEET_SVC}:461`, "self.fleet.GetJoinRequests(), no arguments"),
+  "fleetObjectHandler.RejectJoinRequest": same(`${FLEET_SVC}:920`, "self.fleet.RejectJoinRequest(charID), on the fleet's own object"),
   "fleetObjectHandler.GetFleetComposition": same(`${FLEET_SVC}:900`, "self.fleet.GetFleetComposition(), no arguments"),
   "fleetObjectHandler.GetFleetMaxSize": same(`${FLEET_SVC}:2300`, "self.fleet.GetFleetMaxSize(), before the size prompt"),
   "fleetObjectHandler.SetFleetMaxSize": same(`${FLEET_SVC}:2307`, "self.fleet.SetFleetMaxSize(qty), after the size prompt"),

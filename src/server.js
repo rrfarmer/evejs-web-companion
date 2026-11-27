@@ -1575,6 +1575,11 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       return;
     }
   }
+  if (objectKind === "fleetJoinRequest" && (strictPositiveID(body.of) === null ||
+      !Array.isArray(body.args) || body.args.length !== 1 || !Number.isSafeInteger(body.args[0]) || body.args[0] <= 0 || body.kwargs != null)) {
+    res.status(400).json({ ok: false, error: "INVALID_FLEET_JOIN_REQUEST", message: "Choose the current fleet and one applicant." });
+    return;
+  }
   if (objectKind === "corporationExpected" && strictPositiveID(body.of) === null) {
     res.status(400).json({ ok: false, error: "INVALID_CORPORATION", message: "A corporation action names the corporation it was opened for." });
     return;
@@ -1817,11 +1822,11 @@ app.post("/api/bridge/call", requireAuth, async (req, res, next) => {
       : objectKind === "fleetExpected"
       ? { ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => inviteToFleetCall(
         heldBridgeSession, req.webSessionID, inviteeOf(body.args), saysWhich ? strictPositiveID(body.of) : null, invitedPlaceOf(body.args))), service: body.service, method: body.method }
-      : objectKind === "fleetParticipation" || objectKind === "fleetConfiguration"
+      : objectKind === "fleetParticipation" || objectKind === "fleetConfiguration" || objectKind === "fleetJoinRequest"
       ? { ...await heldRequest(heldBridgeSession, req.webSessionID, write, () => {
         const fleetID = strictPositiveID(body.of);
         if (String(fleetID) !== heldBridgeSession.fleetID) {
-          throw Object.assign(new Error("Fleet membership changed before this setting was requested."), { code: "FLEET_CHANGED", statusCode: 409 });
+          throw Object.assign(new Error("Fleet membership changed before this action was requested."), { code: "FLEET_CHANGED", statusCode: 409 });
         }
         return boundCall(heldBridgeSession, req.webSessionID, fleetIDBindSpec(fleetID), body.method, body.args, null);
       }), service: body.service, method: body.method }

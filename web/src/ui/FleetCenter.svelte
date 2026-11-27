@@ -648,7 +648,7 @@
       {/if}
     </section>
 
-    {#if joinRequests.length > 0}
+    {#if !retail && joinRequests.length > 0}
       <section class="state-card">
         <h3>Join requests</h3>
         <ul class="request-list">

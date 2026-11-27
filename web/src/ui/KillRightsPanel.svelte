@@ -18,7 +18,7 @@
   const station = $derived(store.station), names = $derived(store.names), words = $derived(store.words), image = $derived(flow.imageServer);
   const pilot = $derived($station.online);
   const addressBook = $derived(store.addressBook);
-  const openOwnerMenu = getContext<((event: MouseEvent | KeyboardEvent, characterID: number) => void) | undefined>("killRightOwnerMenu");
+  const openOwnerMenu = getContext<((event: MouseEvent | KeyboardEvent, characterID: number) => void) | undefined>("characterOwnerMenu");
   const root = "UI/CharacterSheet/CharacterSheetWindow/";
   const labels = {
     outgoing: "UI/InfoWindow/CanKill", incoming: "UI/InfoWindow/CanBeKilledBy",

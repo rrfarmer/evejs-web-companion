@@ -1231,7 +1231,7 @@ import { decodeAccessGroup, decodeAccessGroups, decodeAccessGroupMembers, type A
 import { decodeAccessGroupAudit, type AccessGroupAuditRow } from "../bridge/accessGroupAudit.ts";
 import { agentsAtStation, readAgentsTable } from "../bridge/agentReads.ts";
 import { authoritativeFleetMemberCharacterIDs, decodeFleetCenter, decodeFleetInviteAnswerNotification, decodeFleetInviteNotification, fleetInviteAnswerWords, memberWhereabouts, type FleetInviteAnswer } from "../bridge/fleetCenter.ts";
-import type { FleetMemberOptOuts } from "../bridge/boundFleet.ts";
+import { decodeJoinRequest, type FleetMemberOptOuts } from "../bridge/boundFleet.ts";
 import { FLEET_JOB_CREATOR, canTagInFleet } from "../bridge/fleetCommand.ts";
 import type { FleetCenterSnapshot } from "../bridge/fleetCenter.ts";
 import { decodeAvailableFleetAds, decodeMyFleetFinderAdvert, parseFleetAdvertUrl, type FleetAdvert } from "../bridge/fleetAds.ts";
@@ -2967,6 +2967,7 @@ export interface AppFlow {
    * menu's places give it (menusvc.FleetInviteMenu); none, a squad member with no place said.
    */
   inviteFleetMember(characterID: number, assertCurrent?: () => void, expectedFleetID?: number, place?: { readonly wingID: number | null; readonly squadID: number | null; readonly role: number | null }): Promise<void>;
+  decideFleetJoinRequest(fleetID: number, characterID: number, accept: boolean): Promise<void>;
   /**
    * An owner's menu's Form Fleet With (menusvc.py 637 to 638; fleetSvc.Invite, 351 to 363): a fleet formed where the
    * pilot is in none, then the character invited; the pilot's own character is invited to nothing.
@@ -7854,7 +7855,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     "OnFleetMotdChanged",
     "OnFleetOptionsChanged",
     "OnFleetJoinRequest",
-    "OnFleetJoinRejected",
+    "OnJoinRequestUpdate",
   ]);
   const scannerSnapshotNotifications = new Set([
     "OnNewProbe",
@@ -8803,9 +8804,34 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     if (method !== null && fleetSnapshotNotifications.has(method)) {
       if (method === "OnFleetOptionsChanged") fleetAdvertRevision.update(revision => revision + 1);
+      if (method === "OnFleetJoinRequest" || method === "OnJoinRequestUpdate") {
+        const { fleetID, isBoss } = fleetStanding();
+        if (isBoss && fleetID !== null) {
+          if (method === "OnFleetJoinRequest") {
+            const request = decodeJoinRequest(args[0] as JsonValue);
+            const characterID = fleetNameID(request.charID), corporationID = fleetNameID(request.corpID);
+            if (characterID !== null) {
+              const values: [string, JsonValue][] = [["name", [2, characterID]]];
+              if (corporationID !== null) values.push(["corpname", [2, corporationID]]);
+              sayDialog("FleetMemberJoinRequest", { type: "dict", entries: values }, "A pilot has applied to join your fleet.", "notify");
+            }
+          }
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("evejs:fleet-join-requests", { detail: { characterID: onlineCharacterID(), fleetID } }));
+          }
+        }
+      }
       // The notification is an invalidation, never the roster authority. A
       // coalesced, single-flight bound read below replaces the full snapshot.
       scheduleFleetRefresh();
+      return;
+    }
+    if (method === "OnFleetJoinRejected") {
+      const characterID = fleetNameID(Number(unwrapLong(args[0]) ?? args[0]));
+      if (characterID !== null) {
+        sayDialog("FleetJoinRequestRejected", { type: "dict", entries: [["name", [2, characterID]]] },
+          "Your application to join the fleet was declined.", "notify");
+      }
       return;
     }
     if (method !== null && scannerSnapshotNotifications.has(method)) {
@@ -19082,6 +19108,28 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       () => inviteToFleetCall(assertCurrent ? fencedDo(assertCurrent) : bridgeDo, characterID, onlineCharacterID(), expectedFleetID, place),
       "ready",
     );
+  }
+
+  async function decideFleetJoinRequest(fleetID: number, characterID: number, accept: boolean): Promise<void> {
+    const current = callOptions.captureRequestGuard!();
+    await loadFleet();
+    current();
+    const { fleetID: currentFleetID, isBoss } = fleetStanding();
+    if (!isBoss || currentFleetID !== fleetID) throw new Error("Only the current fleet boss can decide join requests.");
+    if (!store.fleet.get().fleet?.joinRequests.value.some(request => fleetNameID(request.charID) === characterID)) return;
+    if (accept) {
+      await inviteFleetMember(characterID, current, fleetID);
+      return;
+    }
+    try {
+      await bridgeDo("fleetObjectHandler", "RejectJoinRequest", [characterID], null, fleetID);
+      current();
+      await loadFleet();
+    } catch (error) {
+      throwIfRequestRetired(error);
+      current();
+      if (!sayRefusalDialog(error, errorWords(error))) throw error;
+    }
   }
 
   async function formFleetWith(characterID: number): Promise<void> {
@@ -41785,6 +41833,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     retainFleetDetails,
     formFleet,
     inviteFleetMember,
+    decideFleetJoinRequest,
     formFleetWith,
     inviteFleetSelection,
     acceptFleetInvite,

@@ -334,7 +334,7 @@ export interface FleetJoinRequest {
   readonly securityStatus: number;
 }
 
-function decodeJoinRequest(value: JsonValue | undefined): FleetJoinRequest {
+export function decodeJoinRequest(value: JsonValue | undefined): FleetJoinRequest {
   return {
     charID: idData(keyValField(value, "charID")),
     corpID: idData(keyValField(value, "corpID")),
