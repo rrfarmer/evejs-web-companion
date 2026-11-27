@@ -78,8 +78,9 @@
   import { portal } from "./portal.ts";
   import { startFittingDrag } from "./fittingDrag.ts";
   import OwnerPicture from "./OwnerPicture.svelte";
+  import CorpLogo from "./CorpLogo.svelte";
   import MoneyTransferWindow from "./MoneyTransferWindow.svelte";
-  import { portraitUrl, portraitDefaultPath } from "./ownerImages.ts";
+  import { allianceLogoUrl, portraitUrl, portraitDefaultPath } from "./ownerImages.ts";
 
   let { session, inFront }: { session: Session; inFront: boolean } = $props();
   const academyTravel = $derived(session.flow.academyTravelConversation);
@@ -121,6 +122,7 @@
   const moneyTransfer = flow.moneyTransfer;
   // svelte-ignore state_referenced_locally
   const imageServer = flow.imageServer;
+  const corpLogos = flow.corpLogos, corpLogoLibrary = flow.corpLogoLibrary, ownerLogos = flow.ownerLogos;
   $effect(() => { if ($corporationCEOChoice !== null) flow.loadImageServer(); });
   // svelte-ignore state_referenced_locally
   const useFittingNameForShips = flow.useFittingNameForShips;
@@ -747,6 +749,7 @@
     flow.requestWords([
       ...wordsLabels(parts), ...$said.map(typeKey), ...$said.map(audioKey), ...$said.map((one) => suppressKey(one.dialog)), ...Object.keys(OWN_TITLES), ...NUMERIC_WORD_LABELS,
       ...Object.keys(ANSWER_WORDS), DO_NOT_SHOW_AGAIN_LABEL, DO_NOT_ASK_AGAIN_LABEL,
+      ...($said.some(one => one.pilotInControl) ? ["UI/Station/PilotInControl", "UI/Commands/TakeStructureControl", "UI/Generic/Cancel"] : []),
     ]);
     const refs = wordsNameRefs(parts, client);
     if (refs.length > 0) {
@@ -761,6 +764,7 @@
   /** How each is put up: not yet (its type not read), a box, the strip, or not at all. */
   type Shown = { readonly said: SaidDialog; readonly kind: "pending" | "box" | "strip" | "none"; readonly type: string | null };
   const shown = $derived<readonly Shown[]>($said.map((one) => {
+    if (one.pilotInControl) return { said: one, kind: "box", type: null };
     const key = typeKey(one);
     if (!(key in $words.templates) && one.fallbackType === undefined) {
       return { said: one, kind: "pending", type: null };
@@ -817,10 +821,11 @@
     const own = questionText(partOf(first.said, "title"), nameOf, client);
     const typeTitle = first.type === null ? INFORMATION : TYPE_TITLES[first.type] ?? INFORMATION;
     const typeWords = $words.templates[typeTitle];
-    const title = own || (typeof typeWords === "string" && typeWords !== "" ? typeWords : OWN_TITLES[typeTitle] ?? "Information");
+    const title = first.said.pilotInControl ? wordOf("UI/Station/PilotInControl", "Pilot In Control")
+      : own || (typeof typeWords === "string" && typeWords !== "" ? typeWords : OWN_TITLES[typeTitle] ?? "Information");
     const body = first.type === null ? first.said.fallback : questionText(partOf(first.said, "body"), nameOf, client) || first.said.fallback;
     const suppress = $words.templates[suppressKey(first.said.dialog)];
-    return { said: first.said, title, body, markup: bodyMarkup(first.said, first.type !== null), suppress: typeof suppress === "string" ? first.said.suppressAnswer ?? suppress : null };
+    return { said: first.said, title, body, markup: bodyMarkup(first.said, first.type !== null), suppress: !first.said.pilotInControl && typeof suppress === "string" ? first.said.suppressAnswer ?? suppress : null };
   });
   // The box's checkbox, unticked for each box put up.
   let keepTicked = $state(false);
@@ -1889,7 +1894,38 @@
         <span class="for-pilot">For {pilotName}</span>
       {/if}
       <strong>{box.title}</strong>
-      <div class="body"><LabelText markup={box.markup} {followerOf} /></div>
+      {#if box.said.pilotInControl}
+        {@const occupant = box.said.pilotInControl}
+        {@const portrait = portraitUrl($imageServer, occupant.id, 128)}
+        <div class="structure-pilot" data-structure-pilot={occupant.id}>
+          <OwnerPicture name={occupant.name} urls={[...(portrait ? [portrait] : []), clientTexture(portraitDefaultPath(128))]} size={128} />
+          <div class="structure-pilot-details">
+            <span>{occupant.name}</span>
+            {#if occupant.titles.length}<span>{occupant.titles.join(", ")}</span>{/if}
+            <div class="structure-pilot-logos">
+              {#if occupant.corporationID !== null}
+                {@const id = occupant.corporationID}
+                {@const name = nameOf("corporation", id)}
+                <span title={name} data-corporation-id={id}>
+                  {#if $corpLogos[String(id)] && $corpLogoLibrary}
+                    <CorpLogo library={$corpLogoLibrary} logo={$corpLogos[String(id)]!} {name} />
+                  {:else if $ownerLogos?.corporations[String(id)]}
+                    <img src={clientTexture($ownerLogos.corporations[String(id)]!)} width="64" height="64" alt={name} />
+                  {:else}<OwnerPicture {name} urls={[]} size={64} />{/if}
+                </span>
+              {/if}
+              {#if occupant.allianceID !== null}
+                {@const id = occupant.allianceID}
+                {@const logo = allianceLogoUrl($imageServer, id)}
+                {@const name = nameOf("alliance", id)}
+                <span title={name}><OwnerPicture {name} urls={logo ? [logo] : []} size={64} /></span>
+              {/if}
+            </div>
+          </div>
+        </div>
+      {:else}
+        <div class="body"><LabelText markup={box.markup} {followerOf} /></div>
+      {/if}
       {#if box.suppress !== null}
         <label class="keep">
           <input type="checkbox" bind:checked={keepTicked} />
@@ -1900,6 +1936,9 @@
         {#if box.said.answers === "yesno"}
           <button type="button" onclick={() => answerBox("yes")}>{wordOf("UI/Common/Buttons/Yes", "Yes")}</button>
           <button type="button" use:focusDefault={inFront && box.said.defaultAnswer === "no" ? box.said.n : null} onclick={() => answerBox("no")}>{wordOf("UI/Common/Buttons/No", "No")}</button>
+        {:else if box.said.pilotInControl}
+          <button type="button" onclick={() => answerBox("ok")}>{wordOf("UI/Commands/TakeStructureControl", "Take Control")}</button>
+          <button type="button" use:focusDefault={inFront ? box.said.n : null} onclick={() => answerBox("no")}>{wordOf("UI/Generic/Cancel", "Cancel")}</button>
         {:else if box.said.answers === "okcancel"}
           <!-- uiconst.OKCANCEL: OK the question's yes, Cancel its no. -->
           <button type="button" use:focusDefault={inFront && box.said.defaultAnswer === "ok" ? box.said.n : null}
@@ -1920,6 +1959,10 @@
 {/if}
 
 <style>
+  .structure-pilot { display: flex; gap: 0.6rem; align-items: flex-start; }
+  .structure-pilot-details { display: grid; gap: 0.4rem; min-width: 0; overflow-wrap: anywhere; }
+  .structure-pilot-logos { display: flex; gap: 0.4rem; }
+  .structure-pilot-logos > span { width: 64px; height: 64px; }
   .ceo-choices { display: flex; flex-direction: column; min-height: 8rem; max-height: 45vh; overflow: auto; }
   .ceo-choices button { display: flex; align-items: center; gap: 0.5rem; text-align: left; border-color: transparent; padding: 0.2rem; }
   .ceo-choices button.selected { background: #315a7d; border-color: #86b4d6; }

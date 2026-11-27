@@ -68,6 +68,15 @@ export async function readNpcCharacterCorporation(ask: Ask, characterID: number)
   return idOf(await ask("corpmgr", "GetCorporationIDForCharacter", [characterID]));
 }
 
+export function characterAffiliationOf(corp: JsonValue | null): Pick<CharacterInfoHeader, "corporationID" | "allianceID" | "titles"> {
+  const titleKeys = ["title", ...Array.from({ length: 16 }, (_, at) => `title${at + 1}`)];
+  return {
+    corporationID: idOf(readKeyVal(corp, "corpID")),
+    allianceID: idOf(readKeyVal(corp, "allianceID")),
+    titles: titleKeys.map(key => textOf(readKeyVal(corp, key))).filter(title => title !== ""),
+  };
+}
+
 /** The header's three reads, each failing by itself (to none of its part). */
 export async function readCharacterInfoHeader(ask: Ask, characterID: number): Promise<CharacterInfoHeader> {
   const [publicInfo, corporation, security] = await Promise.allSettled([
@@ -79,7 +88,6 @@ export async function readCharacterInfoHeader(ask: Ask, characterID: number): Pr
   const started = row === null ? null : unwrapLong(readRowField(row, "startDateTime") ?? null);
   const corp = corporation.status === "fulfilled" ? corporation.value : null;
   // construct_header_character 79 to 86: its own title, then title1 to title16, each one that is not empty.
-  const titles = corp === null ? [] : ["title", ...Array.from({ length: 16 }, (_, at) => `title${at + 1}`)].map((key) => textOf(readKeyVal(corp, key))).filter((title) => title !== "");
   const securityValue = security.status === "fulfilled" ? security.value : null;
   const securityStatus = typeof securityValue === "number" ? securityValue : Number.isFinite(Number((securityValue as { value?: unknown } | null)?.value)) && securityValue !== null ? Number((securityValue as { value: unknown }).value) : null;
   return {
@@ -87,9 +95,7 @@ export async function readCharacterInfoHeader(ask: Ask, characterID: number): Pr
     bloodlineID: row === null ? null : idOf(readRowField(row, "bloodlineID")),
     startDateTime: started === null || started <= 0n ? null : started,
     militiaFactionID: row === null ? null : idOf(readRowField(row, "militiaFactionID")),
-    corporationID: corp === null ? null : idOf(readKeyVal(corp, "corpID")),
-    allianceID: corp === null ? null : idOf(readKeyVal(corp, "allianceID")),
-    titles,
+    ...characterAffiliationOf(corp),
     securityStatus,
   };
 }

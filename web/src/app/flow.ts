@@ -1049,7 +1049,7 @@ import { CRIMEWATCH_NOTICES, CRIMEWATCH_SESSION_NAMES } from "../space/crimewatc
 import type { SafetyLevel } from "../space/crimewatch.ts";
 import { CLONE_GRADE_ALPHA, CLONE_GRADE_NOTICE, cloneGradeOf } from "../bridge/cloneGrade.ts";
 import type { AgentFinderRow, AgentRow, HoldItem, JournalMission, MissionSpot, SpaceEntity } from "../store/types.ts";
-import { publicInfoRow, readCharacterBloodline, readCharacterInfoHeader, readCharacterPublicInfo, readNpcCharacterCorporation, type CharacterInfoHeader } from "../bridge/characterInfo.ts";
+import { characterAffiliationOf, publicInfoRow, readCharacterBloodline, readCharacterInfoHeader, readCharacterPublicInfo, readNpcCharacterCorporation, type CharacterInfoHeader } from "../bridge/characterInfo.ts";
 import { GATE_ACTIVATION_RANGE_M, TYPE_ABYSS_ENTRANCE_GATE, activateGate as activateGateCall, gateCallFor } from "../bridge/gateActivation.ts";
 import {
   ABYSS_LOOTABLE_OBJECTIVE,
@@ -2040,6 +2040,8 @@ export interface SaidDialog {
   readonly suppressAnswer?: "yes" | "ok";
   /** A custom message box's body (messageboxCustom.CUSTOM_MESSAGE_BOXES), as label markup, in place of the dialog's. */
   readonly bodyMarkup?: string;
+  /** The Upwell lobby's Pilot In Control window, with the incumbent's public identity. */
+  readonly pilotInControl?: ReturnType<typeof characterAffiliationOf> & { readonly id: number; readonly name: string };
 }
 
 /**
@@ -14423,8 +14425,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   // prompt_player_fsd_dialog(..., uiconst.YESNO): the dialog put up with Yes and No, and the client waiting on the
   // answer; true on Yes. With uiconst.OKCANCEL (answers "okcancel"): OK and Cancel, true on OK.
   const dialogAnswers = new Map<number, (yes: boolean) => void>();
-  function askDialog(dialog: string, values: JsonValue | null, fallback: string, answers: "yesno" | "okcancel" = "yesno", prompt: Pick<SaidDialog, "defaultAnswer" | "suppressAnswer" | "bodyMarkup"> = {}): Promise<boolean> {
-    const kept = dialogAnswerKept(dialog);
+  function askDialog(dialog: string, values: JsonValue | null, fallback: string, answers: "yesno" | "okcancel" = "yesno", prompt: Pick<SaidDialog, "defaultAnswer" | "suppressAnswer" | "bodyMarkup" | "pilotInControl"> = {}): Promise<boolean> {
+    const kept = prompt.pilotInControl ? null : dialogAnswerKept(dialog);
     // A question's kept answer: Yes, or OK where the question is OK and Cancel (suppress=uiconst.ID_OK).
     // dialog_handler59-64: an explicit suppress argument overrides the saved result.
     if (kept !== null) return Promise.resolve(prompt.suppressAnswer !== undefined || kept === "yes" || kept === "ok");
@@ -28987,10 +28989,23 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       assertDocked();
       if (occupant !== null) {
         if (occupant === store.station.get().online?.characterID) return;
-        await resolveNamesNow([{ kind: "owner", id: occupant }]);
+        const [, details] = await Promise.allSettled([
+          resolveNamesNow([{ kind: "owner", id: occupant }]),
+          bridgeAsk("corpRegistry", "GetInfoWindowDataForChar", [occupant]),
+        ]);
         assertDocked();
         const name = resolvedName(store.names.get().resolved, "owner", occupant, "Another pilot");
-        if (!await askDialog("ConfirmTakeControl", null, `${name} is controlling this structure. Take control?`, "okcancel")) return;
+        const affiliation = characterAffiliationOf(details.status === "fulfilled" ? details.value : null);
+        if (affiliation.corporationID !== null) {
+          requestNames([{ kind: "corporation", id: affiliation.corporationID }]);
+          requestCorpLogos([affiliation.corporationID]);
+          loadOwnerLogos();
+        }
+        if (affiliation.allianceID !== null) requestNames([{ kind: "alliance", id: affiliation.allianceID }]);
+        loadImageServer();
+        if (!await askDialog("ConfirmTakeControl", null, name, "okcancel", {
+          pilotInControl: { id: occupant, name, ...affiliation },
+        })) return;
         assertDocked();
         const latest = await controller();
         if (latest !== null && latest !== occupant) throw new Error("The pilot in control has changed.");
