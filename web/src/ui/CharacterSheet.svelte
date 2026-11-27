@@ -47,6 +47,7 @@
   import CombatLog from "./CombatLog.svelte";
   import KillRightsPanel from "./KillRightsPanel.svelte";
   import PilotServicesPanel from "./PilotServicesPanel.svelte";
+  import CharacterSkins from "./CharacterSkins.svelte";
   import type { PlexVaultStoreActions } from "./PlexVaultBalance.svelte";
   import { CHARACTER_SHEET_POINTERS as pointers } from "../play/uiPointer.ts";
   import Standings from "./Standings.svelte";
@@ -58,6 +59,7 @@
     { id: "character", label: "Tooltips/CharacterSheet/Character", pointer: pointers.character },
     { id: "interactions", label: "Tooltips/CharacterSheet/Interactions", pointer: pointers.interactions },
     { id: "pilotServices", label: "Tooltips/CharacterSheet/PilotLicense", pointer: pointers.pilotServices },
+    { id: "personalization", label: "Tooltips/CharacterSheet/Personalisation", pointer: pointers.personalization },
     { id: "history", label: "Tooltips/CharacterSheet/History", pointer: undefined },
   ] as const;
   type SheetTab = typeof sheetTabs[number]["id"];
@@ -67,6 +69,8 @@
     "Tooltips/CharacterSheet/Character": "Character",
     "Tooltips/CharacterSheet/Interactions": "Dealings",
     "Tooltips/CharacterSheet/PilotLicense": "Pilot's Services",
+    "Tooltips/CharacterSheet/Personalisation": "Personalization",
+    "Tooltips/CharacterSheet/Skins": "SKINs",
     "Tooltips/CharacterSheet/History": "Past",
     "Tooltips/CharacterSheet/HomeStation": "Home",
     "Tooltips/CharacterSheet/Memberships": "Memberships",
@@ -295,6 +299,12 @@
   </nav>
   {#if sheetTab === "pilotServices"}
     {#key $activeCharacter.selectedCharacterID}<PilotServicesPanel {store} {flow} {vaultStoreActions} />{/key}
+  {/if}
+  {#if sheetTab === "personalization"}
+    <nav class="sheet-tabs sub" aria-label="Personalization">
+      <button type="button" class="active" data-ui-pointer={pointers.skins} aria-pressed="true">{tabWord("Tooltips/CharacterSheet/Skins")}</button>
+    </nav>
+    {#key $activeCharacter.selectedCharacterID}<CharacterSkins {store} {flow} />{/key}
   {/if}
   {#if sheetTab === "character"}
   <nav class="sheet-tabs sub" aria-label="Character">

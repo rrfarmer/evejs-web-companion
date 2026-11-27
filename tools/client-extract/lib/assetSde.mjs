@@ -51,13 +51,15 @@ export function buildFirstPartySkins(sdeDir, typeID) {
     .map(row => [row.skinMaterialID ?? row._key, row]));
   return readRows(clientTable(sdeDir, ["skins.jsonl"], true)).flatMap(skin => {
     const material = materials.get(skin.skinMaterialID);
-    if (!skin.types?.includes(typeID) || !material?.displayNameID) return [];
+    if (typeID === null && (skin.visibleTranquility !== true || skin.isStructureSkin === true)) return [];
+    if (!material?.displayNameID || (typeID !== null && !skin.types?.includes(typeID))) return [];
     return [{
       skinID: skin.skinID ?? skin._key,
       materialID: skin.skinMaterialID,
       materialSetID: material.materialSetID ?? null,
       nameID: material.displayNameID,
       visible: skin.visibleTranquility === true,
+      ...(typeID === null ? { types: skin.types ?? [] } : {}),
     }];
   });
 }

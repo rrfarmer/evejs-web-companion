@@ -1121,8 +1121,11 @@ function parseArgs(argv) {
       out.shipBannerLayout = { hull, faction };
     }
     else if (a === "--first-party-skins") {
-      out.firstPartySkins = Number(argv[++i]);
-      if (!Number.isSafeInteger(out.firstPartySkins) || out.firstPartySkins < 1) throw new Error("--first-party-skins needs a hull type ID");
+      const target = argv[++i];
+      out.firstPartySkins = target === "all" ? target : Number(target);
+      if (out.firstPartySkins !== "all" && (!Number.isSafeInteger(out.firstPartySkins) || out.firstPartySkins < 1)) {
+        throw new Error("--first-party-skins needs a hull type ID or all");
+      }
     }
     else if (a === "--sof-defaults") out.sofDefaults = true;
     else if (a === "--overview") out.overview = true;
@@ -1230,7 +1233,7 @@ async function main() {
     if (!sde) throw new Error("--first-party-skins needs the matching client export");
     const file = path.join(outRoot, "firstPartySkins", `${args.firstPartySkins}.json`);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    const rows = buildFirstPartySkins(sde, args.firstPartySkins);
+    const rows = buildFirstPartySkins(sde, args.firstPartySkins === "all" ? null : args.firstPartySkins);
     writeExtracted(file, JSON.stringify(rows));
     console.log(`First-party SKINs for ${args.firstPartySkins}: ${rows.length}`);
   }
