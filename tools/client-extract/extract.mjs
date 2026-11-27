@@ -1227,7 +1227,7 @@ async function main() {
   if (args.shipEmblems) {
     if (!sde) throw new Error("--ship-emblems needs the matching client export");
     const rows = buildShipEmblemLicenses(sde);
-    writeExtracted(path.join(outRoot, "shipEmblemLicenses.json"), JSON.stringify(rows));
+    writeExtracted(path.join(outRoot, "shipEmblemLicenses.json"), JSON.stringify({ shipEmblemBuild: 2, rows }));
   }
   if (args.firstPartySkins) {
     if (!sde) throw new Error("--first-party-skins needs the matching client export");

@@ -23,6 +23,7 @@ const characterSheetTabs: readonly UiPointerTarget[] = ([
   [sheet.pilotServices, "Pilot Services", sheet.expand],
   [sheet.personalization, "Character Sheet - Personalization", sheet.expand],
   [sheet.skins, "Character Sheet - SKINs", sheet.personalization],
+  [sheet.emblems, "Character Sheet - Emblems", sheet.personalization],
   [sheet.home, "Home Station", sheet.character],
   [sheet.implants, "Augmentations", sheet.character],
   [sheet.jumpClones, "Jump Clones", sheet.character],

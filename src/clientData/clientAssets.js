@@ -26,7 +26,7 @@ const MIME = new Map([
 const GENERATED = new Map([
   ...["defaultalliance.dds", "defaultcorporation.dds", "hologram_interlace_p.dds", "hologram_noise.dds", "hologram_pulse.dds", "effect.json"]
     .map(name => [`/shipBannerLayouts/${name}`, ["--ship-banner-textures"]]),
-  ["/shipEmblemLicenses.json", ["--ship-emblems"]],
+  ["/shipEmblemLicenses.json", ["--ship-emblems", '"shipEmblemBuild":2']],
   ["/dscanCones.json", ["--dscan-cones", '"lineTexture"']],
   ["/dscanHologram.json", ["--dscan-hologram"]],
   ["/wormholeTransit.json", ["--wormhole-transit"]],
@@ -194,7 +194,7 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   if (generated) {
     const oldManifest = rel === "/observatoryEnvironment.json" ? '"environmentBuild":'
       : rel === "/observatoryVortex.json" ? '"vortexBuild":' : undefined;
-    const marker = rel === "/warpTunnel.json" && !canExtract() ? undefined
+    const marker = (rel === "/warpTunnel.json" || rel === "/shipEmblemLicenses.json") && !canExtract() ? undefined
       : oldManifest && !canExtract() ? oldManifest : generated[1];
     return { file: await ensure(rel.slice(1), [generated[0]], marker) };
   }

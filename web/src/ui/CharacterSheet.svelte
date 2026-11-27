@@ -48,6 +48,7 @@
   import KillRightsPanel from "./KillRightsPanel.svelte";
   import PilotServicesPanel from "./PilotServicesPanel.svelte";
   import CharacterSkins from "./CharacterSkins.svelte";
+  import CharacterEmblems from "./CharacterEmblems.svelte";
   import type { PlexVaultStoreActions } from "./PlexVaultBalance.svelte";
   import { CHARACTER_SHEET_POINTERS as pointers } from "../play/uiPointer.ts";
   import Standings from "./Standings.svelte";
@@ -71,6 +72,7 @@
     "Tooltips/CharacterSheet/PilotLicense": "Pilot's Services",
     "Tooltips/CharacterSheet/Personalisation": "Personalization",
     "Tooltips/CharacterSheet/Skins": "SKINs",
+    "Tooltips/CharacterSheet/ShipEmblems": "Emblems",
     "Tooltips/CharacterSheet/History": "Past",
     "Tooltips/CharacterSheet/HomeStation": "Home",
     "Tooltips/CharacterSheet/Memberships": "Memberships",
@@ -106,6 +108,7 @@
   const activeCharacter = $derived(store.character);
   let historyTab = $state<"employment" | "skills">(opening === "skills" ? "skills" : "employment");
   let interactionTab = $state<"standings" | "killRights" | "securityStatus" | "combatLog">("standings");
+  let personalizationTab = $state<"skins" | "emblems">("skins");
   /** _StartLoadingPanel: a panel asked for while the window is open, or as it opens (characterSheetPanels.ts). */
   function loadPanel(panel: SheetPanel): void {
     if (panel === "standings") {
@@ -302,9 +305,14 @@
   {/if}
   {#if sheetTab === "personalization"}
     <nav class="sheet-tabs sub" aria-label="Personalization">
-      <button type="button" class="active" data-ui-pointer={pointers.skins} aria-pressed="true">{tabWord("Tooltips/CharacterSheet/Skins")}</button>
+      <button type="button" class:active={personalizationTab === "skins"} data-ui-pointer={pointers.skins}
+        aria-pressed={personalizationTab === "skins"} onclick={() => (personalizationTab = "skins")}>{tabWord("Tooltips/CharacterSheet/Skins")}</button>
+      <button type="button" class:active={personalizationTab === "emblems"} data-ui-pointer={pointers.emblems}
+        aria-pressed={personalizationTab === "emblems"} onclick={() => (personalizationTab = "emblems")}>{tabWord("Tooltips/CharacterSheet/ShipEmblems")}</button>
     </nav>
-    {#key $activeCharacter.selectedCharacterID}<CharacterSkins {store} {flow} />{/key}
+    {#key $activeCharacter.selectedCharacterID}
+      {#if personalizationTab === "skins"}<CharacterSkins {store} {flow} />{:else}<CharacterEmblems {store} {flow} />{/if}
+    {/key}
   {/if}
   {#if sheetTab === "character"}
   <nav class="sheet-tabs sub" aria-label="Character">

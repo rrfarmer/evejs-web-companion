@@ -5,7 +5,7 @@ export const SHIP_ENTITLEMENT_GATEWAY = "eve_public.entitlement.character.";
 export const SHIP_EMBLEM_TYPES = { alliance: 2, corporation: 1 } as const;
 export type ShipEmblemKind = keyof typeof SHIP_EMBLEM_TYPES;
 export type ShipEmblemImages = Readonly<Partial<Record<ShipEmblemKind, string | null>>>;
-export type ReleasedShipEmblem = readonly [shipTypeID: number, kind: number, slot: number];
+export type ReleasedShipEmblem = readonly [shipTypeID: number, kind: number, slot: number, licenseTypeID?: number];
 
 interface EmblemEntitlement {
   readonly character?: { readonly sequential?: string | number };
@@ -15,6 +15,23 @@ interface EmblemEntitlement {
 export interface ShipEmblemState {
   readonly owned: ReadonlySet<ShipEmblemKind>;
   readonly enabled: ReadonlyMap<ShipEmblemKind, number>;
+}
+
+export function decodeOwnedShipEmblems(entitlements: JsonValue | null, pilot: number): ReadonlyMap<number, ReadonlySet<ShipEmblemKind>> {
+  const rows = (entitlements as { entitlements?: readonly {
+    corporation_logo?: EmblemEntitlement; alliance_logo?: EmblemEntitlement;
+  }[] } | null)?.entitlements ?? [];
+  const owned = new Map<number, Set<ShipEmblemKind>>();
+  for (const row of rows) {
+    const kind = row.corporation_logo ? "corporation" : "alliance";
+    const license = row.corporation_logo ?? row.alliance_logo;
+    const hull = Number(license?.ship_type?.sequential);
+    if (Number(license?.character?.sequential) !== pilot || !Number.isSafeInteger(hull) || hull <= 0) continue;
+    const kinds = owned.get(hull) ?? new Set<ShipEmblemKind>();
+    kinds.add(kind);
+    owned.set(hull, kinds);
+  }
+  return owned;
 }
 
 export function decodeEnabledShipEmblems(cosmetics: unknown): ReadonlyMap<ShipEmblemKind, number> {
@@ -30,23 +47,16 @@ export function decodeEnabledShipEmblems(cosmetics: unknown): ReadonlyMap<ShipEm
 }
 
 export function decodeShipEmblems(entitlements: JsonValue | null, cosmetics: unknown, pilot: number, hull: number): ShipEmblemState {
-  const rows = (entitlements as { entitlements?: readonly {
-    corporation_logo?: EmblemEntitlement; alliance_logo?: EmblemEntitlement;
-  }[] } | null)?.entitlements ?? [];
-  const owned = new Set<ShipEmblemKind>();
-  for (const row of rows) {
-    const kind = row.corporation_logo ? "corporation" : "alliance";
-    const license = row.corporation_logo ?? row.alliance_logo;
-    if (Number(license?.character?.sequential) === pilot && Number(license?.ship_type?.sequential) === hull) owned.add(kind);
-  }
+  const owned = decodeOwnedShipEmblems(entitlements, pilot).get(hull) ?? new Set<ShipEmblemKind>();
   return { owned, enabled: decodeEnabledShipEmblems(cosmetics) };
 }
 
 let catalog: Promise<readonly ReleasedShipEmblem[]> | undefined;
 export function loadShipEmblemCatalog(): Promise<readonly ReleasedShipEmblem[]> {
-  return catalog ??= fetch("/client-assets/shipEmblemLicenses.json").then(response => {
+  return catalog ??= fetch("/client-assets/shipEmblemLicenses.json").then(async response => {
     if (!response.ok) throw new Error("The ship emblem catalog could not be loaded.");
-    return response.json() as Promise<ReleasedShipEmblem[]>;
+    const data = await response.json() as ReleasedShipEmblem[] | { rows: ReleasedShipEmblem[] };
+    return Array.isArray(data) ? data : data.rows;
   }).catch(error => {
     catalog = undefined;
     throw error;

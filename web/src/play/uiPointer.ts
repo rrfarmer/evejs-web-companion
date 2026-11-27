@@ -30,6 +30,7 @@ export const CHARACTER_SHEET_POINTERS = {
   pilotServices: "unique_UI_pilotServicesTab",
   personalization: "unique_UI_charactersheetPersonalizationTab",
   skins: "unique_UI_charactersheetSkinsTab",
+  emblems: "unique_UI_charactersheetEmblemsTab",
   home: "unique_UI_homeTab",
   implants: "unique_UI_augmentationsTab",
   jumpClones: "unique_UI_jumpClonesTab",

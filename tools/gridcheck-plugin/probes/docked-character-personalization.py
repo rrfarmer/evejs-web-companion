@@ -5,7 +5,7 @@ from carbonui.uicore import uicore
 from carbonui.util.bunch import Bunch
 from eve.client.script.ui.services.menuSvcExtras import menuFunctions
 from eve.client.script.ui.shared.neocom.characterSheetWindow import CharacterSheetWindow, charsheet_expanded_setting
-from eve.client.script.ui.shared.neocom.charsheet import PANEL_PERSONALIZATION, PANEL_SHIPSKINS, GetPanelName, GetPanelUniqueName
+from eve.client.script.ui.shared.neocom.charsheet import PANEL_PERSONALIZATION, PANEL_SHIPSKINS, PANEL_SHIPEMBLEMS, GetPanelName, GetPanelUniqueName
 from eve.client.script.ui.shared.pointerTool.pointerChains import FindChainForPointer
 from localization import GetByLabel
 
@@ -68,6 +68,19 @@ def observe_license_drops(panel):
         service.ActivateShipSkinLicense = original_activate
 
 
+def observe_emblems(parent):
+    parent.LoadSubPanel(PANEL_SHIPEMBLEMS)
+    panel = parent.emblemsPanel
+    panel.LoadPanel()
+    options = SettingsMenu()
+    panel.GetSettingsMenu(options)
+    pointer = GetPanelUniqueName(PANEL_SHIPEMBLEMS)
+    groups = panel.scroll.GetNodes()
+    return dict(tab=GetPanelName(PANEL_SHIPEMBLEMS), pointer=pointer, chain=repr(FindChainForPointer(pointer)), options=options.options,
+                counter=panel.counterText.text, groups=[dict(label=row.label, count=len(row.groupItems),
+                    hulls=[child.label for child in panel._GetEmblemSubContent(row)][:5]) for row in groups])
+
+
 def observe():
     opened = CharacterSheetWindow.GetIfOpen()
     if not opened:
@@ -94,7 +107,7 @@ def observe():
         return dict(build=3698585, station=session.stationid, tabs=[GetPanelName(PANEL_PERSONALIZATION), GetPanelName(PANEL_SHIPSKINS)],
                     pointer=pointer, parent=parent_tab.uniqueUiName, chain=repr(FindChainForPointer(pointer)),
                     counter=panel.counterText.text, options=options.options, groupCount=len(groups), durations=observe_durations(),
-                    licenseDrops=observe_license_drops(panel),
+                    licenseDrops=observe_license_drops(panel), emblems=observe_emblems(parent),
                     sample=[dict(label=row.label, children=[child.label for child in panel._GetSkinsSubContent(row)][:4]) for row in groups[:6]])
     finally:
         if opened:

@@ -13,7 +13,7 @@ import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequ
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
 import { decodeHyperNetActiveTickets, decodeHyperNetCreationNotice, decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, decodeHyperNetTypeStatistics, hyperNetCountBounds, hyperNetCreationQuote, hyperNetDetailNoticeIDs, hyperNetRestrictedTypeLists, hyperNetSingletonTypeList, type HyperNetCreationDraft, type HyperNetCreationNotice, type HyperNetPrizeRules, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
 import { decodeFirstPartySkinLicenses, loadSkinLicenseTypes } from "../bridge/firstPartySkins.ts";
-import { decodeEnabledShipEmblems, decodeShipEmblems, SHIP_EMBLEM_GATEWAY, SHIP_ENTITLEMENT_GATEWAY, type ShipEmblemImages, type ShipEmblemKind, type ShipEmblemState } from "../bridge/shipEmblems.ts";
+import { decodeEnabledShipEmblems, decodeOwnedShipEmblems, decodeShipEmblems, SHIP_EMBLEM_GATEWAY, SHIP_ENTITLEMENT_GATEWAY, type ShipEmblemImages, type ShipEmblemKind, type ShipEmblemState } from "../bridge/shipEmblems.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipDefaultSkin, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
@@ -4668,6 +4668,7 @@ export interface AppFlow {
   enabledShipEmblems(shipID: number): Promise<ReadonlyMap<ShipEmblemKind, number>>;
   loadShipEmblemImages(kinds: readonly ShipEmblemKind[]): Promise<ShipEmblemImages>;
   loadShipEmblems(shipID: number, shipTypeID: number): Promise<ShipEmblemState>;
+  loadOwnedShipEmblems(): Promise<ReadonlyMap<number, ReadonlySet<ShipEmblemKind>>>;
   setShipEmblem(shipID: number, slot: number, kind: ShipEmblemKind, enable: boolean): Promise<void>;
   applyShipSkinrLicense(hex: string, shipID: number, remove: boolean): Promise<void>;
   loadShipSkinrOwnedListings(): Promise<ReturnType<typeof decodeOwnedShipSkinrListings>>;
@@ -29462,6 +29463,15 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return decodeShipEmblems(owned, enabled, pilot, shipTypeID);
   }
 
+  async function loadOwnedShipEmblems() {
+    const current = callOptions.captureRequestGuard!();
+    const pilot = store.station.get().online?.characterID;
+    if (!pilot) throw new Error("Select a pilot to read ship emblems.");
+    const owned = await gatewayAsk(SHIP_ENTITLEMENT_GATEWAY + "GetAllRequest");
+    current();
+    return decodeOwnedShipEmblems(owned, pilot);
+  }
+
   async function setShipEmblem(shipID: number, slot: number, kind: ShipEmblemKind, enable: boolean): Promise<void> {
     const current = callOptions.captureRequestGuard!();
     if (store.fitting.get().activeShipID !== shipID) throw new Error("Select the active ship to change its emblem.");
@@ -42611,6 +42621,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     },
     loadShipEmblemImages,
     loadShipEmblems,
+    loadOwnedShipEmblems,
     setShipEmblem,
     applyShipSkinrLicense,
     loadShipSkinrOwnedListings,
