@@ -31,6 +31,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { parse as parseYaml } from "yaml";
 import portraitHair from "../../src/clientData/portraitHair.js";
 import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
 import { childEffectRoots, hullOverlays, readEffectFile, readHullChildren, readHullControllers, readSpriteInstances, readTrafficInstances, readTurretStretch3, usedLocatorSets } from "./lib/children.mjs";
@@ -884,14 +885,24 @@ async function extractPortraitHair(rf, gender, style, outRoot) {
   }));
 }
 
+const paperDollYaml = { customTags: [
+  { tag: "tag:yaml.org,2002:python/tuple", collection: "seq" },
+  { tag: "tag:yaml.org,2002:python/object:paperDoll.AvatarPartMetaData", collection: "map" },
+  { tag: "tag:yaml.org,2002:python/unicode", resolve: value => value },
+] };
+
 async function extractPortraitOutfit(rf, outfit, outRoot) {
   const [gender, style, variant] = outfit.split("/");
   const folder = `res:/graphics/character/${gender}/paperdoll/outer/${style}`;
   const typePath = `${folder}/types/${variant}.type`;
-  const type = rf.read(typePath).toString("utf8");
-  const fields = [...type.matchAll(/^-\s+([^\r\n]*)$/gm)].map(match => match[1].trim().replace(/^(['"])(.*)\1$/, "$2"));
-  if (fields.length !== 3 || fields[0] !== `outer/${style}` ||
-    !fields.slice(1).every(field => /^[a-z0-9_]*$/.test(field))) throw new Error(`${typePath}: unrecognized outfit type`);
+  const readYaml = resource => parseYaml(rf.read(resource).toString("utf8"), paperDollYaml);
+  const fields = readYaml(typePath);
+  if (!Array.isArray(fields) || fields.length < 3 || fields.length > 4 ||
+    (fields.length === 4 && !Array.isArray(fields[3])) ||
+    typeof fields[0] !== "string" || fields[0].toLowerCase() !== `outer/${style}` ||
+    !fields.slice(1, 3).every(field => typeof field === "string" && /^[a-z0-9_]*$/.test(field))) {
+    throw new Error(`${typePath}: unrecognized outfit type`);
+  }
   const [, variation, palette] = fields;
   const definitions = rf.list(folder + "/", /\.black$/i).filter(res => !res.slice(folder.length + 1).includes("/"));
   const sources = new Set(definitions.flatMap(res => (readBlack(rf.read(res), res).meshes ?? [])
@@ -909,17 +920,14 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     }
     return null;
   };
-  const palettePath = `${folder}/${palette || "default"}.color`;
-  const colorBlock = rf.has(palettePath) ? /^colors:[ \t]*\r?\n((?:[- \t][^\r\n]*(?:\r?\n|$))*)/m.exec(rf.read(palettePath).toString("utf8"))?.[1] : "";
-  const colors = (colorBlock ?? "").split(/\r?\n/).flatMap(line => {
-    const tuple = /\[([^\]]+)\]/.exec(line);
-    if (!tuple) return [];
-    const values = tuple[1].split(",").map(Number);
-    return values.length === 4 && values.every(Number.isFinite) ? [values] : [];
-  }).slice(0, 3);
+  const palettePath = layers.map(layer => `${layer}/${palette || "default"}.color`).find(file => rf.has(file));
+  const authoredColors = palettePath ? readYaml(palettePath)?.colors : null;
+  const colors = Array.isArray(authoredColors) && authoredColors.length >= 3 &&
+    authoredColors.slice(0, 3).every(color => Array.isArray(color) && color.length === 4 && color.every(Number.isFinite))
+    ? authoredColors.slice(0, 3) : [];
   const metadataPath = `${folder}/metadata.yaml`;
-  const metadata = rf.has(metadataPath) ? rf.read(metadataPath).toString("utf8") : "";
-  const occludes = (/occludesModifiers:\s*\[([^\]]*)\]/.exec(metadata)?.[1] ?? "").split(",").map(s => s.trim()).filter(Boolean);
+  const occlusions = rf.has(metadataPath) ? readYaml(metadataPath)?.occludesModifiers : null;
+  const occludes = Array.isArray(occlusions) ? occlusions.filter(value => typeof value === "string") : [];
   const dir = path.join(outRoot, "portrait-outfit", gender, style);
   fs.mkdirSync(dir, { recursive: true });
   const modelFile = path.join(dir, "model.glb");
@@ -933,7 +941,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     console.log(`portrait-outfit/${gender}/${style}/model.glb: ${lods.length} meshes, ${bones.length} bones`);
   }
   writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
-    model: `/client-assets/portrait-outfit/${gender}/${style}/model.glb`, source, type: typePath, variation, palette, colors, occludes,
+    outfitBuild: 2, model: `/client-assets/portrait-outfit/${gender}/${style}/model.glb`, source, type: typePath, variation, palette, colors, occludes,
     diffuse: texture([/\/colorize_body_l_512\.png$/i, /\/colorize_body_l_256\.dds$/i, /\/colorize_body_l\.png$/i]),
     zones: texture([/\/colorize_body_z_512\.png$/i, /\/colorize_body_z_256\.dds$/i, /\/colorize_body_z\.png$/i]),
     normal: texture([/_n_512\.png$/i, /_n\.png$/i]),

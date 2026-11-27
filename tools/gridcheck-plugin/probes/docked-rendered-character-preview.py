@@ -6,14 +6,14 @@ from eve.client.script.ui.shared.preview import PreviewCharacterWnd
 from eve.common.script.paperDoll.paperDollDefinitions import ModifierRow
 
 
-def observe():
+def observe(gender, outfit, hair):
     if PortraitWindow.GetIfOpen() or PreviewCharacterWnd.GetIfOpen():
         raise RuntimeError('A character preview is already open')
     candidate = next((char_id for char_id, info in iter_npc_characters()
-                      if info.gender == 0 and info.bloodlineID == 8), None)
+                      if info.gender == gender and info.bloodlineID == 8), None)
     if candidate is None:
-        raise RuntimeError('No reference character has female paper-doll geometry')
-    dna = utillib.KeyVal(sculpts=[], colors=[], modifiers=[ModifierRow(10, 8649, 0), ModifierRow(5, 407, 0)])
+        raise RuntimeError('No reference character has the selected paper-doll gender')
+    dna = utillib.KeyVal(sculpts=[], colors=[], modifiers=[ModifierRow(10, outfit, 0), ModifierRow(5, hair, 0)])
     try:
         wnd = PreviewCharacterWnd.Open(charID=candidate, dna=dna)
         preview = wnd.previewContainer
@@ -29,7 +29,8 @@ def observe():
         if not measured:
             raise RuntimeError('Character preview did not report bounds')
         bounds = [list(point) for point in measured]
-        result = dict(station=session.stationid, characterID=candidate, windowID=wnd.windowID,
+        result = dict(station=session.stationid, characterID=candidate, windowID=wnd.windowID, outfit=outfit,
+                      resource=cfg.paperdollResources.Get(outfit).resPath,
                       minSize=wnd.default_minSize, bounds=bounds, target=list(camera.atPosition),
                       verticalPan=scene.verticalPanEnabled)
         wnd.SwitchToPortrait(candidate)
@@ -43,4 +44,4 @@ def observe():
         PortraitWindow.CloseIfOpen()
 
 
-result = observe()
+result = dict(female=observe(0, 15525, 407), male=observe(1, 15555, 127))
