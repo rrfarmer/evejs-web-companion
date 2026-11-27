@@ -111,6 +111,7 @@
   import { compareType, compareTypes } from "./typeCompare.ts";
   import { assetSearchTextForType } from "../bridge/assetSearch.ts";
   import { mailBodyLines } from "../bridge/mailMarkup.ts";
+  import ShipSkinrCollection from "./ShipSkinrCollection.svelte";
 
   let {
     store,
@@ -1425,6 +1426,30 @@
 
   // Simulate Fitting (ghostFittingSvc): while the window simulates the ship, its figures are the simulation's.
   const simulation = $derived.by(() => $fitting.simulation ?? null);
+  const canPersonalize = $derived(activeShipTypeID !== null && $fitting.activeShipID !== null &&
+    Boolean($station.online?.stationID || $station.online?.structureID));
+  let personalization = $state(false);
+  let switchingMode = $state(false);
+  const personalizationShown = $derived(personalization && canPersonalize && !simulation);
+  const personalizationLabel = "UI/ShipCosmetics/Personalization";
+  const skinsLabel = "UI/ShipCosmetics/Skins";
+  $effect(() => { flow.requestWords([personalizationLabel, skinsLabel]); });
+  $effect(() => {
+    if (!canPersonalize || simulation) personalization = false;
+  });
+
+  async function openPersonalization(): Promise<void> {
+    if (switchingMode || !canPersonalize || personalizationShown) return;
+    const pilot = $station.online?.characterID;
+    switchingMode = true;
+    try {
+      if (await flow.exitSimulation() && pilot === $station.online?.characterID && canPersonalize) {
+        personalization = true;
+      }
+    } finally {
+      switchingMode = false;
+    }
+  }
   const stats = $derived.by(() => (simulation ? simulation.stats : $fitting.stats));
   const resources = $derived.by(() => (simulation ? simulation.resources : $fitting.resources));
 
@@ -3509,6 +3534,19 @@
     <p class="stat-line">
       {activeShipName}{activeShipClass ? ` · ${activeShipClass}` : ""}
     </p>
+    {#if canPersonalize}
+      <nav class="controls" aria-label="Fitting mode">
+        <button type="button" class={personalizationShown ? "minor" : "active"}
+          data-ui-pointer={FITTING_POINTERS.equipment} aria-pressed={!personalizationShown}
+          onclick={() => personalization = false}>Fitting</button>
+        <button type="button" class={personalizationShown ? "active" : "minor"}
+          data-ui-pointer={FITTING_POINTERS.personalization} aria-pressed={personalizationShown}
+          disabled={switchingMode} onclick={() => void openPersonalization()}>
+          {plainText($words.templates[personalizationLabel] ?? "Personalization")}
+        </button>
+      </nav>
+    {/if}
+    {#if !personalizationShown}
     <p class="controls">
       <span class="fit-views">
         <button
@@ -3532,6 +3570,7 @@
         Refresh
       </button>
     </p>
+    {/if}
   </header>
   {#if error}
     <p class="error">{error}</p>
@@ -3556,7 +3595,19 @@
   {/if}
 </section>
 
-{#if $fitting.activeShipID}
+{#if personalizationShown && activeShipTypeID !== null}
+  <section class="panel" data-fitting-personalization aria-labelledby="fitting-personalization-skins">
+    <header class="panel-head">
+      <h3 id="fitting-personalization-skins" data-ui-pointer={FITTING_POINTERS.skins}>
+        {plainText($words.templates[skinsLabel] ?? "SKINs")}
+      </h3>
+      <p class="stat-line">Ship SKINR</p>
+    </header>
+    {#key $fitting.activeShipID}
+      <ShipSkinrCollection {store} {flow} fittingHull={activeShipTypeID} />
+    {/key}
+  </section>
+{:else if $fitting.activeShipID}
   {#if $fitting.slotsError}
     <section>
       <p class="error">The ship's slots could not be loaded: {$fitting.slotsError}</p>
@@ -3569,7 +3620,7 @@
       <div class="fit-stage">
         <!-- The slim left toolbar: Fitting (current) and Cargo. -->
         <nav class="fit-toolbar" aria-label="Fitting window views">
-          <button type="button" class="fit-tool active" data-ui-pointer={FITTING_POINTERS.equipment} aria-pressed="true" title="Fitting"
+          <button type="button" class="fit-tool active" data-ui-pointer={canPersonalize ? undefined : FITTING_POINTERS.equipment} aria-pressed="true" title="Fitting"
             onclick={() => chooseView("radial")} aria-label="Fitting">
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none"
               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

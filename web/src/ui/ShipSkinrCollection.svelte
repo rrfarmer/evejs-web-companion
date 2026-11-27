@@ -14,7 +14,7 @@
   import ShipSkinrPreview from "./ShipSkinrPreview.svelte";
   import ShipSkinrElementPreview from "./ShipSkinrElementPreview.svelte";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, fittingHull }: { store: ClientStore; flow: AppFlow; fittingHull?: number } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
   const station = $derived(store.station);
@@ -84,7 +84,8 @@
   const selectedElement = $derived(tab === "elements" ? elements?.find(row => elementKey(row) === selected) : undefined);
   const hulls = $derived([...new Set(skins?.flatMap(row => row.design ? [row.design.shipTypeID] : []) ?? [])]
     .sort((a, b) => hullName(a).localeCompare(hullName(b))));
-  const sortedSkins = $derived((skins ?? []).filter(row => !hull || row.design?.shipTypeID === hull)
+  const visibleHull = $derived(fittingHull ?? hull);
+  const sortedSkins = $derived((skins ?? []).filter(row => !visibleHull || row.design?.shipTypeID === visibleHull)
     .sort((a, b) => (reverse ? -1 : 1) * skinName(a).localeCompare(skinName(b))));
   const sortedElements = $derived([...(elements ?? [])].sort((a, b) => {
     if (elementOrder === "shade" || elementOrder === "shadeReversed") {
@@ -212,11 +213,13 @@
     <ShipSkinrSell {store} {flow} skin={selling} onClose={() => selling = null}
       onListed={() => { selling = null; listed = true; revision++; }} />
   {:else}
-  <nav aria-label={word("title")}>
-    {#each (["skins", "elements"] as const) as option}
-      <button type="button" aria-pressed={tab === option} onclick={() => choose(option)}>{word(option)}</button>
-    {/each}
-  </nav>
+  {#if fittingHull === undefined}
+    <nav aria-label={word("title")}>
+      {#each (["skins", "elements"] as const) as option}
+        <button type="button" aria-pressed={tab === option} onclick={() => choose(option)}>{word(option)}</button>
+      {/each}
+    </nav>
+  {/if}
   {#if listed}<p role="status">Listing created.</p>{/if}
   {#if error}
     <p role="alert">{error}</p><button type="button" onclick={() => revision++}>Retry</button>
@@ -225,7 +228,7 @@
   {:else}
     <div class="collection-filters">
       {#if section}<button type="button" onclick={() => choose(tab)}>{word("back")}</button>{/if}
-      {#if tab === "skins" && hulls.length}
+      {#if tab === "skins" && fittingHull === undefined && hulls.length}
         <label>Hull <select bind:value={hull} onchange={() => selected = null}>
           <option value={0}>All Hulls</option>
           {#each hulls as id (id)}<option value={id}>{hullName(id)}</option>{/each}

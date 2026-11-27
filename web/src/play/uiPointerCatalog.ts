@@ -49,6 +49,8 @@ export const INTERFACE_POINTERS: readonly UiPointerTarget[] = [
   { name: INVENTORY_POINTERS.viewMode, label: "Change Inventory View",
     icon: clientTexture("res:/UI/Texture/eveicon/system_icons/grid_view_16px.png"), parent: neocomPointerName("inventory") },
   { name: FITTING_POINTERS.equipment, label: "Fitting Tab", icon: tabIcon, parent: neocomPointerName("fitting") },
+  { name: FITTING_POINTERS.personalization, label: "Personalization", icon: tabIcon, parent: neocomPointerName("fitting") },
+  { name: FITTING_POINTERS.skins, label: "SKINs Browser", icon: tabIcon, parent: FITTING_POINTERS.personalization },
   { name: FITTING_POINTERS.simulate, label: "Simulate Ship", parent: FITTING_POINTERS.equipment },
   { name: FITTING_POINTERS.stats, label: "Ship Attributes and Statistics",
     icon: clientTexture("res:/UI/Texture/classes/Fitting/filterIconResources.png"), parent: FITTING_POINTERS.equipment },

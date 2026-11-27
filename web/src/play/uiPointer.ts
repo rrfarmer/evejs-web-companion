@@ -19,6 +19,8 @@ export const INVENTORY_POINTERS = {
 
 export const FITTING_POINTERS = {
   equipment: "unique_UI_fittingEquipment",
+  personalization: "unique_UI_fittingPersonalization",
+  skins: "unique_UI_fittingSkins",
   simulate: "unique_UI_simulateShip",
   stats: "unique_UI_fittingStats",
   capacitor: "unique_UI_fittingCap",
