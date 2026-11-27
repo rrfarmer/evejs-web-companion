@@ -13,6 +13,7 @@
   import ShipSkinrSell from "./ShipSkinrSell.svelte";
   import ShipSkinrPreview from "./ShipSkinrPreview.svelte";
   import ShipSkinrElementPreview from "./ShipSkinrElementPreview.svelte";
+  import DefaultSkinButton from "./DefaultSkinButton.svelte";
 
   let { store, flow, fittingHull }: { store: ClientStore; flow: AppFlow; fittingHull?: number } = $props();
   const words = $derived(store.words);
@@ -22,9 +23,14 @@
   const fitting = $derived(store.fitting);
   const characters = $derived(store.character);
   const applied = $derived(flow.shipSkinrApplied);
+  const defaultChanged = $derived(flow.shipDefaultSkinChanged);
   const activeShip = $derived($flight.status?.shipID ?? $fitting.activeShipID);
   const activeType = $derived($flight.status?.shipTypeID ?? $characters.characters.find(row => row.characterID === $station.online?.characterID)?.shipTypeID);
   const pilot = $derived($station.online?.characterID ?? null);
+  const defaultSkin = $derived.by(() => {
+    void $defaultChanged;
+    return pilot && fittingHull !== undefined ? flow.shipDefaultSkin(fittingHull) : null;
+  });
   const prefix = "UI/Personalization/ShipSkins/SKINR/";
   const labels = {
     title: [prefix + "Collection/Title", "Collection"],
@@ -86,7 +92,8 @@
     .sort((a, b) => hullName(a).localeCompare(hullName(b))));
   const visibleHull = $derived(fittingHull ?? hull);
   const sortedSkins = $derived((skins ?? []).filter(row => !visibleHull || row.design?.shipTypeID === visibleHull)
-    .sort((a, b) => (reverse ? -1 : 1) * skinName(a).localeCompare(skinName(b))));
+    .sort((a, b) => Number(b.hex === defaultSkin) - Number(a.hex === defaultSkin) ||
+      (reverse ? -1 : 1) * skinName(a).localeCompare(skinName(b))));
   const sortedElements = $derived([...(elements ?? [])].sort((a, b) => {
     if (elementOrder === "shade" || elementOrder === "shadeReversed") {
       const left = a.shade ?? Number.POSITIVE_INFINITY;
@@ -254,12 +261,17 @@
           <div class="collection-rows">
             {#each section ? rows : rows.slice(0, 6) as row (row.hex)}
               {@const icon = row.design ? typeIconUrl(row.design.shipTypeID) : null}
-              <button type="button" data-skin={row.hex} aria-pressed={selected === row.hex && selectedSkinSection === category}
-                onclick={() => { selected = row.hex; selectedSkinSection = category; detailError = ""; }}>
-                {#if icon}<img src={icon} alt="" width="32" height="32" loading="lazy" />{/if}
-                <strong>{skinName(row)}</strong>
-                {#if category === "unactivated"}<span>{row.unactivated}</span>{/if}
-              </button>
+              <div class="skin-row">
+                <button type="button" data-skin={row.hex} aria-pressed={selected === row.hex && selectedSkinSection === category}
+                  onclick={() => { selected = row.hex; selectedSkinSection = category; detailError = ""; }}>
+                  {#if icon}<img src={icon} alt="" width="32" height="32" loading="lazy" />{/if}
+                  <strong>{skinName(row)}</strong>
+                  {#if category === "unactivated"}<span>{row.unactivated}</span>{/if}
+                </button>
+                {#if fittingHull !== undefined && category === "activated"}
+                  <DefaultSkinButton {flow} {store} typeID={fittingHull} skin={row.hex} isDefault={defaultSkin === row.hex} />
+                {/if}
+              </div>
             {/each}
           </div>
         </section>
@@ -345,6 +357,7 @@
   .collection-details button { justify-self: start; }
   .collection-actions { display: flex; gap: 6px; flex-wrap: wrap; }
   .collection-rows { display: grid; gap: 6px; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); }
+  .skin-row { display: grid; grid-template-columns: 1fr auto; }
   .collection-rows button { display: flex; align-items: center; text-align: left; gap: 8px; }
   button[aria-pressed="true"] { border-color: #94b8c2; }
   .swatch { display: inline-block; width: 24px; height: 24px; flex: 0 0 24px; border: 1px solid #ffffff32; }

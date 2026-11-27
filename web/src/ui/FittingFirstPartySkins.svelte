@@ -6,12 +6,18 @@
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import ShipInfoPreview from "./ShipInfoPreview.svelte";
+  import DefaultSkinButton from "./DefaultSkinButton.svelte";
 
   let { store, flow, shipID, shipTypeID }: { store: ClientStore; flow: AppFlow; shipID: number; shipTypeID: number } = $props();
   const words = $derived(store.words);
   const station = $derived(store.station);
   const pilot = $derived($station.online?.characterID);
   const applied = $derived(flow.shipSkinrApplied);
+  const defaultChanged = $derived(flow.shipDefaultSkinChanged);
+  const defaultSkin = $derived.by(() => {
+    void $defaultChanged;
+    return pilot ? flow.shipDefaultSkin(shipTypeID) : null;
+  });
   const currentSkinID = $derived($applied?.shipID === shipID && $applied.characterID === pilot
     ? $applied.firstPartySkinID : null);
   let rows = $state.raw<readonly FirstPartySkin[]>([]);
@@ -28,7 +34,8 @@
     for (const row of rows) {
       if (licenses.has(row.skinID) || (row.visible && !byMaterial.has(row.materialID))) byMaterial.set(row.materialID, row);
     }
-    return [...byMaterial.values()].sort((a, b) => skinName(a).localeCompare(skinName(b)));
+    return [...byMaterial.values()].sort((a, b) =>
+      Number(b.skinID === defaultSkin) - Number(a.skinID === defaultSkin) || skinName(a).localeCompare(skinName(b)));
   });
   const selected = $derived(shown.find(row => row.skinID === (selection ?? currentSkinID)) ?? null);
   const selectedApplied = $derived(selected !== null && selected.skinID === currentSkinID);
@@ -85,10 +92,15 @@
           <details open={licensed}>
             <summary>{licensed ? "Licensed SKINs" : "Unlicensed SKINs"} ({group.length})</summary>
             {#each group as row (row.materialID)}
-              <button type="button" data-first-party-skin={row.skinID} aria-pressed={selected?.skinID === row.skinID}
-                onclick={() => { selection = row.skinID; actionError = ""; }}>
-                {skinName(row)}{row.skinID === currentSkinID ? " · Applied" : ""}
-              </button>
+              <div class="skin-row">
+                <button type="button" data-first-party-skin={row.skinID} aria-pressed={selected?.skinID === row.skinID}
+                  onclick={() => { selection = row.skinID; actionError = ""; }}>
+                  {skinName(row)}{row.skinID === currentSkinID ? " · Applied" : ""}
+                </button>
+                {#if licensed}
+                  <DefaultSkinButton {flow} {store} typeID={shipTypeID} skin={row.skinID} isDefault={defaultSkin === row.skinID} />
+                {/if}
+              </div>
             {/each}
           </details>
         {/each}
@@ -120,7 +132,8 @@
   h3, p { margin: 0; }
   .browser { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); }
   .rows { max-height: 15rem; overflow: auto; }
-  .rows button { width: 100%; text-align: left; }
+  .skin-row { display: grid; grid-template-columns: 1fr auto; }
+  .skin-row > button { text-align: left; }
   summary { cursor: pointer; padding: 6px; }
   .preview { height: clamp(9rem, 23vh, 15rem); background: #000; }
   .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; grid-column: 1 / -1; }

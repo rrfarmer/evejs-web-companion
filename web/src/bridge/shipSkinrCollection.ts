@@ -4,6 +4,7 @@ import { shipSkinrRecord as record } from "./shipSkinrCoatings.ts";
 import type { JsonValue } from "./wire.ts";
 
 export const SHIP_COSMETIC_GATEWAY = "eve_public.cosmetic.ship.api.";
+export type ShipDefaultSkin = number | string;
 
 export interface ShipSkinrApplication {
   readonly hex: string;

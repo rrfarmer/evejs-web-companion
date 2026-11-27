@@ -13,7 +13,7 @@ import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequ
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
 import { decodeHyperNetActiveTickets, decodeHyperNetCreationNotice, decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, decodeHyperNetTypeStatistics, hyperNetCountBounds, hyperNetCreationQuote, hyperNetDetailNoticeIDs, hyperNetRestrictedTypeLists, hyperNetSingletonTypeList, type HyperNetCreationDraft, type HyperNetCreationNotice, type HyperNetPrizeRules, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
 import { decodeFirstPartySkinLicenses } from "../bridge/firstPartySkins.ts";
-import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
+import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipDefaultSkin, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
   decodeShipSkinrComponentOffers, encodeShipSkinrBrowse, encodeShipSkinrListingTarget, shipSkinrListingLimit, shipSkinrListingQuote,
@@ -4620,6 +4620,9 @@ export interface AppFlow {
   loadShipSkinrApplied(shipID: number): Promise<void>;
   loadFirstPartySkinLicenses(shipTypeID: number): Promise<ReadonlySet<number>>;
   applyFirstPartySkin(shipID: number, skinID: number | null): Promise<void>;
+  readonly shipDefaultSkinChanged: ReadableSignal<number>;
+  shipDefaultSkin(typeID: number): ShipDefaultSkin | null;
+  setShipDefaultSkin(typeID: number, skin: ShipDefaultSkin | null): void;
   applyShipSkinrLicense(hex: string, shipID: number, remove: boolean): Promise<void>;
   loadShipSkinrOwnedListings(): Promise<ReturnType<typeof decodeOwnedShipSkinrListings>>;
   browseShipSkinrListings(query: ShipSkinrBrowseQuery): Promise<ReturnType<typeof decodeShipSkinrBrowse>>;
@@ -7908,6 +7911,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     receivedAtMs: number,
     insideMultiEvent = false,
   ): void {
+    if (method === "OnPodOrCorvetteAssembly") {
+      const itemID = Number(unwrapLong(args[0]) ?? 0n);
+      const typeID = Number(unwrapLong(args[1]) ?? 0n);
+      if (Number.isSafeInteger(itemID) && itemID > 0 && Number.isSafeInteger(typeID) && typeID > 0) {
+        void applyDefaultOnAssembly(itemID, typeID).catch(() => {});
+      }
+    }
     if (hyperNetCreationListeners.size > 0) {
       const notice = decodeHyperNetCreationNotice(method, args);
       if (notice) for (const listener of hyperNetCreationListeners) listener(notice);
@@ -14512,6 +14522,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const skillBooksAskedSignal = createSignal<SkillBooksAsk | null>(null);
   const gatewayNoticesSignal = createSignal<GatewayNotice | null>(null);
   const shipSkinrAppliedSignal = createSignal<ShipSkinrAppliedState | null>(null);
+  const shipDefaultSkinChanged = createSignal(0);
+  const shipDefaultSkins = new Map<string, ShipDefaultSkin | null>();
   let shipSkinrAppliedRequest = 0;
   const shipSkinrSkillsChanged = createSignal(0);
   let gatewayNoticesHeard = 0;
@@ -29153,6 +29165,49 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await loadShipSkinrApplied(shipID);
   }
 
+  function validDefaultSkin(value: unknown): value is ShipDefaultSkin {
+    return (typeof value === "number" && Number.isSafeInteger(value) && value > 0) ||
+      (typeof value === "string" && /^[a-f0-9]{64}$/.test(value));
+  }
+
+  function shipDefaultSkin(typeID: number): ShipDefaultSkin | null {
+    const pilot = store.station.get().online?.characterID;
+    if (!pilot) return null;
+    const key = `${pilot}:${typeID}`;
+    if (shipDefaultSkins.has(key)) return shipDefaultSkins.get(key) ?? null;
+    try {
+      const value: unknown = JSON.parse(charUiSetting(`defaultSkin.${typeID}`) ?? "null");
+      return validDefaultSkin(value) ? value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function setShipDefaultSkin(typeID: number, skin: ShipDefaultSkin | null): void {
+    const pilot = store.station.get().online?.characterID;
+    if (!pilot || !Number.isSafeInteger(typeID) || typeID < 1 || (skin !== null && !validDefaultSkin(skin))) return;
+    shipDefaultSkins.set(`${pilot}:${typeID}`, skin);
+    setCharUiSetting(`defaultSkin.${typeID}`, JSON.stringify(skin));
+    shipDefaultSkinChanged.update(revision => revision + 1);
+  }
+
+  async function applyDefaultOnAssembly(shipID: number, typeID: number): Promise<void> {
+    const pilot = store.station.get().online?.characterID;
+    const skin = shipDefaultSkin(typeID);
+    if (!pilot || skin === null) return;
+    const matchesPreference = () => store.station.get().online?.characterID === pilot && shipDefaultSkin(typeID) === skin;
+    if (typeof skin === "number") {
+      const owned = await loadFirstPartySkinLicenses(typeID);
+      if (owned.has(skin) && matchesPreference()) await bridgeDo("shipCosmeticsMgr", "ApplySkinToShip", [shipID, skin]);
+    } else {
+      const license = { character: { sequential: pilot }, skin: { hex: skin } };
+      const prefix = SHIP_SKINR_GATEWAY + "license.api.";
+      const answer = await api.publicGatewayRequest(prefix + "GetRequest", { license }, callOptions);
+      if (answer.statusCode === 200 && shipSkinrRecord(shipSkinrRecord(answer.payload ?? undefined)?.license)?.activated === true &&
+          matchesPreference()) await gatewayAsk(prefix + "ApplyRequest", { license, ship: { sequential: shipID } }, true);
+    }
+  }
+
   async function applyShipSkinrLicense(hex: string, shipID: number, remove: boolean): Promise<void> {
     const current = callOptions.captureRequestGuard!();
     const pilot = store.station.get().online?.characterID;
@@ -39843,7 +39898,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         assembled = await assembleShipCall(bridgeDo, shipID, name);
       });
       // AssembleAndBoardShip (213 to 240): the first ship assembled boarded, as any ship is (TryActivateShip).
-      if (board && assembled !== null) await boardShipChecked(assembled, row.typeID);
+      if (assembled !== null) {
+        await applyDefaultOnAssembly(assembled, row.typeID).catch(() => {});
+        if (board) await boardShipChecked(assembled, row.typeID);
+      }
     },
 
     async renameShip(shipID) {
@@ -42181,6 +42239,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadShipSkinrApplied,
     loadFirstPartySkinLicenses,
     applyFirstPartySkin,
+    shipDefaultSkinChanged: readonlySignal(shipDefaultSkinChanged),
+    shipDefaultSkin,
+    setShipDefaultSkin,
     applyShipSkinrLicense,
     loadShipSkinrOwnedListings,
     browseShipSkinrListings,

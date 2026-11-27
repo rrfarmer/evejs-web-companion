@@ -1359,9 +1359,10 @@ function createGamePortPilots({
       const [id, value] = args;
       const valid = method === "GetLicencedSkinsForShipType"
         ? id === entry.characterID && Number.isSafeInteger(value) && value > 0
-        : id === attribute(entry, "shipid") && Number.isSafeInteger(id) &&
+        // The client also sends this for an assembled ship before boarding. EveJS checks the ship's owner.
+        : Number.isSafeInteger(id) && id > 0 &&
           (value === null || (Number.isSafeInteger(value) && value > 0));
-      if (!valid) throw fail("CALL_INVALID", "Select your active pilot and ship to use this SKIN.");
+      if (!valid) throw fail("CALL_INVALID", "Invalid pilot, ship, or SKIN identifier.");
     }
   }
 
