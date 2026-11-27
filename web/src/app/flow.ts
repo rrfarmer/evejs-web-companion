@@ -11,7 +11,7 @@ import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, dec
 import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
-import { decodeHyperNetActiveTickets, decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, hyperNetCountBounds, hyperNetDetailNoticeIDs, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
+import { decodeHyperNetActiveTickets, decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, hyperNetCountBounds, hyperNetCreationQuote, hyperNetDetailNoticeIDs, type HyperNetCreationDraft, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
@@ -4643,6 +4643,8 @@ export interface AppFlow {
   buyHyperNetNode(id: number, node: number): Promise<HyperNetOfferDetails>;
   buyHyperNetNodes(id: number, quantity: number): Promise<HyperNetOfferDetails>;
   claimHyperNetReward(id: number): Promise<HyperNetOfferDetails>;
+  loadHyperNetPricing(): Promise<{ plexPrice: number; estimates: ReadonlyMap<number, number | null> | null }>;
+  createHyperNetOffer(draft: HyperNetCreationDraft): Promise<number>;
   readonly hyperNetWinnerState: ReadableSignal<{ pilot: number; unseen: ReadonlySet<number> } | null>;
   loadHyperNetWinnerState(): void;
   markHyperNetWinnerSeen(id: number): void;
@@ -29426,6 +29428,42 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return row;
   }
 
+  async function loadHyperNetPricing() {
+    const current = callOptions.captureRequestGuard!();
+    const key = "HyperNetPlexPriceOverride";
+    const [config, estimates] = await Promise.all([
+      api.getGlobalConfig([key], callOptions).catch(() => null),
+      cfgAveragePrices(),
+    ]);
+    current();
+    const override = Number(config?.values[key]);
+    return { plexPrice: Number.isFinite(override) && override > 0 ? override : estimates?.get(PLEX_TYPE_ID) || 3_500_000,
+      estimates };
+  }
+
+  async function createHyperNetOffer(draft: HyperNetCreationDraft): Promise<number> {
+    const current = callOptions.captureRequestGuard!();
+    const pilot = store.station.get().online;
+    const place = sessionPlace(store.flight.get().status, pilot);
+    if (!pilot || place.stationID !== draft.stationID) throw new Error("Return to the station holding the prize and HyperCores.");
+    const { itemID, typeID, tokenID, count, nodePrice, stationID, privateOffer } = draft;
+    if (![itemID, typeID, tokenID, nodePrice].every(value => Number.isSafeInteger(value) && value > 0) ||
+        !hyperNetCountBounds.includes(count) || hyperNetCreationQuote(nodePrice * count, count, 1).nodePrice !== nodePrice) {
+      throw new Error("Review the HyperNet offer terms.");
+    }
+    const reply = await bridgeDo("raffleProxy", "CreateRaffle", [{
+      type: "object", name: "raffles.common.raffle_data.RaffleCreationData", args: { type: "dict", entries: [
+        ["owner_id", pilot.characterID], ["location_id", stationID], ["solar_system_id", null],
+        ["token_id", tokenID], ["token_location_id", stationID], ["item_id", itemID], ["type_id", typeID],
+        ["ticket_count", count], ["ticket_price", nodePrice], ["restriction_id", privateOffer ? 1 : null],
+      ] },
+    }]);
+    current();
+    const id = Number(unwrapLong(reply));
+    if (!Number.isSafeInteger(id) || id <= 0) throw new Error("HyperNet could not confirm the new offer.");
+    return id;
+  }
+
   async function loadHyperNetMetaGroups(): Promise<readonly { readonly id: number; readonly name: string }[]> {
     const data = await api.getTypeMeta([], callOptions);
     if (!data.available) throw new Error("Meta groups are unavailable.");
@@ -42024,6 +42062,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     buyHyperNetNode,
     buyHyperNetNodes,
     claimHyperNetReward,
+    loadHyperNetPricing,
+    createHyperNetOffer,
     hyperNetWinnerState: readonlySignal(hyperNetWinnerState),
     loadHyperNetWinnerState,
     markHyperNetWinnerSeen: id => setHyperNetWinnerUnseen(id, false),

@@ -7,6 +7,7 @@
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import HyperNetOfferCard from "./HyperNetOfferCard.svelte";
+  import HyperNetCreate from "./HyperNetCreate.svelte";
   import HyperNetDetails from "./HyperNetDetails.svelte";
   import HyperNetHistory from "./HyperNetHistory.svelte";
   import { quickBuyWords } from "./HyperNetQuickBuy.svelte";
@@ -22,6 +23,7 @@
   const labels = {
     browse: ["UI/HyperNet/TabNameBrowse", "Browse"],
     history: ["UI/HyperNet/TabNameMyRaffles", "History"],
+    create: ["UI/HyperNet/TabNameCreate", "Create"],
     back: ["UI/Common/Previous", "Back"],
     forward: ["UI/Common/Next", "Forward"],
     refresh: ["UI/HyperNet/Refresh", "Refresh"],
@@ -48,7 +50,7 @@
   } as const;
   const word = (key: keyof typeof labels) => plainText($words.templates[labels[key][0]] ?? labels[key][1]);
   const pageSize = 12;
-  type Location = { readonly view: "browse" | "history"; readonly offer: number | null };
+  type Location = { readonly view: "browse" | "history" | "create"; readonly offer: number | null };
   let locations = $state.raw<readonly Location[]>([{ view: "browse", offer: null }]);
   let locationIndex = $state(0);
   const view = $derived(locations[locationIndex]!.view);
@@ -323,6 +325,7 @@
   <nav aria-label="HyperNet Relay" bind:this={navigation}>
     <button type="button" aria-pressed={detailsID === null && view === "browse"} onclick={() => changeView("browse")}>{word("browse")}</button>
     <button type="button" aria-pressed={detailsID === null && view === "history"} onclick={() => changeView("history")}>{word("history")}</button>
+    <button type="button" aria-pressed={detailsID === null && view === "create"} onclick={() => changeView("create")}>{word("create")}</button>
     {#if locationIndex > 0}
       <button type="button" data-hypernet-back onclick={() => { locationIndex--; }}>{word("back")}</button>
     {/if}
@@ -339,6 +342,8 @@
   <div class="catalogue" hidden={detailsID !== null}>
   {#if view === "history"}
     <HyperNetHistory {store} {flow} {pilot} {now} visible={detailsID === null} {openDetails} onPurchase={updateBrowseOffer} />
+  {:else if view === "create"}
+    <HyperNetCreate {store} {flow} onCreated={openDetails} />
   {:else}
   <header>
     <details class="range-filters">

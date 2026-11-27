@@ -3,6 +3,30 @@ import { isListValue, readDictEntry, readKeyVal, unwrapLong } from "./wire.ts";
 
 export const hyperNetPriceBounds = [1_000_000, 10_000_000, 100_000_000] as const;
 export const hyperNetCountBounds = [8, 16, 48, 512] as const;
+export type HyperNetNodeCount = typeof hyperNetCountBounds[number];
+export const hyperNetCoreType = 52568;
+export const hyperNetMinimumPrice = 1000;
+export const hyperNetMaximumPrice = 10_000_000_000_000;
+export const hyperNetTaxRate = 0.05;
+
+export function hyperNetCreationQuote(price: number, count: HyperNetNodeCount, plexPrice: number) {
+  const bounded = Math.min(hyperNetMaximumPrice, Math.max(hyperNetMinimumPrice, price));
+  const nodePrice = Math.min(Math.ceil(bounded / count), Math.floor(hyperNetMaximumPrice / count));
+  const total = nodePrice * count;
+  const tax = total * hyperNetTaxRate;
+  const corePrice = Math.max(1, Math.trunc(plexPrice / 10));
+  return { nodePrice, total, tax, proceeds: total - tax, cores: Math.max(1, Math.trunc(total / corePrice * hyperNetTaxRate)) };
+}
+
+export interface HyperNetCreationDraft {
+  readonly stationID: number;
+  readonly itemID: number;
+  readonly typeID: number;
+  readonly tokenID: number;
+  readonly count: HyperNetNodeCount;
+  readonly nodePrice: number;
+  readonly privateOffer: boolean;
+}
 
 export interface HyperNetOffer {
   readonly id: number;

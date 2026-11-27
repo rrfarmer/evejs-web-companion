@@ -1326,6 +1326,10 @@ function createGamePortPilots({
         refusal: { key: String(error.refusal.key || ""), values: error.refusal.values ?? null },
       });
     }
+    if (code === "GAME_CALL_REFUSED" && service === "raffleProxy" && method === "CreateRaffle" &&
+        error.refusal?.className === "raffles.CreateError" && /^\w+$/.test(error.refusal.key)) {
+      return fail("CALL_REFUSED", error.refusal.key);
+    }
     // These exceptions belong to the HyperNode control, where the native ticket shows its own refusal.
     if (code === "GAME_CALL_REFUSED" && service === "raffleProxy" && (method === "BuyTicket" || method === "BuyRandomTickets")) {
       const purchaseRefusal = /^raffles\.(?:common\.errors\.)?(TicketUnavailableError|NotEnoughISKError|PurchaseError)$/.exec(error.refusal?.className ?? "");
