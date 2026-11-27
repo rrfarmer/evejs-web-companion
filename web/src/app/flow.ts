@@ -4629,6 +4629,8 @@ export interface AppFlow {
   loadShipSkinrPurchaseFunds(currency: ShipSkinrCurrency, issuer?: number): Promise<{ balance: number; evermarks: number }>;
   buyShipSkinrListing(listing: string, quantity: number, version: string): Promise<string>;
   loadShipSkinrComponentOffers(): Promise<readonly ShipSkinrComponentOffer[]>;
+  loadHyperNetAvailability(): Promise<boolean>;
+  readonly hyperNetAvailabilityChanged: ReadableSignal<number>;
   loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null, scope?: HyperNetBrowseScope): Promise<readonly HyperNetOffer[]>;
   loadHyperNetHistory(): Promise<readonly HyperNetHistoryOffer[]>;
   readonly hyperNetHistoryChanged: ReadableSignal<number>;
@@ -6318,6 +6320,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   const onlineCharacterID = (): number | null => store.station.get().online?.characterID ?? null;
   const academyChangedSignal = createSignal(0);
   const hyperNetHistoryChanged = createSignal(0);
+  const hyperNetAvailabilityChanged = createSignal(0);
   const logonSkillsTrainedSignal = createSignal<{ readonly n: number; readonly args: readonly unknown[] } | null>(null);
   const moonExtractionChanged = createSignal(0);
   const accessGroupsChanged = createSignal(0);
@@ -8375,6 +8378,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     // fittingSvc.OnCommunityFittingsUpdated and OnGlobalConfigChanged (machoNet's, at OnGlobalConfigUpdated): the
     // community's fittings let go, and read again.
+    if (method === "OnGlobalConfigUpdated") hyperNetAvailabilityChanged.update(revision => revision + 1);
     if (method === "OnCommunityFittingsUpdated" || method === "OnGlobalConfigUpdated") {
       void communityFittingsChanged().catch(() => {});
       if (method === "OnCommunityFittingsUpdated") return;
@@ -41835,6 +41839,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     loadShipSkinrPurchaseFunds,
     buyShipSkinrListing,
     loadShipSkinrComponentOffers,
+    loadHyperNetAvailability: () => api.getHyperNetAvailability(callOptions),
+    hyperNetAvailabilityChanged: readonlySignal(hyperNetAvailabilityChanged),
     loadHyperNetOffers,
     loadHyperNetHistory,
     hyperNetHistoryChanged: readonlySignal(hyperNetHistoryChanged),

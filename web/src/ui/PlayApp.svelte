@@ -1198,6 +1198,27 @@
     return () => { neocomInst = null; neocom.root.remove(); neocom.dispose(); };
   });
   let neocomInst = $state<Neocom | null>(null);
+  let hyperNetAvailable = $state(false);
+  $effect(() => {
+    const s = session;
+    const pilot = $station?.online?.characterID;
+    hyperNetAvailable = false;
+    if (stage !== "game" || !s || !pilot) return;
+    let revision = 0;
+    const stop = s.flow.hyperNetAvailabilityChanged.subscribe(() => {
+      const requested = ++revision;
+      void s.flow.loadHyperNetAvailability().then(available => {
+        if (requested !== revision) return;
+        hyperNetAvailable = available;
+        if (!available) closePlayWindow("hyperNet");
+      }).catch(() => {});
+    });
+    return () => { ++revision; stop(); };
+  });
+  $effect(() => {
+    neocomInst?.setHyperNetAvailable(hyperNetAvailable);
+    view?.setHyperNetAvailable(hyperNetAvailable);
+  });
   const chatStore = $derived(session?.store.chat);
   const chatConversations = $derived(session?.flow.conversations.state);
   const chatActivity = $derived(session?.flow.conversations.activity);
@@ -1910,6 +1931,7 @@
     return { x: 16, y: Math.max(0, H - h - 16), w: Math.min(w, W), h };
   }
   function open(tab: TabID) {
+    if (tab === "hyperNet" && !hyperNetAvailable) return;
     if (tab === "newEdenStore") storeCategoryRequest = null;
     if (tab === "reprocessing" && (!docked || !reprocessingAvailable)) return;
     if (tab === "insurance" && (!docked || !insuranceAvailable)) return;
@@ -2850,7 +2872,7 @@
       if (!e.repeat) pointerOverlaySession = session.id;
       return;
     }
-    if (cmd === null) return;
+    if (cmd === null || (cmd === "OpenRaffleWindow" && !hyperNetAvailable)) return;
     if (cmd === "CmdEnterStructure" || cmd === "CmdEnterHangar") {
       if (dockedStructureID === null || systemMenu || e.defaultPrevented) return;
       e.preventDefault();
@@ -4832,7 +4854,7 @@
   <ErrorBoundary name="Hacking"><HackingWindow {session} /></ErrorBoundary>
   <Toasts />
   {#if systemMenu}
-    <ErrorBoundary name="System menu"><SystemMenu store={session.store} flow={session.flow} onClose={() => (systemMenu = false)} inSpace={!docked}
+    <ErrorBoundary name="System menu"><SystemMenu store={session.store} flow={session.flow} {hyperNetAvailable} onClose={() => (systemMenu = false)} inSpace={!docked}
       onSafeLogoff={() => startSafeLogoff()}
       onLogOff={() => void logOffDocked()} onQuit={() => void quitGame()} /></ErrorBoundary>
   {/if}

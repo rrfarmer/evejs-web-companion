@@ -478,6 +478,15 @@ export class Neocom {
     this.portrait.style.visibility = url ? "" : "hidden";
   }
 
+  private hyperNetAvailable = false;
+
+  setHyperNetAvailable(available: boolean): void {
+    this.hyperNetAvailable = available;
+    for (const { el, ids, sub } of this.menuEntries) {
+      if (sub && ids.includes("hyperNet")) el.style.display = available ? "" : "none";
+    }
+  }
+
   constructor(open: (id: string) => void, chatEntries?: () => readonly ChatRailEntry[]) {
     const { signal } = this.listeners;
     this.root.className = "neocom";
@@ -513,6 +522,7 @@ export class Neocom {
           const c = entry(item.label, item.icon, false);
           if (item.id) {
             const id = item.id;
+            if (id === "hyperNet" && !this.hyperNetAvailable) c.style.display = "none";
             this.menuEntries.push({ el: c, ids: [id], sub: true });
             // PanelEntryBase.OnMouseExit: SetHasNewActivityOff, ClearBlinkHint, SetBlinkingOff
             c.addEventListener("mouseleave", () => { neocomTipOff(); if (!this.buttons.has(id) && this.blinks.delete(id)) this.paintIndicators(); });

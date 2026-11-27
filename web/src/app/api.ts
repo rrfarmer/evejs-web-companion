@@ -5102,6 +5102,10 @@ export async function getGlobalConfig(
   return { available: data.available === true, values };
 }
 
+export async function getHyperNetAvailability(options: ApiOptions = {}): Promise<boolean> {
+  return (await getJson("/api/bridge/hypernet/availability", options)).available === true;
+}
+
 /**
  * GET /api/types/passive-effects?typeIDs=...: each type's passive effects as the client's dogma static service
  * filters them (GetPassiveFilteredEffectsByType), or null where the tables do not know the type.

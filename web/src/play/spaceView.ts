@@ -1146,6 +1146,8 @@ export class SpaceView {
   // hud/client/rollout.py IsNewHudWanted: the 24.02 new HUD where its preview setting is on, else the classic ship UI.
   private neocom: Neocom | null = null;
   /** The Neocom's character sheet button portrait (ButtonCharacterIcon). */
+  setHyperNetAvailable(available: boolean): void { this.neocom?.setHyperNetAvailable(available); }
+
   setNeocomPortrait(url: string | null): void { this.neocom?.setPortrait(url); }
   /** The Neocom's skills button gauges (ButtonSkills). */
   setNeocomSkills(state: NeocomSkillState, planRatio: number | null = null): void { this.neocom?.setSkills(state, planRatio); }

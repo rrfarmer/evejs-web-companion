@@ -22,8 +22,8 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
 
-  let { store, flow, onClose, inSpace = false, onSafeLogoff, onLogOff, onQuit }: { store: ClientStore; flow: AppFlow; onClose: () => void;
-    inSpace?: boolean; onSafeLogoff?: () => void; onLogOff?: () => void; onQuit?: () => void } = $props();
+  let { store, flow, onClose, inSpace = false, hyperNetAvailable = false, onSafeLogoff, onLogOff, onQuit }: { store: ClientStore; flow: AppFlow; onClose: () => void;
+    inSpace?: boolean; hyperNetAvailable?: boolean; onSafeLogoff?: () => void; onLogOff?: () => void; onQuit?: () => void } = $props();
   const safeLogoffRunning = flow.safeLogoff;
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -222,7 +222,8 @@
     void shortcutVersion;
     if (shortcutKey === null) return [];
     const filterText = shortcutFilter.trim().toLowerCase();
-    return CLIENT_SHORTCUTS.filter((c) => filterText !== "" || c.category === shortcutKey)
+    return CLIENT_SHORTCUTS.filter((c) => (c.cmd !== "OpenRaffleWindow" || hyperNetAvailable) &&
+      (filterText !== "" || c.category === shortcutKey))
       .map((c) => ({ cmd: c.cmd, description: c.label ? word(c.label, c.cmd) : c.cmd, keys: shortcutOf(c.cmd), locked: c.locked === true }))
       .filter((c) => filterText === "" || c.description.toLowerCase().includes(filterText));
   });

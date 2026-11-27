@@ -16596,6 +16596,18 @@ app.get("/api/bridge/global-config", requireAuth, (req, res, next) => {
   }
 });
 
+app.get("/api/bridge/hypernet/availability", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  try {
+    const available = !gamePortPilots || !isGamePortHandle(held.bridgeSessionID) ||
+      await gamePortPilots.hyperNetAvailable({ userid: held.accountID }, held.bridgeSessionID);
+    res.json({ ok: true, available });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // RemoteImageCacher.__GetImageFromUrl: one fresh image read from this pilot's
 // configured image server. The page owns Capture Portrait's size, retries and
 // multi-owner loop; this carries bytes across the browser's image CORS boundary.

@@ -4334,10 +4334,8 @@ function createGamePortPilots({
     const kept = keptGlobalConfig(entry);
     if (value === null || value === undefined) kept.delete(name);
     else kept.set(name, value);
-    void (async () => {
-      await airNpeEnabledAsked(entry).catch(() => {});
-      if (entry.raffleBanned !== undefined && entry.raffleBanned !== null) await raffleBanAsked(entry).catch(() => {});
-    })();
+    void airNpeEnabledAsked(entry).catch(() => {});
+    entry.raffleBanRefresh = Promise.resolve(entry.raffleBanRefresh).then(() => raffleBanAsked(entry)).catch(() => {});
   }
 
   /**
@@ -4354,6 +4352,19 @@ function createGamePortPilots({
       values[name] = typeof value === "number" ? value : typeof value === "bigint" ? Number(value) : packets.text(value);
     }
     return values;
+  }
+
+  async function hyperNetAvailable(sessionFields = {}, bridgeSessionID = undefined) {
+    const entry = held(bridgeSessionID, sessionFields);
+    const country = packets.text(entry.session.attributes.countryCode);
+    if (!country || country === "KR" || entry.session.client.region === "optic") return false;
+    await entry.raffleBanRefresh;
+    if (entry.raffleBanned === true) return false;
+    const configured = keptGlobalConfig(entry).get("HyperNetKillSwitch");
+    if (typeof configured === "boolean") return !configured;
+    const value = typeof configured === "number" || typeof configured === "bigint"
+      ? Math.trunc(Number(configured)) : packets.text(configured);
+    return !(/^\s*[-+]?\d+\s*$/.test(String(value)) && Number(value) !== 0);
   }
 
   async function chatConnection(sessionFields = {}, bridgeSessionID = undefined) {
@@ -6962,6 +6973,7 @@ function createGamePortPilots({
     prepareGodmaHeaders: (sessionFields = {}, bridgeSessionID = undefined) => held(bridgeSessionID, sessionFields).dogma.initializeNativeGodmaHeaders(),
     chatConnection,
     globalConfigValues,
+    hyperNetAvailable,
     chatSecret,
     chatChannels,
     chatSessionChanges,
