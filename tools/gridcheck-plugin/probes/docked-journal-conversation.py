@@ -1,4 +1,5 @@
 import blue
+import localization
 from carbonui import uiconst
 from eve.common.lib import appConst
 from eve.client.script.ui.station.agents.agentDialogueWindow import AgentDialogueWindow
@@ -59,6 +60,20 @@ def observe():
         observed['quitButtons'] = buttons()
         window.ReconstructButtons([(1, appConst.agentDialogueButtonAccept)], {'missionCantReplay': 10000000})
         observed['replayButtons'] = buttons()
+        cooldowns = []
+        for ticks in (450000000, 1250000000):
+            html = window.GetBriefingHTML([], 'replacement marker', {'missionCantReplay': ticks})
+            window.SetSinglePaneView(briefingHtml=html)
+            cooldowns.append(dict(ticks=ticks, html=html, width=window.width, fixed=window._fixedWidth))
+        observed['cooldowns'] = cooldowns
+        observed['noMissionMessages'] = [localization.GetByLabel('UI/Agents/DefaultMessages/NoMission%d' % option)
+                                         for option in (1, 2)]
+        division = window.agentDivisionID
+        try:
+            window.agentDivisionID = appConst.corpDivisionHeraldry
+            observed['heraldryReplay'] = window._GetNoMissionMessage(450000000)
+        finally:
+            window.agentDivisionID = division
         window.Close()
         observed['independent'] = not second.destroyed
         return observed

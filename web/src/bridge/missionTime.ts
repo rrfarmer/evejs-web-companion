@@ -21,7 +21,7 @@
 import { formatTemplate, plainText } from "./clientWords.ts";
 import { BLUE_TIME, fmtTimeInterval } from "./timeInterval.ts";
 import { readDictEntry, unwrapLong, type JsonValue } from "./wire.ts";
-import type { AgentConversation } from "../store/types.ts";
+import type { AgentConversation, AgentConversationLayout } from "../store/types.ts";
 
 export const MISSION_TIME_LABELS = Object.freeze({
   declineGeneric: "UI/Agents/StandardMission/DeclineMessageGeneric",
@@ -61,6 +61,34 @@ export function missionTimeShown(conversation: AgentConversation | null): boolea
 }
 
 type Templates = Readonly<Record<string, string | null | undefined>>;
+
+const REPLAY_LABELS = {
+  regular: ["UI/Agents/DefaultMessages/NoMission1", "UI/Agents/DefaultMessages/NoMission2"],
+  heraldry: "UI/Agents/DefaultMessages/NoMissionHeraldryTimer",
+  timer: "UI/Agents/DefaultMessages/MissionCantReplay",
+} as const;
+export const MISSION_REPLAY_WORD_LABELS = [...REPLAY_LABELS.regular, REPLAY_LABELS.heraldry, REPLAY_LABELS.timer];
+const HERALDRY_DIVISION_ID = 37;
+
+export function agentConversationIsSinglePane(layout: AgentConversationLayout): boolean {
+  return !layout.conversation.lastActionInfo.missionCompleted && !layout.objectives && !layout.briefing;
+}
+
+/** AgentDialogueWindow.GetBriefingHTML: the replacement message and the formatted replay time. */
+export function missionReplayText(
+  timeLeft: number, divisionID: number | null, alternative: 0 | 1, templates: Templates,
+): { message: string; timer: string | null } | null {
+  if (!Number.isSafeInteger(timeLeft) || timeLeft <= 0) return null;
+  const label = divisionID === HERALDRY_DIVISION_ID ? REPLAY_LABELS.heraldry : REPLAY_LABELS.regular[alternative];
+  const ticks = BigInt(timeLeft);
+  const amount = fmtTimeInterval(ticks, ticks > BLUE_TIME.MIN ? "min" : "sec", templates);
+  const timer = templates[REPLAY_LABELS.timer];
+  return {
+    message: plainText(templates[label] ?? "I have no missions for you right now."),
+    timer: amount === null || typeof timer !== "string" ? null
+      : formatTemplate(timer, { timeLeft: amount, timerColor: "#FF8DC169" }, { nameOf: () => "" }),
+  };
+}
 
 /**
  * GetMissionTimeText: the line for a mission's time, or null when there is none to show or the client's

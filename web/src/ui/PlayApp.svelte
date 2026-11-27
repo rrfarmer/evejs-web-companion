@@ -226,6 +226,7 @@
   import SafeLogoffTimer from "./SafeLogoffTimer.svelte";
   import JournalMissionPopup from "./JournalMissionPopup.svelte";
   import { windowOnMissionChange } from "../bridge/agents.ts";
+  import { agentConversationIsSinglePane } from "../bridge/missionTime.ts";
   import AgentsMissions from "./AgentsMissions.svelte";
   import FittedModuleRestrictions from "./FittedModuleRestrictions.svelte";
   import type { MySovHub, SovHubDetails, SovHubExtras } from "../app/flow.ts";
@@ -5218,12 +5219,16 @@
       </DesktopWindow>
     {/each}
     {#each journalConversations as popup (popup.id)}
-        <DesktopWindow win={popup} title={conversationCaption(popup.agentID)} focused={activeWinKey === popup.id}
+        {@const layout = $journalAgents?.conversationLayouts[popup.agentID]}
+        {@const singlePane = layout !== undefined && agentConversationIsSinglePane(layout)}
+        {@const frame = singlePane ? { ...popup, w: Math.min(417, flightDesktopSize().w) } : popup}
+        <DesktopWindow win={frame} title={conversationCaption(popup.agentID)} focused={activeWinKey === popup.id}
           icon={clientTexture("res:/UI/Texture/WindowIcons/agent.png")}
           onFocus={() => focusJournal(popup)} onClose={() => closeJournalConversation(popup)}
           onToggleMinimize={() => toggleJournalMinimize(popup)}
-          onMove={(x, y) => Object.assign(popup, { x, y })} onResizeRect={rect => Object.assign(popup, rect)}
-          onGeometryCommit={() => keepPlace(popup)} minWidth={835} minHeight={545}>
+          onMove={(x, y) => Object.assign(popup, { x: Math.min(x, Math.max(0, flightDesktopSize().w - popup.w)), y })}
+          onResizeRect={rect => Object.assign(popup, singlePane ? { y: rect.y, h: rect.h } : rect)}
+          onGeometryCommit={() => keepPlace(popup)} resizeWidth={!singlePane} minWidth={singlePane ? frame.w : 835} minHeight={545}>
           {#key popup.serial}<AgentsMissions store={session.store} flow={session.flow} conversationAgentID={popup.agentID}
             onConversationClose={() => closeJournalConversation(popup)} />{/key}
         </DesktopWindow>

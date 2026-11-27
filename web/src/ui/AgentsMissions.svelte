@@ -20,7 +20,8 @@
   import MissionJobPage from "./MissionJobPage.svelte";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { AGENT_CLOSE_LABEL, AGENT_MISSION_STATE, agentButtonWord, agentConversationFooter, offerOpen } from "../bridge/agents.ts";
-  import { MISSION_TIME_WORD_LABELS, missionTimeShown, missionTimeText } from "../bridge/missionTime.ts";
+  import { MISSION_REPLAY_WORD_LABELS, MISSION_TIME_WORD_LABELS, missionReplayText, missionTimeShown, missionTimeText } from "../bridge/missionTime.ts";
+  import LabelText from "./LabelText.svelte";
   import { INTERVAL_WORD_LABELS, SHORT_INTERVAL_WORD_LABELS } from "../bridge/timeInterval.ts";
   import { PANE_WORD_LABELS, objectivePane, paneMessageIDs, paneNameRefs, type PaneBlock, type PaneMark } from "../bridge/missionObjectivePane.ts";
   import type { MissionMessage } from "../bridge/missionObjectives.ts";
@@ -136,9 +137,14 @@
   // The mission's time, under what the agent says (agentDialogueWindow.GetMissionTimeText): what declining
   // would cost and for how long, or when the mission expires. In the client's words or not at all.
   const missionTime = $derived(missionTimeShown(conversation) ? missionTimeText(missionTimes, $words.templates) : null);
+  const replayVariant = $derived(conversation ? (Math.random() < 0.5 ? 0 : 1) : 0);
+  const replay = $derived(missionReplayText(conversation?.lastActionInfo.missionCantReplay ?? 0,
+    conversationOwner === null ? null : $agents.agentRecords[conversationOwner]?.divisionID ?? null,
+    replayVariant, $words.templates));
   $effect(() => {
     if (conversation) {
       flow.requestWords([...MISSION_TIME_WORD_LABELS, ...INTERVAL_WORD_LABELS]);
+      if (conversation.lastActionInfo.missionCantReplay) flow.requestWords(MISSION_REPLAY_WORD_LABELS);
     }
   });
 
@@ -612,7 +618,8 @@
     {#if talkTitle}
       <h3 class="mission-title">{talkTitle}</h3>
     {/if}
-    <p class="agent-says" style="white-space: pre-line">{saysText}</p>
+    <p class="agent-says" style="white-space: pre-line">{replay?.message ?? saysText}</p>
+    {#if replay?.timer}<div class="agent-replay-time"><LabelText markup={replay.timer} /></div>{/if}
     {#if missionTime}
       <p class="note mission-time">{missionTime}</p>
     {/if}
