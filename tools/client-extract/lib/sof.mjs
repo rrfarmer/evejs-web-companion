@@ -50,6 +50,25 @@ export const LOGO_TYPES = ["Primary", "Secondary", "Tertiary", "Marking_01", "Ma
 
 export const AREA_TYPES = ["Primary", "Glass", "Sails", "Reactor", "Darkhull", "Wreck", "Rock", "Monument", "Ornament", "SimplePrimary"];
 
+/** SOF hull banner items with the faction's visibility groups. */
+export function shipBannerLayout(sof, hullName, factionName) {
+  const hull = sof.hulls.get(hullName);
+  const faction = sof.factions.get(factionName);
+  const groups = new Set((faction?.visibilityGroupSet?.visibilityGroups ?? []).map(group => group.str));
+  const visible = item => groups.has(item.visibilityGroup ?? "primary");
+  const banners = hull?.bannerSets?.length
+    ? hull.bannerSets.filter(visible).flatMap(set => set.banners ?? [])
+    : (hull?.banners ?? []).filter(visible);
+  return banners.filter(item => (item.usage === 0 || item.usage === 1) && item.position && item.scaling)
+    .map(item => ({
+      name: item.name ?? "",
+      kind: item.usage === 0 ? "alliance" : "corporation",
+      position: item.position,
+      rotation: item.rotation ?? [0, 0, 0, 1],
+      scaling: item.scaling,
+    }));
+}
+
 const cache = new WeakMap();
 
 /** data.black, read once per client. */

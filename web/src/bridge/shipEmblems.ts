@@ -16,17 +16,8 @@ export interface ShipEmblemState {
   readonly enabled: ReadonlyMap<ShipEmblemKind, number>;
 }
 
-export function decodeShipEmblems(entitlements: JsonValue | null, cosmetics: unknown, pilot: number, hull: number): ShipEmblemState {
-  const rows = (entitlements as { entitlements?: readonly {
-    corporation_logo?: EmblemEntitlement; alliance_logo?: EmblemEntitlement;
-  }[] } | null)?.entitlements ?? [];
-  const owned = new Set<ShipEmblemKind>();
+export function decodeEnabledShipEmblems(cosmetics: unknown): ReadonlyMap<ShipEmblemKind, number> {
   const enabled = new Map<ShipEmblemKind, number>();
-  for (const row of rows) {
-    const kind = row.corporation_logo ? "corporation" : "alliance";
-    const license = row.corporation_logo ?? row.alliance_logo;
-    if (Number(license?.character?.sequential) === pilot && Number(license?.ship_type?.sequential) === hull) owned.add(kind);
-  }
   for (const [key, value] of readDictPairs(cosmetics)) {
     const slot = Number(unwrapLong(key) ?? -1n);
     const kind = Number(unwrapLong(value) ?? 0n);
@@ -34,7 +25,20 @@ export function decodeShipEmblems(entitlements: JsonValue | null, cosmetics: unk
     if (kind === SHIP_EMBLEM_TYPES.corporation) enabled.set("corporation", slot);
     if (kind === SHIP_EMBLEM_TYPES.alliance) enabled.set("alliance", slot);
   }
-  return { owned, enabled };
+  return enabled;
+}
+
+export function decodeShipEmblems(entitlements: JsonValue | null, cosmetics: unknown, pilot: number, hull: number): ShipEmblemState {
+  const rows = (entitlements as { entitlements?: readonly {
+    corporation_logo?: EmblemEntitlement; alliance_logo?: EmblemEntitlement;
+  }[] } | null)?.entitlements ?? [];
+  const owned = new Set<ShipEmblemKind>();
+  for (const row of rows) {
+    const kind = row.corporation_logo ? "corporation" : "alliance";
+    const license = row.corporation_logo ?? row.alliance_logo;
+    if (Number(license?.character?.sequential) === pilot && Number(license?.ship_type?.sequential) === hull) owned.add(kind);
+  }
+  return { owned, enabled: decodeEnabledShipEmblems(cosmetics) };
 }
 
 let catalog: Promise<readonly ReleasedShipEmblem[]> | undefined;

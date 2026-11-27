@@ -24,6 +24,8 @@ const MIME = new Map([
   [".ogg", "audio/ogg"], [".wav", "audio/wav"], [".vta", "application/octet-stream"],
 ]);
 const GENERATED = new Map([
+  ...["defaultalliance.dds", "defaultcorporation.dds", "hologram_interlace_p.dds"]
+    .map(name => [`/shipBannerLayouts/${name}`, ["--ship-banner-textures"]]),
   ["/shipEmblemLicenses.json", ["--ship-emblems"]],
   ["/dscanCones.json", ["--dscan-cones", '"lineTexture"']],
   ["/dscanHologram.json", ["--dscan-hologram"]],
@@ -157,6 +159,8 @@ async function sceneMaps(dir, resource, ensure) {
 
 /** Supply the extracted resources and look up model and scene data on demand. */
 async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
+  const bannerLayout = /^\/shipBannerLayouts\/([a-z0-9_]+)\.([a-z0-9_]+)\.json$/.exec(rel);
+  if (bannerLayout) return { file: await ensure(rel.slice(1), ["--ship-banner-layout", bannerLayout[1], bannerLayout[2]]) };
   const portraitHead = /^\/portrait-head\/(female|male)\.(glb|materials\.json)$/.exec(rel);
   if (portraitHead) return { file: await ensure(rel.slice(1), ["--portrait-head", portraitHead[1]],
     portraitHead[2] === "materials.json" ? '"materialBuild":3' : undefined) };

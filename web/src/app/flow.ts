@@ -13,7 +13,7 @@ import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequ
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
 import { decodeHyperNetActiveTickets, decodeHyperNetCreationNotice, decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, decodeHyperNetTypeStatistics, hyperNetCountBounds, hyperNetCreationQuote, hyperNetDetailNoticeIDs, hyperNetRestrictedTypeLists, hyperNetSingletonTypeList, type HyperNetCreationDraft, type HyperNetCreationNotice, type HyperNetPrizeRules, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
 import { decodeFirstPartySkinLicenses } from "../bridge/firstPartySkins.ts";
-import { decodeShipEmblems, SHIP_EMBLEM_GATEWAY, SHIP_ENTITLEMENT_GATEWAY, type ShipEmblemKind, type ShipEmblemState } from "../bridge/shipEmblems.ts";
+import { decodeEnabledShipEmblems, decodeShipEmblems, SHIP_EMBLEM_GATEWAY, SHIP_ENTITLEMENT_GATEWAY, type ShipEmblemKind, type ShipEmblemState } from "../bridge/shipEmblems.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipDefaultSkin, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
@@ -4625,6 +4625,7 @@ export interface AppFlow {
   shipDefaultSkin(typeID: number): ShipDefaultSkin | null;
   setShipDefaultSkin(typeID: number, skin: ShipDefaultSkin | null): void;
   readonly shipEmblemsChanged: ReadableSignal<number>;
+  enabledShipEmblems(shipID: number): Promise<ReadonlyMap<ShipEmblemKind, number>>;
   loadShipEmblems(shipID: number, shipTypeID: number): Promise<ShipEmblemState>;
   setShipEmblem(shipID: number, slot: number, kind: ShipEmblemKind, enable: boolean): Promise<void>;
   applyShipSkinrLicense(hex: string, shipID: number, remove: boolean): Promise<void>;
@@ -42285,6 +42286,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     shipDefaultSkin,
     setShipDefaultSkin,
     shipEmblemsChanged: readonlySignal(shipEmblemsChanged),
+    async enabledShipEmblems(shipID) {
+      return decodeEnabledShipEmblems(await bridgeAsk("shipCosmeticsMgr", "GetEnabledCosmetics", [shipID]));
+    },
     loadShipEmblems,
     setShipEmblem,
     applyShipSkinrLicense,

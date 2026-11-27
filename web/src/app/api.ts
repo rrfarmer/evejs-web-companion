@@ -5081,6 +5081,11 @@ export async function importMultibuy(
   return { found, failedLines };
 }
 
+export async function readShipEmblemImage(kind: "alliance" | "corporation", owner: number, options: ApiOptions = {}): Promise<string | null> {
+  const result = await getJson(`/api/client-data/ship-emblem-image?kind=${kind}&owner=${owner}`, options);
+  return typeof result.image === "string" ? `data:image/png;base64,${result.image}` : null;
+}
+
 /** One forced portrait image read; a transport error is retried by the page's native image loop. */
 export async function readCapturePortrait(characterID: number, size: number, modifiedSince: number | null, options: ApiOptions = {}): Promise<{ readonly image: { readonly base64: string; readonly contentType: string } | null; readonly transportError: boolean; readonly notModified: boolean }> {
   const data = await getJson(`/api/client-data/portrait-capture?characterID=${characterID}&size=${size}${modifiedSince === null ? "" : `&modifiedSince=${modifiedSince}`}`, options);

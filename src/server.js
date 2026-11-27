@@ -16650,6 +16650,30 @@ app.get("/api/client-data/portrait-capture", requireAuth, async (req, res, next)
   } catch (error) { next(error); }
 });
 
+// Carry the client's configured 512px heraldry image to WebGL on the companion origin.
+app.get("/api/client-data/ship-emblem-image", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  const owner = Number(req.query.owner);
+  const kind = req.query.kind === "alliance" ? "Alliance" : req.query.kind === "corporation" ? "Corporation" : null;
+  if (!kind || !Number.isSafeInteger(owner) || owner <= 0) return res.status(400).json({ ok: false, error: "BAD_EMBLEM_OWNER" });
+  try {
+    const values = gamePortPilots && isGamePortHandle(held.bridgeSessionID)
+      ? gamePortPilots.globalConfigValues(["imageserverurl"], { userid: held.accountID }, held.bridgeSessionID) : {};
+    const base = typeof values.imageserverurl === "string" ? values.imageserverurl.trim() : "";
+    if (!base) return res.json({ ok: true, image: null });
+    const url = new URL(`${base.replace(/\/+$/, "")}/${kind}/${owner}_512.png`);
+    if (!["http:", "https:"].includes(url.protocol)) return res.json({ ok: true, image: null });
+    const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(5000) }).catch(() => null);
+    if (!response?.ok || !response.headers.get("content-type")?.startsWith("image/png")) {
+      await response?.body?.cancel();
+      return res.json({ ok: true, image: null });
+    }
+    const bytes = Buffer.from(await response.arrayBuffer());
+    return res.json({ ok: true, image: bytes.toString("base64") });
+  } catch (error) { next(error); }
+});
+
 // How the retail client words each kind of notification (notificationSvc.py FormatNotifications): for each type
 // the labels of notificationUtil's table, or the formatter it has and the labels that formatter is made with, as
 // the client's own code answers (src/clientData/clientNotificationFormats.js). `formats` is null where they could
