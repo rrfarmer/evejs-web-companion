@@ -64,7 +64,7 @@
   import { hudSetting, hudSettingNow, setHudSetting, slotOrderOf } from "../store/hudSettings.ts";
   import { createSession, type Session } from "../app/sessions.ts";
   import { setSessionToken, withTokenQuery } from "../app/sessionToken.ts";
-  import { bridgeDo, corpTickers, getDscanHologramTypes, loadCharacterCreationState, readShipEmblemImage, type CharacterCreationState } from "../app/api.ts";
+  import { bridgeDo, corpTickers, getDscanHologramTypes, loadCharacterCreationState, type CharacterCreationState } from "../app/api.ts";
   import { getCharacterSelectionData } from "../bridge/characterSelection.ts";
   import CharacterCreate from "./CharacterCreate.svelte";
   import { StarMap } from "../play/starMap.ts";
@@ -1143,7 +1143,6 @@
         if (shipID) void session?.flow.loadShipSkinrApplied(shipID).catch(() => {});
       });
       let previousEmblemShip: number | null = null;
-      const emblemPictures = new Map<string, Promise<string | null>>();
       $effect(() => {
         const shipID = $flight?.status?.shipID ?? $fitting?.activeShipID ?? null;
         const online = $station?.online;
@@ -1154,23 +1153,9 @@
           hangar.setEmblems({});
         }
         if (!flow || !online || !shipID || !(online.stationID || online.structureID) || shipID === online.structureID) return;
-        const options = flow.requestOptions();
         let current = true;
-        void flow.enabledShipEmblems(shipID).then(async enabled => {
-          if (!current) return;
-          const ids = { alliance: online.allianceID, corporation: online.corporationID };
-          const entries = await Promise.all([...enabled.keys()].filter(kind => ids[kind]).map(async kind => {
-            const id = ids[kind]!;
-            const key = `${kind}/${id}`;
-            let picture = emblemPictures.get(key);
-            if (!picture) {
-              picture = readShipEmblemImage(kind, id, options).catch(() => null);
-              emblemPictures.set(key, picture);
-            }
-            return [kind, await picture] as const;
-          }));
-          if (current) hangar.setEmblems(Object.fromEntries(entries));
-        }).catch(() => {});
+        void flow.enabledShipEmblems(shipID).then(enabled => current ? flow.loadShipEmblemImages([...enabled.keys()]) : {})
+          .then(images => { if (current) hangar.setEmblems(images); }).catch(() => {});
         return () => { current = false; };
       });
       // the ship flown: the flight's word of it, else the character's row (the flight is not read while docked)

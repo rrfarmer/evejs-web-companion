@@ -6,6 +6,8 @@ import { disposeShipSkinrMaterials, shipSkinrPreviewModel } from "../three/shipS
 import type { ShipSkinrBlendMode, ShipSkinrPatternPreview } from "../bridge/shipSkinrPatterns.ts";
 import { useHullTextureRenderer } from "../three/hullAlbedo";
 import { SHIP_INFO_FAR_CLIP, shipInfoZoomRange } from "./shipInfoCamera.ts";
+import { ShipEmblemLayer } from "../three/shipEmblemBanners.ts";
+import type { ShipEmblemImages } from "../bridge/shipEmblems.ts";
 
 interface PreviewEffect { root: SofChildNode; childEffects: Record<string, SofChildNode | null> }
 interface ShipInfoAssets {
@@ -29,6 +31,7 @@ function getAssets(): Promise<ShipInfoAssets | null> {
 
 /** The 24.02 ship preview's own 3D view. Its scene and effects are extracted from the installed client. */
 export class ShipInfoScene {
+  private readonly shipEmblems = new ShipEmblemLayer();
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true });
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(deg(0.8), 1, 1, SHIP_INFO_FAR_CLIP);
@@ -153,6 +156,7 @@ export class ShipInfoScene {
     this.model = model;
     this.variant = variant;
     this.scene.add(model);
+    this.shipEmblems.setModel(model);
     if (this.lightRig) {
       model.add(this.lightRig);
       startEffect(this.lightRig);
@@ -171,6 +175,10 @@ export class ShipInfoScene {
     if (this.expanded === expanded) return;
     this.expanded = expanded;
     this.resetView();
+  }
+
+  setEmblems(images: ShipEmblemImages): void {
+    this.shipEmblems.setImages(images);
   }
 
   private resetView(): void {
@@ -224,6 +232,7 @@ export class ShipInfoScene {
   }
 
   private removeModel(): void {
+    this.shipEmblems.setModel(null);
     this.lightRig?.removeFromParent();
     this.model?.removeFromParent();
     if (this.model) disposeShipSkinrMaterials(this.model);

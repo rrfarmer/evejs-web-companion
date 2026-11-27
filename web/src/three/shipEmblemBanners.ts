@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { ShipEmblemKind } from "../bridge/shipEmblems.ts";
+import type { ShipEmblemImages, ShipEmblemKind } from "../bridge/shipEmblems.ts";
 import { loadDds } from "./ddsTexture.ts";
 
 interface ShipBanner {
@@ -10,7 +10,6 @@ interface ShipBanner {
   readonly scaling: readonly [number, number, number];
 }
 
-export type ShipEmblemImages = Readonly<Partial<Record<ShipEmblemKind, string | null>>>;
 const layouts = new Map<string, Promise<readonly ShipBanner[]>>();
 const plane = new THREE.PlaneGeometry(2, 2);
 
@@ -34,7 +33,7 @@ const kindList = ["alliance", "corporation"] as const;
 const imageLoader = new THREE.TextureLoader();
 let interlace: Promise<THREE.Texture | null> | undefined;
 
-export async function buildShipEmblemBanners(hull: string, faction: string, images: ShipEmblemImages): Promise<THREE.Group> {
+async function buildShipEmblemBanners(hull: string, faction: string, images: ShipEmblemImages): Promise<THREE.Group> {
   const group = new THREE.Group();
   group.name = "Ship emblems";
   const items = await layout(hull, faction);
@@ -93,7 +92,7 @@ export async function buildShipEmblemBanners(hull: string, faction: string, imag
   return group;
 }
 
-export function disposeShipEmblemBanners(group: THREE.Group | null): void {
+function disposeShipEmblemBanners(group: THREE.Group | null): void {
   if (!group) return;
   group.removeFromParent();
   const materials = new Set<THREE.Material>();
@@ -101,4 +100,50 @@ export function disposeShipEmblemBanners(group: THREE.Group | null): void {
     if (child instanceof THREE.Mesh) materials.add(child.material as THREE.Material);
   }
   materials.forEach(material => material.dispose());
+}
+
+/** Owns the emblem overlay for one scene, including reads retired by a model or fitting change. */
+export class ShipEmblemLayer {
+  private model: THREE.Object3D | null = null;
+  private images: ShipEmblemImages = {};
+  private layer: THREE.Group | null = null;
+  private revision = 0;
+
+  setModel(model: THREE.Object3D | null): void {
+    if (model === this.model) return;
+    disposeShipEmblemBanners(this.layer);
+    this.layer = null;
+    this.model = model;
+    void this.update();
+  }
+
+  setImages(images: ShipEmblemImages): void {
+    if (images.alliance === this.images.alliance && images.corporation === this.images.corporation) return;
+    this.images = images;
+    for (const child of this.layer?.children ?? []) {
+      child.visible = Object.hasOwn(images, child.userData.emblemKind);
+    }
+    void this.update();
+  }
+
+  private async update(): Promise<void> {
+    const revision = ++this.revision;
+    const model = this.model;
+    const hull: unknown = model?.userData.hull;
+    const faction: unknown = model?.userData.faction;
+    if (!model || typeof hull !== "string" || typeof faction !== "string" || !Object.keys(this.images).length) {
+      disposeShipEmblemBanners(this.layer);
+      this.layer = null;
+      return;
+    }
+    const layer = await buildShipEmblemBanners(hull, faction, this.images).catch(() => null);
+    if (!layer) return;
+    if (revision !== this.revision || !layer.children.length) {
+      disposeShipEmblemBanners(layer);
+      return;
+    }
+    disposeShipEmblemBanners(this.layer);
+    this.layer = layer;
+    model.add(layer);
+  }
 }

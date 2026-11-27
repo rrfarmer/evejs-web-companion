@@ -4,7 +4,7 @@
   import { plainText } from "../bridge/clientWords.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import {
-    loadShipEmblemCatalog, SHIP_EMBLEM_TYPES, type ReleasedShipEmblem, type ShipEmblemKind, type ShipEmblemState,
+    loadShipEmblemCatalog, SHIP_EMBLEM_TYPES, type ReleasedShipEmblem, type ShipEmblemImages, type ShipEmblemKind, type ShipEmblemState,
   } from "../bridge/shipEmblems.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
@@ -13,12 +13,16 @@
   import { allianceLogoUrl } from "./ownerImages.ts";
   import OwnerPicture from "./OwnerPicture.svelte";
   import CorpLogo from "./CorpLogo.svelte";
+  import ShipInfoPreview from "./ShipInfoPreview.svelte";
+  import ShipSkinrPreview from "./ShipSkinrPreview.svelte";
+  import { loadFirstPartySkinCatalog } from "../bridge/firstPartySkins.ts";
 
   let { store, flow, shipID, shipTypeID }: { store: ClientStore; flow: AppFlow; shipID: number; shipTypeID: number } = $props();
   const station = $derived(store.station);
   const words = $derived(store.words);
   const names = $derived(store.names);
   const changed = $derived(flow.shipEmblemsChanged);
+  const applied = $derived(flow.shipSkinrApplied);
   const corpLogos = $derived(flow.corpLogos);
   const library = $derived(flow.corpLogoLibrary);
   const imageServer = $derived(flow.imageServer);
@@ -40,6 +44,10 @@
     resolvedName($names.resolved, "owner", id, "") || resolvedName($names.resolved, kind, id, String(id));
   let catalog = $state.raw<readonly ReleasedShipEmblem[]>([]);
   let state = $state.raw<ShipEmblemState | null>(null);
+  let emblemImages = $state.raw<ShipEmblemImages>({});
+  let materialSet = $state<number | null>(null);
+  const skin = $derived($applied?.shipID === shipID && $applied.characterID === pilot ? $applied : null);
+  const design = $derived(skin?.skin ? { layout: skin.skin.layout, shipTypeID } : null);
   let pending = $state<ShipEmblemKind | null>(null);
   let error = $state("");
   let readError = $state("");
@@ -71,6 +79,32 @@
     return () => { current = false; };
   });
 
+  $effect(() => {
+    if (pilot) void flow.loadShipSkinrApplied(shipID).catch(() => {});
+  });
+  $effect(() => {
+    const skinID = skin?.firstPartySkinID;
+    const hull = shipTypeID;
+    materialSet = null;
+    if (!skinID) return;
+    let current = true;
+    void loadFirstPartySkinCatalog(hull).then(rows => {
+      if (current) materialSet = rows.find(row => row.skinID === skinID)?.materialSetID ?? null;
+    }).catch(() => {});
+    return () => { current = false; };
+  });
+  $effect(() => {
+    // Owner changes can change the banner even when the same slot remains occupied.
+    void alliance;
+    void corporation;
+    const enabled = [...state?.enabled.keys() ?? []];
+    let current = true;
+    void untrack(() => flow.loadShipEmblemImages(enabled)).then(images => {
+      if (current) emblemImages = images;
+    }).catch(() => { if (current) emblemImages = {}; });
+    return () => { current = false; };
+  });
+
   async function toggle(kind: ShipEmblemKind, slot: number, enabled: boolean) {
     if (pending) return;
     pending = kind;
@@ -87,6 +121,13 @@
 </script>
 
 <div class="emblems">
+  <div class="fitting-emblem-preview">
+    {#if design}
+      <ShipSkinrPreview {flow} {design} emblems={emblemImages} />
+    {:else}
+      <ShipInfoPreview typeID={shipTypeID} factionID={null} skinMaterialSetID={materialSet} emblems={emblemImages} active expanded />
+    {/if}
+  </div>
   {#if readError}
     <p role="alert">{readError}</p>
     <button type="button" onclick={() => revision++}>Retry</button>
@@ -133,6 +174,8 @@
 
 <style>
   .emblems { display: grid; gap: 12px; padding: 12px 18px; }
+  .fitting-emblem-preview { height: clamp(10rem, 26vh, 17rem); background: #000; }
+  .fitting-emblem-preview :global(.skinr-preview) { height: 100%; }
   section { padding: 12px; background: #ffffff08; }
   h4 { margin: 0 0 8px; }
   p { margin: 0 0 8px; }

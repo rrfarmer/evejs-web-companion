@@ -3,8 +3,14 @@
   import type { ShipSkinrDesign } from "../bridge/shipSkinr.ts";
   import type { shipSkinrPreviewPaint } from "../three/shipSkinrModel.ts";
   import ShipInfoPreview from "./ShipInfoPreview.svelte";
+  import type { ShipEmblemImages } from "../bridge/shipEmblems.ts";
 
-  let { design, flow, active = true }: { design: Pick<ShipSkinrDesign, "shipTypeID" | "layout">; flow: AppFlow; active?: boolean } = $props();
+  let { design, flow, active = true, emblems }: {
+    design: Pick<ShipSkinrDesign, "shipTypeID" | "layout">;
+    flow: AppFlow;
+    active?: boolean;
+    emblems?: ShipEmblemImages;
+  } = $props();
   let host = $state<HTMLDivElement>();
   let visible = $state(false);
   let failed = $state(false);
@@ -33,7 +39,7 @@
 
 <div class="skinr-preview" bind:this={host}>
   {#if paint}
-    <ShipInfoPreview typeID={design.shipTypeID} {...paint} expanded active={active && visible} />
+    <ShipInfoPreview typeID={design.shipTypeID} {...paint} {emblems} expanded active={active && visible} />
   {:else}
     <p role="status">{failed ? "Ship preview unavailable" : "Loading ship preview…"}</p>
   {/if}

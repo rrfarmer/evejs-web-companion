@@ -3,8 +3,9 @@
   import type { ShipInfoScene } from "../play/shipInfoScene.ts";
   import type { ShipSkinrBlendMode, ShipSkinrPatternPreview, ShipSkinrProjectorGesture } from "../bridge/shipSkinrPatterns.ts";
   import { capturePointer, releasePointer } from "./pointerCapture.ts";
+  import type { ShipEmblemImages } from "../bridge/shipEmblems.ts";
 
-  let { typeID, factionID, active, expanded, coatings, patterns, blendMode, darkhullChannel, clearedTechCoating, onProjectorGesture, skinMaterialSetID }: {
+  let { typeID, factionID, active, expanded, coatings, patterns, blendMode, darkhullChannel, clearedTechCoating, onProjectorGesture, skinMaterialSetID, emblems }: {
     typeID: number; factionID: number | null | undefined; active: boolean; expanded: boolean;
     coatings?: readonly (string | null)[];
     patterns?: readonly ShipSkinrPatternPreview[];
@@ -12,6 +13,7 @@
     darkhullChannel?: number;
     clearedTechCoating?: boolean;
     skinMaterialSetID?: number | null;
+    emblems?: ShipEmblemImages;
     onProjectorGesture?: (gesture: ShipSkinrProjectorGesture) => void;
   } = $props();
   const keyboardHelp = $props.id();
@@ -31,6 +33,7 @@
 
   $effect(() => { scene?.setActive(active && load !== "unavailable"); });
   $effect(() => { scene?.setExpanded(expanded); });
+  $effect(() => { if (emblems) scene?.setEmblems(emblems); });
   $effect(() => {
     const surface = host;
     if (!surface || !onProjectorGesture) return;

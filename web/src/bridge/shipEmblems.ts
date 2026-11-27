@@ -4,6 +4,7 @@ export const SHIP_EMBLEM_GATEWAY = "eve_public.cosmetic.ship.logo.";
 export const SHIP_ENTITLEMENT_GATEWAY = "eve_public.entitlement.character.";
 export const SHIP_EMBLEM_TYPES = { alliance: 2, corporation: 1 } as const;
 export type ShipEmblemKind = keyof typeof SHIP_EMBLEM_TYPES;
+export type ShipEmblemImages = Readonly<Partial<Record<ShipEmblemKind, string | null>>>;
 export type ReleasedShipEmblem = readonly [shipTypeID: number, kind: number, slot: number];
 
 interface EmblemEntitlement {

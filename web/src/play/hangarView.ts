@@ -24,7 +24,8 @@ import { pickDockSwing, type DockSwing, type HangarGraphics } from "./hangarRegi
 import { modularDock, modularHangar } from "./modularHangar.ts";
 import { capitalHangarShot } from "./capitalHangarCamera.ts";
 import { buildTurrets, type HullTurretData, type TurretFit, type TurretSetState } from "../three/turretModel.ts";
-import { buildShipEmblemBanners, disposeShipEmblemBanners, type ShipEmblemImages } from "../three/shipEmblemBanners.ts";
+import { ShipEmblemLayer } from "../three/shipEmblemBanners.ts";
+import type { ShipEmblemImages } from "../bridge/shipEmblems.ts";
 
 interface HangarScene {
   reflection: string | null; sunDiffuseColor: number[] | null; sunDirection: number[] | null; ambientColor: number[] | null;
@@ -109,9 +110,7 @@ export class HangarView {
   private capitalCamera = false;
   private swing: Swing = DEFAULT_SWING;
   private ship: { model: THREE.Object3D; customSkin: boolean; restY: number; lookY: number; radius: number; since: number } | null = null;
-  private emblemImages: ShipEmblemImages = {};
-  private emblemLayer: THREE.Group | null = null;
-  private emblemRequest = 0;
+  private readonly shipEmblems = new ShipEmblemLayer();
   /** The hangar VFX for the ship shown (its "ship" parameter bound to the ship's EVE-space group). */
   private vfx: THREE.Object3D | null = null;
   /** The docked ship's damage state (setDamage), applied to each ship shown. */
@@ -196,27 +195,7 @@ export class HangarView {
   }
 
   setEmblems(images: ShipEmblemImages): void {
-    if (images.alliance === this.emblemImages.alliance && images.corporation === this.emblemImages.corporation) return;
-    this.emblemImages = images;
-    void this.updateEmblems();
-  }
-
-  private async updateEmblems(): Promise<void> {
-    const request = ++this.emblemRequest;
-    disposeShipEmblemBanners(this.emblemLayer);
-    this.emblemLayer = null;
-    const model = this.ship?.model;
-    const hull: unknown = model?.userData.hull;
-    const faction: unknown = model?.userData.faction;
-    if (!model || typeof hull !== "string" || typeof faction !== "string" || !Object.keys(this.emblemImages).length) return;
-    const layer = await buildShipEmblemBanners(hull, faction, this.emblemImages).catch(() => null);
-    if (!layer) return;
-    if (this.stopped || request !== this.emblemRequest || !layer.children.length) {
-      disposeShipEmblemBanners(layer);
-      return;
-    }
-    this.emblemLayer = layer;
-    model.add(layer);
+    this.shipEmblems.setImages(images);
   }
 
   async show(typeID: number | null, hangarGraphics: HangarGraphics | null = null,
@@ -238,7 +217,7 @@ export class HangarView {
       this.turntable.clear();
       if (this.ship?.customSkin) disposeShipSkinrMaterials(this.ship.model);
       this.ship = null;
-      void this.updateEmblems();
+      this.shipEmblems.setModel(null);
       return;
     }
     if (switching) this.fadeToFromBlack(true, true);
@@ -317,7 +296,7 @@ export class HangarView {
     this.camera.near = Math.max(0.5, radius / 50);
     this.camera.far = hangar ? 1e5 : radius * 400;
     this.ship = { model, customSkin, restY: model.position.y, lookY: look.y, radius: sphere.radius, since: performance.now() };
-    void this.updateEmblems();
+    this.shipEmblems.setModel(model);
     void this.applyVfx(model, sphere.radius);
     // its damage (LoadShipModel's SetShipDamage)
     this.repairRun++;
@@ -650,7 +629,7 @@ export class HangarView {
 
   dispose(): void {
     this.stopped = true;
-    disposeShipEmblemBanners(this.emblemLayer);
+    this.shipEmblems.setModel(null);
     if (this.ship?.customSkin) disposeShipSkinrMaterials(this.ship.model);
     this.renderer.setAnimationLoop(null);
     this.sceneEnv?.dispose();
