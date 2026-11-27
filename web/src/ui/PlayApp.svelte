@@ -1027,7 +1027,13 @@
     reveal: () => {},
     closeTab: closePlayWindow,
     toggleShipSkinr: toggleShipSkinrWindow,
+    openParagonHub,
   };
+  let paragonHubRequest = $state.raw<{ shipTypeID: number } | null>(null);
+  function openParagonHub(shipTypeID: number) {
+    paragonHubRequest = { shipTypeID };
+    open("shipSkinr");
+  }
   // Show Info asked anywhere on the page (a link in a panel, the radial menu) opens in the pilot's info windows, as the
   // app's own does (App.svelte).
   let servedInfoRequest = showInfoRequests.get()?.n ?? 0;
@@ -5022,6 +5028,7 @@
             <PanelHost store={session.store} flow={session.flow} tab={win.id} chatUnread={win.id === "chat" ? chatUnread : undefined}
               {characterSheetExpanded} onCharacterSheetExpansionChange={setCharacterSheetExpanded}
               onOpen={(t) => open(t)} onClose={() => closePlayWindow(win.id)}
+              {openParagonHub} {paragonHubRequest} onParagonHubRequestTaken={() => (paragonHubRequest = null)}
               registerBeforeClose={win.id === "structureBrowser" || win.id === "shipSkinr" ?
                 guard => registerPlayWindowClose(win.id, guard) : undefined}
               {upwellLpIssuer}

@@ -101,6 +101,9 @@
     onOpen,
     onClose,
     registerBeforeClose,
+    openParagonHub,
+    paragonHubRequest,
+    onParagonHubRequestTaken,
     sessions,
     onGoToPilot,
     onShowConvoys,
@@ -150,6 +153,9 @@
     onOpen?: (tab: TabID, sessionID?: string) => void;
     onClose?: () => void;
     registerBeforeClose?: (guard: () => Promise<boolean>) => () => void;
+    openParagonHub?: (shipTypeID: number) => void;
+    paragonHubRequest?: { shipTypeID: number } | null;
+    onParagonHubRequestTaken?: () => void;
     inventoryVaultRequested?: boolean;
     storeCategoryRequest?: { tag: "gametime" | "plex" } | { typeID: number } | null;
     onShowOmegaOffers?: () => void;
@@ -235,7 +241,7 @@
   <StationPanel {store} {flow} {isDocked} {onClose} {onReprocess} {inventoryVaultRequested}
     {vaultStoreActions} />
 {:else if tab === "fitting"}
-  <Fitting {store} {flow} showInventory={() => onOpen?.("inventory")} />
+  <Fitting {store} {flow} showInventory={() => onOpen?.("inventory")} {openParagonHub} />
 {:else if tab === "fittingManagement"}
   <FittingManagement {store} {flow} />
 {:else if tab === "provisioning"}
@@ -313,7 +319,7 @@
 {:else if tab === "paintTool"}
   <PaintToolWindow {store} {flow} {onClose} />
 {:else if tab === "shipSkinr"}
-  <ShipSkinrWindow {store} {flow} {registerBeforeClose} />
+  <ShipSkinrWindow {store} {flow} {registerBeforeClose} {paragonHubRequest} {onParagonHubRequestTaken} />
 {:else if tab === "hyperNet"}
   <HyperNetWindow {store} {flow} {onShowStoreProduct} />
 {:else if tab === "achievements"}

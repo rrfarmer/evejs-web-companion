@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import { SHIP_SKINR_GATEWAY } from "../bridge/shipSkinr.ts";
@@ -11,15 +12,18 @@
 
   type Page = "studio" | "collection" | "store";
   type Guard = () => Promise<boolean>;
-  let { store, flow, registerBeforeClose }: { store: ClientStore; flow: AppFlow;
-    registerBeforeClose?: (guard: Guard) => () => void } = $props();
+  let { store, flow, registerBeforeClose, paragonHubRequest, onParagonHubRequestTaken }: { store: ClientStore; flow: AppFlow;
+    registerBeforeClose?: (guard: Guard) => () => void;
+    paragonHubRequest?: { shipTypeID: number } | null;
+    onParagonHubRequestTaken?: () => void } = $props();
   let page = $state<Page>("studio");
   let storePage = $state<"skins" | "elements">("skins");
   let linked = $state.raw<ReturnType<AppFlow["takeShipSkinrListingLink"]>>(null);
   let linkedDesign = $state.raw<ReturnType<AppFlow["takeShipSkinrDesignLink"]>>(null);
+  let hubLanding = $state.raw<{ shipTypeID: number } | null>(null);
   let sequenceFailure = $state<keyof typeof failureWords | null>(null);
   let guard: Guard | undefined;
-  let changingPage = false;
+  let changingPage = $state(false);
   const words = $derived(store.words);
   const station = $derived(store.station);
   const pilot = $derived($station.online?.characterID);
@@ -65,6 +69,18 @@
     });
   });
   $effect(() => registerBeforeClose?.(() => guard?.() ?? Promise.resolve(true)));
+  $effect(() => {
+    const request = paragonHubRequest;
+    if (!request || changingPage) return;
+    untrack(() => {
+      onParagonHubRequestTaken?.();
+      void choose("store", false, () => {
+        storePage = "skins";
+        linked = null;
+        hubLanding = request;
+      }).catch(() => {});
+    });
+  });
   $effect(() => flow.shipSkinrListingLink.subscribe(request => {
     if (!request) return;
     const listing = flow.takeShipSkinrListingLink();
@@ -88,15 +104,19 @@
     return () => { if (guard === next) guard = undefined; };
   }
 
-  async function choose(next: Page, replace = false) {
+  async function choose(next: Page, replace = false, onAccepted?: () => void) {
     if (changingPage) return false;
-    if (page === next && !replace) return true;
+    if (page === next && !replace) {
+      onAccepted?.();
+      return true;
+    }
     changingPage = true;
     try {
       if (guard && !await guard()) return false;
       page = next;
       linked = null;
       linkedDesign = null;
+      onAccepted?.();
       return true;
     } finally {
       changingPage = false;
@@ -136,8 +156,8 @@
     {/each}
   </nav>
   {#if storePage === "skins"}
-    {#key linked}
-      <ShipSkinrStore {store} {flow} {linked} />
+    {#key linked ?? hubLanding}
+      <ShipSkinrStore {store} {flow} {linked} requestedHull={hubLanding?.shipTypeID} />
     {/key}
   {:else}
     <ShipSkinrElementStore {store} {flow} />

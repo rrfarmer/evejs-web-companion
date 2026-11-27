@@ -112,6 +112,7 @@
   import { assetSearchTextForType } from "../bridge/assetSearch.ts";
   import { mailBodyLines } from "../bridge/mailMarkup.ts";
   import ShipSkinrCollection from "./ShipSkinrCollection.svelte";
+  import ShipParagonHub from "./ShipParagonHub.svelte";
   import FittingFirstPartySkins from "./FittingFirstPartySkins.svelte";
   import FittingEmblems from "./FittingEmblems.svelte";
   import { playUiEvent } from "../play/uiAudio.ts";
@@ -120,11 +121,13 @@
     store,
     flow,
     showInventory,
+    openParagonHub,
   }: {
     store: ClientStore;
     flow: AppFlow;
     /** Opens the Inventory & Ship panel (where the drone bay lives while docked). */
     showInventory?: () => void;
+    openParagonHub?: (shipTypeID: number) => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -3624,6 +3627,7 @@
       {#if showEmblems}
         <FittingEmblems {store} {flow} shipID={$fitting.activeShipID} shipTypeID={activeShipTypeID} />
       {:else}
+        {#if openParagonHub}<ShipParagonHub {store} {flow} typeID={activeShipTypeID} open={openParagonHub} />{/if}
         <FittingFirstPartySkins {store} {flow} shipID={$fitting.activeShipID} shipTypeID={activeShipTypeID} />
         <header class="panel-head"><h3>Ship SKINR</h3></header>
         <ShipSkinrCollection {store} {flow} fittingHull={activeShipTypeID} />

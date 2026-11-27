@@ -6,6 +6,7 @@
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ShipSkinrDesign } from "../bridge/shipSkinr.ts";
   import type { ShipSkinrBrowseQuery } from "../bridge/shipSkinrMarket.ts";
+  import { SKINR_HULL_RULES } from "../bridge/shipSkinrHullRules.ts";
   import type { ShipTreeHull } from "../bridge/shipTree.ts";
   import { formatDuration } from "../bridge/skills.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -15,7 +16,8 @@
   import ShipSkinrShare from "./ShipSkinrShare.svelte";
   import ShipSkinrMyListings from "./ShipSkinrMyListings.svelte";
 
-  let { store, flow, linked }: { store: ClientStore; flow: AppFlow; linked: ReturnType<AppFlow["takeShipSkinrListingLink"]> } = $props();
+  let { store, flow, linked, requestedHull }: { store: ClientStore; flow: AppFlow;
+    linked: ReturnType<AppFlow["takeShipSkinrListingLink"]>; requestedHull?: number } = $props();
   type Row = Awaited<ReturnType<AppFlow["browseShipSkinrListings"]>>["listings"][number] & { design: ShipSkinrDesign | null };
   const prefix = "UI/Personalization/ShipSkins/SKINR/";
   const labels = {
@@ -35,9 +37,9 @@
     allianceMember: ["Store/ListedByAllianceMember", "Alliance Member"],
     buy: ["Studio/BuySkin", "Buy SKIN"],
   } as const;
-  const sections = ["active", "all", "corporation", "alliance", "targeted", "owned"] as const;
+  const sections = ["emphasized", "active", "all", "corporation", "alliance", "targeted", "owned"] as const;
   type Section = typeof sections[number];
-  const targets = { active: "public", all: "public", corporation: "my_corporation",
+  const targets = { emphasized: "public", active: "public", all: "public", corporation: "my_corporation",
     alliance: "my_alliance", targeted: "my_character" } as const;
   const words = $derived(store.words);
   const names = $derived(store.names);
@@ -49,18 +51,24 @@
   const sessionAlliance = $derived($station.online?.allianceID);
   const alliance = $derived(sessionAlliance === undefined ? owner?.allianceID : sessionAlliance);
   const activeHull = $derived($flight.status?.shipTypeID ?? owner?.shipTypeID);
-  const word = (key: keyof typeof labels) => {
-    const template = $words.templates[prefix + labels[key][0]] ?? labels[key][1];
-    if (key !== "active") return plainText(template);
-    const ship = catalogue.find(row => row.typeID === activeHull);
-    const shipName = ship ? hullName(ship) : "Active Ship";
+  const defaultHull = $derived(activeHull && !SKINR_HULL_RULES.excluded.includes(activeHull)
+    ? activeHull : SKINR_HULL_RULES.fallbackByRace[$station.online?.raceID ?? 0]);
+  const emphasizedHull = $derived(requestedHull !== defaultHull ? requestedHull : undefined);
+  const word = (key: keyof typeof labels | "emphasized") => {
+    const label = labels[key === "emphasized" ? "active" : key];
+    const template = $words.templates[prefix + label[0]] ?? label[1];
+    if (key !== "active" && key !== "emphasized") return plainText(template);
+    const typeID = key === "emphasized" ? emphasizedHull : defaultHull;
+    const ship = catalogue.find(row => row.typeID === typeID);
+    const shipName = ship ? hullName(ship) : typeID ? resolvedName($names.resolved, "type", typeID, "Ship") : "Active Ship";
     return plainText(formatTemplate(template, { shipName }, { nameOf: () => "" }));
   };
   const typeName = (id: number) => resolvedName($names.resolved, "type", id, String(id));
   const hullName = (hull: ShipTreeHull) => plainText($words.templates[`#${hull.nameID}`] ?? typeName(hull.typeID));
   const skinName = (row: Row) => row.design?.name || "Design unavailable";
   const price = (row: Row) => `${row.amount.toLocaleString()} ${row.currency}`;
-  let section = $state<Section>("all");
+  let selectedSection = $state<Section | null>(null);
+  const section = $derived(selectedSection ?? (linked || !requestedHull ? "all" : emphasizedHull ? "emphasized" : "active"));
   let hull = $state(0);
   let membership = $state<0 | 1 | 2>(0);
   let ascending = $state(false);
@@ -68,9 +76,10 @@
   const hulls = $derived([...catalogue].sort((a, b) => hullName(a).localeCompare(hullName(b))));
   const membershipFilter = $derived(section === "corporation" || section === "alliance");
   const allowHull = $derived(section === "all" || membershipFilter);
-  const query = $derived<ShipSkinrBrowseQuery | null>(section === "owned" || (section === "active" && !activeHull) ||
+  const query = $derived<ShipSkinrBrowseQuery | null>(section === "owned" || (section === "active" && !defaultHull) ||
+    (section === "emphasized" && !emphasizedHull) ||
     (section === "alliance" && !alliance) ? null : {
-    target: targets[section], hull: section === "active" ? activeHull : allowHull ? hull : undefined,
+    target: targets[section], hull: section === "emphasized" ? emphasizedHull : section === "active" ? defaultHull : allowHull ? hull : undefined,
     membership: membershipFilter && membership ? membership : undefined, ascending,
   });
   let cursors = $state.raw<readonly (string | undefined)[]>([undefined]);
@@ -93,6 +102,7 @@
   $effect(() => { pinned = linked; });
   $effect(() => {
     if (section === "alliance" && !alliance) choose("all");
+    if (section === "emphasized" && !emphasizedHull) choose("active");
   });
 
   $effect(() => {
@@ -146,7 +156,7 @@
   function choose(next: Section) {
     if (section === next) return;
     pinned = null;
-    section = next;
+    selectedSection = next;
     hull = 0;
     membership = 0;
   }
@@ -171,8 +181,8 @@
 
 <nav class="store-sections" aria-label="Paragon Hub sections">
   {#each sections as key (key)}
-    {#if (key !== "alliance" || alliance) && (key !== "active" || activeHull)}
-      <button type="button" aria-pressed={section === key} onclick={() => choose(key)}>{word(key)}</button>
+    {#if (key !== "alliance" || alliance) && (key !== "active" || defaultHull) && (key !== "emphasized" || emphasizedHull)}
+      <button type="button" data-skinr-section={key} aria-pressed={section === key} onclick={() => choose(key)}>{word(key)}</button>
     {/if}
   {/each}
 </nav>
@@ -204,7 +214,7 @@
     {#if allowHull && hullError}<p role="status">{hullError}</p>{/if}
     {#if loading}<p>Loading listings…</p>
     {:else if error}<p role="alert">{error}</p>
-    {:else if !shown.length}<p>{section === "active" && !activeHull ? "No active ship." : "No listings."}</p>{/if}
+    {:else if !shown.length}<p>{section === "active" && !defaultHull ? "No active ship." : "No listings."}</p>{/if}
     <div class="browse-body">
       <ul>
         {#each shown as row (row.id)}

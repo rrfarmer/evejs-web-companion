@@ -8,4 +8,5 @@ export interface InfoWindowHost {
   reveal(): void;
   closeTab?(id: TabID): void;
   toggleShipSkinr?(): void;
+  openParagonHub?(shipTypeID: number): void;
 }

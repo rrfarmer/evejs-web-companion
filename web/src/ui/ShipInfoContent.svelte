@@ -15,13 +15,15 @@
   import { showMarketDetails } from "./marketDetails.ts";
   import ShipInfoAttributes from "./ShipInfoAttributes.svelte";
   import ShipInfoPreview from "./ShipInfoPreview.svelte";
+  import ShipParagonHub from "./ShipParagonHub.svelte";
   import ShipTraits from "./ShipTraits.svelte";
   import ShowInfo from "./ShowInfo.svelte";
   import { clientTexture } from "./skillGroupIcons.ts";
 
-  let { store, flow, subject, typeID, expanded, active, height, requirementsRequest, skinsRequest }: {
+  let { store, flow, subject, typeID, expanded, active, height, requirementsRequest, skinsRequest, openParagonHub }: {
     store: ClientStore; flow: AppFlow; subject: ReadableSignal<InfoSubject | null>;
     typeID: number; expanded: boolean; active: boolean; height: number; requirementsRequest?: number; skinsRequest?: number;
+    openParagonHub?: (shipTypeID: number) => void;
   } = $props();
   // svelte-ignore state_referenced_locally
   const { words, names, space } = store;
@@ -177,6 +179,7 @@
       <InfoShipRequirements {store} {flow} {typeID} includeNavigation={false} />
     {:else if tab === "skins"}
       <div class="ship-info-skins" data-preview-material={skinPreview}>
+        {#if openParagonHub}<ShipParagonHub {store} {flow} {typeID} open={openParagonHub} />{/if}
         {#if skinReadFailed}
           <p role="status">The ship’s SKIN catalog is unavailable.</p>
         {:else if skins === null}
