@@ -14548,6 +14548,7 @@ app.get("/api/client-data/system-objects/:id", requireAuth, (req, res, next) => 
     const GROUP_STARGATE = 10;
     const named = read.celestials.filter((row) => row.celestialNameID !== null && row.groupID !== GROUP_STARGATE);
     const names = named.length > 0 ? clientWords.messages(named.map((row) => Number(row.celestialNameID))) : {};
+    const position = (row) => req.query.position === "1" ? { position: [row.x, row.y, row.z] } : {};
     const objects = [
       ...read.celestials.map((row) => ({
         itemID: row.celestialID,
@@ -14556,6 +14557,7 @@ app.get("/api/client-data/system-objects/:id", requireAuth, (req, res, next) => 
         orbitID: row.orbitID,
         celestialIndex: row.celestialIndex,
         orbitIndex: row.orbitIndex,
+        ...position(row),
         ...(row.groupID === GROUP_STARGATE ? { destinationID: row.celestialNameID } : {}),
         ...(row.celestialNameID !== null && row.groupID !== GROUP_STARGATE ? { name: names[String(row.celestialNameID)] ?? null } : {}),
       })),
@@ -14567,6 +14569,7 @@ app.get("/api/client-data/system-objects/:id", requireAuth, (req, res, next) => 
         orbitID: row.orbitID,
         celestialIndex: row.celestialIndex,
         orbitIndex: row.orbitIndex,
+        ...position(row),
       })),
     ];
     res.json({ ok: true, available: true, objects });

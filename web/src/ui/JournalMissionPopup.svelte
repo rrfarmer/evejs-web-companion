@@ -22,9 +22,10 @@
   import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
-  let { store, flow, agentID, openSerial, onClose, onShowSystem, onFittedRestrictions }: {
+  let { store, flow, agentID, openSerial, onClose, onShowSystem, onShowMapBrowser, onFittedRestrictions }: {
     store: ClientStore; flow: AppFlow; agentID: number; openSerial: number; onClose: () => void;
     onShowSystem: (id: number) => void;
+    onShowMapBrowser: (id: number) => void;
     onFittedRestrictions: (listID: number, nameID: number | null) => void;
   } = $props();
   const agents = $derived(store.agents), names = $derived(store.names), words = $derived(store.words);
@@ -98,7 +99,7 @@
     return path ? clientTexture(path) : null;
   }
   function followerOf(url: string, text: string): LinkFollower | null {
-    return missionLinkFollower(url, flow, linkWord, text, docked ? { store, menu: bookmarkMenu, onShowSystem } : undefined);
+    return missionLinkFollower(url, flow, linkWord, text, docked ? { store, menu: bookmarkMenu, onShowSystem, onShowMapBrowser } : undefined);
   }
 
   const client = $derived.by<ClientWording>(() => {

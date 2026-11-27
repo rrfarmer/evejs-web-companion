@@ -228,6 +228,7 @@
   import { windowOnMissionChange } from "../bridge/agents.ts";
   import { agentConversationIsSinglePane } from "../bridge/missionTime.ts";
   import AgentsMissions from "./AgentsMissions.svelte";
+  import MapBrowser from "./MapBrowser.svelte";
   import FittedModuleRestrictions from "./FittedModuleRestrictions.svelte";
   import type { MySovHub, SovHubDetails, SovHubExtras } from "../app/flow.ts";
 
@@ -311,6 +312,7 @@
     journalPopups = [];
     journalConversations = [];
     fittedRestrictions = null;
+    mapBrowserRequest = null;
   });
   function focusJournal(w: JournalPopupWindow): void {
     w.z = topZ() + 1;
@@ -2497,6 +2499,7 @@
   // view) open it over the view and close it again; Escape closes it.
   let starMap: StarMap | null = null;
   let mapInFront = $state(false);
+  let mapBrowserRequest = $state.raw<{ systemID: number } | null>(null);
   let requestedMapMode: StarMapColorMode = "empire";
   let requestedMapSystem: number | null = null;
   let mapFilters: ReturnType<typeof mountStarMapFilterControls> | null = null;
@@ -2689,6 +2692,9 @@
     mapInFront = true;
     toggleStarMap(true);
     starMap?.select(systemID);
+  }
+  function showSystemInMapBrowser(systemID: number) {
+    mapBrowserRequest = { systemID };
   }
   function toggleStarMap(show = !starMap, mode?: StarMapColorMode) {
     if (!show) {
@@ -5136,6 +5142,10 @@
   {/if}
   <!-- the star map's host, over the hangar or space and under the windows -->
   <div class="fly-map" class:foreground={mapInFront} bind:this={mapHost}></div>
+  {#if session && mapBrowserRequest}
+    <MapBrowser store={session.store} flow={session.flow} request={mapBrowserRequest} onShowSystem={showSystemOnMap}
+      onClose={() => { mapBrowserRequest = null; }} />
+  {/if}
   {#if planetInMode}
     {#key planetInMode.planetID}
       <PlanetMode bind:this={planetModeView} colony={planetInMode} store={session.store} flow={session.flow}
@@ -5215,7 +5225,8 @@
         onMove={(x, y) => Object.assign(popup, { x, y })} onResizeRect={rect => Object.assign(popup, rect)}
         onGeometryCommit={() => keepPlace(popup)} minWidth={420} minHeight={400}>
         <JournalMissionPopup store={session.store} flow={session.flow} agentID={popup.agentID} openSerial={popup.serial}
-          onClose={() => closeJournal(popup)} onShowSystem={showSystemOnMap} onFittedRestrictions={openFittedRestrictions} />
+          onClose={() => closeJournal(popup)} onShowSystem={showSystemOnMap} onShowMapBrowser={showSystemInMapBrowser}
+          onFittedRestrictions={openFittedRestrictions} />
       </DesktopWindow>
     {/each}
     {#each journalConversations as popup (popup.id)}
@@ -5231,7 +5242,7 @@
           onGeometryCommit={() => keepPlace(popup)} resizeWidth={!singlePane} minWidth={singlePane ? frame.w : 835} minHeight={545}>
           {#key popup.serial}<AgentsMissions store={session.store} flow={session.flow} conversationAgentID={popup.agentID}
             onConversationClose={() => closeJournalConversation(popup)} onFittedRestrictions={openFittedRestrictions}
-            onShowSystem={showSystemOnMap} />{/key}
+            onShowSystem={showSystemOnMap} onShowMapBrowser={showSystemInMapBrowser} />{/key}
         </DesktopWindow>
     {/each}
     {#if fittedRestrictions}

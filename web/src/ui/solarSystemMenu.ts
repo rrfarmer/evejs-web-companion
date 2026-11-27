@@ -28,6 +28,7 @@ export const solarSystemMenuWords = Object.values(labels).map(([path]) => path);
 export function solarSystemMenu(
   store: ClientStore, flow: AppFlow, id: number, systemName: () => string,
   onBookmark: ((place: BookmarkPlace) => void) | null, onShowSystem?: (id: number) => void,
+  onShowMapBrowser?: (id: number) => void,
 ): (ContextEntry | null)[] {
   const templates = store.words.get().templates;
   const word = (key: keyof typeof labels, args: Record<string, string | number> = {}) => {
@@ -63,7 +64,7 @@ export function solarSystemMenu(
     entries.push(null);
     if (onShowSystem) {
       entries.push(entry("map", () => onShowSystem(id)),
-        entry("mapBrowser", () => onShowSystem(id), { locationType }));
+        entry("mapBrowser", () => (onShowMapBrowser ?? onShowSystem)(id), { locationType }));
     }
     const avoiding = avoidanceItems(flow.autopilotSettings()).includes(id);
     entries.push(entry(avoiding ? "stopAvoiding" : "avoid", () => {

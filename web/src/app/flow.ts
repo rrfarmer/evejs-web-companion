@@ -5164,7 +5164,7 @@ export interface AppFlow {
   /** shipConfigSvc.SetShipConfig (the access toggles on a fleet hangar's or maintenance bay's tree entry). */
   configureShip(key: ShipConfigKey, value: boolean): Promise<void>;
   /** A solar system's celestials and NPC stations, as the client's own map lists them (mapSvc.GetSolarsystemItems). */
-  mapSystemObjects(solarSystemID: number): Promise<{ readonly available: boolean; readonly objects: readonly api.SystemObjectRow[] }>;
+  mapSystemObjects(solarSystemID: number, includePosition?: boolean): Promise<{ readonly available: boolean; readonly objects: readonly api.SystemObjectRow[] }>;
   /**
    * The info window's route to a constellation or a solar system (starMapSvc.ShortestGeneralPath): the autopilot's path
    * from the pilot's system to each of its systems, the shortest, less the system the pilot is in; each system with
@@ -40314,8 +40314,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       });
       return npcNpcStandingsRead;
     },
-    mapSystemObjects(solarSystemID) {
-      return api.getSystemObjects(solarSystemID, callOptions);
+    mapSystemObjects(solarSystemID, includePosition) {
+      return api.getSystemObjects(solarSystemID, callOptions, includePosition);
     },
     async mapLocationRoute(itemID) {
       const sourceID = pilotPlace().solarSystemID;

@@ -577,11 +577,11 @@ function createClientBuiltData({
       const plain = (row) => ({ ...row });
       return {
         celestials: database
-          .prepare("SELECT celestialID, celestialNameID, typeID, groupID, orbitID, orbitIndex, celestialIndex FROM celestials WHERE solarSystemID = ?")
+          .prepare("SELECT celestialID, celestialNameID, typeID, groupID, orbitID, orbitIndex, celestialIndex, x, y, z FROM celestials WHERE solarSystemID = ?")
           .all(solarSystemID)
           .map(plain),
         stations: database
-          .prepare("SELECT stationID, typeID, orbitID, orbitIndex, celestialIndex FROM npcStations WHERE solarSystemID = ?")
+          .prepare("SELECT stationID, typeID, orbitID, orbitIndex, celestialIndex, x, y, z FROM npcStations WHERE solarSystemID = ?")
           .all(solarSystemID)
           .map(plain),
       };

@@ -99,7 +99,7 @@ export interface LinkFollower {
 
 /** A mission's station link includes the instance as well as its type. */
 export function missionLinkFollower(url: string, flow: AppFlow, word: (label: string) => string, text: string,
-  bookmark?: { store: ClientStore; menu: ContextMenu; onShowSystem?: (id: number) => void }): LinkFollower | null {
+  bookmark?: { store: ClientStore; menu: ContextMenu; onShowSystem?: (id: number) => void; onShowMapBrowser?: (id: number) => void }): LinkFollower | null {
   const destination = linkScheme(url) === "showinfo" ? parseShowInfoUrl(url) : null;
   if (destination?.itemID != null && destination.itemID >= 60_000_000 && destination.itemID < 64_000_000) {
     const { typeID, itemID } = destination;
@@ -114,7 +114,7 @@ export function missionLinkFollower(url: string, flow: AppFlow, word: (label: st
     const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const pointer = event instanceof MouseEvent && (event.clientX !== 0 || event.clientY !== 0);
     bookmark.menu.open(pointer ? event.clientX : bounds.left, pointer ? event.clientY : bounds.bottom,
-      solarSystemMenu(bookmark.store, flow, system, () => text, null, bookmark.onShowSystem));
+      solarSystemMenu(bookmark.store, flow, system, () => text, null, bookmark.onShowSystem, bookmark.onShowMapBrowser));
   } };
 }
 

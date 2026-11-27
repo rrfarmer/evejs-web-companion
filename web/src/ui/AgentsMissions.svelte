@@ -47,10 +47,11 @@
   import { filetimeOf, journalRowAsks, journalRowText, journalRowWords } from "../bridge/journalWords.ts";
   import { agentMissionTrackable, isAgentMissionTracked, toggleTrackedAgentMission, trackedJobsChanged } from "./jobTracking.ts";
 
-  let { store, flow, conversationAgentID = null, onConversationClose, onFittedRestrictions, onShowSystem }: {
+  let { store, flow, conversationAgentID = null, onConversationClose, onFittedRestrictions, onShowSystem, onShowMapBrowser }: {
     store: ClientStore; flow: AppFlow; conversationAgentID?: number | null; onConversationClose?: () => void;
     onFittedRestrictions?: (listID: number, nameID: number | null) => void;
     onShowSystem?: (id: number) => void;
+    onShowMapBrowser?: (id: number) => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -507,7 +508,7 @@
   }
   function objectiveFollower(url: string, text: string) {
     return missionLinkFollower(url, flow, label => plainText($words.templates[label] ?? LINK_WORDS[label] ?? ""), text,
-      docked ? { store, menu: bookmarkMenu, onShowSystem } : undefined);
+      docked ? { store, menu: bookmarkMenu, onShowSystem, onShowMapBrowser } : undefined);
   }
   $effect(() => {
 

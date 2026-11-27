@@ -4520,6 +4520,7 @@ export interface SystemObjectRow {
   readonly orbitID: number | null;
   readonly celestialIndex: number | null;
   readonly orbitIndex: number | null;
+  readonly position?: readonly [number, number, number];
   /** A stargate's: the system it leads to (its celestialNameID). */
   readonly destinationID?: number | null;
   /** A celestial's name of its own (its celestialNameID's message), where it has one. */
@@ -4527,8 +4528,8 @@ export interface SystemObjectRow {
 }
 
 /** A solar system's celestials and NPC stations from the client's own map; `available` is false where it cannot be read. */
-export async function getSystemObjects(solarSystemID: number, options: ApiOptions = {}): Promise<{ readonly available: boolean; readonly objects: readonly SystemObjectRow[] }> {
-  const data = await getJson(`/api/client-data/system-objects/${solarSystemID}`, options);
+export async function getSystemObjects(solarSystemID: number, options: ApiOptions = {}, includePosition = false): Promise<{ readonly available: boolean; readonly objects: readonly SystemObjectRow[] }> {
+  const data = await getJson(`/api/client-data/system-objects/${solarSystemID}${includePosition ? "?position=1" : ""}`, options);
   const whole = (value: JsonValue | undefined): number | null => (typeof value === "number" && Number.isSafeInteger(value) ? value : null);
   const objects: SystemObjectRow[] = [];
   for (const raw of Array.isArray(data.objects) ? data.objects : []) {
@@ -4537,6 +4538,7 @@ export async function getSystemObjects(solarSystemID: number, options: ApiOption
     const itemID = whole(row.itemID);
     const typeID = whole(row.typeID);
     if (itemID === null || typeID === null) continue;
+    const position = row.position;
     objects.push({
       itemID,
       typeID,
@@ -4544,6 +4546,8 @@ export async function getSystemObjects(solarSystemID: number, options: ApiOption
       orbitID: whole(row.orbitID),
       celestialIndex: whole(row.celestialIndex),
       orbitIndex: whole(row.orbitIndex),
+      ...(Array.isArray(position) && position.length === 3 && position.every((value): value is number => typeof value === "number" && Number.isFinite(value))
+        ? { position: [position[0]!, position[1]!, position[2]!] as const } : {}),
       ...("destinationID" in row ? { destinationID: whole(row.destinationID) } : {}),
       ...("name" in row ? { name: typeof row.name === "string" ? row.name : null } : {}),
     });
