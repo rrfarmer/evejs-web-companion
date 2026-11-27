@@ -35,6 +35,8 @@ export const CHARACTER_SHEET_POINTERS = {
   titles: "unique_UI_titlesTab",
   standings: "unique_UI_standingsTabInCharactersheet",
   securityStatus: "unique_UI_securityStatusTab",
+  combatLog: "unique_UI_combatLogTab",
+  combatFilter: "unique_UI_showKillsLosses",
 } as const;
 
 export const FITTING_POINTERS = {

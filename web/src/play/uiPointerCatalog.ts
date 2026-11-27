@@ -28,6 +28,8 @@ const characterSheetTabs: readonly UiPointerTarget[] = ([
   [sheet.titles, "Titles", sheet.decorations],
   [sheet.standings, "Standings", sheet.interactions],
   [sheet.securityStatus, "Security Status", sheet.interactions],
+  [sheet.combatLog, "Combat Log", sheet.interactions],
+  [sheet.combatFilter, "Show Kills/Losses", sheet.combatLog],
 ] as const).map(([name, label, parent]) => ({ name, label, icon: tabIcon, parent }));
 const fittingStats: readonly UiPointerTarget[] = ([
   [FITTING_POINTERS.capacitor, "Capacitor"],

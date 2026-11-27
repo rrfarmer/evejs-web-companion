@@ -31,29 +31,32 @@ function idOf(value: JsonValue | undefined): number | null {
 /** The kills of a GetRecentKills / GetRecentLosses answer (a CRowset) or of a war's GetKills (warReport.py 395: the
  * client reads each kill by attribute, so a list of KeyVals as EveJS sends serves it as well), as the server ordered
  * them; [] for none or a malformed one. */
-export function decodeKillReports(result: JsonValue | null | undefined): KillReport[] {
+export function killReportRows(result: JsonValue | null | undefined): readonly JsonValue[] {
   const rowset = unwrapCachedResult((result ?? null) as JsonValue) as { list?: unknown } | null;
-  const list = isListValue(rowset) ? (rowset.items as JsonValue[])
+  return isListValue(rowset) ? (rowset.items as JsonValue[])
     : rowset && typeof rowset === "object" && !Array.isArray(rowset) && Array.isArray(rowset.list) ? (rowset.list as JsonValue[]) : [];
-  const out: KillReport[] = [];
-  for (const row of list) {
-    const killID = idOf(readRowField(row, "killID"));
-    if (killID === null) continue;
-    const time = readRowField(row, "killTime");
-    out.push({
-      killID,
-      solarSystemID: idOf(readRowField(row, "solarSystemID")),
-      victimCharacterID: idOf(readRowField(row, "victimCharacterID")),
-      victimCorporationID: idOf(readRowField(row, "victimCorporationID")),
-      victimAllianceID: idOf(readRowField(row, "victimAllianceID")),
-      victimShipTypeID: idOf(readRowField(row, "victimShipTypeID")),
-      finalCharacterID: idOf(readRowField(row, "finalCharacterID")),
-      finalCorporationID: idOf(readRowField(row, "finalCorporationID")),
-      finalAllianceID: idOf(readRowField(row, "finalAllianceID")),
-      finalShipTypeID: idOf(readRowField(row, "finalShipTypeID")),
-      finalWeaponTypeID: idOf(readRowField(row, "finalWeaponTypeID")),
-      killTimeMs: filetimeToUnixMs(unwrapLong(time)),
-    });
-  }
-  return out;
+}
+
+export function decodeKillReport(row: JsonValue): KillReport | null {
+  const killID = idOf(readRowField(row, "killID"));
+  if (killID === null) return null;
+  const time = readRowField(row, "killTime");
+  return {
+    killID,
+    solarSystemID: idOf(readRowField(row, "solarSystemID")),
+    victimCharacterID: idOf(readRowField(row, "victimCharacterID")),
+    victimCorporationID: idOf(readRowField(row, "victimCorporationID")),
+    victimAllianceID: idOf(readRowField(row, "victimAllianceID")),
+    victimShipTypeID: idOf(readRowField(row, "victimShipTypeID")),
+    finalCharacterID: idOf(readRowField(row, "finalCharacterID")),
+    finalCorporationID: idOf(readRowField(row, "finalCorporationID")),
+    finalAllianceID: idOf(readRowField(row, "finalAllianceID")),
+    finalShipTypeID: idOf(readRowField(row, "finalShipTypeID")),
+    finalWeaponTypeID: idOf(readRowField(row, "finalWeaponTypeID")),
+    killTimeMs: filetimeToUnixMs(unwrapLong(time)),
+  };
+}
+
+export function decodeKillReports(result: JsonValue | null | undefined): KillReport[] {
+  return killReportRows(result).map(decodeKillReport).filter(row => row !== null);
 }

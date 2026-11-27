@@ -531,6 +531,7 @@ import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from ".
 import { convertTyped, DATE_LABELS, formatInterval, formatTemplate, LIST_DELIMITER, plainText, QUANTITY_AND_ITEM } from "../bridge/clientWords.ts";
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
 import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts";
+import { decodeCombatLog, type CombatLogReport } from "../bridge/combatLog.ts";
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
 import { decodeWars, type CorpWar, type WarAlly } from "../bridge/corpWars.ts";
 
@@ -3219,6 +3220,7 @@ export interface AppFlow {
   corporationApplications(): Promise<readonly CorporationApplication[]>;
   /** CorpKillReports: corpRegistry.GetRecentKills / GetRecentLosses(NUM_KILL_ENTRIES, offset), the names its rows show primed. */
   corporationKillReports(kind: "kills" | "losses", count: number, offset: number | null): Promise<readonly KillReport[]>;
+  personalCombatLog(kind: "kills" | "losses", offset: number | null): Promise<readonly CombatLogReport[]>;
   /** CorpUIBulletins: corpRegistry.GetBulletins(), its editors' names primed (GetBulletinEntries' BulletinPostedBy). */
   corporationBulletins(alliance?: boolean): Promise<readonly CorpBulletin[]>;
   /** FormAlliancesMembers.ShowMembers: alliance.GetMembers() (the alliance moniker's CIndexedRowset by corporationID),
@@ -41519,6 +41521,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     corporationApplicationDecision,
     corporationApplicationsExpanded,
     corporationKillReports,
+    async personalCombatLog(kind, offset) {
+      const current = callOptions.captureRequestGuard!();
+      const characterID = store.station.get().online?.characterID;
+      if (!characterID) return [];
+      const result = await bridgeAsk("charMgr", "GetRecentShipKillsAndLosses", [25, offset]);
+      current();
+      return decodeCombatLog(result).filter(row => characterID === (kind === "kills" ? row.finalCharacterID : row.victimCharacterID));
+    },
     corporationTickerSuggestions,
     createCorporation,
     addCorporationBulletin,
