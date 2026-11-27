@@ -106,6 +106,7 @@
   import PointerOverlay from "./PointerOverlay.svelte";
   import SharedPointerGuide from "./SharedPointerGuide.svelte";
   import ChatInvitations from "./ChatInvitations.svelte";
+  import DirectTradeWindows from "./DirectTradeWindows.svelte";
   import { stationOffersRepair } from "../bridge/repairShop.ts";
   import { structureHasCapability } from "../nav/dockableLocation.ts";
   import { cloneBayAvailable } from "../bridge/jumpClones.ts";
@@ -4892,6 +4893,9 @@
   <ErrorBoundary name="Client dialogs"><ClientDialogs {session} inFront={true} /></ErrorBoundary>
   {#key session.id}
     <ErrorBoundary name="Chat invitations"><ChatInvitations {session} inFront={true} /></ErrorBoundary>
+    <ErrorBoundary name="Direct trades">
+      <div class="trade-window-layer fly-trades"><DirectTradeWindows {session} inFront={true} /></div>
+    </ErrorBoundary>
   {/key}
   <ErrorBoundary name="Scanner results"><ScannerWindows {session} inFront={true} /></ErrorBoundary>
   <ErrorBoundary name="Info windows"><InfoWindows {session} inFront={true} host={windowsEl ? infoHost : null} /></ErrorBoundary>
@@ -4994,7 +4998,7 @@
   .fly-sovhub { position: fixed; inset: 0; z-index: 30; pointer-events: none; }
   .fly-sovhub > :global(*) { pointer-events: auto; }
   .fly-windows { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
-  .fly-invitations { --char-bar-h: 0px; }
+  .fly-invitations, .fly-trades { --char-bar-h: 0px; }
   .fly-fade { position: fixed; inset: 0; background: #000; pointer-events: none; z-index: 15; opacity: 0; }
   /* the layer's windows take the pointer; the info windows' own full-size layer does not (its windows do) */
   .fly-windows :global(> :not(.info-window-layer, .calendar-window-layer)) { pointer-events: auto; }

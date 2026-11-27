@@ -2,6 +2,13 @@
 import blue
 from eve.client.script.ui.shared.dockedUI.lobbyWnd import GUESTSPANEL, LobbyWnd
 
+social_actions = {
+    'trade': 'UI/Market/TradeWithCharacter',
+    'conversation': 'UI/Chat/StartConversation',
+    'formFleet': 'UI/Fleet/FormFleetWith',
+    'inviteFleet': 'UI/Fleet/InvitePilotToFleet',
+}
+
 lobby = LobbyWnd.GetIfOpen()
 if not lobby:
     raise RuntimeError('Docked lobby is not open')
@@ -32,7 +39,8 @@ try:
             else:
                 label = entry.GetTextDescriptive()
             labels.append(unicode(label))
-        samples.append({'pilot': node.charID, 'name': node.label, 'self': node.charID == session.charid, 'menu': labels})
+        samples.append({'pilot': node.charID, 'name': node.label, 'self': node.charID == session.charid,
+                        'menu': labels, 'socialActions': [key for key in sorted(social_actions) if social_actions[key] in labels]})
     result = {'station': session.stationid, 'structure': session.structureid, 'rows': samples}
 finally:
     if previous_tab and previous_tab != GUESTSPANEL:

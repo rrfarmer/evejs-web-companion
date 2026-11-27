@@ -1,5 +1,5 @@
 // pvptradesvc26-51; TQ In station trade41-48: a server-returned Moniker,
-// followed by a lazy carried List and a carbon Row, rather than util.KeyVal.
+// followed by a lazy carried List and a carbon Row. EveJS sends the same fields as util.Row.
 import type { Ask } from "./ask.ts";
 import { isListValue, readDictEntry, unwrapLong, type JsonValue } from "./wire.ts";
 
@@ -40,7 +40,7 @@ export function tradeMonikerOf(value: JsonValue): TradeMoniker | null {
 }
 function rowField(row: JsonValue, name: string): JsonValue | undefined {
   const record = objectOf(row);
-  if (record === null || record.type !== "object" || record.name !== "carbon.common.script.sys.row.Row") return undefined;
+  if (record?.type !== "object" || (record.name !== "carbon.common.script.sys.row.Row" && record.name !== "util.Row")) return undefined;
   const header = readDictEntry(record.args, "header"), line = readDictEntry(record.args, "line");
   if (!isListValue(header) || !isListValue(line)) return undefined;
   const at = header.items.indexOf(name);
