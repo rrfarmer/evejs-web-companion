@@ -2759,24 +2759,40 @@ function createGamePortPilots({
       }
     }
     if (service === "sharedSettingsMgr") {
-      // This page exposes only item-filter links (sharedSettings.SHARED_SETTING_ITEMS).
-      const invalid = () => fail("CALL_INVALID", "Expected a shared item filter or its link key.");
+      const invalid = () => fail("CALL_INVALID", "Expected shared item filters, fleet broadcast settings, or their link key.");
       if (kwargs !== null) throw invalid();
       if (method === "StoreSettingLinkAndGetID") {
         const [kind, filter] = args;
-        if (args.length !== 2 || kind !== 2 || !Array.isArray(filter) || filter.length !== 3) throw invalid();
-        const [name, match, conditions] = filter;
-        if (typeof name !== "string" || !name.trim() || (match !== 1 && match !== 2) ||
-            !Array.isArray(conditions) || !conditions.length || !conditions.every(row => Array.isArray(row) && row.length === 3 &&
-              Number.isSafeInteger(row[0]) && Number.isSafeInteger(row[1]) &&
-              (typeof row[2] === "string" || typeof row[2] === "boolean" || Number.isFinite(row[2])))) throw invalid();
-        const unicode = value => typeof value === "string" ? { type: "wstring", value } : value;
-        args = [kind, { type: "dict", entries: [["filter", { type: "tuple", items: [unicode(name), match,
-          { type: "list", items: conditions.map(row => ({ type: "list", items: row.map(unicode) })) }] }]] }];
+        if (kind === 3) {
+          // states.py broadcast flags, the generic Event (-1), and BROADCAST_SHOW_OWN.
+          const validFlags = new Set([-1, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 69, "ShowOwnBroadcasts"]);
+          const used = new Set();
+          if (args.length !== 2 || !Array.isArray(filter) || !filter.length || filter.length > validFlags.size) throw invalid();
+          const rows = filter.map(row => {
+            if (!Array.isArray(row) || row.length !== 3) throw invalid();
+            const [flag, checked, color] = row;
+            if (!validFlags.has(flag) || used.has(flag) || typeof checked !== "boolean" ||
+                (color !== null && (flag === "ShowOwnBroadcasts" || !Array.isArray(color) || color.length !== 3 ||
+                  !color.every(channel => typeof channel === "number" && Number.isFinite(channel) && channel >= 0 && channel <= 1)))) throw invalid();
+            used.add(flag);
+            return { type: "tuple", items: [flag, checked, color === null ? null : { type: "tuple", items: color }] };
+          });
+          args = [kind, { type: "dict", entries: [["broadcastSettings", { type: "list", items: rows }]] }];
+        } else {
+          if (args.length !== 2 || kind !== 2 || !Array.isArray(filter) || filter.length !== 3) throw invalid();
+          const [name, match, conditions] = filter;
+          if (typeof name !== "string" || !name.trim() || (match !== 1 && match !== 2) ||
+              !Array.isArray(conditions) || !conditions.length || !conditions.every(row => Array.isArray(row) && row.length === 3 &&
+                Number.isSafeInteger(row[0]) && Number.isSafeInteger(row[1]) &&
+                (typeof row[2] === "string" || typeof row[2] === "boolean" || Number.isFinite(row[2])))) throw invalid();
+          const unicode = value => typeof value === "string" ? { type: "wstring", value } : value;
+          args = [kind, { type: "dict", entries: [["filter", { type: "tuple", items: [unicode(name), match,
+            { type: "list", items: conditions.map(row => ({ type: "list", items: row.map(unicode) })) }] }]] }];
+        }
       } else {
         const [key] = args;
         if (args.length !== 1 || !Array.isArray(key) || key.length !== 3 || typeof key[0] !== "string" ||
-            !/^[0-9a-f]{40}$/.test(key[0]) || positive(key[1]) === null || key[2] !== 2) throw invalid();
+            !/^[0-9a-f]{40}$/.test(key[0]) || positive(key[1]) === null || (key[2] !== 2 && key[2] !== 3)) throw invalid();
         args = [{ type: "tuple", items: key }];
       }
     }

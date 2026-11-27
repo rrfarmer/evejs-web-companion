@@ -355,6 +355,8 @@ import { highestQueuedLevel, queueAfter, type SkillMenuEntry } from "../bridge/s
 import type { SkillRowInfo } from "../bridge/skillPlans.ts";
 import { parseSkillPlanUrl } from "../bridge/skillPlanLink.ts";
 import { readSharedInventoryFilter, shareInventoryFilter, type InventoryFilter } from "../bridge/inventoryFilters.ts";
+import { parseFleetBroadcastSettingsUrl, readFleetBroadcastSettings, storeFleetBroadcastSettings, type BroadcastSettingRow } from "../bridge/fleetBroadcastSettingsLink.ts";
+import { broadcastPreferencesOf, saveBroadcastShareName, saveFleetBroadcastPreferences } from "../ui/fleetBroadcastPreferences.ts";
 import { overviewPresetUrl, parseOverviewPresetUrl, readStoredOverviewProfile, storeOverviewProfile } from "../bridge/overviewProfileLink.ts";
 
 /** A skill plan link followed: its plan's id (a certified plan's a whole number, the others' a uuid) and owner. */
@@ -1961,7 +1963,8 @@ export type DroppedLink =
   /** The overview Settings' Share handle (fakeentry.OverviewProfile): the overview's name and GetOverviewDataForSave. */
   | { readonly kind: "overviewProfile"; readonly text: string; readonly data: Readonly<Record<string, unknown>> }
   /** FilterCreationWindow's share handle (ItemFilterDragData): the filter's name and the filter, shared as it is dropped. */
-  | { readonly kind: "itemFilter"; readonly text: string; readonly filter: InventoryFilter };
+  | { readonly kind: "itemFilter"; readonly text: string; readonly filter: InventoryFilter }
+  | { readonly kind: "fleetBroadcastSettings"; readonly text: string; readonly rows: readonly BroadcastSettingRow[] };
 
 /** The text a link is dropped on: its length now (its tags counted), how much of it is selected, its most. */
 export interface LinkDropRoom {
@@ -5208,6 +5211,8 @@ export interface AppFlow {
   shareInventoryFilter(filter: InventoryFilter): Promise<string>;
   readSharedInventoryFilter(url: string): Promise<InventoryFilter>;
   followInventoryFilterLink(url: string): Promise<boolean>;
+  shareFleetBroadcastSettings(rows: readonly BroadcastSettingRow[]): Promise<string | null>;
+  followFleetBroadcastSettings(url: string, text: string): Promise<void>;
   /** preset_link.handle_link: an overviewPreset link followed (LoadSharedOverviewProfile). */
   followOverviewPresetLink(url: string, text: string | null): Promise<void>;
   takeInventoryFilterLink(): InventoryFilter | null;
@@ -14684,8 +14689,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function droppedLinkMarkup(given: DroppedLink, room: LinkDropRoom): Promise<string | null> {
     let url: string;
     let text: string;
-    let dropped: Exclude<DroppedLink, { readonly kind: "fittingSource" } | { readonly kind: "overviewProfile" } | { readonly kind: "itemFilter" }>;
-    if (given.kind === "itemFilter") {
+    let dropped: Extract<DroppedLink, { readonly kind: "link" | "fitting" }>;
+    if (given.kind === "fleetBroadcastSettings") {
+      const url = await shareFleetBroadcastSettings(given.rows);
+      if (!url) return null;
+      dropped = { kind: "link", url, text: given.text };
+    } else if (given.kind === "itemFilter") {
       // ItemFilterDragData.get_link: sharedSettingsMgr.StoreSettingLinkAndGetID of the filter, the link its url and name
       let url: string;
       try { url = await shareInventoryFilter(bridgeDo, given.filter); } catch { sayDialog("ItemFilterLoadingError", null, "The item filter could not be shared."); return null; }
@@ -14740,6 +14749,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
         if (parseCombatReportUrl(url) === null) return null;
         text = labelEscaped(text);
       }
+      if (parseFleetBroadcastSettingsUrl(url)) text = labelEscaped(text);
     }
     // AddLink: StripTags(text, stripOnly=['localized']).
     const markup = `<a href="${url}">${text.replace(/<\/?localized\b[^>]*>/gi, "")}</a>`;
@@ -14837,6 +14847,31 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   const inventoryFilterLinks = createSignal<InventoryFilter | null>(null);
+  async function shareFleetBroadcastSettings(rows: readonly BroadcastSettingRow[]): Promise<string | null> {
+    try { return await storeFleetBroadcastSettings(bridgeDo, rows); }
+    catch (error) {
+      if (!isSessionLost(error)) sayDialog("ItemFilterLoadingError", null, "The broadcast settings could not be shared.");
+      return null;
+    }
+  }
+
+  async function followFleetBroadcastSettings(url: string, text: string): Promise<void> {
+    if (!parseFleetBroadcastSettingsUrl(url)) return;
+    const current = callOptions.captureRequestGuard!();
+    if (!(await askDialog("ConfirmLoadBroadcastSettings", null, "Replace your Fleet Broadcast Settings with these settings?", "yesno", { defaultAnswer: "no" }))) return;
+    try {
+      current();
+      const rows = await readFleetBroadcastSettings(bridgeAsk, url);
+      current();
+      const character = onlineCharacterID();
+      if (character === null) return;
+      saveFleetBroadcastPreferences(store.session.get().accountID, broadcastPreferencesOf(rows));
+      saveBroadcastShareName(character, text);
+      window.dispatchEvent(new CustomEvent("evejs:fleet-broadcast-settings", { detail: { character } }));
+    } catch (error) {
+      if (!isSessionLost(error)) sayDialog("ItemFilterLoadingError", null, "The broadcast settings could not be loaded.");
+    }
+  }
   async function followInventoryFilterLink(url: string): Promise<boolean> {
     const current = callOptions.captureRequestGuard!();
     if (!(await askDialog("OpenItemFilterSetting", null, "Open this shared item filter?", "yesno",
@@ -39949,6 +39984,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     shareInventoryFilter: filter => shareInventoryFilter(bridgeDo, filter),
     readSharedInventoryFilter: url => readSharedInventoryFilter(bridgeAsk, url),
     followInventoryFilterLink,
+    shareFleetBroadcastSettings,
+    followFleetBroadcastSettings,
     followOverviewPresetLink,
     takeInventoryFilterLink,
     followWebLink,

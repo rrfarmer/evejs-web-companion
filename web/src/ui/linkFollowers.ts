@@ -17,6 +17,7 @@
 import type { AppFlow } from "../app/flow.ts";
 import { LINK_DRAG_TYPE, parseSkillPlanUrl } from "../bridge/skillPlanLink.ts";
 import { parseInventoryFilterLink } from "../bridge/inventoryFilters.ts";
+import { parseFleetBroadcastSettingsUrl } from "../bridge/fleetBroadcastSettingsLink.ts";
 import { parseOverviewPresetUrl } from "../bridge/overviewProfileLink.ts";
 import { parseHelpPointerUrl } from "../bridge/helpPointerLink.ts";
 import { parseShipSkinrDesignUrl, parseShipSkinrListingUrl } from "../bridge/shipSkinrListingLink.ts";
@@ -74,6 +75,7 @@ export const LINK_WORDS: Readonly<Record<string, string>> = {
   "UI/Commands/ShowInfo": "Show information",
   "UI/Fitting/ShowFitting": "Look at the fitting",
   "UI/Inventory/Filters/SharedItemFilter": "Shared Item Filter",
+  "UI/Fleet/FleetBroadcast/LoadSharedBroadcastSettings": "Load Shared Fleet Broadcast Settings",
   "UI/Overview/ProfileLinkHint": "Overview Profile",
   "UI/Help/HelpPointersTooltip": "Show User Interface Pointer",
   "UI/Personalization/ShipSkins/ShipSkinListingLinkHint": "View SKIN listing in the Paragon Hub",
@@ -98,13 +100,18 @@ export function linkFollowerOf(
   url: string,
   flow: Pick<AppFlow, "followWebLink" | "followFittingLink"> & Partial<Pick<AppFlow,
     "followOverviewPresetLink" | "followShipSkinrListingLink" | "followShipSkinrDesignLink" | "followHyperNetOfferLink" |
-    "followCombatReportLink">>,
+    "followCombatReportLink" | "followFleetBroadcastSettings">>,
   openSkillPlanLink: ((url: string) => void) | null,
   word: (label: string) => string,
   text: string | null = null,
   openInventoryFilterLink: ((url: string) => void) | null = null,
 ): LinkFollower | null {
   const scheme = linkScheme(url);
+  if (scheme === "sharedsetting" && flow.followFleetBroadcastSettings && parseFleetBroadcastSettingsUrl(url)) {
+    const follow = flow.followFleetBroadcastSettings;
+    return { kind: "sharedSetting", hint: word("UI/Fleet/FleetBroadcast/LoadSharedBroadcastSettings"),
+      follow: () => void follow(url, text ?? "").catch(() => {}) };
+  }
   if (scheme === "killreport" && flow.followCombatReportLink && parseCombatReportUrl(url)) {
     const follow = flow.followCombatReportLink;
     return { kind: "killReport", hint: word(COMBAT_REPORT_LABEL),

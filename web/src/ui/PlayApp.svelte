@@ -307,6 +307,14 @@
   $effect(() => { if (spaceContainer) { containerFront = true; activeWinKey = "spaceContainer"; } });
   // tooltipHandler: every hint (an element's title) shown as the client's TooltipGeneric, with its delay and fades
   $effect(() => installClientHints());
+  $effect(() => {
+    const show = (event: Event) => {
+      const character = (event as CustomEvent<{ character: number }>).detail?.character;
+      if (character !== undefined && session?.store.station.get().online?.characterID === character) open("fleetBroadcastSettings");
+    };
+    window.addEventListener("evejs:fleet-broadcast-settings", show);
+    return () => window.removeEventListener("evejs:fleet-broadcast-settings", show);
+  });
   // ghostFittingSvc.SimulateFitting's OpenFittingWindowIfNeeded: a simulation started from elsewhere (an inventory bay's
   // Simulate Fit) shows the Fitting window
   $effect(() => {

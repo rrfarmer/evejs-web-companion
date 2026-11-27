@@ -66,6 +66,7 @@
   import { parseHelpPointerUrl } from "../bridge/helpPointerLink.ts";
   import { ASSET_ITEM_DRAG_MIME, decodeAssetItemDrag } from "./dragDrop.ts";
   import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
+  import { FLEET_BROADCAST_SETTINGS_DRAG, fleetBroadcastDragOf } from "../bridge/fleetBroadcastSettingsLink.ts";
   import { LINK_WORDS, linkFollowerOf, startLinkDrag } from "./linkFollowers.ts";
   import { dragCharacter } from "./characterDrag.ts";
   import { ASKED_KEEPING_YES, DO_NOT_ASK_AGAIN_LABEL, suppressableKey } from "../bridge/dialogSuppression.ts";
@@ -142,7 +143,7 @@
   }
   function mailLinkDragOver(event: DragEvent) {
     const types = event.dataTransfer?.types;
-    if (types?.includes(LINK_DRAG_TYPE) || types?.includes(ASSET_ITEM_DRAG_MIME)) {
+    if (types?.includes(LINK_DRAG_TYPE) || types?.includes(ASSET_ITEM_DRAG_MIME) || types?.includes(FLEET_BROADCAST_SETTINGS_DRAG)) {
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
     }
@@ -168,9 +169,23 @@
   function mailLinksDropped(event: DragEvent) {
     const data = event.dataTransfer;
     const field = event.currentTarget as HTMLTextAreaElement;
-    if (!data || !data.types.some(type => type === LINK_DRAG_TYPE || type === ASSET_ITEM_DRAG_MIME)) return;
+    if (!data || !data.types.some(type => type === LINK_DRAG_TYPE || type === ASSET_ITEM_DRAG_MIME || type === FLEET_BROADCAST_SETTINGS_DRAG)) return;
     event.preventDefault();
     const at = field.selectionDirection === "backward" ? field.selectionStart : field.selectionEnd;
+    const broadcast = fleetBroadcastDragOf(data.getData(FLEET_BROADCAST_SETTINGS_DRAG));
+    if (broadcast) {
+      const original = draftBody;
+      const originalPilot = store.station.get().online?.characterID;
+      void flow.shareFleetBroadcastSettings(broadcast.rows).then(url => {
+        if (url && field.isConnected && draftBody === original && store.station.get().online?.characterID === originalPilot) {
+          insertMailLinks(field, at, [{ url, text: broadcast.text }]);
+        }
+      }).catch(() => {});
+      return;
+    }
+    insertMailLinks(field, at, mailItemLinks(data));
+  }
+  function insertMailLinks(field: HTMLTextAreaElement, at: number, linkRows: readonly { url: string; text: string }[]) {
     const before = draftBody.slice(0, at);
     const after = draftBody.slice(at);
     const leftLinks = draftLinks.filter(link => link.end <= at);
@@ -178,7 +193,7 @@
     const addedLinks: MailDraftLink[] = [];
     const shiftRight = (by: number) => rightLinks.map(link => ({ ...link, start: link.start + by, end: link.end + by }));
     let inserted = "";
-    for (const { url, text } of mailItemLinks(data)) {
+    for (const { url, text } of linkRows) {
       const label = text.replace(/\r\n|\r|\n/g, " ");
       if (!label.trim() || !isMailDraftLink(url)) continue;
       const previous = addedLinks.at(-1);

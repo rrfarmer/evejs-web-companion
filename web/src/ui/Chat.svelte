@@ -21,6 +21,7 @@
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { mailBodyLines } from "../bridge/mailMarkup.ts";
   import { helpPointerLinksFromDrop, parseHelpPointerUrl } from "../bridge/helpPointerLink.ts";
+  import { FLEET_BROADCAST_SETTINGS_DRAG, fleetBroadcastDragOf } from "../bridge/fleetBroadcastSettingsLink.ts";
   import { labelEscaped } from "../bridge/labelMarkup.ts";
   import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
   import { OVERVIEW_PROFILE_DRAG_TYPE } from "../bridge/overviewProfileLink.ts";
@@ -201,7 +202,8 @@
   /** A link or a fitting dragged over the send box is taken. */
   function linkDragOver(event: DragEvent): void {
     const types = event.dataTransfer?.types;
-    if (types?.includes(LINK_DRAG_TYPE) || types?.includes(OVERVIEW_PROFILE_DRAG_TYPE) || types?.includes(ITEM_FILTER_DRAG_TYPE) || types?.includes(ASSET_ITEM_DRAG_MIME) || isFittingDrag(event)) event.preventDefault();
+    if (types?.includes(LINK_DRAG_TYPE) || types?.includes(OVERVIEW_PROFILE_DRAG_TYPE) || types?.includes(ITEM_FILTER_DRAG_TYPE) ||
+        types?.includes(FLEET_BROADCAST_SETTINGS_DRAG) || types?.includes(ASSET_ITEM_DRAG_MIME) || isFittingDrag(event)) event.preventDefault();
   }
 
   // eveEditPlainText adds links in scroll order, preserving the text on either side of the caret.
@@ -241,7 +243,9 @@
     }
     const profileRaw = event.dataTransfer?.getData(OVERVIEW_PROFILE_DRAG_TYPE);
     let profile: DroppedLink | null = null;
-    if (profileRaw) {
+    const broadcast = fleetBroadcastDragOf(event.dataTransfer?.getData(FLEET_BROADCAST_SETTINGS_DRAG));
+    if (broadcast) profile = { kind: "fleetBroadcastSettings", ...broadcast };
+    else if (profileRaw) {
       try {
         const p = JSON.parse(profileRaw) as { text?: unknown; data?: unknown };
         if (typeof p.text === "string" && p.data && typeof p.data === "object") profile = { kind: "overviewProfile", text: p.text, data: p.data as Record<string, unknown> };
