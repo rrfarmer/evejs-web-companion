@@ -11,6 +11,7 @@
   import { onMount } from "svelte";
   import { BridgeCallError } from "../bridge/callMethod.ts";
   import { isSessionLost } from "../app/flow.ts";
+  import { loadDungeons, type DungeonData } from "../app/api.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { AgentAction, AgentBriefingChoice, AgentRow, JournalMission } from "../store/types.ts";
@@ -23,6 +24,7 @@
   import { MISSION_REPLAY_WORD_LABELS, MISSION_TIME_WORD_LABELS, missionReplayText, missionTimeShown, missionTimeText } from "../bridge/missionTime.ts";
   import LabelText from "./LabelText.svelte";
   import MissionShipRestrictionNotice from "./MissionShipRestrictionNotice.svelte";
+  import MissionFittedRestrictionNotice from "./MissionFittedRestrictionNotice.svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import OwnerPicture from "./OwnerPicture.svelte";
   import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
@@ -43,8 +45,9 @@
   import { filetimeOf, journalRowAsks, journalRowText, journalRowWords } from "../bridge/journalWords.ts";
   import { agentMissionTrackable, isAgentMissionTracked, toggleTrackedAgentMission, trackedJobsChanged } from "./jobTracking.ts";
 
-  let { store, flow, conversationAgentID = null, onConversationClose }: {
+  let { store, flow, conversationAgentID = null, onConversationClose, onFittedRestrictions }: {
     store: ClientStore; flow: AppFlow; conversationAgentID?: number | null; onConversationClose?: () => void;
+    onFittedRestrictions?: (listID: number, nameID: number | null) => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -84,6 +87,18 @@
   const conversation = $derived(layout?.conversation ?? null);
   const briefing = $derived(layout?.briefing ?? null);
   const objectives = $derived(layout?.objectives ?? null);
+  let dungeonData = $state.raw<Readonly<Record<string, DungeonData | null>> | null>(null);
+  const dungeonIDs = $derived([...new Set(objectives?.dungeons.flatMap(({ dungeonID }) => dungeonID === null ? [] : [dungeonID]) ?? [])]);
+  $effect(() => {
+    const ids = dungeonIDs;
+    dungeonData = null;
+    if (!onFittedRestrictions || ids.length === 0) return;
+    let current = true;
+    void loadDungeons(ids, flow.requestOptions()).then(data => {
+      if (current) dungeonData = data;
+    }).catch(() => {});
+    return () => { current = false; };
+  });
   const missionTimes = $derived(layout?.missionTimes ?? null);
   const agentLocation = $derived(layout?.agentLocation ?? null);
   const conversationError = $derived(conversationAgentID === null ? null : $agents.conversationErrors[conversationAgentID]);
@@ -747,6 +762,7 @@
       {:else if block.kind === "overview"}
         <div class="note"><LabelText markup={missionMarkup(block.text ?? "")} followerOf={objectiveFollower} /></div>
       {:else}
+        {@const dungeon = block.dungeonID == null ? null : dungeonData?.[block.dungeonID]}
         <h3 class="mission-block-title">{plainText(block.title ?? "")}</h3>
         {#if block.text}
           <div class="mission-block-text">
@@ -787,6 +803,10 @@
         {/if}
         {#if block.shipRestrictions}
           <MissionShipRestrictionNotice {...block.shipRestrictions} templates={$words.templates} onOpen={flow.openShipRestrictions} />
+        {/if}
+        {#if onFittedRestrictions && dungeon?.fittedModuleRestrictionListID}
+          <MissionFittedRestrictionNotice listID={dungeon.fittedModuleRestrictionListID} nameID={dungeon.nameID}
+            templates={$words.templates} onOpen={onFittedRestrictions} />
         {/if}
         {#if block.objective?.kind === "transport"}
           {@const transport = block.objective}

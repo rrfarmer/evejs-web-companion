@@ -16,6 +16,7 @@
   import type { QuestionWords } from "../store/types.ts";
   import LabelText from "./LabelText.svelte";
   import MissionShipRestrictionNotice from "./MissionShipRestrictionNotice.svelte";
+  import MissionFittedRestrictionNotice from "./MissionFittedRestrictionNotice.svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import { LINK_WORDS, missionLinkFollower, startLinkDrag, type LinkFollower } from "./linkFollowers.ts";
   import { solarSystemMenu, solarSystemMenuWords } from "./solarSystemMenu.ts";
@@ -40,7 +41,6 @@
     briefing: "UI/Agents/StandardMission/MissionBriefing",
     offerExpiry: "UI/Agents/Dialogue/ThisOfferExpiresAt",
     missionExpiry: "UI/Agents/Dialogue/ThisMissionExpiresAt",
-    fitted: "UI/Agents/StandardMission/DungeonObjectiveSpecialFittingRestrictions",
   } as const;
   const closeActions = new Set(["reset", "declined", "completed", "quit", "failed", "offered", "offer_removed"]);
   const marks = { done: "✓", open: "○", failed: "✕" };
@@ -221,14 +221,8 @@
         <MissionShipRestrictionNotice {...block.shipRestrictions} templates={$words.templates} onOpen={flow.openShipRestrictions} />
       {/if}
       {#if dungeon?.fittedModuleRestrictionListID}
-        {@const listID = dungeon.fittedModuleRestrictionListID}
-        {@const link = `journal-fitted-restrictions:${listID}`}
-        {@const notice = formatTemplate($words.templates[labels.fitted] ?? "This site contains special {startHttpLink}fitting restrictions{endHttpLink}.", {
-          startHttpLink: `<a href="${link}">`, endHttpLink: "</a>",
-        }, { nameOf })}
-        <div class="objective-fitted-restrictions"><LabelText markup={`<color=0xffe3170d>${notice}</color>`} followerOf={url =>
-          url === link ? { kind: "showInfo", hint: linkWord("UI/Commands/ShowInfo"),
-            follow: () => onFittedRestrictions(listID, dungeon.nameID) } : null} /></div>
+        <MissionFittedRestrictionNotice listID={dungeon.fittedModuleRestrictionListID} nameID={dungeon.nameID}
+          templates={$words.templates} onOpen={onFittedRestrictions} />
       {/if}
     {/each}
   {/if}

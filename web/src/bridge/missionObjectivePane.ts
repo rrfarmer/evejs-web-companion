@@ -80,6 +80,7 @@ export const PANE_LABELS = Object.freeze({
   /** A ship in space to go to: takes typeID and locationID. */
   itemLocation: "UI/Agents/Items/ItemLocation",
   quantityAndItem: QUANTITY_AND_ITEM,
+  fittedRestrictions: `${FOLDER}DungeonObjectiveSpecialFittingRestrictions`,
 });
 
 /** Every label the pane may need, for asking the words store: its own, and those a bonus's time left is written with. */
