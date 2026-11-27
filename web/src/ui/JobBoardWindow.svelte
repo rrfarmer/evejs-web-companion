@@ -63,8 +63,9 @@
   import { dungeonJobID } from "../bridge/dungeonJobs.ts";
   import CorporationFreelanceForm from "./CorporationFreelanceForm.svelte";
   import type { FreelanceProject } from "../app/flow.ts";
-  let { store, flow, openCorporation, showAgents, onShowSystem }: {
+  let { store, flow, openCorporation, showAgents, onShowSystem, onShowMapBrowser }: {
     store: ClientStore; flow: AppFlow; openCorporation?: () => void; showAgents?: () => void; onShowSystem?: (systemID: number) => void;
+    onShowMapBrowser?: (systemID: number) => void;
   } = $props();
   // svelte-ignore state_referenced_locally
   const words = store.words;
@@ -307,7 +308,7 @@
   </div>
   <div class="jb-body">
     {#if operationOpen}
-      <MercenaryOperationPage {store} {flow} {onShowSystem} operation={operationOpen} name={completed?.name ?? operationName(operationOpen)}
+      <MercenaryOperationPage {store} {flow} {onShowSystem} {onShowMapBrowser} operation={operationOpen} name={completed?.name ?? operationName(operationOpen)}
         completed={completed !== null} onBack={() => { operationID = null; }} />
     {:else if operationID !== null}
       <button type="button" onclick={() => { operationID = null; }}>{word("UI/Commands/Back") || "Back"}</button>

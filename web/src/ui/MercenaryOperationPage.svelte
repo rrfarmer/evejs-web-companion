@@ -15,9 +15,10 @@
   import MercenaryOperationTravel from "./MercenaryOperationTravel.svelte";
   import { showInfo } from "./showInfo.ts";
 
-  let { store, flow, operation, name, onBack, onShowSystem, completed = false }: {
+  let { store, flow, operation, name, onBack, onShowSystem, onShowMapBrowser, completed = false }: {
     store: ClientStore; flow: AppFlow; operation: MercenaryDenActivity; name: string; onBack: () => void;
     onShowSystem?: (systemID: number) => void;
+    onShowMapBrowser?: (systemID: number) => void;
     completed?: boolean;
   } = $props();
   const words = $derived(store.words);
@@ -63,7 +64,7 @@
   function openSystemMenu(x: number, y: number) {
     const id = operation.solarSystemID;
     const name = system;
-    systemMenu.open(x, y, solarSystemMenu(store, flow, id, () => name, place => { bookmark = place; }, onShowSystem));
+    systemMenu.open(x, y, solarSystemMenu(store, flow, id, () => name, place => { bookmark = place; }, onShowSystem, onShowMapBrowser));
   }
   async function startOperation() {
     if (starting || started || completed) return;

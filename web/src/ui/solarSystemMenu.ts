@@ -62,10 +62,8 @@ export function solarSystemMenu(
   if (isAvoidablePlace(id)) {
     const locationType = word("system");
     entries.push(null);
-    if (onShowSystem) {
-      entries.push(entry("map", () => onShowSystem(id)),
-        entry("mapBrowser", () => (onShowMapBrowser ?? onShowSystem)(id), { locationType }));
-    }
+    if (onShowSystem) entries.push(entry("map", () => onShowSystem(id)));
+    if (onShowMapBrowser) entries.push(entry("mapBrowser", () => onShowMapBrowser(id), { locationType }));
     const avoiding = avoidanceItems(flow.autopilotSettings()).includes(id);
     entries.push(entry(avoiding ? "stopAvoiding" : "avoid", () => {
       if (avoiding) flow.stopAvoidingLocation(id);

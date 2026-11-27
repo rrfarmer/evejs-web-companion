@@ -15,7 +15,9 @@
   import { showInfo } from "./showInfo.ts";
   import MercenaryDenManagement from "./MercenaryDenManagement.svelte";
 
-  let { store, flow, onShowSystem }: { store: ClientStore; flow: AppFlow; onShowSystem?: (id: number) => void } = $props();
+  let { store, flow, onShowSystem, onShowMapBrowser }: {
+    store: ClientStore; flow: AppFlow; onShowSystem?: (id: number) => void; onShowMapBrowser?: (id: number) => void;
+  } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
   const station = $derived(store.station);
@@ -128,7 +130,7 @@
         };
       }),
       { path: labels.location[0], label: word("location"),
-        sub: solarSystemMenu(store, flow, row.solarSystemID, () => systemName(row), place => { bookmark = place; }, onShowSystem) },
+        sub: solarSystemMenu(store, flow, row.solarSystemID, () => systemName(row), place => { bookmark = place; }, onShowSystem, onShowMapBrowser) },
     ] : [entry("reload", () => { void reloadRow(id); })]);
   }
   function menuFromKey(event: KeyboardEvent & { currentTarget: HTMLButtonElement }, id: number, row: MercenaryDenRow | undefined) {

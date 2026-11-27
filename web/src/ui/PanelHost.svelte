@@ -352,11 +352,11 @@
 {:else if tab === "locationSearch"}
   <LocationSearchWindow {store} {flow} />
 {:else if tab === "jobBoard"}
-  <JobBoardWindow {store} {flow} {onShowSystem} openCorporation={() => onOpen?.("corporation")} showAgents={() => onOpen?.("agents")} />
+  <JobBoardWindow {store} {flow} {onShowSystem} {onShowMapBrowser} openCorporation={() => onOpen?.("corporation")} showAgents={() => onOpen?.("agents")} />
 {:else if tab === "journal"}
   <AgentJournal {store} {flow} openAgents={() => onOpen?.("agents")} />
 {:else if tab === "mercenaryDens"}
-  <MyMercenaryDens {store} {flow} {onShowSystem} />
+  <MyMercenaryDens {store} {flow} {onShowSystem} {onShowMapBrowser} />
 {:else if tab === "finder"}
   <AgencyWindow {store} {flow} {onShowConvoys} showTravel={() => onOpen?.("travel")} onOpenTab={(tab) => onOpen?.(tab as never)} />
 {:else if tab === "projectDiscovery"}
