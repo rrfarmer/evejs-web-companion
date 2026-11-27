@@ -6286,6 +6286,28 @@ export async function loadPortraitBackgrounds(options: ApiOptions = {}): Promise
 }
 
 export type PortraitHead = "female" | "male";
+export interface CharacterPreviewAppearance {
+  readonly model: PortraitHead | null;
+  readonly bloodlineID: number | null;
+  readonly outfit: string | null;
+  readonly hairstyle: string | null;
+}
+
+export async function loadCharacterPreviewAppearance(characterID: number, options: ApiOptions = {}):
+    Promise<CharacterPreviewAppearance | null> {
+  const data = await getJson(`/api/bridge/character/${characterID}/preview-appearance`, options);
+  if (data.appearance === null) return null;
+  const appearance = asObject(data.appearance);
+  const model = appearance?.model === "female" || appearance?.model === "male" ? appearance.model : null;
+  const outfit = appearance?.outfit;
+  const hairstyle = appearance?.hairstyle;
+  return {
+    model, bloodlineID: asNumberOrNull(appearance?.bloodlineID),
+    outfit: typeof outfit === "string" && /^\/client-assets\/portrait-outfit\/(female|male)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(outfit)?.[1] === model ? outfit : null,
+    hairstyle: typeof hairstyle === "string" && /^hair_[a-z0-9_]+$/.test(hairstyle) ? hairstyle : null,
+  };
+}
+
 type RGB = readonly [number, number, number];
 export interface PortraitFrame {
   readonly position: readonly [number, number, number];

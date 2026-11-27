@@ -54,4 +54,4 @@ function appearanceWithHair(payload, location, id) {
     [key, key === "modifiers" ? { type: "list", items: rows } : value]) } };
 }
 
-module.exports = { appearanceWithHair, portraitHairChoices, portraitHairID, portraitHairStyle };
+module.exports = { appearanceWithHair, readModifiers, modifierValues, portraitHairChoices, portraitHairID, portraitHairStyle };

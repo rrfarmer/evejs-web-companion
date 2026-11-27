@@ -3665,7 +3665,7 @@ export interface AppFlow {
   /** The image server's address read from the pilot's global config, once. */
   loadImageServer(): void;
   capturePortraits(characterIDs: readonly number[], received: (characterID: number, image: { readonly base64: string; readonly contentType: string }) => void, progress: (done: number, total: number) => void): Promise<void>;
-  readCharacterPreviewAppearance(characterID: number): Promise<JsonValue>;
+  readCharacterPreviewAppearance(characterID: number): Promise<api.CharacterPreviewAppearance | null>;
   /** Player corporations' logos (eveIcon.CorpIcon's logoData) as read, by the corporation; null for one with none. */
   readonly corpLogos: ReadableSignal<Readonly<Record<string, api.CorpLogoData | null>>>;
   /** The library read once, and the logos of these corporations asked for where they are not had. */
@@ -41873,9 +41873,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     expireDuel,
     closeDuel,
     capturePortraits,
-    async readCharacterPreviewAppearance(characterID) {
-      return await bridgeAsk("paperDollServer", "GetPaperDollData", [characterID]);
-    },
+    readCharacterPreviewAppearance: characterID => api.loadCharacterPreviewAppearance(characterID, callOptions),
     corpLogos: readonlySignal(corpLogosSignal),
     corporationVoteChanges: readonlySignal(corporationVoteChangesSignal),
     corporationSanctionChanges: readonlySignal(corporationSanctionChangesSignal),
