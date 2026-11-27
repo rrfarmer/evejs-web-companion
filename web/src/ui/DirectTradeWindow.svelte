@@ -178,12 +178,16 @@
       if (marketable.length) {
         marketEntries.push(itemEntry("market", () => showMarketDetails(typeID)), itemEntry("buy", () => buyMarketType(typeID)));
       }
-      if (types?.get(typeID)?.published) {
-        const held = restrictions?.[typeID];
-        if (held && !held.includes(337) && !held.includes(142)) marketEntries.push(itemEntry("contracts", () => findInContracts(typeID)));
+      const type = types?.get(typeID);
+      const held = restrictions?.[typeID];
+      const contractable = held && !held.includes(337) && !held.includes(142);
+      if (type?.published) {
+        if (contractable) marketEntries.push(itemEntry("contracts", () => findInContracts(typeID)));
         marketEntries.push(itemEntry("assets", () => findInPersonalAssets(resolvedName($names.resolved, "type", typeID, itemName(row)))));
       }
-      if (marketable.length) marketEntries.push(itemEntry("quickbar", () => { changeQuickbar(bar => addType(bar, typeID)); }));
+      if (marketable.length && contractable && type?.groupID !== 29) {
+        marketEntries.push(itemEntry("quickbar", () => { changeQuickbar(bar => addType(bar, typeID)); }));
+      }
     } else if (marketable.length) {
       marketEntries.push(itemEntry("market", () => showMarketDetails(marketable[0])),
         itemEntry("buyAll", () => void run(() => flow.openMultiBuy(new Map(typeIDs.map(id => [id, 1])))), subjects.length));

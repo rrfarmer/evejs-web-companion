@@ -35,10 +35,13 @@ inventory_item = sm.GetService('invCache').GetInventoryFromId(trade.tradeContain
 plex = []
 item_menus = []
 for item in trade.items:
+    checker = ItemChecker(item)
     item_menus.append({'item': item.itemID, 'type': item.typeID, 'owner': item.ownerID,
-                       'menu': [label_of(entry) for entry in parsed_menu([item])]})
+                       'menu': [label_of(entry) for entry in parsed_menu([item])],
+                       'contractable': checker.IsContractable(),
+                       'marketDetails': checker.OfferViewTypesMarketDetails(),
+                       'quickbar': checker.OfferAddToMarketQuickBar()})
     if item.typeID == const.typePlex:
-        checker = ItemChecker(item)
         entries = GetMenuService().InvItemMenu(item, viewOnly=True)
         plex.append({'item': item.itemID, 'owner': item.ownerID, 'location': item.locationID,
                      'quantity': item.stacksize, 'inTrade': checker.IsInTradeSession(),
