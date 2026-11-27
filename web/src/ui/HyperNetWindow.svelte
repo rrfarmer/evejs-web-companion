@@ -3,10 +3,12 @@
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { hyperNetCountBounds as countBounds, hyperNetPriceBounds as priceBounds, isHyperNetItem, type HyperNetConstraints, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails } from "../bridge/hyperNet.ts";
+  import { hyperNetLinkLabel } from "../bridge/hyperNetOfferLink.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { formatDuration } from "../bridge/skills.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
+  import { startHyperNetOfferDrag } from "./linkFollowers.ts";
   import { showInfo } from "./showInfo.ts";
   import HyperNetDetails from "./HyperNetDetails.svelte";
   import HyperNetHistory from "./HyperNetHistory.svelte";
@@ -66,6 +68,9 @@
     nextDetailsID = null;
     navigation?.scrollIntoView({ block: "nearest" });
   }
+  $effect(() => flow.hyperNetOfferLink.subscribe(id => {
+    if (id !== null && flow.takeHyperNetOfferLink() !== null) openDetails(id);
+  }));
   function goBack() {
     nextDetailsID = detailsID;
     detailsID = null;
@@ -260,7 +265,7 @@
   }
 
   onMount(() => {
-    flow.requestWords([...Object.values(labels).map(([path]) => path), ...quickBuyWords]);
+    flow.requestWords([...Object.values(labels).map(([path]) => path), ...quickBuyWords, hyperNetLinkLabel]);
     let current = true;
     void flow.loadHyperNetMetaGroups().then(groups => {
       if (current) metaGroups = groups;
@@ -464,7 +469,8 @@
   {:else}
     <ul>
       {#each active as offer (offer.id)}
-        <li data-offer-id={offer.id}>
+        <li data-offer-id={offer.id} draggable="true" ondragstart={event => startHyperNetOfferDrag(event, offer.id,
+          resolvedName($names.resolved, "type", offer.typeID, String(offer.typeID)), $words.templates[hyperNetLinkLabel])}>
           <button class="item" type="button" onclick={() => showInfo({ kind: "type", typeID: offer.typeID })}>
             <img src={typeIconUrl(offer.typeID)} alt="" />
             {resolvedName($names.resolved, "type", offer.typeID, String(offer.typeID))}

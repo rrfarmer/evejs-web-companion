@@ -3,6 +3,7 @@
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { hyperNetCountBounds, hyperNetPriceBounds, isHyperNetItem, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
+  import { hyperNetLinkLabel } from "../bridge/hyperNetOfferLink.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
@@ -11,6 +12,7 @@
   import HyperNetQuickBuy from "./HyperNetQuickBuy.svelte";
   import HyperNetSavedFilters from "./HyperNetSavedFilters.svelte";
   import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
+  import { startHyperNetOfferDrag } from "./linkFollowers.ts";
   import { showInfo } from "./showInfo.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { typeIconUrl } from "./typeIcons.ts";
@@ -440,7 +442,9 @@
   {:else}
     <ul>
       {#each rows as row (row.id)}
-        <li data-history-id={row.id} data-history-status={row.status}>
+        <li data-history-id={row.id} data-history-status={row.status} draggable="true"
+          ondragstart={event => startHyperNetOfferDrag(event, row.id,
+            resolvedName($names.resolved, "type", row.typeID, String(row.typeID)), $words.templates[hyperNetLinkLabel])}>
           <button class="item" type="button" onclick={() => showInfo({ kind: "type", typeID: row.typeID })}>
             <img src={typeIconUrl(row.typeID)} alt="" />
             {resolvedName($names.resolved, "type", row.typeID, String(row.typeID))}

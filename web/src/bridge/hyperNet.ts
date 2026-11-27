@@ -37,6 +37,7 @@ export interface HyperNetOfferDetails extends HyperNetOffer {
   readonly systemID: number;
   readonly status: number;
   readonly copy: boolean;
+  readonly private: boolean;
   readonly ticketOwners: ReadonlyMap<number, number>;
   readonly winnerID: number | null;
   readonly winningNumber: number | null;
@@ -80,7 +81,7 @@ export function decodeHyperNetOfferDetails(payload: unknown): HyperNetOfferDetai
   const winnerID = number("owner_id", winner);
   const copy = readDictEntry(readKeyVal(payload, "meta_data"), "is_copy");
   return { ...offer, ownerID, itemID: valid(itemID) ? itemID : null, locationID, systemID, status,
-    copy: copy === true || unwrapLong(copy) === 1n, ticketOwners, winnerID: valid(winnerID) ? winnerID : null,
+    copy: copy === true || unwrapLong(copy) === 1n, private: number("restriction_id") === 1, ticketOwners, winnerID: valid(winnerID) ? winnerID : null,
     winningNumber: ticketNumber(winner), ended: filetimeToUnixMs(unwrapLong(readKeyVal(payload, "end_date"))) };
 }
 

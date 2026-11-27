@@ -6,6 +6,7 @@
   import { formatDuration } from "../bridge/skills.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
+  import HyperNetShare from "./HyperNetShare.svelte";
   import { showInfo } from "./showInfo.ts";
   import { typeIconUrl } from "./typeIcons.ts";
 
@@ -258,6 +259,8 @@
             {resolvedName($names.resolved, "type", offer.typeID, String(offer.typeID))}
           </button>
           <p>{word("estimate", { value: estimate === null ? word("unknown") : estimate.toLocaleString() + " ISK" })}</p>
+          <HyperNetShare {store} {flow} id={offer.id} privateOffer={offer.private}
+            name={resolvedName($names.resolved, "type", offer.typeID, String(offer.typeID))} />
         </div>
       </div>
       <dl>

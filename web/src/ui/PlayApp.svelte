@@ -1027,6 +1027,14 @@
   $effect(() => session?.flow.shipSkinrDesignLink.subscribe((design) => {
     if (design) open("shipSkinr");
   }));
+  $effect(() => {
+    const flow = session?.flow;
+    return flow?.hyperNetOfferLink.subscribe(id => {
+      if (id === null) return;
+      if (hyperNetAvailable && stage === "game") open("hyperNet");
+      else flow.takeHyperNetOfferLink();
+    });
+  });
   const skillPlanRequests = skillPlanTemplateTarget.requests;
   let servedSkillPlanRequests = skillPlanRequests.get();
   $effect(() => {

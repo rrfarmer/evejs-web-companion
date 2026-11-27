@@ -19,6 +19,7 @@ import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing
   type ShipSkinrBrowseQuery, type ShipSkinrComponentOffer, type ShipSkinrCurrency, type ShipSkinrListing, type ShipSkinrListingInput,
   type ShipSkinrListingTarget } from "../bridge/shipSkinrMarket.ts";
 import { setSessionToken } from "./sessionToken.ts";
+import { parseHyperNetOfferUrl } from "../bridge/hyperNetOfferLink.ts";
 import { parseShipSkinrDesignUrl, parseShipSkinrListingUrl } from "../bridge/shipSkinrListingLink.ts";
 import { pageFetch } from "./pageFetch.ts";
 import {
@@ -4630,6 +4631,9 @@ export interface AppFlow {
   buyShipSkinrListing(listing: string, quantity: number, version: string): Promise<string>;
   loadShipSkinrComponentOffers(): Promise<readonly ShipSkinrComponentOffer[]>;
   loadHyperNetAvailability(): Promise<boolean>;
+  readonly hyperNetOfferLink: ReadableSignal<number | null>;
+  followHyperNetOfferLink(url: string): void;
+  takeHyperNetOfferLink(): number | null;
   readonly hyperNetAvailabilityChanged: ReadableSignal<number>;
   loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null, scope?: HyperNetBrowseScope): Promise<readonly HyperNetOffer[]>;
   loadHyperNetActiveTickets(): Promise<ReadonlyMap<number, number>>;
@@ -14600,6 +14604,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       }
       if (/^shipskindesign:/i.test(url)) {
         if (!parseShipSkinrDesignUrl(url)) return null;
+        text = labelEscaped(text);
+      }
+      if (/^hypernet:/i.test(url)) {
+        if (parseHyperNetOfferUrl(url) === null) return null;
         text = labelEscaped(text);
       }
     }
@@ -29252,6 +29260,17 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return receipt;
   }
 
+  const hyperNetOfferLink = createSignal<number | null>(null);
+  function followHyperNetOfferLink(url: string): void {
+    const id = parseHyperNetOfferUrl(url);
+    if (id !== null && onlineCharacterID() !== null) hyperNetOfferLink.set(id);
+  }
+  function takeHyperNetOfferLink(): number | null {
+    const id = hyperNetOfferLink.get();
+    hyperNetOfferLink.set(null);
+    return id;
+  }
+
   async function loadHyperNetOffers(constraints?: HyperNetConstraints, item?: HyperNetItem | null, scope?: HyperNetBrowseScope): Promise<readonly HyperNetOffer[]> {
     const current = callOptions.captureRequestGuard!();
     const entries = Object.entries(constraints ?? {});
@@ -41931,6 +41950,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     buyShipSkinrListing,
     loadShipSkinrComponentOffers,
     loadHyperNetAvailability: () => api.getHyperNetAvailability(callOptions),
+    hyperNetOfferLink: readonlySignal(hyperNetOfferLink),
+    followHyperNetOfferLink,
+    takeHyperNetOfferLink,
     hyperNetAvailabilityChanged: readonlySignal(hyperNetAvailabilityChanged),
     loadHyperNetOffers,
     loadHyperNetActiveTickets,

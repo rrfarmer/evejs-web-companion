@@ -16,6 +16,7 @@
 // to no visible end.
 
 import { parseHelpPointerUrl } from "./helpPointerLink.ts";
+import { parseHyperNetOfferUrl } from "./hyperNetOfferLink.ts";
 import { parseShipSkinrDesignUrl, parseShipSkinrListingUrl } from "./shipSkinrListingLink.ts";
 
 /** One run of a line: its text, and how it is marked. */
@@ -72,7 +73,8 @@ export function isMailItemLink(url: string): boolean {
 }
 
 export function isMailDraftLink(url: string): boolean {
-  return isMailItemLink(url) || parseHelpPointerUrl(url) !== null || parseShipSkinrListingUrl(url) !== null || parseShipSkinrDesignUrl(url) !== null;
+  return isMailItemLink(url) || parseHelpPointerUrl(url) !== null || parseShipSkinrListingUrl(url) !== null ||
+    parseShipSkinrDesignUrl(url) !== null || parseHyperNetOfferUrl(url) !== null;
 }
 
 /** Retain complete links on either side of one textarea edit. Editing inside a label makes it plain text. */

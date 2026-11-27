@@ -20,6 +20,7 @@ import { parseInventoryFilterLink } from "../bridge/inventoryFilters.ts";
 import { parseOverviewPresetUrl } from "../bridge/overviewProfileLink.ts";
 import { parseHelpPointerUrl } from "../bridge/helpPointerLink.ts";
 import { parseShipSkinrDesignUrl, parseShipSkinrListingUrl } from "../bridge/shipSkinrListingLink.ts";
+import { hyperNetOfferLinkText, hyperNetOfferUrl, parseHyperNetOfferUrl } from "../bridge/hyperNetOfferLink.ts";
 import { linkScheme, parseShowInfoUrl } from "../bridge/showInfoLink.ts";
 import { showInfo, subjectOfShowInfoLink } from "./showInfo.ts";
 import { parseAccessGroupUrl, showAccessGroupInfo } from "./accessGroupInfo.ts";
@@ -31,6 +32,10 @@ import { parseAccessGroupUrl, showAccessGroupInfo } from "./accessGroupInfo.ts";
 export function startLinkDrag(event: DragEvent, url: string, text: string): void {
   event.dataTransfer?.setData(LINK_DRAG_TYPE, JSON.stringify({ url, text: text.replace(/<[^>]*>/g, "") }));
   if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+}
+
+export function startHyperNetOfferDrag(event: DragEvent, id: number, name: string, template?: string): void {
+  startLinkDrag(event, hyperNetOfferUrl(id), hyperNetOfferLinkText(name, template));
 }
 
 export interface ItemLink {
@@ -72,11 +77,12 @@ export const LINK_WORDS: Readonly<Record<string, string>> = {
   "UI/Help/HelpPointersTooltip": "Show User Interface Pointer",
   "UI/Personalization/ShipSkins/ShipSkinListingLinkHint": "View SKIN listing in the Paragon Hub",
   "UI/Personalization/ShipSkins/LinkHint": "View shared SKIN design",
+  "UI/HyperNet/LinkHint": "View HyperNet offer",
 };
 
 export interface LinkFollower {
   /** Its registry's kind, for its colour (styles.css .evelink.skillPlan, .showInfo, .web, .fitting). */
-  readonly kind: "skillPlan" | "showInfo" | "web" | "fitting" | "sharedSetting" | "helpPointer" | "shipSkinListing" | "shipSkinDesign";
+  readonly kind: "skillPlan" | "showInfo" | "web" | "fitting" | "sharedSetting" | "helpPointer" | "shipSkinListing" | "shipSkinDesign" | "hyperNet";
   readonly hint: string;
   readonly follow: () => void;
 }
@@ -89,7 +95,7 @@ export interface LinkFollower {
 export function linkFollowerOf(
   url: string,
   flow: Pick<AppFlow, "followWebLink" | "followFittingLink"> & Partial<Pick<AppFlow,
-    "followOverviewPresetLink" | "followShipSkinrListingLink" | "followShipSkinrDesignLink">>,
+    "followOverviewPresetLink" | "followShipSkinrListingLink" | "followShipSkinrDesignLink" | "followHyperNetOfferLink">>,
   openSkillPlanLink: ((url: string) => void) | null,
   word: (label: string) => string,
   text: string | null = null,
@@ -105,6 +111,10 @@ export function linkFollowerOf(
     const follow = flow.followShipSkinrDesignLink;
     return { kind: "shipSkinDesign", hint: word("UI/Personalization/ShipSkins/LinkHint"),
       follow: () => void follow(url).catch(() => {}) };
+  }
+  if (scheme === "hypernet" && flow.followHyperNetOfferLink && parseHyperNetOfferUrl(url) !== null) {
+    const follow = flow.followHyperNetOfferLink;
+    return { kind: "hyperNet", hint: word("UI/HyperNet/LinkHint"), follow: () => follow(url) };
   }
   if (scheme === "helppointer") {
     const name = parseHelpPointerUrl(url);
