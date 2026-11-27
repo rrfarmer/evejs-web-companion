@@ -24,7 +24,7 @@ const MIME = new Map([
   [".ogg", "audio/ogg"], [".wav", "audio/wav"], [".vta", "application/octet-stream"],
 ]);
 const GENERATED = new Map([
-  ...["defaultalliance.dds", "defaultcorporation.dds", "hologram_interlace_p.dds"]
+  ...["defaultalliance.dds", "defaultcorporation.dds", "hologram_interlace_p.dds", "hologram_noise.dds", "hologram_pulse.dds", "effect.json"]
     .map(name => [`/shipBannerLayouts/${name}`, ["--ship-banner-textures"]]),
   ["/shipEmblemLicenses.json", ["--ship-emblems"]],
   ["/dscanCones.json", ["--dscan-cones", '"lineTexture"']],

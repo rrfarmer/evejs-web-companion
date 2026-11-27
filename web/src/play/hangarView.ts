@@ -606,6 +606,7 @@ export class HangarView {
     for (const s of this.turretSets) for (const r of s.rigs) r.update(null);
     // the ship's damage: its holes and their faders stepped, its lights' flicker below 90 % hull
     const now = performance.now();
+    this.shipEmblems.setTime(now / 1000);
     if (this.impact && this.ship) {
       const dt = this.lastImpactAt ? Math.min(0.1, (now - this.lastImpactAt) / 1000) : 0;
       const distance = Math.max(1, this.camera.position.distanceTo(this.ship.model.getWorldPosition(new THREE.Vector3())));

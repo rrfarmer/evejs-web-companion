@@ -970,8 +970,13 @@ async function main() {
   if (args.shipBannerTextures) {
     const dir = path.join(outRoot, "shipBannerLayouts");
     fs.mkdirSync(dir, { recursive: true });
+    const shader = loadSof(rf).data.generic.bannerShader;
     for (const res of ["res:/ui/texture/defaultalliance.dds", "res:/ui/texture/defaultcorporation.dds",
-      "res:/texture/fx/hologram/hologram_interlace_p.dds"]) writeExtracted(path.join(dir, path.basename(res)), rf.read(res));
+      ...shader.defaultTextures.map(texture => texture.resFilePath)]) {
+      writeExtracted(path.join(dir, path.basename(res)), rf.read(res));
+    }
+    const parameters = Object.fromEntries(shader.defaultParameters.map(parameter => [parameter.name, parameter.value]));
+    writeExtracted(path.join(dir, "effect.json"), JSON.stringify(parameters));
   }
   if (args.shipBannerLayout) {
     const { hull, faction } = args.shipBannerLayout;

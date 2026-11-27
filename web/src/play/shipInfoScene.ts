@@ -228,6 +228,7 @@ export class ShipInfoScene {
     this.camera.updateProjectionMatrix();
     this.camera.position.setFromSphericalCoords(distance, this.pitch, -this.yaw);
     this.camera.lookAt(0, 0, 0);
+    this.shipEmblems.setTime(time / 1000);
     this.renderer.render(this.scene, this.camera);
   }
 

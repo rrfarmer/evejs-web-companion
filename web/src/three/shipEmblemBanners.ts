@@ -31,15 +31,42 @@ const fallback = {
 };
 const kindList = ["alliance", "corporation"] as const;
 const imageLoader = new THREE.TextureLoader();
-let interlace: Promise<THREE.Texture | null> | undefined;
+const effectRoot = "/client-assets/shipBannerLayouts/";
+const parameterNames = ["Layer1Transform", "Layer2Transform", "LayerScroll", "Color"] as const;
+type BannerParameters = Record<typeof parameterNames[number], readonly number[]>;
 
-async function buildShipEmblemBanners(hull: string, faction: string, images: ShipEmblemImages): Promise<THREE.Group> {
+async function loadEffectParameters(): Promise<BannerParameters | null> {
+  try {
+    const response = await fetch(`${effectRoot}effect.json`);
+    if (!response.ok) return null;
+    const data = await response.json() as Partial<BannerParameters> | null;
+    if (data && parameterNames.every(name => data[name]?.length === 4 && data[name].every(Number.isFinite))) {
+      return data as BannerParameters;
+    }
+  } catch { /* older asset caches can still draw the static emblem */ }
+  return null;
+}
+
+function loadEffectTextures() {
+  return Promise.all([
+    loadDds(`${effectRoot}hologram_interlace_p.dds`).catch(() => null),
+    loadDds(`${effectRoot}hologram_noise.dds`).catch(() => null),
+    loadDds(`${effectRoot}hologram_pulse.dds`).catch(() => null),
+    loadEffectParameters(),
+  ]);
+}
+let effect: ReturnType<typeof loadEffectTextures> | undefined;
+
+async function buildShipEmblemBanners(hull: string, faction: string, images: ShipEmblemImages, bannerTime: THREE.IUniform<number>): Promise<THREE.Group> {
   const group = new THREE.Group();
   group.name = "Ship emblems";
   const items = await layout(hull, faction);
   if (!items.some(item => Object.hasOwn(images, item.kind))) return group;
-  interlace ??= loadDds("/client-assets/shipBannerLayouts/hologram_interlace_p.dds").catch(() => null);
-  const mask = await interlace;
+  const [mask, noise, pulse, parameters] = await (effect ??= loadEffectTextures());
+  const animated = Boolean(mask && noise && pulse && parameters);
+  const effectUniforms = parameters
+    ? Object.fromEntries(parameterNames.map(name => [name, { value: new THREE.Vector4().fromArray(parameters[name]) }]))
+    : {};
   await Promise.all(kindList.map(async kind => {
     if (!Object.hasOwn(images, kind)) return;
     const placements = items.filter(item => item.kind === kind);
@@ -49,36 +76,64 @@ async function buildShipEmblemBanners(hull: string, faction: string, images: Shi
     const logo = texture ?? await loadDds(fallback[kind]).catch(() => null);
     if (!logo) return;
     logo.colorSpace = THREE.SRGBColorSpace;
+    logo.wrapS = logo.wrapT = THREE.ClampToEdgeWrapping;
     const material = new THREE.ShaderMaterial({
-      uniforms: { emblemMap: { value: logo }, stripeMap: { value: mask }, hasStripe: { value: mask ? 1 : 0 },
+      defines: animated ? { ANIMATED_BANNER: 1 } : {},
+      uniforms: { ...effectUniforms, bannerTime, emblemMap: { value: logo }, stripeMap: { value: mask },
+        noiseMap: { value: noise }, pulseMap: { value: pulse }, hasStripe: { value: mask ? 1 : 0 },
         flipImage: { value: texture ? 0 : 1 } },
       vertexShader: `varying vec2 logoUv;
+        varying vec3 viewNormal, viewToEye;
         #include <logdepthbuf_pars_vertex>
         void main() {
           logoUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          vec4 at = modelViewMatrix * vec4(position, 1.0);
+          viewNormal = normalMatrix * normal;
+          viewToEye = -at.xyz;
+          gl_Position = projectionMatrix * at;
           #include <logdepthbuf_vertex>
         }`,
-      fragmentShader: `uniform sampler2D emblemMap, stripeMap;
+      // banner.fx Main samples both scrolling layers in the native top-left UV convention.
+      fragmentShader: `uniform sampler2D emblemMap, stripeMap, noiseMap, pulseMap;
         uniform float hasStripe, flipImage;
+        uniform float bannerTime;
+        uniform vec4 Layer1Transform, Layer2Transform, LayerScroll, Color;
         varying vec2 logoUv;
+        varying vec3 viewNormal, viewToEye;
         #include <logdepthbuf_pars_fragment>
+        vec2 facingUv(vec2 at) {
+          return gl_FrontFacing ? at : vec2(1.0 - at.x, at.y);
+        }
         void main() {
           #include <logdepthbuf_fragment>
-          vec4 logo = texture2D(emblemMap, vec2(logoUv.x, mix(logoUv.y, 1.0 - logoUv.y, flipImage)));
-          float stripe = mix(1.0, texture2D(stripeMap, vec2(logoUv.x, 1.0 - logoUv.y)).r, hasStripe);
-          gl_FragColor = vec4(logo.rgb, logo.a * mix(0.62, 0.92, stripe));
+          vec2 uv = vec2(logoUv.x, 1.0 - logoUv.y);
+          vec2 imageUv = facingUv(uv);
+          vec4 logo = texture2D(emblemMap, vec2(imageUv.x, mix(1.0 - imageUv.y, imageUv.y, flipImage)));
+          #ifdef ANIMATED_BANNER
+            vec2 noiseUv = facingUv(uv * Layer1Transform.xy + Layer1Transform.zw) + LayerScroll.xy * bannerTime;
+            vec2 pulseUv = facingUv(uv * Layer2Transform.xy + Layer2Transform.zw) + LayerScroll.zw * bannerTime;
+            vec4 layers = texture2D(noiseMap, noiseUv) * texture2D(pulseMap, pulseUv);
+            vec3 stripe = texture2D(stripeMap, imageUv).rgb;
+            float edge = 1.0 - min(abs(dot(normalize(viewNormal), normalize(viewToEye))), 1.0);
+            gl_FragColor = vec4(logo.rgb * layers.rgb * stripe * Color.rgb * (layers.a * logo.a * (1.0 + edge * edge)), 0.0);
+          #else
+            float stripe = mix(1.0, texture2D(stripeMap, imageUv).r, hasStripe);
+            gl_FragColor = vec4(logo.rgb, logo.a * mix(0.62, 0.92, stripe));
+          #endif
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }`,
       transparent: true,
       depthWrite: false,
-      side: THREE.FrontSide,
+      side: animated ? THREE.DoubleSide : THREE.FrontSide,
+      forceSinglePass: true,
+      ...(animated ? { toneMapped: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor,
+        blendDst: THREE.OneFactor, blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor } : {}),
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
     });
-    material.addEventListener("dispose", () => texture?.dispose());
+    material.addEventListener("dispose", () => logo.dispose());
     for (const item of placements) {
       const mesh = new THREE.Mesh(plane, material);
       mesh.name = item.name;
@@ -108,6 +163,11 @@ export class ShipEmblemLayer {
   private images: ShipEmblemImages = {};
   private layer: THREE.Group | null = null;
   private revision = 0;
+  private readonly bannerTime = { value: 0 };
+
+  setTime(seconds: number): void {
+    this.bannerTime.value = seconds;
+  }
 
   setModel(model: THREE.Object3D | null): void {
     if (model === this.model) return;
@@ -136,7 +196,7 @@ export class ShipEmblemLayer {
       this.layer = null;
       return;
     }
-    const layer = await buildShipEmblemBanners(hull, faction, this.images).catch(() => null);
+    const layer = await buildShipEmblemBanners(hull, faction, this.images, this.bannerTime).catch(() => null);
     if (!layer) return;
     if (revision !== this.revision || !layer.children.length) {
       disposeShipEmblemBanners(layer);
