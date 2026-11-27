@@ -11,7 +11,7 @@ import { SHIP_SKINR_GATEWAY, decodeShipSkinrCapacity, decodeShipSkinrDesign, dec
 import { shipSkinrSequenceIdentifier, shipSkinrSequenceTerms, type ShipSkinrSequenceComponent,
   type ShipSkinrSequenceLicense } from "../bridge/shipSkinrSequencing.ts";
 import { shipSkinrRecord } from "../bridge/shipSkinrCoatings.ts";
-import { decodeHyperNetActiveTickets, decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, hyperNetCountBounds, hyperNetCreationQuote, hyperNetDetailNoticeIDs, type HyperNetCreationDraft, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
+import { decodeHyperNetActiveTickets, decodeHyperNetHistoryPage, decodeHyperNetOfferDetails, decodeHyperNetOffers, decodeHyperNetParticipation, decodeHyperNetTypeStatistics, hyperNetCountBounds, hyperNetCreationQuote, hyperNetDetailNoticeIDs, type HyperNetCreationDraft, type HyperNetBrowseScope, type HyperNetConstraints, type HyperNetHistoryOffer, type HyperNetItem, type HyperNetOffer, type HyperNetOfferDetails, type HyperNetParticipation } from "../bridge/hyperNet.ts";
 import { SHIP_COSMETIC_GATEWAY, decodeShipSkinrAppliedState, type ShipSkinrAppliedState,
   type ShipSkinrOwnedComponent, type ShipSkinrOwnedSkin } from "../bridge/shipSkinrCollection.ts";
 import { SHIP_SKINR_MARKET, decodeOwnedShipSkinrListings, decodeShipSkinrListing, decodeShipSkinrBrowse, decodeShipSkinrBuyerTerms,
@@ -4643,6 +4643,7 @@ export interface AppFlow {
   buyHyperNetNode(id: number, node: number): Promise<HyperNetOfferDetails>;
   buyHyperNetNodes(id: number, quantity: number): Promise<HyperNetOfferDetails>;
   claimHyperNetReward(id: number): Promise<HyperNetOfferDetails>;
+  loadHyperNetTypeStatistics(typeID: number): Promise<ReturnType<typeof decodeHyperNetTypeStatistics>>;
   loadHyperNetPricing(): Promise<{ plexPrice: number; estimates: ReadonlyMap<number, number | null> | null }>;
   createHyperNetOffer(draft: HyperNetCreationDraft): Promise<number>;
   readonly hyperNetWinnerState: ReadableSignal<{ pilot: number; unseen: ReadonlySet<number> } | null>;
@@ -29428,6 +29429,13 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return row;
   }
 
+  async function loadHyperNetTypeStatistics(typeID: number) {
+    const current = callOptions.captureRequestGuard!();
+    const result = await bridgeDo("raffleProxy", "GetActiveHistoricPrices", [typeID]);
+    current();
+    return decodeHyperNetTypeStatistics(result);
+  }
+
   async function loadHyperNetPricing() {
     const current = callOptions.captureRequestGuard!();
     const key = "HyperNetPlexPriceOverride";
@@ -42062,6 +42070,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     buyHyperNetNode,
     buyHyperNetNodes,
     claimHyperNetReward,
+    loadHyperNetTypeStatistics,
     loadHyperNetPricing,
     createHyperNetOffer,
     hyperNetWinnerState: readonlySignal(hyperNetWinnerState),

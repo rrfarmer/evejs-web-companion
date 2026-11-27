@@ -28,6 +28,26 @@ export interface HyperNetCreationDraft {
   readonly privateOffer: boolean;
 }
 
+export interface HyperNetPriceSummary {
+  readonly count: number;
+  readonly min: number;
+  readonly max: number;
+  readonly average: number;
+}
+
+export function decodeHyperNetTypeStatistics(payload: unknown) {
+  const read = (scope: "historic" | "active"): HyperNetPriceSummary => {
+    const field = (key: keyof HyperNetPriceSummary) => {
+      const raw = readDictEntry(payload, `${scope}_${key}`);
+      const amount = raw === null ? 0 : Number(unwrapLong(raw) ?? NaN);
+      if (!Number.isSafeInteger(amount) || amount < 0) throw new Error("HyperNet offer statistics are unavailable.");
+      return amount;
+    };
+    return { count: field("count"), min: field("min"), max: field("max"), average: field("average") };
+  };
+  return { historic: read("historic"), active: read("active") };
+}
+
 export interface HyperNetOffer {
   readonly id: number;
   readonly typeID: number;

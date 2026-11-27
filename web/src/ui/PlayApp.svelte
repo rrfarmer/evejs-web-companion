@@ -2404,9 +2404,12 @@
     open("newEdenStore");
     storeCategoryRequest = { tag: "gametime" };
   }
-  function showMultipleTraining() {
+  function showStoreProduct(typeID: number) {
     open("newEdenStore");
-    storeCategoryRequest = { typeID: 63188 };
+    storeCategoryRequest = { typeID };
+  }
+  function showMultipleTraining() {
+    showStoreProduct(63188);
   }
   function togglePlexCheckout() {
     if (wins.some(win => win.id === "plexCheckout" && !win.minimized)) wins = closeWindow(wins, "plexCheckout");
@@ -4817,6 +4820,7 @@
               {upwellLpIssuer}
               {inventoryVaultRequested}
               {storeCategoryRequest} onShowOmegaOffers={showOmegaOffers} onShowMultipleTraining={showMultipleTraining}
+              onShowStoreProduct={showStoreProduct}
               onToggleStore={() => neocomOpen("newEdenStore")}
               onBuyPlex={togglePlexCheckout} onShowPlexOffers={showPlexOffers}
               onReprocess={reprocessingAvailable ? reprocessSelection : undefined}

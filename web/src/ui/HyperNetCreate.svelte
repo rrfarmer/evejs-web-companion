@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
+  import { READABLE_ISK_LABELS, readableIsk } from "../bridge/giveMoney.ts";
   import { hyperNetCoreType, hyperNetCountBounds, hyperNetCreationQuote, hyperNetMinimumPrice, hyperNetTaxRate, type HyperNetNodeCount } from "../bridge/hyperNet.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
@@ -8,8 +9,14 @@
   import { resolvedName } from "../store/names.ts";
   import type { InventoryItemRow } from "../store/types.ts";
   import { ASSET_ITEM_DRAG_MIME, decodeAssetItemDrag, decodeDrag, DRAG_MIME } from "./dragDrop.ts";
+  import { showMarketDetails } from "./marketDetails.ts";
 
-  let { store, flow, onCreated }: { store: ClientStore; flow: AppFlow; onCreated: (id: number) => void } = $props();
+  let { store, flow, onCreated, onShowStoreProduct }: {
+    store: ClientStore;
+    flow: AppFlow;
+    onCreated: (id: number) => void;
+    onShowStoreProduct?: (typeID: number) => void;
+  } = $props();
   const station = $derived(store.station);
   const flight = $derived(store.flight);
   const inventory = $derived(store.inventory);
@@ -32,6 +39,13 @@
     earnings: ["UI/HyperNet/Earnings", "Earnings"],
     private: ["UI/HyperNet/PrivateRaffle", "Private offer"],
     create: ["UI/HyperNet/CreateButton", "Create offer"],
+    historic: ["UI/HyperNet/HistoricalStatistics", "Historical offers"],
+    active: ["UI/HyperNet/ActiveStatistics", "Active offers"],
+    max: ["UI/HyperNet/MaximumPrice", "Maximum price"],
+    min: ["UI/HyperNet/MinimumPrice", "Minimum price"],
+    average: ["UI/HyperNet/AveragePrice", "Average price"],
+    market: ["UI/HyperNet/OpenMarket", "Open Market"],
+    store: ["UI/HyperNet/OpenNES", "Open New Eden Store"],
   } as const;
   const word = (key: keyof typeof labels) => plainText(formatTemplate($words.templates[labels[key][0]] ?? labels[key][1],
     { percentage: new Intl.NumberFormat(undefined, { style: "percent" }).format(hyperNetTaxRate) }, { nameOf: () => null }));
@@ -50,6 +64,14 @@
   let error = $state("");
   let pricing = $state.raw<Awaited<ReturnType<AppFlow["loadHyperNetPricing"]>>>();
   const prize = $derived(prizes.find(row => row.itemID === itemID));
+  const typeID = $derived(prize?.typeID);
+  let stats = $state.raw<{ typeID: number; value: Awaited<ReturnType<AppFlow["loadHyperNetTypeStatistics"]>> }>();
+  let statsError = $state("");
+  const priceStats = $derived(stats && stats.typeID === typeID ? stats.value : undefined);
+  const statPrice = (value: number) => value === 0 ? "–" : readableIsk(value, path => {
+    const template = $words.templates[path];
+    return template ? plainText(template) : null;
+  }) ?? isk(value);
   const token = $derived(cores.find(row => row.itemID === tokenID) ?? cores[0]);
   const estimate = $derived(prize && pricing?.estimates?.get(prize.typeID));
   const quote = $derived(total !== undefined && Number.isFinite(total) && pricing
@@ -58,7 +80,20 @@
   let generation = 0;
 
   $effect(() => {
-    flow.requestWords(Object.values(labels).map(([path]) => path));
+    flow.requestWords([...Object.values(labels).map(([path]) => path), ...READABLE_ISK_LABELS]);
+  });
+  $effect(() => {
+    stats = undefined;
+    statsError = "";
+    if (!pilot || !typeID) return;
+    let current = true;
+    const selected = typeID;
+    void flow.loadHyperNetTypeStatistics(selected).then(value => {
+      if (current) stats = { typeID: selected, value };
+    }, cause => {
+      if (current) statsError = panelErrorWords(cause);
+    });
+    return () => { current = false; };
   });
   $effect(() => {
     flow.requestNames(prizes.map(row => ({ kind: "type", id: row.typeID })));
@@ -151,6 +186,12 @@
           {/each}
         </select>
       </label>
+      <div class="core-sources">
+        <button type="button" data-hypernet-core-market onclick={() => showMarketDetails(hyperNetCoreType)}>{word("market")}</button>
+        {#if onShowStoreProduct}
+          <button type="button" data-hypernet-core-store onclick={() => onShowStoreProduct?.(hyperNetCoreType)}>{word("store")}</button>
+        {/if}
+      </div>
       <label>{word("count")}
         <select data-hypernet-create-count bind:value={count}>
           {#each hyperNetCountBounds as value}<option {value}>{value}</option>{/each}
@@ -172,6 +213,26 @@
         {#if prize && (!token || token.quantity < quote.cores)}<p role="status">The selected stack has too few HyperCores.</p>{/if}
         {#if estimate && estimate > quote.proceeds}<p role="status">Estimated market value {isk(estimate)} exceeds the offer earnings.</p>{/if}
       {/if}
+      {#if typeID}
+        <div class="price-stats" data-hypernet-type-statistics={typeID} aria-busy={!priceStats && !statsError}>
+          {#if statsError}<p role="status">{statsError}</p>{/if}
+          {#if !priceStats && !statsError}<p role="status">Loading offer statistics…</p>{/if}
+          {#each ["historic", "active"] as scope}
+            {@const summary = scope === "historic" ? priceStats?.historic : priceStats?.active}
+            <section data-hypernet-stat-scope={scope} data-count={summary?.count}>
+              <h3>{word(scope as "historic" | "active")}{summary?.count ? ` (${summary.count.toLocaleString()})` : ""}</h3>
+              <dl>
+                {#each ["max", "min", "average"] as measure}
+                  {@const name = measure as "max" | "min" | "average"}
+                  {@const value = summary?.[name]}
+                  <dt>{word(name)}</dt>
+                  <dd data-hypernet-stat={name} data-isk={value} title={value ? isk(value) : undefined}>{statPrice(value ?? 0)}</dd>
+                {/each}
+              </dl>
+            </section>
+          {/each}
+        </div>
+      {/if}
       {#if error}<p role="alert">{error}</p>{/if}
       <button data-hypernet-create-submit type="submit" disabled={!ready || submitting}>{submitting ? "Creating…" : word("create")}</button>
     </fieldset>
@@ -184,7 +245,11 @@
   label { display: grid; gap: 4px; min-width: 0; }
   select, input[type="number"] { width: 100%; min-width: 0; box-sizing: border-box; color: inherit; background: #10181d; border: 1px solid #42515b; padding: 5px; }
   .offer-private { display: flex; gap: 6px; align-items: center; }
+  .core-sources { grid-column: 1 / -1; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
   dl { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr auto; gap: 6px; margin: 0; padding: 10px; background: #10181d; }
+  .price-stats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+  .price-stats h3 { font-size: .9rem; margin: 0 0 4px; }
+  .price-stats[aria-busy="true"] section { opacity: .6; }
   dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
   p { grid-column: 1 / -1; margin: 0; }
   button { justify-self: start; }

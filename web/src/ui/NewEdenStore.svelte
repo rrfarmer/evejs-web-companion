@@ -57,7 +57,7 @@
   onMount(() => { void load(); });
 </script>
 
-<div class="new-eden-store">
+<div class="new-eden-store" data-store-product={selectedProduct}>
   <div class="store-controls">
     {#if catalogue?.categories.length}
       <label>Category <select bind:value={selectedCategory} onchange={() => { categoryUnavailable = false; selectedProduct = null; }}>
@@ -74,7 +74,9 @@
   {#if categoryUnavailable}<p role="status">{categoryRequest && "tag" in categoryRequest && categoryRequest.tag === "plex" ? "PLEX offers are unavailable in this catalogue." : "Game time is unavailable in this catalogue."}</p>{/if}
   {#if error}<p role="alert">{error}</p>{/if}
   {#if catalogue !== null && offers.length === 0}
-    <p role="status">{selectedProduct !== null ? "No Multiple Character Training offers are available." : selectedCategory === null ? "No offers are available from this server." : "No offers in this category."}</p>
+    <p role="status">{selectedProduct === 63188 ? "No Multiple Character Training offers are available." :
+      selectedProduct !== null ? "No offers for this item are available." :
+        selectedCategory === null ? "No offers are available from this server." : "No offers in this category."}</p>
   {/if}
   <ul class="offers" aria-label="Store offers">
     {#each offers as offer (offer.id)}

@@ -13,7 +13,7 @@
   import { quickBuyWords } from "./HyperNetQuickBuy.svelte";
   import HyperNetSavedFilters from "./HyperNetSavedFilters.svelte";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, onShowStoreProduct }: { store: ClientStore; flow: AppFlow; onShowStoreProduct?: (typeID: number) => void } = $props();
   const words = $derived(store.words);
   const station = $derived(store.station);
   const pilot = $derived($station.online?.characterID);
@@ -343,7 +343,7 @@
   {#if view === "history"}
     <HyperNetHistory {store} {flow} {pilot} {now} visible={detailsID === null} {openDetails} onPurchase={updateBrowseOffer} />
   {:else if view === "create"}
-    <HyperNetCreate {store} {flow} onCreated={openDetails} />
+    <HyperNetCreate {store} {flow} onCreated={openDetails} {onShowStoreProduct} />
   {:else}
   <header>
     <details class="range-filters">

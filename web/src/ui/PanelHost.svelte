@@ -121,6 +121,7 @@
     storeCategoryRequest = null,
     onShowOmegaOffers,
     onShowMultipleTraining,
+    onShowStoreProduct,
     onToggleStore,
     onBuyPlex,
     onShowPlexOffers,
@@ -149,6 +150,7 @@
     storeCategoryRequest?: { tag: "gametime" | "plex" } | { typeID: number } | null;
     onShowOmegaOffers?: () => void;
     onShowMultipleTraining?: () => void;
+    onShowStoreProduct?: (typeID: number) => void;
     onToggleStore?: () => void;
     onBuyPlex?: () => void;
     onShowPlexOffers?: () => void;
@@ -308,7 +310,7 @@
 {:else if tab === "shipSkinr"}
   <ShipSkinrWindow {store} {flow} {registerBeforeClose} />
 {:else if tab === "hyperNet"}
-  <HyperNetWindow {store} {flow} />
+  <HyperNetWindow {store} {flow} {onShowStoreProduct} />
 {:else if tab === "achievements"}
   <AchievementsWindow {store} {flow} />
 {:else if tab === "locationSearch"}
