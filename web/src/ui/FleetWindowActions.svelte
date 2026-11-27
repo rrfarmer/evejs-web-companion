@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
+  import { getGlobalConfig } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { BROADCAST_ICONS, BROADCAST_NAME_LABELS, FLEET_BAR_BROADCASTS, type FleetBarBroadcast } from "../bridge/fleetBroadcasts.ts";
@@ -37,6 +38,7 @@
   ] as const;
   let participationBusy = $state(false);
   let configurationBusy = $state(false);
+  let esi = $state<{ base: string; tenant: string } | null>(null);
   const labels = {
     more: "UI/Common/More",
     form: F + "FormFleet",
@@ -56,6 +58,7 @@
     editAdvert: F + "EditAdvert",
     removeAdvert: F + "RemoveAdvert",
     joinRequests: F + "OpenJoinRequest",
+    externalLink: F + "GetFleetID",
   };
   function word(label: string, fallback: string): string {
     const text = $words.templates[label];
@@ -71,6 +74,17 @@
     if (configurationBusy) return;
     configurationBusy = true;
     run(work().finally(() => { configurationBusy = false; }));
+  }
+  function isBossOf(fleetID: number): boolean {
+    const state = fleet.get();
+    const pilot = station.get().online?.characterID;
+    return state.availability === "ready" && state.authoritativeFleetID === fleetID &&
+      (state.fleet?.initState.value.members.some(member => Number(member.charID) === pilot && (member.job & FLEET_JOB_CREATOR) !== 0) ?? false);
+  }
+  async function copyExternalLink(fleetID: number): Promise<void> {
+    if (!esi || !isBossOf(fleetID)) return;
+    const suffix = esi.tenant ? `/?tenant=${esi.tenant}` : "";
+    await navigator.clipboard.writeText(`${esi.base}/fleets/${fleetID}${suffix}`);
   }
   function show(event: MouseEvent): void {
     const flags = windowFlags("fleet");
@@ -88,7 +102,7 @@
     } else if ($fleet.authoritativeFleetID !== null) {
       const fleetID = $fleet.authoritativeFleetID;
       const own = $fleet.fleet?.initState.value.members.find(member => Number(member.charID) === $station.online?.characterID);
-      const boss = own && (own.job & FLEET_JOB_CREATOR) !== 0 && $fleet.availability === "ready";
+      const boss = isBossOf(fleetID);
       const commandRole = own && FLEET_CMDR_ROLES.includes(own.role);
       const broadcast = FLEET_BAR_BROADCASTS.map(name => action(
         BROADCAST_NAME_LABELS[name], name, () => onBroadcast(name), `res:/UI/Texture/${BROADCAST_ICONS[name]}`));
@@ -128,6 +142,8 @@
             action(labels.removeAdvert, "Remove Advert", () => run(flow.removeFleetAdvert(fleetID))));
         } else rows.push(action(labels.createAdvert, "Create Advert", onAdvert));
         rows.push(action(labels.joinRequests, "Open Join Requests", onJoinRequests));
+        rows.push({ ...action(labels.externalLink, "Copy External Fleet Link", () => run(copyExternalLink(fleetID))),
+          disabled: esi === null ? "Reading fleet link settings" : null });
       }
       rows.push(action(labels.watchlist, "Open Fleet Watch List", onWatchlist),
         null, action(labels.leave, "Leave Fleet", () => run(flow.fleetMenuAction({ kind: "leave" }))));
@@ -138,8 +154,15 @@
   }
   onMount(() => {
     applyWindowFlags("fleet");
+    let mounted = true;
+    void getGlobalConfig(["esiBaseUrl", "esiTenant"], flow.requestOptions()).catch(() => null).then(config => {
+      if (!mounted) return;
+      const base = config?.values.esiBaseUrl, tenant = config?.values.esiTenant;
+      esi = { base: typeof base === "string" ? base : "https://esi.evetech.net", tenant: typeof tenant === "string" ? tenant : "" };
+    });
     flow.requestWords([...WINDOW_ACTION_WORDS, ...Object.values(labels), ...participation.map(([, label]) => label),
       ...FLEET_BAR_BROADCASTS.map(name => BROADCAST_NAME_LABELS[name])]);
+    return () => { mounted = false; };
   });
   onDestroy(() => menu.close());
 </script>
