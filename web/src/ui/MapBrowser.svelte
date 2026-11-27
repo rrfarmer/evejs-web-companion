@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import type { StarMapData, SystemObjectRow } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
+  import { ContextMenu } from "../play/contextMenu.ts";
   import { showInfo } from "./showInfo.ts";
 
   let { store, flow, request, onClose, onShowSystem }: {
@@ -12,6 +14,7 @@
   } = $props();
   const names = $derived(store.names);
   const words = $derived(store.words);
+  const auth = $derived(store.session);
   const labelBase = "UI/Map/MapBrowser/";
   const universeLabel = "UI/Common/LocationTypes/Universe";
   const sectionLabels = ["ListRegions", "ListConstellations", "ListSolarSystems", "ListCelestials"] as const;
@@ -21,6 +24,10 @@
   let selection = $state<readonly number[]>([]);
   let shownList = $state<number | null>(null);
   let error = $state(false);
+  let alignment = $state<"left" | "right">("right");
+  const alignmentMenu = new ContextMenu();
+  onDestroy(() => alignmentMenu.close());
+  const alignmentPreference = $derived(`evejs.user.${$auth.accountID ?? "local"}.mapbrowseralign`);
   const label = (key: string, fallback: string, name = "") =>
     plainText(formatTemplate($words.templates[key] ?? fallback, { name }, { nameOf: () => name }));
 
@@ -30,8 +37,14 @@
     void flow.loadStarMap().then(result => {
       if (current) { data = result; error = result.systems.length === 0; }
     }).catch(() => { if (current) error = true; });
-    flow.requestWords([universeLabel, ...["MapBrowser", "CloseMapBrowser", "ShowInWorldMap", "NameRegion", "NameConstellation", "NameSolarSystem", ...sectionLabels].map(key => labelBase + key)]);
+    flow.requestWords([universeLabel, ...["MapBrowser", "CloseMapBrowser", "ShowInWorldMap", "AlignLeft", "AlignRight",
+      "NameRegion", "NameConstellation", "NameSolarSystem", ...sectionLabels].map(key => labelBase + key)]);
     return () => { current = false; };
+  });
+  $effect(() => {
+    const key = alignmentPreference;
+    try { alignment = localStorage.getItem(key) === "left" ? "left" : "right"; }
+    catch { alignment = "right"; }
   });
   $effect(() => {
     const system = data?.systems.find(row => row[0] === request.systemID);
@@ -119,9 +132,37 @@
     else showInfo({ kind: "spaceObject", itemID: point.id, typeID: point.typeID });
     shownList = null;
   }
+  function openAlignmentMenu(event: MouseEvent | KeyboardEvent): void {
+    const target = event.target;
+    if (!(target instanceof HTMLElement) || target.closest(".map-browser-point, .map-browser-choices")) return;
+    event.preventDefault();
+    const bounds = target.getBoundingClientRect();
+    const pointer = event instanceof MouseEvent && (event.clientX !== 0 || event.clientY !== 0);
+    const next = alignment === "left" ? "right" : "left";
+    const path = labelBase + (next === "left" ? "AlignLeft" : "AlignRight");
+    alignmentMenu.open(pointer ? event.clientX : bounds.left, pointer ? event.clientY : bounds.bottom, [{
+      path, label: label(path, next === "left" ? "Align Left" : "Align Right"),
+      run: () => {
+        alignment = next;
+        try { localStorage.setItem(alignmentPreference, next); } catch { /* The open panel still moves. */ }
+      },
+    }]);
+  }
+  function alignmentEvents(element: HTMLElement) {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openAlignmentMenu(event);
+    };
+    element.addEventListener("contextmenu", openAlignmentMenu);
+    element.addEventListener("keydown", onKey);
+    return { destroy: () => {
+      element.removeEventListener("contextmenu", openAlignmentMenu);
+      element.removeEventListener("keydown", onKey);
+    } };
+  }
 </script>
 
-<aside class="map-browser" aria-label={label(labelBase + "MapBrowser", "Map Browser")}>
+<aside class="map-browser" class:left={alignment === "left"} aria-label={label(labelBase + "MapBrowser", "Map Browser")}
+  use:alignmentEvents>
   <button class="map-browser-close" type="button" aria-label={label(labelBase + "CloseMapBrowser", "Close Map Browser")}
     title={label(labelBase + "CloseMapBrowser", "Close Map Browser")} onclick={onClose}>×</button>
   {#if error}<p role="status">Map data unavailable.</p>
@@ -160,7 +201,8 @@
 
 <style>
   .map-browser { position: fixed; inset: 0 0 0 auto; width: min(calc(25dvh + 5px), 90vw); z-index: 18;
-    box-sizing: border-box; overflow: auto; background: #101619ee; color: var(--color-text, white); border-left: 1px solid #ffffff35; }
+    box-sizing: border-box; overflow: auto; background: #101619ee; color: var(--color-text, white); border-inline-start: 1px solid #ffffff35; }
+  .map-browser.left { inset: 0 auto 0 44px; border-inline-start: 0; border-inline-end: 1px solid #ffffff35; }
   .map-browser-panel { height: 25dvh; position: relative; box-sizing: border-box; border-bottom: 1px solid #ffffff30; overflow: hidden; }
   .map-browser-plot { position: absolute; inset: 1.5rem 0 0; background: radial-gradient(ellipse at center, #33586555, #0c171c55 65%, transparent); }
   .map-browser-plot.solar { inset: 0 0 auto; aspect-ratio: 1; }

@@ -13,10 +13,35 @@ def orbit_geometry(browser):
                         for _, radius, planet, _ in solar_map.orbs])
 
 
+def observe_alignment(window):
+    samples = []
+    for _ in range(2):
+        label, action, args = window.GetMenu()[0]
+        action(*args)
+        blue.pyos.synchro.SleepWallclock(200)
+        samples.append(dict(label=label.GetText(), direction=args[0], rect=list(window.GetAbsolute()),
+                            stored=settings.user.ui.Get('mapbrowseralign')))
+    return samples
+
+
+def zoom_controls(window):
+    nodes = [window]
+    labels = set()
+    while nodes:
+        node = nodes.pop()
+        text = getattr(node, 'text', None)
+        if text in ('1x', '2x', '4x'):
+            labels.add(text)
+        nodes.extend(getattr(node, 'children', ()) or ())
+    return sorted(labels)
+
+
 def observe():
     if MapBrowserWnd.GetIfOpen():
         raise RuntimeError('Map Browser is already open')
+    original_align = settings.user.ui.Get('mapbrowseralign', 'right')
     try:
+        settings.user.ui.Set('mapbrowseralign', 'right')
         menu = sm.GetService('menu')
         menu.ShowInMapBrowser(30000142)
         window = MapBrowserWnd.GetIfOpen()
@@ -36,11 +61,14 @@ def observe():
         return dict(build=3698585, station=session.stationid, windowID=window.windowID,
                     caption=window.GetCaption(), first=first, second=second, desktop=desktop, rect=rect,
                     same=MapBrowserWnd.GetIfOpen() is window, sections=len(browser.children),
-                    firstOrbits=first_orbits, secondOrbits=orbit_geometry(browser))
+                    neocom=list(sm.GetService('neocom').GetNeocomContainer().GetAbsolute()),
+                    firstOrbits=first_orbits, secondOrbits=orbit_geometry(browser),
+                    alignment=observe_alignment(window), zoomControls=zoom_controls(window))
     finally:
         window = MapBrowserWnd.GetIfOpen()
         if window:
             window.Close()
+        settings.user.ui.Set('mapbrowseralign', original_align)
 
 
 result = observe()
