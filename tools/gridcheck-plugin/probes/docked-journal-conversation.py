@@ -5,10 +5,42 @@ from carbonui import uiconst
 from evedungeons.client.ship_restrictions_window import ShipRestrictionsWindow
 from evedungeons.client.util import GetDungeonShipRestrictionsTypeListID
 from evelink.client.handlers.local_service.handler import handle_local_service_link
+from evelink.client.handlers.show_info.parse import parse_show_info_url
+from eve.client.script.ui.shared.maps.starMapSvc import GetCharUiSetting, SetCharUiSetting
 from eve.client.script.ui.control.typeList.type_list_window import TypeListWindow
 from eve.common.lib import appConst
 from eve.client.script.ui.station.agents.agentDialogueWindow import AgentDialogueWindow
 from jobboard.client import get_agent_mission_job
+
+
+def observe_bookmark_menu(html):
+    link = re.search(r'href=(showinfo:[^>\s]+//dungeon)>', html)
+    if not link:
+        return None
+    url = link.group(1)
+    bookmark = parse_show_info_url(url).bookmark_info
+    key = 'autopilot_waypoints'
+    original = GetCharUiSetting(key, [])
+    remote_id = bookmark.locationID if bookmark.locationID != session.solarsystemid2 else 30000142
+    other_id = 30000139 if remote_id != 30000139 else 30000142
+    parts = url.split('//')
+    parts[1] = str(remote_id)
+    remote_url = '//'.join(parts)
+
+    def entries(waypoints):
+        SetCharUiSetting(key, waypoints)
+        labels = []
+        for entry in sm.GetService('link').get_menu(remote_url):
+            if entry is not None:
+                label = entry if hasattr(entry, 'GetLabelPath') else entry[0]
+                labels.append(label.GetText() if hasattr(label, 'GetText') else label)
+        return labels
+
+    try:
+        return dict(url=url, system=remote_id, agent=bookmark.agentID,
+                    empty=entries([]), destination=entries([remote_id]), route=entries([other_id]))
+    finally:
+        SetCharUiSetting(key, original)
 
 
 def observe_ship_restrictions(window, objectives):
@@ -115,6 +147,7 @@ def observe():
         objective_data = window.GetAgentMoniker().GetMissionObjectiveInfo()
         if objective_data:
             observed['objectivesHTML'] = window._GetObjectiveHTML(objective_data)
+            observed['bookmarkMenu'] = observe_bookmark_menu(observed['objectivesHTML'])
             observed['shipRestrictions'] = observe_ship_restrictions(window, objective_data)
             observed['fittingRestrictions'] = observe_fitting_restrictions(window, objective_data)
         observed['tracking'] = observe_tracking(agent_id)

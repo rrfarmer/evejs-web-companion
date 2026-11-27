@@ -23,7 +23,10 @@ import { parseOverviewPresetUrl } from "../bridge/overviewProfileLink.ts";
 import { parseHelpPointerUrl } from "../bridge/helpPointerLink.ts";
 import { parseShipSkinrDesignUrl, parseShipSkinrListingUrl } from "../bridge/shipSkinrListingLink.ts";
 import { hyperNetOfferLinkText, hyperNetOfferUrl, parseHyperNetOfferUrl } from "../bridge/hyperNetOfferLink.ts";
-import { linkScheme, parseShowInfoUrl } from "../bridge/showInfoLink.ts";
+import { dungeonBookmarkSystem, linkScheme, parseShowInfoUrl } from "../bridge/showInfoLink.ts";
+import type { ContextMenu } from "../play/contextMenu.ts";
+import type { ClientStore } from "../store/clientStore.ts";
+import { solarSystemMenu } from "./solarSystemMenu.ts";
 import { showInfo, subjectOfShowInfoLink } from "./showInfo.ts";
 import { parseAccessGroupUrl, showAccessGroupInfo } from "./accessGroupInfo.ts";
 import { COMBAT_REPORT_LABEL, parseCombatReportUrl } from "../bridge/combatLog.ts";
@@ -95,15 +98,24 @@ export interface LinkFollower {
 }
 
 /** A mission's station link includes the instance as well as its type. */
-export function missionLinkFollower(url: string, flow: Parameters<typeof linkFollowerOf>[1],
-  word: (label: string) => string, text: string): LinkFollower | null {
+export function missionLinkFollower(url: string, flow: AppFlow, word: (label: string) => string, text: string,
+  bookmark?: { store: ClientStore; menu: ContextMenu; onShowSystem?: (id: number) => void }): LinkFollower | null {
   const destination = linkScheme(url) === "showinfo" ? parseShowInfoUrl(url) : null;
   if (destination?.itemID != null && destination.itemID >= 60_000_000 && destination.itemID < 64_000_000) {
     const { typeID, itemID } = destination;
     return { kind: "showInfo", hint: word("UI/Commands/ShowInfo"),
       follow: () => showInfo({ kind: "spaceObject", typeID, itemID }) };
   }
-  return linkFollowerOf(url, flow, null, word, text);
+  const follower = linkFollowerOf(url, flow, null, word, text);
+  const system = bookmark ? dungeonBookmarkSystem(url) : null;
+  if (!bookmark || system === null || !follower) return follower;
+  return { ...follower, contextMenu: event => {
+    event.preventDefault();
+    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const pointer = event instanceof MouseEvent && (event.clientX !== 0 || event.clientY !== 0);
+    bookmark.menu.open(pointer ? event.clientX : bounds.left, pointer ? event.clientY : bounds.bottom,
+      solarSystemMenu(bookmark.store, flow, system, () => text, null, bookmark.onShowSystem));
+  } };
 }
 
 /**

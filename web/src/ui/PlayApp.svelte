@@ -5230,7 +5230,8 @@
           onResizeRect={rect => Object.assign(popup, singlePane ? { y: rect.y, h: rect.h } : rect)}
           onGeometryCommit={() => keepPlace(popup)} resizeWidth={!singlePane} minWidth={singlePane ? frame.w : 835} minHeight={545}>
           {#key popup.serial}<AgentsMissions store={session.store} flow={session.flow} conversationAgentID={popup.agentID}
-            onConversationClose={() => closeJournalConversation(popup)} onFittedRestrictions={openFittedRestrictions} />{/key}
+            onConversationClose={() => closeJournalConversation(popup)} onFittedRestrictions={openFittedRestrictions}
+            onShowSystem={showSystemOnMap} />{/key}
         </DesktopWindow>
     {/each}
     {#if fittedRestrictions}

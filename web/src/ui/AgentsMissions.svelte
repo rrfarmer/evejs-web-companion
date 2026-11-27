@@ -8,7 +8,7 @@
   // DoAction / GetMission* / Step-12 logic lives on the BFF (which holds the
   // bound agent handle) and in app/flow.ts. The browser addresses agents and
   // missions by their game IDs only.
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { BridgeCallError } from "../bridge/callMethod.ts";
   import { isSessionLost } from "../app/flow.ts";
   import { loadDungeons, type DungeonData } from "../app/api.ts";
@@ -40,14 +40,17 @@
   import { pyStandingText } from "./standingsList.ts";
   import { questionText, wordsLabels, wordsNameRefs, type ClientWording } from "../bridge/questions.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
+  import { ContextMenu } from "../play/contextMenu.ts";
+  import { solarSystemMenuWords } from "./solarSystemMenu.ts";
   import { objectiveSystemIDs } from "../bridge/locationWrapper.ts";
   import { AGENT_HEADER_WORD_LABELS, agentHeader, agentLocationNameRef } from "../bridge/agentHeader.ts";
   import { filetimeOf, journalRowAsks, journalRowText, journalRowWords } from "../bridge/journalWords.ts";
   import { agentMissionTrackable, isAgentMissionTracked, toggleTrackedAgentMission, trackedJobsChanged } from "./jobTracking.ts";
 
-  let { store, flow, conversationAgentID = null, onConversationClose, onFittedRestrictions }: {
+  let { store, flow, conversationAgentID = null, onConversationClose, onFittedRestrictions, onShowSystem }: {
     store: ClientStore; flow: AppFlow; conversationAgentID?: number | null; onConversationClose?: () => void;
     onFittedRestrictions?: (listID: number, nameID: number | null) => void;
+    onShowSystem?: (id: number) => void;
   } = $props();
 
   // svelte-ignore state_referenced_locally
@@ -73,6 +76,9 @@
   const logos = flow.ownerLogos;
   // Where the pilot's session is now: the marks beside a mission's objectives go by it (bridge/sessionPlace.ts).
   const place = $derived(sessionPlace($flight.status, $station.online));
+  const docked = $derived(place.locationID !== null && place.locationID !== place.solarSystemID);
+  const bookmarkMenu = new ContextMenu();
+  onDestroy(() => bookmarkMenu.close());
 
   let busy = $state(false);
   let error = $state("");
@@ -500,7 +506,8 @@
     return { label: message.label, parameters: message.parameters, text: message.text, messageID: message.messageID ?? undefined };
   }
   function objectiveFollower(url: string, text: string) {
-    return missionLinkFollower(url, flow, label => plainText($words.templates[label] ?? LINK_WORDS[label] ?? ""), text);
+    return missionLinkFollower(url, flow, label => plainText($words.templates[label] ?? LINK_WORDS[label] ?? ""), text,
+      docked ? { store, menu: bookmarkMenu, onShowSystem } : undefined);
   }
   $effect(() => {
 
@@ -511,6 +518,7 @@
     const messages = objectives.dungeons.map((dungeon) => dungeon.briefingMessage).filter((message): message is MissionMessage => message !== null);
     flow.requestWords([
       ...PANE_WORD_LABELS,
+      ...solarSystemMenuWords,
       ...paneMessageIDs(objectives).map((id) => `#${id}`),
       ...wordsLabels(messages.flatMap(message => journalMessagePhrases(objectiveWords(message)))),
     ]);

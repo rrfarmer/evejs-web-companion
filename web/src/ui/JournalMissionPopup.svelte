@@ -9,7 +9,6 @@
   import type { MissionMessage } from "../bridge/missionObjectives.ts";
   import { questionMarkup, wordsLabels, wordsNameRefs, type ClientWording } from "../bridge/questions.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
-  import { dungeonBookmarkSystem } from "../bridge/showInfoLink.ts";
   import { ContextMenu } from "../play/contextMenu.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName, type NameKind } from "../store/names.ts";
@@ -19,7 +18,7 @@
   import MissionFittedRestrictionNotice from "./MissionFittedRestrictionNotice.svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import { LINK_WORDS, missionLinkFollower, startLinkDrag, type LinkFollower } from "./linkFollowers.ts";
-  import { solarSystemMenu, solarSystemMenuWords } from "./solarSystemMenu.ts";
+  import { solarSystemMenuWords } from "./solarSystemMenu.ts";
   import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
@@ -99,16 +98,7 @@
     return path ? clientTexture(path) : null;
   }
   function followerOf(url: string, text: string): LinkFollower | null {
-    const follower = missionLinkFollower(url, flow, linkWord, text);
-    const system = docked ? dungeonBookmarkSystem(url) : null;
-    if (system === null || follower === null) return follower;
-    return { ...follower, contextMenu: event => {
-      event.preventDefault();
-      const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
-      const pointer = event instanceof MouseEvent && (event.clientX !== 0 || event.clientY !== 0);
-      bookmarkMenu.open(pointer ? event.clientX : bounds.left, pointer ? event.clientY : bounds.bottom,
-        solarSystemMenu(store, flow, system, () => text, null, onShowSystem));
-    } };
+    return missionLinkFollower(url, flow, linkWord, text, docked ? { store, menu: bookmarkMenu, onShowSystem } : undefined);
   }
 
   const client = $derived.by<ClientWording>(() => {
