@@ -1231,6 +1231,7 @@ import { decodeAccessGroup, decodeAccessGroups, decodeAccessGroupMembers, type A
 import { decodeAccessGroupAudit, type AccessGroupAuditRow } from "../bridge/accessGroupAudit.ts";
 import { agentsAtStation, readAgentsTable } from "../bridge/agentReads.ts";
 import { authoritativeFleetMemberCharacterIDs, decodeFleetCenter, decodeFleetInviteAnswerNotification, decodeFleetInviteNotification, fleetInviteAnswerWords, memberWhereabouts, type FleetInviteAnswer } from "../bridge/fleetCenter.ts";
+import { decodeFleetLoot, fleetLootFile } from "../bridge/fleetLoot.ts";
 import { decodeJoinRequest, type FleetMemberOptOuts } from "../bridge/boundFleet.ts";
 import { FLEET_MAX_SIZE, FLEET_SETUP_NAME_LENGTH, FLEET_SETUPS_KEY, fleetSetupHierarchy, readSavedFleetSetups, removeSavedFleetSetup, writeFleetSetup, type FleetSetupOptions, type FleetSetupSource, type SavedFleetSetup } from "../bridge/fleetSetups.ts";
 import { FLEET_JOB_CREATOR, canTagInFleet } from "../bridge/fleetCommand.ts";
@@ -3076,6 +3077,8 @@ export interface AppFlow {
   removeFromFleetWatchlist(characterID: number): Promise<"removed" | "not-in-fleet">;
   /** The fleet window's History cleared of its broadcasts (BroadcastHistoryPanel.ClearHistory): nothing is asked. */
   clearFleetBroadcastHistory(): void;
+  clearFleetLootHistory(): void;
+  exportFleetLootHistory(): Promise<void>;
   /**
    * The fleet finder, for a pilot that has been told which fleet to join: the
    * adverts open to this session, and the name of the fleet it is already in.
@@ -8217,6 +8220,12 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     // below: that set is invalidation-only — its members carry nothing usable
     // and exist only to trigger a re-read — while these two ARE the payload,
     // so a re-read would neither produce nor invalidate them.
+    if (method === "OnFleetLootEvent") {
+      const system = store.flight.get().status?.solarSystemID ?? store.station.get().online?.solarSystemID ?? null;
+      const entries = decodeFleetLoot(args[0], system, receivedAtMs);
+      if (entries.length) store.apply({ type: "fleet/loot", entries });
+      return;
+    }
     const fleetBroadcast = decodeFleetBroadcastNotification(method, args, receivedAtMs);
     if (fleetBroadcast !== null) {
       store.apply({ type: "fleet/broadcast", broadcast: fleetBroadcast });
@@ -19102,6 +19111,33 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     await loadFleet(fleetDetailViews === 0);
     current();
     if (fleetBossOptions(fleetID).isFreeMove !== enabled) throw new Error("The free-move update could not be confirmed.");
+  }
+
+  async function exportFleetLootHistory(): Promise<void> {
+    const { authoritativeFleetID, lootHistory } = store.fleet.get();
+    if (authoritativeFleetID === null) return;
+    const current = callOptions.captureRequestGuard!();
+    const refs: NameRef[] = lootHistory.flatMap(row => [
+      { kind: "character", id: row.characterID }, { kind: "type", id: row.typeID }, { kind: "typeGroup", id: row.typeID },
+    ]);
+    const unique = [...new Map(refs.map(ref => [nameKey(ref.kind, ref.id), ref])).values()];
+    const scope = { current, options: { ...callOptions, captureRequestGuard: () => current } };
+    for (let start = 0; start < unique.length; start += NAMES_REQUEST_CAP) {
+      await memberNames(scope, unique.slice(start, start + NAMES_REQUEST_CAP));
+    }
+    current();
+    if (store.fleet.get().authoritativeFleetID !== authoritativeFleetID) return;
+    const names = store.names.get().resolved;
+    const { filename, text } = fleetLootFile(lootHistory, serverNow(), (kind, id) => resolvedName(names, kind, id, String(id)));
+    const href = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(href), 1000);
+    sayDialog("FleetExportInfo", { type: "dict", entries: [["filename", filename], ["folder", "browser downloads"]] }, `Downloaded ${filename}.`, "info");
   }
 
   async function readFleetSetupSource(fleetID: number): Promise<FleetSetupSource | null> {
@@ -41982,6 +42018,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     clearFleetBroadcastHistory() {
       store.apply({ type: "fleet/broadcast-history-cleared" });
     },
+    clearFleetLootHistory() {
+      store.apply({ type: "fleet/loot-history-cleared" });
+    },
+    exportFleetLootHistory,
     readFleetFinder,
     async loadFleetAdverts() {
       return decodeAvailableFleetAds(await readAvailableFleetAds(bridgeAsk)).filter((ad) => ad.fleetID !== null && ad.fleetID > 0);

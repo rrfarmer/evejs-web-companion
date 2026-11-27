@@ -3,12 +3,12 @@
   // History and Loot History (the last kept by the pilot's settings, Broadcast History at first), a Clear, and the
   // events newest first, each in the client's words: "Event", the time and the event's own label (fleetSvc.AddBroadcast
   // makes a broadcast's). WantBroadcast grants the own-broadcast override before checking the type preference.
-  // Not here yet: the member history (AddToMemberHistory) and the loot history (OnFleetLootEvent), which list
-  // nothing; the other entries' menus.
+  // Member history and row context menus are separate from the broadcast and loot lists.
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
-  import { formatTemplate, plainText, templateNameRefs } from "../bridge/clientWords.ts";
+  import { QUANTITY_AND_ITEM, formatTemplate, plainText, templateNameRefs } from "../bridge/clientWords.ts";
   import { broadcastHistoryLabel, fleetTravelDestination, type FleetBroadcast } from "../bridge/fleetBroadcasts.ts";
+  import { fleetLootTime, type FleetLootEntry } from "../bridge/fleetLoot.ts";
   import { FLEET_POINTERS } from "../play/uiPointer.ts";
   import { fleetBroadcastColor, fleetBroadcastPreferences, wantsFleetBroadcast } from "./fleetBroadcastPreferences.ts";
   import PlaceRouteMenu from "./PlaceRouteMenu.svelte";
@@ -40,6 +40,7 @@
     event: "UI/Fleet/FleetBroadcast/Event",
     targetWithType: "UI/Fleet/FleetBroadcast/BroadcastEventTargetWithType",
     healTargetWithType: "UI/Fleet/FleetBroadcast/BroadcastEventHealTargetWithType",
+    lootEvent: "UI/Fleet/FleetBroadcast/BroadcastEventLoot",
   } as const;
   type Filter = "all" | "broadcasthistory" | "memberhistory" | "loothistory";
   /** settings.user.ui 'fleetHistoryFilter' (PostStartup, 51): the choice kept, Broadcast History at first. */
@@ -72,7 +73,20 @@
 
   const me = $derived($station.online?.characterID ?? null);
   const heard = $derived(($fleet.broadcastHistory ?? []).filter(broadcast => wantsFleetBroadcast($preferences, broadcast, me)));
-  const shown = $derived(filter === "broadcasthistory" || filter === "all" ? heard : []);
+  const shown = $derived.by(() => {
+    const broadcasts = filter === "broadcasthistory" || filter === "all" ? heard.map(broadcast => ({
+      broadcast, at: broadcast.receivedAtMs, key: `${broadcast.receivedAtMs}:${broadcast.name}:${broadcast.senderCharID}`,
+    })) : [];
+    const loot = filter === "loothistory" || filter === "all" ? $fleet.lootHistory.map(entry => ({
+      entry, at: entry.atMs, key: `loot:${entry.characterID}:${entry.typeID}:${entry.solarSystemID}`,
+    })) : [];
+    return [...broadcasts, ...loot].sort((a, b) => filter === "all" ? b.at - a.at : 0);
+  });
+
+  function clear(): void {
+    if (filter === "broadcasthistory" || filter === "all") flow.clearFleetBroadcastHistory();
+    if (filter === "loothistory" || filter === "all") flow.clearFleetLootHistory();
+  }
 
   /** The thing a broadcast names, as the pilot's ballpark has it (_GetTargetNameAndType, _GetTypeNameTextFromBroadcastedItemID). */
   function ballOf(itemID: number | null) {
@@ -105,8 +119,18 @@
     return plainText(formatTemplate(word(WORDS.event, "{[datetime]time, date=none, time=medium} · {eventLabel}"), { time, eventLabel }, { nameOf }));
   }
 
+  function lootText(entry: FleetLootEntry): string {
+    const time = String(BigInt(Math.trunc(entry.atMs)) * 10_000n + 116_444_736_000_000_000n);
+    const itemName = nameOf("type", entry.typeID) || String(entry.typeID);
+    const quantityName = formatTemplate(word(QUANTITY_AND_ITEM, `${entry.quantity} × ${itemName}`),
+      { quantity: entry.quantity, item: entry.typeID }, { nameOf: () => itemName });
+    const fallback = `${fleetLootTime(entry.atMs)} · ${nameOf("character", entry.characterID) || "A pilot"} looted ${quantityName}`;
+    return plainText(formatTemplate(word(WORDS.lootEvent, fallback), { time, charID: entry.characterID, item: entry.typeID, itemQuantity: entry.quantity },
+      { nameOf: (kind, id) => kind === "type" && id === entry.typeID ? quantityName : nameOf(kind, id) }));
+  }
+
   $effect(() => {
-    flow.requestWords([...Object.values(WORDS), ...heard.map((broadcast) => broadcastHistoryLabel(broadcast).label)]);
+    flow.requestWords([...Object.values(WORDS), QUANTITY_AND_ITEM, ...heard.map((broadcast) => broadcastHistoryLabel(broadcast).label)]);
   });
   $effect(() => {
     const refs = heard.flatMap((broadcast) => {
@@ -115,6 +139,9 @@
       return typeof template === "string" ? templateNameRefs(template, args) : [];
     });
     if (refs.length > 0) flow.requestNames(refs);
+  });
+  $effect(() => {
+    flow.requestNames($fleet.lootHistory.flatMap(row => [{ kind: "character" as const, id: row.characterID }, { kind: "type" as const, id: row.typeID }]));
   });
 </script>
 
@@ -127,21 +154,26 @@
       <option value="memberhistory">{word(WORDS.members, "Members")}</option>
       <option value="loothistory">{word(WORDS.loot, "Loot")}</option>
     </select>
-    <button type="button" class="minor" onclick={() => flow.clearFleetBroadcastHistory()}>{word(WORDS.clear, "Empty")}</button>
+    <button type="button" class="minor" onclick={clear}>{word(WORDS.clear, "Empty")}</button>
   </div>
   {#if shown.length === 0}
     <p class="empty">{word(WORDS.none, "Nothing has happened yet.")}</p>
   {:else}
     <ul>
-      {#each shown as broadcast (broadcast.receivedAtMs + ":" + broadcast.name + ":" + broadcast.senderCharID)}
-        {@const destination = fleetTravelDestination(broadcast)}
-        <li data-broadcast={broadcast.name} style:background-color={fleetBroadcastColor($preferences, broadcast.name)}>
-          {#if destination !== null}
-            <PlaceRouteMenu {store} {flow} placeID={destination} travelBroadcast={entryText(broadcast)} />
-          {:else}
-            {entryText(broadcast)}
-          {/if}
-        </li>
+      {#each shown as row (row.key)}
+        {#if "broadcast" in row}
+          {@const broadcast = row.broadcast}
+          {@const destination = fleetTravelDestination(broadcast)}
+          <li data-broadcast={broadcast.name} style:background-color={fleetBroadcastColor($preferences, broadcast.name)}>
+            {#if destination !== null}
+              <PlaceRouteMenu {store} {flow} placeID={destination} travelBroadcast={entryText(broadcast)} />
+            {:else}
+              {entryText(broadcast)}
+            {/if}
+          </li>
+        {:else}
+          <li data-fleet-loot={row.entry.typeID}>{lootText(row.entry)}</li>
+        {/if}
       {/each}
     </ul>
   {/if}

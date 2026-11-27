@@ -21,6 +21,7 @@ import {
 } from "./signals.ts";
 import type { FeedAdapter, FeedEvent, FeedSink, FeedStatus, HealthStatus } from "./feed.ts";
 import { MAX_BROADCAST_HISTORY } from "../bridge/fleetBroadcasts.ts";
+import { mergeFleetLoot } from "../bridge/fleetLoot.ts";
 import { isSceneBlind } from "../bridge/space.ts";
 // R43 — the bot registry owns the BotID union and what "holding the ship"
 // means, so the store and flow.ts can never disagree about either.
@@ -410,6 +411,7 @@ const INITIAL_FLEET: FleetCenterState = Object.freeze({
   targetTags: null,
   watchlist: [],
   broadcastHistory: [],
+  lootHistory: [],
   authoritativeFleetID: null,
 });
 
@@ -1703,6 +1705,7 @@ export function createClientStore(): ClientStore {
           // falsely resurrect an already-used popup.
           pendingInvite: event.availability === "ready" ? null : current.pendingInvite,
           lastBroadcast: switchedFleet ? null : current.lastBroadcast,
+          lootHistory: switchedFleet && current.authoritativeFleetID !== null ? [] : current.lootHistory,
           targetTags: switchedFleet ? null : current.targetTags,
           watchlist: switchedFleet || event.availability === "not-in-fleet" ? [] : current.watchlist,
           // Only an authoritative read moves the basis; a blip leaves it alone.
@@ -1747,6 +1750,14 @@ export function createClientStore(): ClientStore {
       }
       case "fleet/broadcast-history-cleared":
         fleet.set({ ...fleet.get(), broadcastHistory: [] });
+        break;
+      case "fleet/loot": {
+        const current = fleet.get();
+        fleet.set({ ...current, lootHistory: mergeFleetLoot(current.lootHistory, event.entries) });
+        break;
+      }
+      case "fleet/loot-history-cleared":
+        fleet.set({ ...fleet.get(), lootHistory: [] });
         break;
       case "fleet/target-tags":
         fleet.set({ ...fleet.get(), targetTags: event.tags });

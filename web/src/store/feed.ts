@@ -104,6 +104,7 @@ import type { SkillNotification } from "../bridge/skillNotifications.ts";
 import type { MailLabel, MailingList } from "../bridge/mail.ts";
 import type { BoundFleet } from "../bridge/boundFleet.ts";
 import type { FleetBroadcast } from "../bridge/fleetBroadcasts.ts";
+import type { FleetLootEntry } from "../bridge/fleetLoot.ts";
 import type { JamEvent } from "../bridge/jamNotifications.ts";
 import type { PiRecipeBook } from "../bridge/piRecipes.ts";
 import type { TargetEvent, TargeterEvent } from "../bridge/targetNotifications.ts";
@@ -457,6 +458,8 @@ export type FeedEvent =
   | { readonly type: "fleet/watchlist"; readonly members: readonly number[] }
   | { readonly type: "fleet/jump-beacon"; readonly characterID: number; readonly beacon: FleetJumpBeacon | null }
   | { readonly type: "fleet/broadcast-history-cleared" }
+  | { readonly type: "fleet/loot-history-cleared" }
+  | { readonly type: "fleet/loot"; readonly entries: readonly FleetLootEntry[] }
   // An invitation answered or turned down: the window's no longer, where it is the one held.
   | { readonly type: "fleet/invite-settled"; readonly fleetID: number }
   // A one-shot fleet call (OnFleetBroadcast). Pure push-to-store, same shape

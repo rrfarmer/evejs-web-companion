@@ -16,6 +16,7 @@ import type { CoreMobilityFuelObservation } from "../bridge/miningSupportCore.ts
 import type { ModuleReachObservation } from "../bridge/moduleReach.ts";
 import type { BoundFleet } from "../bridge/boundFleet.ts";
 import type { FleetBroadcast } from "../bridge/fleetBroadcasts.ts";
+import type { FleetLootEntry } from "../bridge/fleetLoot.ts";
 import type { ActiveJam } from "../bridge/jamNotifications.ts";
 import type { PiRecipeBook } from "../bridge/piRecipes.ts";
 import type {
@@ -1124,6 +1125,7 @@ export interface FleetCenterState {
    * kept across fleets as the client keeps them until cleared.
    */
   readonly broadcastHistory?: readonly FleetBroadcast[];
+  readonly lootHistory: readonly FleetLootEntry[];
   /**
    * itemID -> standing target tag, from the last OnFleetStateChange.
    * ⚠ `null` and an empty map mean different things and must stay distinct:

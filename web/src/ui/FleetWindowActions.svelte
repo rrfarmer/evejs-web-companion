@@ -72,6 +72,7 @@
     removeAdvert: F + "RemoveAdvert",
     joinRequests: F + "OpenJoinRequest",
     externalLink: F + "GetFleetID",
+    exportLoot: F + "ExportLootHistory",
     storeSetup: F + "StoreFleetSetup",
     fleetSetups: F + "FleetSetups",
     setupsOverview: F + "SetupsOverview",
@@ -175,6 +176,7 @@
           disabled: esi === null ? "Reading fleet link settings" : null });
       }
       rows.push(action(labels.watchlist, "Open Fleet Watch List", onWatchlist),
+        action(labels.exportLoot, "Export Loot History", () => run(flow.exportFleetLootHistory())),
         null, action(labels.leave, "Leave Fleet", () => run(flow.fleetMenuAction({ kind: "leave" }))));
       if (boss) rows.push(action(labels.disband, "Disband Fleet", () => changeConfiguration(() => flow.disbandFleet(fleetID))));
     }
