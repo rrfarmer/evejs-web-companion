@@ -1,26 +1,34 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { KILL_REPORT_BREAKDOWN_WORDS } from "../bridge/combatReportBreakdown.ts";
-  import { COMBAT_REPORT_LABEL, combatReportHash, combatReportUrl, type CombatReportWindow } from "../bridge/combatLog.ts";
-  import { combatReportNameRefs } from "../bridge/combatReportPresentation.ts";
+  import { COMBAT_REPORT_LABEL, combatReportHash, combatReportUrl, externalCombatReportUrl, type CombatReportWindow } from "../bridge/combatLog.ts";
+  import { COMBAT_REPORT_WORDS, combatReportNameRefs, combatReportText } from "../bridge/combatReportPresentation.ts";
   import { plainText } from "../bridge/clientWords.ts";
+  import { panelErrorWords } from "../bridge/refusals.ts";
+  import { ContextMenu } from "../play/contextMenu.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import CombatReportBreakdown from "./CombatReportBreakdown.svelte";
   import DesktopWindow from "./DesktopWindow.svelte";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { startLinkDrag } from "./linkFollowers.ts";
   import { portal } from "./portal.ts";
+  import { notify } from "./notices.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import type { WindowRect } from "./windowResize.ts";
 
   let { store, flow, inFront, host, onOpenIndustry }: {
     store: ClientStore; flow: AppFlow; inFront: boolean; host: InfoWindowHost | null; onOpenIndustry: () => void;
   } = $props();
-  const windows = $derived(flow.combatReportWindows), words = $derived(store.words);
-  const caption = $derived(plainText($words.templates[COMBAT_REPORT_LABEL] || "Kill Report"));
+  const windows = $derived(flow.combatReportWindows), words = $derived(store.words), names = $derived(store.names);
+  const word = (key: string, fallback: string) => plainText($words.templates[key] || fallback);
+  const caption = $derived(word(COMBAT_REPORT_LABEL, "Kill Report"));
   const dragLabel = "UI/Corporations/Wars/DragToShare";
-  const dragHint = $derived(plainText($words.templates[dragLabel] || "Drag to share"));
+  const dragHint = $derived(word(dragLabel, "Drag to share"));
+  const copyTextLabel = "UI/Control/Entries/CopyKillInfo";
+  const copyLinkLabel = "UI/Control/Entries/CopyExternalKillLink";
+  const more = new ContextMenu();
+  onDestroy(() => more.close());
   let layout = $state.raw<Readonly<Record<string, WindowRect>>>({});
   let hashes = $state.raw<ReadonlyMap<number, string>>(new Map());
   let layerOrder = $state.raw<Readonly<Record<string, number>>>({});
@@ -30,7 +38,7 @@
   $effect(() => {
     const currentHost = host;
     const reports = $windows;
-    if (!currentHost || !inFront) { previousHost = null; return; }
+    if (!currentHost || !inFront) { previousHost = null; more.close(); return; }
     const opened = reports.filter(view => currentHost !== previousHost || !displayed.includes(view));
     previousHost = currentHost;
     displayed = reports;
@@ -46,7 +54,8 @@
   $effect(() => {
     const reports = $windows.map(window => window.report);
     if (!reports.length) { hashes = new Map(); return; }
-    flow.requestWords([COMBAT_REPORT_LABEL, dragLabel, ...KILL_REPORT_BREAKDOWN_WORDS, "UI/Generic/Copy", "UI/Generic/Original"]);
+    flow.requestWords([COMBAT_REPORT_LABEL, dragLabel, copyTextLabel, copyLinkLabel, ...COMBAT_REPORT_WORDS,
+      ...KILL_REPORT_BREAKDOWN_WORDS, "UI/Generic/Copy", "UI/Generic/Original", "UI/Abyss/AbyssalDepths"]);
     flow.requestNames(combatReportNameRefs(reports));
     flow.requestSystemSecurity(reports.flatMap(row => row.solarSystemID ? [row.solarSystemID] : []));
     let current = true;
@@ -67,6 +76,7 @@
   }
 
   function close(id: string): void {
+    more.close();
     flow.closeCombatReportWindow(id);
     const next = { ...layout };
     delete next[id];
@@ -86,6 +96,27 @@
     const hash = hashes.get(view.report.killID);
     if (hash) startLinkDrag(event, combatReportUrl(view.report.killID, hash), caption);
   }
+
+  async function copy(text: string | Promise<string>): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(await text);
+    } catch (error) {
+      notify({ kind: "danger", title: caption, detail: panelErrorWords(error) });
+    }
+  }
+
+  function options(event: MouseEvent, view: CombatReportWindow): void {
+    const bounds = (event.currentTarget as HTMLButtonElement).getBoundingClientRect();
+    focus(view.id);
+    const report = view.report;
+    more.open(bounds.left, bounds.bottom, [
+      { path: copyTextLabel, label: word(copyTextLabel, "Copy Kill Information"),
+        run: () => void copy(combatReportText(report, $names, $words.templates)) },
+      { path: copyLinkLabel, label: word(copyLinkLabel, "Copy External Kill Link"),
+        run: () => void copy(Promise.resolve(hashes.get(report.killID) ?? combatReportHash(report))
+          .then(hash => externalCombatReportUrl(report.killID, hash))) },
+    ]);
+  }
 </script>
 
 {#if inFront && host && $windows.length}
@@ -101,8 +132,13 @@
         {#snippet headerActions()}
           <span class="report-link" role="presentation" draggable={hashes.has(view.report.killID)} ondragstart={event => drag(event, view)}
             onpointerdown={event => event.stopPropagation()} title={dragHint}>{dragHint}</span>
+          <button type="button" class="win-btn report-more" aria-label="More options" title="More options"
+            onpointerdown={event => event.stopPropagation()} onclick={event => options(event, view)}>⋯</button>
         {/snippet}
-        {#key view.report.killID}<CombatReportBreakdown report={view.report} {store} {flow} {onOpenIndustry} />{/key}
+        {#key view.report.killID}
+          <CombatReportBreakdown report={view.report} {store} {flow} {onOpenIndustry} canShare={hashes.has(view.report.killID)}
+            onShare={event => drag(event, view)} shareHint={dragHint} />
+        {/key}
       </DesktopWindow>
     {/each}
   </div>

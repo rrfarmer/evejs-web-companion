@@ -55,6 +55,10 @@ export function combatReportUrl(killID: number, hash: string): string {
   return `killReport:${killID}:${hash}`;
 }
 
+export function externalCombatReportUrl(killID: number, hash: string): string {
+  return `https://esi.evetech.net/killmails/${killID}/${hash}`;
+}
+
 export function parseCombatReportUrl(url: string): { killID: number; hash: string } | null {
   const parts = /^killReport:([1-9]\d*):([0-9a-f]{40})$/i.exec(url);
   if (!parts) return null;

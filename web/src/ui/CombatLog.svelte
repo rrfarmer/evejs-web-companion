@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { plainText } from "../bridge/clientWords.ts";
-  import { combatReportHash, combatReportUrl, type CombatLogReport } from "../bridge/combatLog.ts";
+  import { combatReportHash, combatReportUrl, externalCombatReportUrl, type CombatLogReport } from "../bridge/combatLog.ts";
   import { COMBAT_REPORT_WORDS, combatReportDate, combatReportNameRefs, combatReportText } from "../bridge/combatReportPresentation.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
@@ -91,7 +91,7 @@
   async function copyExternal(row: CombatLogReport) {
     try {
       const hash = hashes.get(row.killID) ?? await combatReportHash(row);
-      copy(`https://esi.evetech.net/killmails/${row.killID}/${hash}`);
+      copy(externalCombatReportUrl(row.killID, hash));
     } catch (cause) { error = panelErrorWords(cause); }
   }
   function menuFor(event: MouseEvent, row: CombatLogReport) {

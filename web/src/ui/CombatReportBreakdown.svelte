@@ -22,13 +22,14 @@
   import { findInContracts } from "./contractsSearch.ts";
   import { startLinkDrag } from "./linkFollowers.ts";
   import { showMarketDetails } from "./marketDetails.ts";
-  import { showInfo } from "./showInfo.ts";
+  import { showInfo, type InfoSubject } from "./showInfo.ts";
   import { compareType } from "./typeCompare.ts";
   import { allianceLogoUrl, portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
-  let { report, flow, store, onOpenIndustry }: {
+  let { report, flow, store, onOpenIndustry, canShare, onShare, shareHint }: {
     report: CombatLogReport; flow: AppFlow; store: ClientStore; onOpenIndustry: () => void;
+    canShare: boolean; onShare: (event: DragEvent) => void; shareHint: string;
   } = $props();
   const names = $derived(store.names), words = $derived(store.words);
   const imageServer = $derived(flow.imageServer), logos = $derived(flow.corpLogos), logoLibrary = $derived(flow.corpLogoLibrary);
@@ -58,6 +59,10 @@
   const victimName = $derived(owner(report.victimCharacterID ?? report.victimCorporationID));
   const shipName = $derived(typeName(report.victimShipTypeID));
   const group = $derived(name("typeGroup", report.victimShipTypeID));
+  const privateLocation = $derived.by(() => {
+    const range = Math.floor((report.solarSystemID ?? 0) / 1_000_000);
+    return range === 32 || range === 34 || range === 36;
+  });
 
   let location = $state.raw<MapLocationInfo | null>(null);
   $effect(() => {
@@ -69,7 +74,7 @@
     let active = true;
     const id = report.solarSystemID;
     location = null;
-    if (id) void flow.mapLocationShowInfo(id).then(result => { if (active) location = result; }).catch(() => {});
+    if (id && !privateLocation) void flow.mapLocationShowInfo(id).then(result => { if (active) location = result; }).catch(() => {});
     return () => { active = false; };
   });
   $effect(() => {
@@ -100,7 +105,8 @@
 
   const security = $derived(report.solarSystemID ? ($names.systemSecurity[report.solarSystemID] ?? location?.securityStatus ?? null) : null);
   const system = $derived(name("system", report.solarSystemID) || location?.name || unknown);
-  const parents = $derived(location?.parents.slice().sort((left, right) => right.typeID - left.typeID).map(place => place.name) ?? []);
+  const parents = $derived(location?.parents.filter(place => place.typeID === 4 || place.typeID === 3)
+    .sort((left, right) => right.typeID - left.typeID) ?? []);
   const payout = $derived(Boolean(report.bountyClaimed || (report.loyaltyPoints ?? 0) > 0));
   const amount = (value: number | null) => value === null ? unknown : number(value) + " ISK";
 
@@ -116,6 +122,12 @@
 
   function info(typeID: number, event: MouseEvent | KeyboardEvent): void {
     showInfo({ kind: "type", typeID }, { shift: event.shiftKey });
+  }
+
+  function corporation(corporationID: number): InfoSubject {
+    return corporationID >= 500000 && corporationID < 599999
+      ? { kind: "faction", factionID: corporationID }
+      : { kind: "corporation", corporationID };
   }
 
   async function openItemMenu(event: MouseEvent | KeyboardEvent, typeID: number): Promise<void> {
@@ -178,6 +190,11 @@
   }
 </script>
 
+{#snippet reportLink(target: InfoSubject, label: string)}
+  <button type="button" class="report-info-link" title={label}
+    onclick={event => showInfo(target, { shift: event.shiftKey })}>{label}</button>
+{/snippet}
+
 {#snippet corpPicture(id: number | null, size: number)}
   <div class="corporation-picture" style:width="{size}px" style:height="{size}px">
     {#if id && $logos[id] && $logoLibrary}
@@ -192,15 +209,32 @@
   {@const displayName = attacker.characterID ? owner(attacker.characterID) : typeName(attacker.shipTypeID)}
   {@const affiliation = attacker.allianceID || attacker.factionID}
   <div class="attacker" data-attacker={attacker.characterID || attacker.corporationID} data-damage={attacker.damage}>
-    <OwnerPicture name={displayName} urls={portrait(attacker.characterID, 64)} size={64} />
+    {#if attacker.characterID}
+      <button type="button" class="report-image-link" aria-label={displayName} title={displayName}
+        onclick={event => showInfo({ kind: "character", characterID: attacker.characterID }, { shift: event.shiftKey })}>
+        <OwnerPicture name={displayName} urls={portrait(attacker.characterID, 64)} size={64} />
+      </button>
+    {:else}
+      <OwnerPicture name={displayName} urls={portrait(null, 64)} size={64} />
+    {/if}
     <div class="attacker-equipment">
-      {#if attacker.shipTypeID}<TypeIcon typeID={attacker.shipTypeID} name={typeName(attacker.shipTypeID)} size="md" />{/if}
-      {#if attacker.weaponTypeID}<TypeIcon typeID={attacker.weaponTypeID} name={typeName(attacker.weaponTypeID)} size="md" />{/if}
+      {#each [attacker.shipTypeID, attacker.weaponTypeID] as typeID}
+        {#if typeID}
+          <button type="button" class="report-image-link" aria-label={typeName(typeID)} title={typeName(typeID)}
+            onclick={event => info(typeID, event)}>
+            <TypeIcon {typeID} name={typeName(typeID)} size="md" />
+          </button>
+        {/if}
+      {/each}
     </div>
     <div class="attacker-details">
-      <strong title={displayName}>{displayName}</strong>
-      {#if attacker.corporationID}<span title={owner(attacker.corporationID)}>{owner(attacker.corporationID)}</span>{/if}
-      {#if affiliation}<span title={owner(affiliation)}>{owner(affiliation)}</span>{/if}
+      {#if attacker.characterID}
+        {@render reportLink({ kind: "character", characterID: attacker.characterID }, displayName)}
+      {:else}<strong title={displayName}>{displayName}</strong>{/if}
+      {#if attacker.corporationID}{@render reportLink(corporation(attacker.corporationID), owner(attacker.corporationID))}{/if}
+      {#if affiliation}
+        {@render reportLink(attacker.allianceID ? { kind: "alliance", allianceID: affiliation } : { kind: "faction", factionID: affiliation }, owner(affiliation))}
+      {/if}
       {#if attacker.weaponTypeID}<small class="damage-done">{damageOf(attacker)}</small>{/if}
     </div>
   </div>
@@ -210,41 +244,78 @@
   <div class="victim">
     <div class="victim-images">
       {#if report.victimCharacterID}
-        <OwnerPicture name={victimName} urls={portrait(report.victimCharacterID, 128)} size={128} />
+        <div class="victim-picture" role="presentation" draggable={canShare} ondragstart={onShare} title={shareHint}>
+          <OwnerPicture name={victimName} urls={portrait(report.victimCharacterID, 128)} size={128} />
+        </div>
+      {:else if report.victimCorporationID}
+        {@const id = report.victimCorporationID}
+        <button type="button" class="report-image-link victim-picture" aria-label={owner(id)} title={shareHint}
+          draggable={canShare} ondragstart={onShare} onclick={event => showInfo(corporation(id), { shift: event.shiftKey })}>
+          {@render corpPicture(id, 128)}
+        </button>
       {:else}
-        {@render corpPicture(report.victimCorporationID, 128)}
+        {@render corpPicture(null, 128)}
       {/if}
-      <div class="ship-image"><TypeIcon typeID={report.victimShipTypeID} name={shipName} size="lg" /></div>
+      <div class="ship-image" role="presentation" draggable={canShare} ondragstart={onShare} title={shareHint}>
+        <TypeIcon typeID={report.victimShipTypeID} name={shipName} size="lg" />
+      </div>
     </div>
     <div class="victim-details">
-      <h2>{report.victimCharacterID ? victimName : shipName}</h2>
+      <h2>
+        {#if report.victimCharacterID}
+          {@render reportLink({ kind: "character", characterID: report.victimCharacterID }, victimName)}
+        {:else if report.victimShipTypeID}
+          {@render reportLink({ kind: "type", typeID: report.victimShipTypeID }, shipName)}
+        {:else}{shipName}{/if}
+      </h2>
       {#if report.victimCorporationID}
+        {@const id = report.victimCorporationID}
+        {@const alliance = report.victimAllianceID}
+        {@const faction = report.victimFactionID}
         <div class="victim-affiliation">
-          {@render corpPicture(report.victimCorporationID, 32)}
-          {#if report.victimAllianceID}
-            {@const logo = allianceLogoUrl($imageServer, report.victimAllianceID)}
-            <OwnerPicture name={owner(report.victimAllianceID)} urls={logo ? [logo] : []} size={32} />
+          <button type="button" class="report-image-link" aria-label={owner(id)} title={owner(id)}
+            onclick={event => showInfo(corporation(id), { shift: event.shiftKey })}>{@render corpPicture(id, 32)}</button>
+          {#if alliance || faction}
+            {@const affiliation = alliance ?? faction!}
+            {@const target: InfoSubject = alliance ? { kind: "alliance", allianceID: affiliation } : { kind: "faction", factionID: affiliation }}
+            {@const logo = alliance ? allianceLogoUrl($imageServer, alliance) : null}
+            <button type="button" class="report-image-link" aria-label={owner(affiliation)} title={owner(affiliation)}
+              onclick={event => showInfo(target, { shift: event.shiftKey })}>
+              <OwnerPicture name={owner(affiliation)} urls={logo ? [logo] : []} size={32} />
+            </button>
           {/if}
-          <div>{owner(report.victimCorporationID)}
-            {#if report.victimAllianceID || report.victimFactionID}
-              <br />{owner(report.victimAllianceID ?? report.victimFactionID)}
-            {/if}
+          <div>
+            {@render reportLink(corporation(id), owner(id))}
+            {#if alliance}<br />{@render reportLink({ kind: "alliance", allianceID: alliance }, owner(alliance))}
+            {:else if faction}<br />{@render reportLink({ kind: "faction", factionID: faction }, owner(faction))}{/if}
           </div>
         </div>
       {/if}
-      {#if report.victimCharacterID}<div class="destroyed-ship">{shipName}{group ? " (" + group + ")" : ""}</div>{/if}
+      {#if report.victimCharacterID && report.victimShipTypeID}
+        <div class="destroyed-ship">{@render reportLink({ kind: "type", typeID: report.victimShipTypeID }, shipName)}{group ? " (" + group + ")" : ""}</div>
+      {/if}
       <time>{combatReportDate(report)}</time>
-      <div class="kill-location">{system}{security === null ? "" : " " + shownSecurity(security).toFixed(1)}{parents.length ? " < " + parents.join(" < ") : ""}</div>
+      <div class="kill-location">
+        {#if privateLocation}
+          {say("UI/Abyss/AbyssalDepths", "Abyssal Depths")}
+        {:else if report.solarSystemID}
+          {@render reportLink({ kind: "mapLocation", typeID: 5, itemID: report.solarSystemID }, system)}{security === null ? "" : " " + shownSecurity(security).toFixed(1)}{#each parents as place}{" < "}{@render reportLink({ kind: "mapLocation", typeID: place.typeID, itemID: place.itemID }, place.name)}{/each}
+        {:else}{unknown}{/if}
+      </div>
     </div>
   </div>
 
   <div class="report-columns">
     <div class="involved">
       {#if report.killRightSupplied}
+        {@const id = report.killRightSupplied}
         <div class="killed-on-behalf">
           <h3>{word("KilledOnBehalf", "Killed on behalf of")}</h3>
-          <OwnerPicture name={owner(report.killRightSupplied)} urls={portrait(report.killRightSupplied, 64)} size={64} />
-          {owner(report.killRightSupplied)}
+          <button type="button" class="report-image-link" aria-label={owner(id)}
+            onclick={event => showInfo({ kind: "character", characterID: id }, { shift: event.shiftKey })}>
+            <OwnerPicture name={owner(id)} urls={portrait(id, 64)} size={64} />
+          </button>
+          {@render reportLink({ kind: "character", characterID: id }, owner(id))}
         </div>
       {/if}
       <h3 class="party-count">{word("InvolvedParties", "Involved Parties ({parties})", { parties: breakdown.parties })}</h3>
@@ -319,6 +390,12 @@
   .kill-report { display: flex; flex-direction: column; height: 100%; gap: 12px; container-type: inline-size; }
   .victim { display: flex; align-items: flex-start; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--color-line); }
   .victim-images { display: flex; gap: 3px; }
+  .victim-picture, .ship-image { line-height: 0; }
+  .victim-images [draggable="true"] { cursor: grab; }
+  .report-info-link, .report-image-link { border: 0; background: transparent; padding: 0; font: inherit; color: inherit; text-align: start; }
+  .report-info-link { color: var(--color-accent-bright); }
+  .report-info-link:hover { text-decoration: underline; }
+  .report-image-link { line-height: 0; flex: none; }
   .ship-image { width: 128px; height: 128px; flex: none; }
   .ship-image :global(.type-icon) { width: 100%; height: 100%; }
   .corporation-picture { display: grid; flex: none; place-items: center; overflow: hidden; }
@@ -341,7 +418,7 @@
   .attacker-equipment { display: flex; flex-direction: column; width: 32px; flex: none; }
   .attacker-equipment :global(.type-icon) { width: 32px; height: 32px; }
   .attacker-details { align-self: stretch; display: flex; flex-direction: column; min-width: 0; padding-inline-start: 3px; font-size: 12px; }
-  .attacker-details > :is(strong, span) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+  .attacker-details > :is(strong, button) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
   .attacker-details .damage-done { margin-top: auto; color: var(--color-muted); }
   .other-attackers { display: grid; gap: 3px; padding-top: 6px; border-top: 1px solid var(--color-line); }
   .damage-taken, .total-destroyed > :last-child { color: var(--color-danger); }
