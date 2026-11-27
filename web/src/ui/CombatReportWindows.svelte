@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
   import { KILL_REPORT_BREAKDOWN_WORDS } from "../bridge/combatReportBreakdown.ts";
   import { COMBAT_REPORT_LABEL, combatReportHash, combatReportUrl, type CombatReportWindow } from "../bridge/combatLog.ts";
@@ -7,17 +8,38 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import CombatReportBreakdown from "./CombatReportBreakdown.svelte";
   import DesktopWindow from "./DesktopWindow.svelte";
+  import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { startLinkDrag } from "./linkFollowers.ts";
+  import { portal } from "./portal.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import type { WindowRect } from "./windowResize.ts";
 
-  let { store, flow, inFront }: { store: ClientStore; flow: AppFlow; inFront: boolean } = $props();
+  let { store, flow, inFront, host }: { store: ClientStore; flow: AppFlow; inFront: boolean; host: InfoWindowHost | null } = $props();
   const windows = $derived(flow.combatReportWindows), words = $derived(store.words);
   const caption = $derived(plainText($words.templates[COMBAT_REPORT_LABEL] || "Kill Report"));
   const dragLabel = "UI/Corporations/Wars/DragToShare";
   const dragHint = $derived(plainText($words.templates[dragLabel] || "Drag to share"));
   let layout = $state.raw<Readonly<Record<string, WindowRect>>>({});
   let hashes = $state.raw<ReadonlyMap<number, string>>(new Map());
+  let layerOrder = $state.raw<Readonly<Record<string, number>>>({});
+  let previousHost: InfoWindowHost | null = null;
+  let displayed: readonly CombatReportWindow[] = [];
+
+  $effect(() => {
+    const currentHost = host;
+    const reports = $windows;
+    if (!currentHost || !inFront) { previousHost = null; return; }
+    const opened = reports.filter(view => currentHost !== previousHost || !displayed.includes(view));
+    previousHost = currentHost;
+    displayed = reports;
+    if (opened.length) untrack(() => {
+      currentHost.reveal();
+      let z = currentHost.topZ();
+      const next = { ...layerOrder };
+      for (const view of opened) next[view.id] = ++z;
+      layerOrder = next;
+    });
+  });
 
   $effect(() => {
     const reports = $windows.map(window => window.report);
@@ -32,11 +54,12 @@
   });
 
   function rectangle(view: CombatReportWindow): WindowRect {
-    const width = Math.min(innerWidth, 650), height = Math.min(innerHeight, 640);
+    const areaWidth = host?.element.clientWidth || innerWidth, areaHeight = host?.element.clientHeight || innerHeight;
+    const width = Math.min(areaWidth, 650), height = Math.min(areaHeight, 640);
     const spread = view.id === "KillReportWnd" ? 0 : 24 * (view.report.killID % 6 + 1);
     return layout[view.id] ?? {
-      x: Math.min(innerWidth - width, Math.round((innerWidth - width) / 2) + spread),
-      y: Math.min(innerHeight - height, Math.round((innerHeight - height) / 2) + spread),
+      x: Math.min(areaWidth - width, Math.round((areaWidth - width) / 2) + spread),
+      y: Math.min(areaHeight - height, Math.round((areaHeight - height) / 2) + spread),
       w: width, h: height,
     };
   }
@@ -46,6 +69,15 @@
     const next = { ...layout };
     delete next[id];
     layout = next;
+    const order = { ...layerOrder };
+    delete order[id];
+    layerOrder = order;
+  }
+
+  function focus(id: string): void {
+    const top = host?.topZ() ?? 0;
+    if ((layerOrder[id] ?? 0) < top) layerOrder = { ...layerOrder, [id]: top + 1 };
+    flow.raiseCombatReportWindow(id);
   }
 
   function drag(event: DragEvent, view: CombatReportWindow): void {
@@ -54,28 +86,28 @@
   }
 </script>
 
-{#if inFront && $windows.length}
-  <div class="combat-report-layer">
-    {#each $windows as view, index (view.id)}
+{#if inFront && host && $windows.length}
+  <div class="combat-report-layer" use:portal={host.element}>
+    {#each $windows as view (view.id)}
       {@const rect = rectangle(view)}
-      <DesktopWindow win={{ id: view.id, ...rect, minimized: false, z: index + 1 }} title={caption}
-        icon={clientTexture("res:/UI/Texture/WindowIcons/killreport.png")} focused={index === $windows.length - 1}
-        minWidth={Math.min(innerWidth, 650)} minHeight={Math.min(innerHeight, 640)}
-        onFocus={() => flow.raiseCombatReportWindow(view.id)} onClose={() => close(view.id)}
+      <DesktopWindow win={{ id: view.id, ...rect, minimized: false, z: layerOrder[view.id] ?? 1 }} title={caption}
+        icon={clientTexture("res:/UI/Texture/WindowIcons/killreport.png")} focused={(layerOrder[view.id] ?? 0) >= host.topZ()}
+        minWidth={Math.min(host.element.clientWidth || innerWidth, 650)} minHeight={Math.min(host.element.clientHeight || innerHeight, 640)}
+        onFocus={() => focus(view.id)} onClose={() => close(view.id)}
         onMove={(x, y) => { layout = { ...layout, [view.id]: { ...rect, x, y } }; }}
         onResizeRect={next => { layout = { ...layout, [view.id]: next }; }}>
         {#snippet headerActions()}
           <span class="report-link" role="presentation" draggable={hashes.has(view.report.killID)} ondragstart={event => drag(event, view)}
             onpointerdown={event => event.stopPropagation()} title={dragHint}>{dragHint}</span>
         {/snippet}
-        <CombatReportBreakdown report={view.report} {store} {flow} />
+        {#key view.report.killID}<CombatReportBreakdown report={view.report} {store} {flow} />{/key}
       </DesktopWindow>
     {/each}
   </div>
 {/if}
 
 <style>
-  .combat-report-layer { position: fixed; inset: 0; pointer-events: none; z-index: 160; }
+  .combat-report-layer { position: absolute; inset: 0; pointer-events: none; }
   .combat-report-layer :global(.win) { pointer-events: auto; }
   .report-link { color: var(--color-accent-bright); cursor: grab; padding: 2px 8px; }
 </style>

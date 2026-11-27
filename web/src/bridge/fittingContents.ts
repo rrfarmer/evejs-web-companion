@@ -72,6 +72,7 @@ const MODULE_SLOTS = new Set([...LO_SLOTS, ...MED_SLOTS, ...HI_SLOTS]);
 export function createFittingData(
   items: readonly { readonly typeID: number; readonly flagID: number | null; readonly quantity: number }[],
   facts: (typeID: number) => TypeFacts,
+  { includeHiddenModifiers = false } = {},
 ): [number, number, number][] {
   const fitData: [number, number, number][] = [];
   const kinds: { readonly flag: number; readonly order: number[]; readonly totals: Map<number, number> }[] = [
@@ -83,9 +84,9 @@ export function createFittingData(
     kind.totals.set(typeID, (kind.totals.get(typeID) ?? 0) + quantity);
   };
   for (const { typeID, flagID: flag, quantity } of items) {
-    if (flag === null || flag === FLAG_HIDDEN_MODIFIERS) continue;
+    if (flag === null || (!includeHiddenModifiers && flag === FLAG_HIDDEN_MODIFIERS)) continue;
     const { groupID, categoryID, lists } = facts(typeID);
-    if (FITTING_FLAGS.has(flag) && (categoryID === CATEGORY_MODULE || categoryID === CATEGORY_SUBSYSTEM || categoryID === CATEGORY_STRUCTURE_MODULE)) fitData.push([typeID, flag, 1]);
+    if ((FITTING_FLAGS.has(flag) || flag === FLAG_HIDDEN_MODIFIERS) && (categoryID === CATEGORY_MODULE || categoryID === CATEGORY_SUBSYSTEM || categoryID === CATEGORY_STRUCTURE_MODULE)) fitData.push([typeID, flag, 1]);
     else if (categoryID === CATEGORY_DRONE && flag === FLAG_DRONE_BAY) add(drones!, typeID, quantity);
     else if (categoryID === CATEGORY_FIGHTER && (flag === FLAG_FIGHTER_BAY || FIGHTER_TUBES.has(flag))) add(fighters!, typeID, quantity);
     else if (categoryID === CATEGORY_CHARGE && flag === FLAG_CARGO) add(charges!, typeID, quantity);

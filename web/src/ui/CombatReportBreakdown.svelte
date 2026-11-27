@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type { MapLocationInfo } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { CombatLogReport } from "../bridge/combatLog.ts";
   import { combatReportBreakdown, KILL_REPORT_PATH, type CombatReportAttacker } from "../bridge/combatReportBreakdown.ts";
   import { combatReportDate } from "../bridge/combatReportPresentation.ts";
+  import { panelErrorWords } from "../bridge/refusals.ts";
   import { shownSecurity } from "../bridge/systemSecurity.ts";
   import type { JsonValue } from "../bridge/wire.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -12,6 +14,7 @@
   import CorpLogo from "./CorpLogo.svelte";
   import OwnerPicture from "./OwnerPicture.svelte";
   import TypeIcon from "./TypeIcon.svelte";
+  import { openFittingWindow } from "./fittingWindowTarget.ts";
   import { allianceLogoUrl, portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
@@ -19,6 +22,12 @@
   const names = $derived(store.names), words = $derived(store.words);
   const imageServer = $derived(flow.imageServer), logos = $derived(flow.corpLogos), logoLibrary = $derived(flow.corpLogoLibrary);
   const breakdown = $derived(combatReportBreakdown(report));
+  const saveWord = $derived(word("SaveFitting", "Save Fitting"));
+  const simulateWord = $derived(say("UI/Fitting/FittingWindow/SimulateShipFitting", "Simulate Fitting"));
+  const buyWord = $derived(say("UI/Market/MarketQuote/BuyAll", "Buy All"));
+  let hull = $state<"ship" | "capsule" | null>(null);
+  let working = $state(false);
+  let actionError = $state("");
   const number = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 0 });
   const say = (path: string, fallback: string, values: Record<string, JsonValue> = {}) =>
     plainText(formatTemplate($words.templates[path] || fallback, values, { nameOf: name }));
@@ -44,6 +53,31 @@
     if (id) void flow.mapLocationShowInfo(id).then(result => { if (active) location = result; }).catch(() => {});
     return () => { active = false; };
   });
+  $effect(() => {
+    const typeID = report.victimShipTypeID;
+    hull = null;
+    if (!typeID || breakdown.sections.length === 0) return;
+    let active = true;
+    void flow.combatReportFittingKind(typeID).then(kind => { if (active) hull = kind; }).catch(() => {});
+    return () => { active = false; };
+  });
+
+  async function fittingAction(action: "save" | "simulate" | "buy"): Promise<void> {
+    if (working) return;
+    working = true;
+    actionError = "";
+    try {
+      if (action === "simulate") {
+        await tick();
+        openFittingWindow();
+      }
+      await flow.combatReportFittingAction(report, action);
+    } catch (error) {
+      actionError = panelErrorWords(error);
+    } finally {
+      working = false;
+    }
+  }
 
   const security = $derived(report.solarSystemID ? ($names.systemSecurity[report.solarSystemID] ?? location?.securityStatus ?? null) : null);
   const system = $derived(name("system", report.solarSystemID) || location?.name || unknown);
@@ -177,6 +211,16 @@
           {/if}
         {/if}
       </div>
+      {#if hull}
+        <div class="fitting-actions" aria-busy={working}>
+          {#if hull === "ship"}
+            <button type="button" class="minor report-save-fit" disabled={working} onclick={() => fittingAction("save")}>{saveWord}</button>
+            <button type="button" class="minor report-simulate-fit" disabled={working} onclick={() => fittingAction("simulate")}>{simulateWord}</button>
+          {/if}
+          <button type="button" class="minor report-buy-all" disabled={working} onclick={() => fittingAction("buy")}>{buyWord}</button>
+        </div>
+        {#if actionError}<div class="action-error" role="status">{actionError}</div>{/if}
+      {/if}
     </div>
   </div>
 </div>
@@ -220,6 +264,9 @@
   .empty-items { padding: 6px; color: var(--color-muted); }
   .report-totals { margin-top: 10px; border-top: 1px solid var(--color-line); padding-top: 5px; }
   .report-totals > div { display: flex; justify-content: space-between; gap: 6px; }
+  .fitting-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--color-line); }
+  .report-buy-all { margin-inline-start: auto; }
+  .action-error { color: var(--color-danger); }
   .total-worth { font-size: 14px; margin-bottom: 3px; }
   .loyalty > :last-child, .bounty > :last-child { color: var(--color-good); }
   @container (max-width: 480px) {

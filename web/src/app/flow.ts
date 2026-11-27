@@ -531,7 +531,7 @@ import { REMOTE_MESSAGE, remoteDialogOf, type RemoteDialogFallbackType } from ".
 import { convertTyped, DATE_LABELS, formatInterval, formatTemplate, LIST_DELIMITER, plainText, QUANTITY_AND_ITEM } from "../bridge/clientWords.ts";
 import { corporationApplicationsOf, applicationEnded, applicationAcceptable, type CorporationApplication } from "../bridge/corporationApplications.ts";
 import { decodeKillReports, type KillReport } from "../bridge/corpKillReports.ts";
-import { decodeCombatLog, decodeCombatReport, parseCombatReportUrl, type CombatLogReport, type CombatReportWindow } from "../bridge/combatLog.ts";
+import { combatReportDetails, decodeCombatLog, decodeCombatReport, parseCombatReportUrl, type CombatLogReport, type CombatReportWindow } from "../bridge/combatLog.ts";
 import { decodeBulletins, type CorpBulletin } from "../bridge/corpBulletins.ts";
 import { decodeWars, type CorpWar, type WarAlly } from "../bridge/corpWars.ts";
 
@@ -3226,6 +3226,8 @@ export interface AppFlow {
   followCombatReportLink(url: string, shifted?: boolean): Promise<void>;
   raiseCombatReportWindow(id: string): void;
   closeCombatReportWindow(id: string): void;
+  combatReportFittingKind(shipTypeID: number): Promise<"ship" | "capsule" | null>;
+  combatReportFittingAction(report: CombatLogReport, action: "save" | "simulate" | "buy"): Promise<void>;
   /** CorpUIBulletins: corpRegistry.GetBulletins(), its editors' names primed (GetBulletinEntries' BulletinPostedBy). */
   corporationBulletins(alliance?: boolean): Promise<readonly CorpBulletin[]>;
   /** FormAlliancesMembers.ShowMembers: alliance.GetMembers() (the alliance moniker's CIndexedRowset by corporationID),
@@ -14762,6 +14764,47 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   function closeCombatReportWindow(id: string): void {
     pendingCombatReportLinks.delete(id);
     combatReportWindows.update(windows => windows.filter(window => window.id !== id));
+  }
+
+  async function combatReportFittingKind(shipTypeID: number): Promise<"ship" | "capsule" | null> {
+    const types = await api.getTypePrices([shipTypeID], callOptions);
+    if (types.groupID[shipTypeID] === 29) return "capsule";
+    return types.categoryID[shipTypeID] === 6 ? "ship" : null;
+  }
+
+  async function combatReportFittingAction(report: CombatLogReport, action: "save" | "simulate" | "buy"): Promise<void> {
+    const shipTypeID = report.victimShipTypeID;
+    const { itemRoots } = combatReportDetails(report);
+    if (!shipTypeID || !itemRoots.length) return;
+    const current = callOptions.captureRequestGuard!();
+    const kind = await combatReportFittingKind(shipTypeID);
+    current();
+    if (kind === null || (kind === "capsule" && action !== "buy")) return;
+    const items = itemRoots.map(item => ({ typeID: item.typeID, flagID: item.flag, quantity: item.dropped + item.destroyed }));
+    if (action === "buy") {
+      const wanted = new Map<number, number>();
+      for (const { typeID, quantity } of items) {
+        if (quantity > 0) wanted.set(typeID, (wanted.get(typeID) ?? 0) + quantity);
+      }
+      if (kind !== "capsule") wanted.set(shipTypeID, 1);
+      await openMultiBuy(wanted);
+      return;
+    }
+    const [facts] = await Promise.all([
+      fittingTypeFacts([...new Set(items.map(item => item.typeID))]),
+      resolveNamesNow([{ kind: "type", id: shipTypeID }]),
+    ]);
+    current();
+    const fitData = createFittingData(items, typeID => ({
+      // GetFittingFromItems fills categoryID. Its report items have no groupID.
+      groupID: null, categoryID: facts.get(typeID)?.categoryID ?? null, lists: facts.get(typeID)?.lists ?? new Set(),
+    }), { includeHiddenModifiers: true }).map(([typeID, flagID, quantity]) => ({ typeID, flagID, quantity }));
+    const name = resolvedName(store.names.get().resolved, "type", shipTypeID, "Unknown");
+    if (action === "simulate") {
+      await simulateFitting({ shipTypeID, fitData, name });
+    } else {
+      await openViewFitting({ fittingID: 0, ownerID: 0, shipTypeID, name, description: "", savedDate: null, source: "personal", modules: fitData });
+    }
   }
 
   const inventoryFilterLinks = createSignal<InventoryFilter | null>(null);
@@ -41575,6 +41618,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     followCombatReportLink,
     raiseCombatReportWindow,
     closeCombatReportWindow,
+    combatReportFittingKind,
+    combatReportFittingAction,
     async personalCombatLog(kind, offset) {
       const current = callOptions.captureRequestGuard!();
       const characterID = store.station.get().online?.characterID;

@@ -1437,6 +1437,8 @@ export function createClientStore(): ClientStore {
           actionError: null,
           // A re-read does not end a reload; only the clock does.
           reloads: fitting.get().reloads,
+          // The active hull read can finish while a separate fitting is being simulated.
+          simulation: fitting.get().simulation,
         });
         break;
       // The ship's attributes as the server's notices keep them: only for the ship the fit was read for.

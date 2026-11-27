@@ -5022,7 +5022,7 @@
       word={(label, own) => { const t = session?.store.words.get().templates[label]; return typeof t === "string" && t !== "" ? plainText(t) : own; }}
       onAbort={() => void session?.flow.abortSafeLogoff().catch(() => {})} onQuitChange={(q) => { safeLogoffQuitting = q; }} />
   {/if}
-  <ErrorBoundary name="Client dialogs"><ClientDialogs {session} inFront={true} /></ErrorBoundary>
+  <ErrorBoundary name="Client dialogs"><ClientDialogs {session} inFront={true} windowHost={windowsEl ? infoHost : null} /></ErrorBoundary>
   {#key session.id}
     <ErrorBoundary name="Chat invitations"><ChatInvitations {session} inFront={true} /></ErrorBoundary>
     <ErrorBoundary name="Direct trades">
