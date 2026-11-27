@@ -14,6 +14,14 @@ const groups = [
 const other = { name: "Other", fallback: "Other" } as const;
 
 export const KILL_REPORT_PATH = "UI/Corporations/Wars/Killmails/";
+// Native SpaceEntitySceneContext covers these destructible types and container groups.
+const spacePreviewCategories = new Set([3, 18, 22, 23, 40, 65, 87]);
+const spacePreviewGroups = new Set([10, 12, 340, 448, 649]);
+
+export function isCombatReportSpacePreview(categoryID: number | null, groupID: number | null): boolean {
+  return (categoryID !== null && spacePreviewCategories.has(categoryID)) || (groupID !== null && spacePreviewGroups.has(groupID));
+}
+
 export const KILL_REPORT_BREAKDOWN_WORDS = [
   ...groups.map(group => KILL_REPORT_PATH + group.name),
   ...["InvolvedParties", "TotalDamage", "FinalBlow", "TopDamage", "DamageDone", "FittingAndContent",

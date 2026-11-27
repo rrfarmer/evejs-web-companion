@@ -10,6 +10,7 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import CombatReportBreakdown from "./CombatReportBreakdown.svelte";
   import CharacterPortraitWindow from "./CharacterPortraitWindow.svelte";
+  import TypePreviewWindow from "./TypePreviewWindow.svelte";
   import DesktopWindow from "./DesktopWindow.svelte";
   import type { InfoWindowHost } from "./infoWindowHost.ts";
   import { startLinkDrag } from "./linkFollowers.ts";
@@ -34,6 +35,7 @@
   let hashes = $state.raw<ReadonlyMap<number, string>>(new Map());
   let layerOrder = $state.raw<Readonly<Record<string, number>>>({});
   let portrait = $state.raw<{ characterID: number; rect: WindowRect; z: number; opening: number } | null>(null);
+  let typePreview = $state.raw<{ typeID: number; rect: WindowRect; z: number } | null>(null);
   let portraitOpening = 0;
   let previousHost: InfoWindowHost | null = null;
   let displayed: readonly CombatReportWindow[] = [];
@@ -115,6 +117,20 @@
     if (top > portrait.z) portrait = { ...portrait, z: top + 1 };
   }
 
+  function showTypePreview(typeID: number): void {
+    if (!host) return;
+    const width = host.element.clientWidth || innerWidth, height = host.element.clientHeight || innerHeight;
+    const w = Math.min(width, 660), h = Math.min(height, 480);
+    const rect = typePreview?.rect ?? { w, h, x: Math.round((width - w) / 2), y: Math.round((height - h) / 2) };
+    typePreview = { typeID, rect, z: host.topZ() + 1 };
+  }
+
+  function focusTypePreview(): void {
+    if (!host || !typePreview) return;
+    const top = host.topZ();
+    if (top > typePreview.z) typePreview = { ...typePreview, z: top + 1 };
+  }
+
   async function copy(text: string | Promise<string>): Promise<void> {
     try {
       await navigator.clipboard.writeText(await text);
@@ -137,7 +153,7 @@
   }
 </script>
 
-{#if inFront && host && ($windows.length || portrait)}
+{#if inFront && host && ($windows.length || portrait || typePreview)}
   <div class="combat-report-layer" use:portal={host.element}>
     {#each $windows as view (view.id)}
       {@const rect = rectangle(view)}
@@ -155,7 +171,7 @@
         {/snippet}
         {#key view.report.killID}
           <CombatReportBreakdown report={view.report} {store} {flow} {onOpenIndustry} canShare={hashes.has(view.report.killID)}
-            onShare={event => drag(event, view)} shareHint={dragHint} onPortrait={showPortrait} />
+            onShare={event => drag(event, view)} shareHint={dragHint} onPortrait={showPortrait} onTypePreview={showTypePreview} />
         {/key}
       </DesktopWindow>
     {/each}
@@ -165,6 +181,13 @@
           focused={portrait.z >= host.topZ()} onFocus={focusPortrait} onClose={() => portrait = null}
           onMove={(x, y) => { if (portrait) portrait = { ...portrait, rect: { ...portrait.rect, x, y } }; }} />
       {/key}
+    {/if}
+    {#if typePreview}
+      <TypePreviewWindow {store} {flow} typeID={typePreview.typeID} rect={typePreview.rect} z={typePreview.z}
+        minWidth={Math.min(host.element.clientWidth || innerWidth, 660)} minHeight={Math.min(host.element.clientHeight || innerHeight, 320)}
+        focused={typePreview.z >= host.topZ()} onFocus={focusTypePreview} onClose={() => typePreview = null}
+        onMove={(x, y) => { if (typePreview) typePreview = { ...typePreview, rect: { ...typePreview.rect, x, y } }; }}
+        onResize={rect => { if (typePreview) typePreview = { ...typePreview, rect }; }} />
     {/if}
   </div>
 {/if}

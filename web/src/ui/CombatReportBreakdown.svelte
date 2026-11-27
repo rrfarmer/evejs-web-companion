@@ -4,7 +4,7 @@
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import type { CombatLogReport } from "../bridge/combatLog.ts";
-  import { combatReportBreakdown, KILL_REPORT_PATH, type CombatReportAttacker, type CombatReportItemLine } from "../bridge/combatReportBreakdown.ts";
+  import { combatReportBreakdown, isCombatReportSpacePreview, KILL_REPORT_PATH, type CombatReportAttacker, type CombatReportItemLine } from "../bridge/combatReportBreakdown.ts";
   import { combatReportDate } from "../bridge/combatReportPresentation.ts";
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { COMPARE_CATEGORIES } from "../bridge/dogmaAttributeGroups.ts";
@@ -27,10 +27,11 @@
   import { allianceLogoUrl, portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
-  let { report, flow, store, onOpenIndustry, canShare, onShare, shareHint, onPortrait }: {
+  let { report, flow, store, onOpenIndustry, canShare, onShare, shareHint, onPortrait, onTypePreview }: {
     report: CombatLogReport; flow: AppFlow; store: ClientStore; onOpenIndustry: () => void;
     canShare: boolean; onShare: (event: DragEvent) => void; shareHint: string;
     onPortrait: (characterID: number) => void;
+    onTypePreview: (typeID: number) => void;
   } = $props();
   const names = $derived(store.names), words = $derived(store.words);
   const imageServer = $derived(flow.imageServer), logos = $derived(flow.corpLogos), logoLibrary = $derived(flow.corpLogoLibrary);
@@ -39,6 +40,7 @@
   const simulateWord = $derived(say("UI/Fitting/FittingWindow/SimulateShipFitting", "Simulate Fitting"));
   const buyWord = $derived(say("UI/Market/MarketQuote/BuyAll", "Buy All"));
   let hull = $state<"ship" | "capsule" | null>(null);
+  let canPreviewSpaceType = $state(false);
   let working = $state(false);
   let actionError = $state("");
   const itemMenu = new ContextMenu();
@@ -81,10 +83,28 @@
   $effect(() => {
     const typeID = report.victimShipTypeID;
     hull = null;
+    canPreviewSpaceType = false;
     if (!typeID) return;
-    let active = true;
-    void flow.combatReportFittingKind(typeID).then(kind => { if (active) hull = kind; }).catch(() => {});
-    return () => { active = false; };
+    const request = new AbortController();
+    void flow.typeFacts([typeID]).then(async types => {
+      if (request.signal.aborted) return;
+      const type = types?.get(typeID);
+      if (type?.categoryID == null) {
+        const kind = await flow.combatReportFittingKind(typeID);
+        if (!request.signal.aborted) hull = kind;
+        return;
+      }
+      if (type.categoryID === 6) {
+        hull = type.groupID === 29 ? "capsule" : "ship";
+      } else if (isCombatReportSpacePreview(type.categoryID, type.groupID)) {
+        const response = await fetch("/client-assets/type-graphic/" + typeID, { signal: request.signal });
+        if (response.ok) {
+          const meta = await response.json() as { graphicID: number | null };
+          if (!request.signal.aborted) canPreviewSpaceType = typeof meta.graphicID === "number" && meta.graphicID > 0;
+        }
+      }
+    }).catch(() => {});
+    return () => request.abort();
   });
 
   async function fittingAction(action: "save" | "simulate" | "buy"): Promise<void> {
@@ -259,11 +279,14 @@
       {:else}
         {@render corpPicture(null, 128)}
       {/if}
-      {#if hull && report.victimShipTypeID}
+      {#if (hull || canPreviewSpaceType) && report.victimShipTypeID}
         {@const typeID = report.victimShipTypeID}
         <button type="button" class="report-image-link ship-image" aria-label={shipName}
           draggable={canShare} ondragstart={onShare} title={shipName + " · " + shareHint}
-          onclick={event => showInfo({ kind: "type", typeID }, { shift: event.shiftKey, selectSkins: true })}>
+          onclick={event => {
+            if (hull) showInfo({ kind: "type", typeID }, { shift: event.shiftKey, selectSkins: true });
+            else onTypePreview(typeID);
+          }}>
           <TypeIcon {typeID} name={shipName} size="lg" />
         </button>
       {:else}

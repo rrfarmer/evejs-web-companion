@@ -217,6 +217,8 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   if (fx) return { file: await ensure(`fx/${fx[1]}.json`, ["--fx", fx[1]], canExtract() ? '"fxBuild":4' : '"fxBuild":') };
 
   const graphicsForType = (id) => readJson(path.join(dir, "typeGraphics.json"))[id];
+  const typeGraphic = /^\/type-graphic\/([1-9]\d{0,9})$/.exec(rel);
+  if (typeGraphic) return { json: { graphicID: graphicsForType(typeGraphic[1])?.graphicID ?? null } };
   const celestial = /^\/celestial\/(\d+)$/.exec(rel);
   if (celestial) {
     const resource = graphicsForType(celestial[1])?.graphicFile;

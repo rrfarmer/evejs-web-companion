@@ -5,7 +5,7 @@
   import { capturePointer, releasePointer } from "./pointerCapture.ts";
   import type { ShipEmblemImages } from "../bridge/shipEmblems.ts";
 
-  let { typeID, factionID, active, expanded, coatings, patterns, blendMode, darkhullChannel, clearedTechCoating, onProjectorGesture, skinMaterialSetID, emblems }: {
+  let { typeID, factionID, active, expanded, coatings, patterns, blendMode, darkhullChannel, clearedTechCoating, onProjectorGesture, skinMaterialSetID, emblems, spaceEntity = false }: {
     typeID: number; factionID: number | null | undefined; active: boolean; expanded: boolean;
     coatings?: readonly (string | null)[];
     patterns?: readonly ShipSkinrPatternPreview[];
@@ -15,6 +15,7 @@
     skinMaterialSetID?: number | null;
     emblems?: ShipEmblemImages;
     onProjectorGesture?: (gesture: ShipSkinrProjectorGesture) => void;
+    spaceEntity?: boolean;
   } = $props();
   const keyboardHelp = $props.id();
   let host = $state<HTMLElement | null>(null);
@@ -100,7 +101,7 @@
     const view = scene;
     if (!view || faction === undefined) return;
     let current = true;
-    if (untrack(() => load) !== "shown") load = "waiting";
+    if (spaceEntity || untrack(() => load) !== "shown") load = "waiting";
     void view.show(id, faction, coatings, patterns, blendMode, darkhullChannel, clearedTechCoating, skinMaterialSetID).then(shown => {
       if (current) load = shown ? "shown" : "unavailable";
     }).catch(() => { if (current) load = "unavailable"; });
@@ -123,12 +124,16 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (The canvas group handles orbit and zoom keys.) -->
-<div class="ship-preview" role="group" aria-label="Ship preview" aria-describedby={expanded ? keyboardHelp : undefined}
+<div class="ship-preview" role="group" aria-label={spaceEntity ? "3D preview" : "Ship preview"} aria-describedby={expanded ? keyboardHelp : undefined}
   tabindex={expanded && load === "shown" ? 0 : undefined} onkeydown={key}>
-  {#if expanded}<span class="sr-only" id={keyboardHelp}>Use the arrow keys to rotate the ship and plus or minus to zoom.</span>{/if}
+  {#if expanded}<span class="sr-only" id={keyboardHelp}>Use the arrow keys to rotate {spaceEntity ? "the model" : "the ship"} and plus or minus to zoom.</span>{/if}
   <div class="scene" class:shown={load === "shown"} class:interactive={expanded}
     class:projector={!!onProjectorGesture} bind:this={host}></div>
-  {#if load !== "shown"}<p role="status">{load === "waiting" ? "Loading ship preview…" : "Ship preview unavailable"}</p>{/if}
+  {#if load !== "shown"}
+    <p role="status">{load === "waiting"
+      ? spaceEntity ? "Loading 3D preview…" : "Loading ship preview…"
+      : spaceEntity ? "3D preview unavailable" : "Ship preview unavailable"}</p>
+  {/if}
 </div>
 
 <style>
