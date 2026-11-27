@@ -589,7 +589,10 @@
           if (retired) { zones.texture.dispose(); zones.bitmap.close(); return null; }
           maps.push(zones);
           return { diffuse: detail.texture, zones: zones.texture,
-            colors: layer.colors.map(([r, g, b]) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace)),
+            colors: layer.colors.map(([r, g, b], index) => {
+              const scale = index === 0 ? selection.primaryScale ?? 1 : 1;
+              return new THREE.Color().setRGB(r * scale, g * scale, b * scale, THREE.SRGBColorSpace);
+            }),
             diffuseRect: new THREE.Vector4().fromArray(layer.diffuseRect), zonesRect: new THREE.Vector4().fromArray(layer.zonesRect),
             weight: selection.weight, gloss: selection.gloss };
         } catch {
@@ -598,10 +601,15 @@
       };
       const irisLayer = irisAsset ? await readColorLayer({ asset: irisAsset, weight: 1, gloss: null }) : null;
       const faceLayers: [string, PortraitColorLayer][] = [];
+      let brows: [string, PortraitColorLayer] | null = null;
       for (const [index, selection] of (makeupAssets ?? []).entries()) {
         if (retired) return;
         const layer = await readColorLayer(selection);
-        if (layer) faceLayers.push(["portraitMakeup" + index, layer]);
+        if (layer) {
+          const name = "portraitMakeup" + index;
+          if (selection.asset.includes("/makeup/eyebrows/")) brows = [name, layer];
+          else faceLayers.push([name, layer]);
+        }
       }
       if (retired) return;
       const { scene: avatar } = await loader.loadAsync(stem + ".glb");
@@ -673,6 +681,26 @@
           if (node instanceof THREE.Mesh && /^eyeball/i.test(node.name)) { node.material = eyes; attached = true; }
         });
         if (!attached) eyes.dispose();
+      }
+      if (brows && bloodline) {
+        const [name, layer] = brows;
+        const browStem = `${stem}-${bloodline}.brows`;
+        try {
+          const { scene: overlay } = await loader.loadAsync(browStem + ".glb");
+          if (!retired && sculpts?.length) await applyPortraitMorphs(overlay, browStem, sculpts, () => retired);
+          if (retired) { release(overlay); return; }
+          const finish = new THREE.MeshStandardMaterial({ map: layer.diffuse, transparent: true, side: THREE.DoubleSide, depthWrite: false });
+          finish.forceSinglePass = true;
+          finish.onBeforeCompile = shader => {
+            shader.fragmentShader = shader.fragmentShader.replace("#include <map_fragment>", "");
+            compositePortraitColorLayer(shader, name, layer, true);
+          };
+          finish.customProgramCacheKey = () => `portrait-brows:${name}`;
+          applySurface(overlay, finish, new Set(), new Set(), null, finish);
+          avatar.add(overlay);
+        } catch {
+          // Some bloodlines may not have a brow overlay in the client installation.
+        }
       }
       for (const url of jewelry ?? []) {
         if (retired) return;

@@ -11,6 +11,7 @@
 //        [--portrait-morph <name>] (one sparse morph from that head)
 //        [--portrait-eyes <style/palette>] (a saved iris layer for that head)
 //        [--portrait-makeup <category/style/palette[~secondary]>] (a saved face layer for that head)
+//        [--portrait-bloodline <id> --portrait-brows] (the bloodline's skinned brow overlay)
 //        [--portrait-body <model stem>] (extract a sparse morph for an extracted outfit model)
 //        [--portrait-outfit <gender/[slot/]style/variant>] (an installed paper-doll garment)
 //        [--portrait-hands <female|male>] (the skinned base hands)
@@ -896,6 +897,18 @@ function extractPortraitArchetype(rf, gender, bloodline, outRoot) {
   }));
 }
 
+async function extractPortraitBrows(rf, gender, bloodline, outRoot, morph) {
+  const paperDoll = `res:/graphics/character/${gender}/paperdoll`;
+  const directory = portraitBloodlineHead.get(bloodline);
+  const metadata = rf.read(`${paperDoll}/head/${directory}/metadata.yaml`).toString("utf8");
+  const model = /accessories\/browbase\/([a-z]+)'/i.exec(metadata)?.[1]?.toLowerCase();
+  if (!model) throw new Error(`${directory}: no portrait brow dependency`);
+  const source = `${paperDoll}/accessories/browbase/${model}/${model}.gr2`;
+  const stem = path.join(outRoot, "portrait-head", `${gender}-${bloodline}.brows`);
+  if (morph) await extractPortraitMorph(rf, source, morph, path.join(stem, "morphs", `${morph}.json`));
+  else await extractPortraitMesh(rf, source, stem + ".glb", "brows");
+}
+
 async function extractPortraitHair(rf, gender, style, outRoot) {
   if (!portraitHair.portraitHairStyle(gender, style)) throw new Error("Unknown portrait hairstyle");
   const paperDoll = `res:/graphics/character/${gender}/paperdoll`;
@@ -954,7 +967,9 @@ function portraitPngRect(buffer) {
 function extractPortraitMakeup(rf, gender, category, key, outRoot) {
   const [style, palette] = key.split("/");
   const [primary, secondary] = palette.split("~");
-  const root = `res:/graphics/character/${gender}/paperdoll/makeup/${category}`;
+  const paperdoll = `res:/graphics/character/${gender}/paperdoll`;
+  const root = `${paperdoll}/makeup/${category}`;
+  const linkedHair = category === "eyebrows" && primary.startsWith("hair_");
   const typePath = `${root}/${style}/types/${style}.type`;
   const type = parseYaml(rf.read(typePath).toString("utf8"), paperDollYaml);
   if (!Array.isArray(type) || typeof type[0] !== "string" || type[0].toLowerCase() !== `makeup/${category}/${style}`) {
@@ -962,13 +977,17 @@ function extractPortraitMakeup(rf, gender, category, key, outRoot) {
   }
   const source = `${root}/${style}/colorize_head_l_512.png`, zone = `${root}/${style}/colorize_head_z_512.png`;
   const readPalette = name => {
-    const file = [`${root}/${style}/${name}.color`, `${root}/colors/${name}.color`].find(path => rf.has(path));
+    const paths = linkedHair && name !== "default" ? [`${paperdoll}/hair/colors/${name}.color`]
+      : [`${root}/${style}/${name}.color`, `${root}/colors/${name}.color`];
+    const file = paths.find(path => rf.has(path));
     const authored = file ? parseYaml(rf.read(file).toString("utf8"), paperDollYaml)?.colors : null;
     const rows = Array.isArray(authored) ? authored.slice(0, 3) : [];
     return rows.length === 3 && rows.every(rgb => Array.isArray(rgb) && rgb.length >= 3 && rgb.slice(0, 3).every(Number.isFinite))
       ? rows.map(rgb => rgb.slice(0, 3)) : null;
   };
-  const primaryColors = readPalette(primary) ?? (primary === "default" ? null : readPalette("default"));
+  const primaryColors = linkedHair
+    ? (primary === "hair_default" ? null : readPalette(primary.slice(5))) ?? [[0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [0.5, 0.5, 0.5]]
+    : readPalette(primary) ?? (primary === "default" ? null : readPalette("default"));
   const secondaryColors = secondary && readPalette(secondary);
   const colors = primaryColors && secondaryColors ? [primaryColors[0], ...secondaryColors.slice(1)]
     : primaryColors ?? [[1, 1, 1], [1, 1, 1], [1, 1, 1]];
@@ -1091,6 +1110,7 @@ function parseArgs(argv) {
       if (!portraitBloodlineHead.has(out.portraitBloodline)) throw new Error("Unknown portrait archetype bloodline");
     }
     else if (a === "--portrait-hair") out.portraitHair = argv[++i];
+    else if (a === "--portrait-brows") out.portraitBrows = true;
     else if (a === "--sde") out.sde = argv[++i];
     else if (a === "--type-graphics") out.typeGraphics = true;
     else if (a === "--ship-emblems") out.shipEmblems = true;
@@ -1149,7 +1169,7 @@ function parseArgs(argv) {
     }
     else if (a === "--portrait-makeup") {
       out.portraitMakeup = argv[++i];
-      if (!/^(blush|eyeshadow|eyeliner|lipstick)\/\1_[a-z0-9_]+\/[a-z0-9_]+(?:~[a-z0-9_]+)?$/.test(out.portraitMakeup ?? "")) {
+      if (!/^(blush|eyebrows|eyeshadow|eyeliner|lipstick)\/\1_[a-z0-9_]+\/[a-z0-9_]+(?:~[a-z0-9_]+)?$/.test(out.portraitMakeup ?? "")) {
         throw new Error("--portrait-makeup needs category/style/palette[~secondary]");
       }
     }
@@ -1461,7 +1481,10 @@ async function main() {
     await extractPortraitMorph(rf, source, args.portraitMorph, path.join(stem, "morphs", args.portraitMorph + ".json"));
   }
   if (args.portraitHead) {
-    if (args.portraitMorph) await extractPortraitMorph(rf,
+    if (args.portraitBrows) {
+      if (args.portraitBloodline === undefined) throw new Error("--portrait-brows needs --portrait-bloodline");
+      await extractPortraitBrows(rf, args.portraitHead, args.portraitBloodline, outRoot, args.portraitMorph);
+    } else if (args.portraitMorph) await extractPortraitMorph(rf,
       `res:/graphics/character/${args.portraitHead}/paperdoll/head/head_generic/head_generic.gr2`, args.portraitMorph,
       path.join(outRoot, "portrait-head", args.portraitHead, "morphs", args.portraitMorph + ".json"));
     else if (args.portraitEyes) extractPortraitMakeup(rf, args.portraitHead, "eyes", args.portraitEyes, outRoot);

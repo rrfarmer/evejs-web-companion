@@ -10,7 +10,8 @@ export interface PortraitColorLayer {
   gloss: number | null;
 }
 
-export function compositePortraitColorLayer(shader: WebGLProgramParametersWithUniforms, name: string, layer: PortraitColorLayer): void {
+export function compositePortraitColorLayer(shader: WebGLProgramParametersWithUniforms, name: string, layer: PortraitColorLayer,
+  overlay = false): void {
   shader.uniforms[name + "Detail"] = { value: layer.diffuse };
   shader.uniforms[name + "Zones"] = { value: layer.zones };
   shader.uniforms[name + "Colors"] = { value: layer.colors };
@@ -37,7 +38,8 @@ export function compositePortraitColorLayer(shader: WebGLProgramParametersWithUn
       tint = mix(${name}Colors[0], tint / max(weight, 0.001), clamp(weight, 0.0, 1.0));
       float inside = step(0.0, uv.x) * step(0.0, uv.y) * step(uv.x, 1.0) * step(uv.y, 1.0);
       ${name}Mask = detail.a * inside * ${name}Opacity;
-      diffuseColor.rgb = mix(diffuseColor.rgb, detail.rgb * tint, ${name}Mask);
+      ${overlay ? `diffuseColor.rgb *= detail.rgb * tint;
+      diffuseColor.a *= ${name}Mask;` : `diffuseColor.rgb = mix(diffuseColor.rgb, detail.rgb * tint, ${name}Mask);`}
     }
     #include <color_fragment>
   `);

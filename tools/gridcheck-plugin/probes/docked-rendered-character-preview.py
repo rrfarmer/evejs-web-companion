@@ -3,10 +3,10 @@ import utillib
 from characterdata.npccharacters import iter_npc_characters
 from eve.client.script.ui.shared.portraitWindow.portraitWindow import PortraitWindow
 from eve.client.script.ui.shared.preview import PreviewCharacterWnd
-from eve.common.script.paperDoll.paperDollDefinitions import ColorSelectionRow, ModifierRow, SculptingRow
+from eve.common.script.paperDoll.paperDollDefinitions import AppearanceRow, ColorSelectionRow, ModifierRow, SculptingRow
 
 
-def observe(gender, outfit, hair, apparel=(), sculpts=(), colors=()):
+def observe(gender, outfit, hair, apparel=(), sculpts=(), colors=(), hair_darkness=0.0):
     if PortraitWindow.GetIfOpen() or PreviewCharacterWnd.GetIfOpen():
         raise RuntimeError('A character preview is already open')
     candidate = next((char_id for char_id, info in iter_npc_characters()
@@ -14,7 +14,8 @@ def observe(gender, outfit, hair, apparel=(), sculpts=(), colors=()):
     if candidate is None:
         raise RuntimeError('No reference character has the selected paper-doll gender')
     modifiers = ([(10, outfit)] if outfit is not None else []) + [(5, hair)] + list(apparel)
-    dna = utillib.KeyVal(sculpts=[SculptingRow(*row) for row in sculpts], colors=[ColorSelectionRow(*row) for row in colors],
+    dna = utillib.KeyVal(appearance=AppearanceRow(hair_darkness),
+                        sculpts=[SculptingRow(*row) for row in sculpts], colors=[ColorSelectionRow(*row) for row in colors],
                         modifiers=[ModifierRow(slot, resource, 0) for slot, resource in modifiers])
     try:
         wnd = PreviewCharacterWnd.Open(charID=candidate, dna=dna)
@@ -37,16 +38,19 @@ def observe(gender, outfit, hair, apparel=(), sculpts=(), colors=()):
                                for slot, resource in apparel],
                       minSize=wnd.default_minSize, bounds=bounds, target=list(camera.atPosition),
                       verticalPan=scene.verticalPanEnabled)
-        if colors:
+        if colors or any(cfg.paperdollResources.Get(resource).resPath.lower().startswith('makeup/eyebrows/')
+                         for _, resource in apparel):
             manager = preview.context.character.doll.buildDataManager
-            eyes = [item for item in manager.GetModifiersAsList(showHidden=True) if 'eyes' in item.GetResPath().lower()]
+            eyes = [item for item in manager.GetModifiersAsList(showHidden=True) if item.GetResPath().lower().startswith('makeup/eyes/')]
             result['eyes'] = [dict(name=item.name, path=item.GetResPath(), colors=list(item.colorizeData), diffuse=dict(item.mapL), zones=dict(item.mapZ))
                               for item in eyes]
             result['makeup'] = [dict(path=item.GetResPath(), colors=list(item.colorizeData), weight=item.weight,
                                      diffuse=dict(item.mapL), zones=dict(item.mapZ))
                                 for item in manager.GetModifiersAsList(showHidden=True)
                                 if item.GetResPath().lower().startswith(('makeup/lipstick/', 'makeup/eyeliner/',
-                                                                         'makeup/eyeshadow/', 'makeup/blush/'))]
+                                                                         'makeup/eyeshadow/', 'makeup/blush/', 'makeup/eyebrows/'))]
+            result['hairSwatches'] = [list(item.colorizeData) for item in manager.GetModifiersAsList()
+                                      if item.GetResPath().lower().startswith('hair/')]
         if sculpts:
             doll = preview.context.character.doll
             result['sculpts'] = [dict(location=row[0], prefix=cfg.paperdollSculptingLocations.Get(row[0]).weightKeyPrefix,
@@ -87,6 +91,13 @@ def makeup_selection(category, style, palette, weight, secondary=None):
 
 extra_makeup = [makeup_selection('eyeshadow', 'eyeshadow_01', 'aqua_a', 0.55, 'gold_bc'),
                 makeup_selection('blush', 'blush_02', 'rosie', 0.35)]
+brow_key = 'makeup/eyebrows'
+brow_slot = next(row.modifierLocationID for row in cfg.paperdollModifierLocations if row.modifierKey == brow_key)
+brow_resource = next(row.paperdollResourceID for row in cfg.paperdollResources
+                     if row.resGender == 0 and row.resPath.lower() == brow_key + '/eyebrows_03/types/eyebrows_03.type')
+hair_color = next(row.colorID for row in cfg.paperdollColors if row.colorKey == 'hair')
+names = {row.colorName: row.colorNameID for row in cfg.paperdollColorNames}
+hair_colors = (hair_color, names['07_a'], names['10_bc'], 0.0, 0.0)
 result = dict(female=observe(0, 15525, 407), male=observe(1, 15555, 127),
               layered=observe(0, 2225, 407, ((25, 236), (22, 298))),
               shirt=observe(0, None, 407, ((26, 3529), (25, 236), (22, 298))),
@@ -99,5 +110,9 @@ result = dict(female=observe(0, 15525, 407), male=observe(1, 15555, 127),
               makeup=observe(0, 8649, 407, ((7, 215), (17, 75)),
                              colors=((8, 13, 0, 0.65, 0.2), (16, 24, 0, 0.45, 0.0))),
               layeredMakeup=observe(0, 8649, 407, [modifier for modifier, _ in extra_makeup],
-                                    colors=[color for _, color in extra_makeup]))
+                                    colors=[color for _, color in extra_makeup]),
+              brows=observe(0, 8649, 407, ((brow_slot, brow_resource),), colors=(hair_colors,), hair_darkness=0.65),
+              defaultBrows=observe(0, 8649, 407, ((brow_slot, brow_resource),)))
 result['layeredMakeup']['selectionRows'] = extra_makeup
+result['brows']['selectionRows'] = [(brow_slot, brow_resource), hair_colors]
+result['brows']['hairDarkness'] = 0.65

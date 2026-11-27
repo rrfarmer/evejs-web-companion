@@ -6296,6 +6296,7 @@ export interface PortraitMakeup {
   readonly asset: string;
   readonly weight: number;
   readonly gloss: number | null;
+  readonly primaryScale?: number;
 }
 export interface CharacterPreviewAppearance {
   readonly model: PortraitHead | null;
@@ -6320,11 +6321,12 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
   const iris = appearance?.iris;
   const makeup = (Array.isArray(appearance?.makeup) ? appearance.makeup : []).flatMap((value: JsonValue) => {
     const layer = asObject(value);
-    const asset = layer?.asset, weight = layer?.weight, gloss = layer?.gloss;
+    const asset = layer?.asset, weight = layer?.weight, gloss = layer?.gloss, primaryScale = layer?.primaryScale;
     return typeof asset === "string" &&
-      /^\/client-assets\/portrait-head\/(female|male)\/makeup\/(blush|eyeshadow|eyeliner|lipstick)\/\2_[a-z0-9_]+\/[a-z0-9_]+(?:~[a-z0-9_]+)?\.json$/.exec(asset)?.[1] === model &&
+      /^\/client-assets\/portrait-head\/(female|male)\/makeup\/(blush|eyebrows|eyeshadow|eyeliner|lipstick)\/\2_[a-z0-9_]+\/[a-z0-9_]+(?:~[a-z0-9_]+)?\.json$/.exec(asset)?.[1] === model &&
       typeof weight === "number" && weight > 0 && weight <= 1 ?
-      [{ asset, weight, gloss: typeof gloss === "number" && gloss >= 0 && gloss <= 1 ? gloss : null }] : [];
+      [{ asset, weight, gloss: typeof gloss === "number" && gloss >= 0 && gloss <= 1 ? gloss : null,
+        ...(typeof primaryScale === "number" && primaryScale >= 0 && primaryScale <= 1 ? { primaryScale } : {}) }] : [];
   });
   const piercings = (Array.isArray(appearance?.piercings) ? appearance.piercings : []).filter((url): url is string =>
     typeof url === "string" &&

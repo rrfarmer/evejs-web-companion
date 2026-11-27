@@ -3,8 +3,9 @@
 const { readModifiers, modifierValues, portraitHairStyle } = require("./portraitHair");
 const { readColors, colorRowValues } = require("./portraitSkinTones");
 const sculptingRowType = "eve.common.script.paperDoll.paperDollDefinitions.SculptingRow";
+const appearanceRowType = "eve.common.script.paperDoll.paperDollDefinitions.AppearanceRow";
 const sculptAxes = [["down", "up"], ["right", "left"], ["back", "forward"]];
-const faceLayerOrder = ["eyeshadow", "blush", "eyeliner", "lipstick"];
+const faceLayerOrder = ["eyeshadow", "eyebrows", "blush", "eyeliner", "lipstick"];
 
 function previewSculptRows(appearance) {
   const fields = appearance?.type === "object" && appearance.args?.type === "dict" ? appearance.args.entries : null;
@@ -61,6 +62,7 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
       else apparel[slot] = `${root}/${slot}/${style}/${variant}.json`;
     } else if (location.modifierKey === "hair") {
       const style = /^hair\/(hair_[a-z0-9_]+)\/types\/\1\.type$/.exec(resourcePath)?.[1];
+      if (style) faceStyles.hair = style;
       if (style && portraitHairStyle(gender, style)) hairstyle = style;
     } else {
       const face = /^makeup\/([a-z]+)\/(\1_[a-z0-9_]+)\/types\/\2\.type$/.exec(resourcePath);
@@ -79,25 +81,38 @@ function unitValue(field, fallback) {
 
 function portraitPreviewMakeup(appearance, gender, styles, locations, names) {
   const selections = new Map();
-  for (const row of readColors(appearance)?.rows ?? []) {
+  const saved = readColors(appearance);
+  let useHairPalette = true;
+  for (const row of saved?.rows ?? []) {
     const fields = colorRowValues(row);
     if (!fields) continue;
     const location = locations?.[fields[1]];
-    const category = /^(?:paperdoll\/)?makeup\/([a-z]+)$/.exec(location?.colorKey ?? "")?.[1];
+    const category = location?.colorKey === "hair" && styles.eyebrows ? "hair"
+      : /^(?:paperdoll\/)?makeup\/([a-z]+)$/.exec(location?.colorKey ?? "")?.[1];
     if (!category || !styles[category]) continue;
     const color = names?.[fields[2]]?.colorName;
     const palette = typeof color === "string" && /^[a-z0-9_]+$/i.test(color) ? color.toLowerCase() : "default";
-    const secondary = category === "eyeshadow" && location.hasSecondary && fields[3] ? names?.[fields[3]]?.colorName : null;
+    const secondary = location.hasSecondary && fields[3] ? names?.[fields[3]]?.colorName : null;
+    if (category === "hair" || category === "eyebrows") useHairPalette = category === "hair";
     selections.set(category, { palette: secondary && /^[a-z0-9_]+$/i.test(secondary) ? `${palette}~${secondary.toLowerCase()}` : palette,
       weight: location.hasWeight ? unitValue(fields[4], 1) : 1,
       gloss: location.hasGloss ? unitValue(fields[5], null) : null });
+  }
+  const hair = selections.get("hair");
+  if (useHairPalette && styles.eyebrows && styles.hair) {
+    const row = saved?.entries.find(([key]) => key === "appearance")?.[1];
+    const fields = row?.type === "objectex2" ? row.header?.[0] : null;
+    const darkness = fields?.[0]?.value === appearanceRowType ? unitValue(fields[1], 0) : 0;
+    // The client takes brow B/C from hair unchanged and interpolates only A from 20% to 100%.
+    selections.set("eyebrows", { palette: `hair_${hair?.palette ?? "default"}`, weight: 1, gloss: null,
+      primaryScale: 0.2 + 0.8 * darkness });
   }
   const stem = `/client-assets/portrait-head/${gender}`;
   const iris = styles.eyes ? `${stem}/eyes/${styles.eyes}/${selections.get("eyes")?.palette ?? "default"}.json` : null;
   const makeup = faceLayerOrder.flatMap(category => {
     const style = styles[category];
-    const { palette, weight, gloss } = selections.get(category) ?? { palette: "default", weight: 1, gloss: null };
-    return style && weight > 0 ? [{ asset: `${stem}/makeup/${category}/${style}/${palette}.json`, weight, gloss }] : [];
+    const { palette, ...layer } = selections.get(category) ?? { palette: "default", weight: 1, gloss: null };
+    return style && layer.weight > 0 ? [{ asset: `${stem}/makeup/${category}/${style}/${palette}.json`, ...layer }] : [];
   });
   return { iris, makeup };
 }
