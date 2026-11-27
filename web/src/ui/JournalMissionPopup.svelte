@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import type { AppFlow } from "../app/flow.ts";
+  import { loadDungeons, type DungeonData } from "../app/api.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { journalMessageMarkup, journalMessagePhrases, type JournalMissionDetails } from "../bridge/journalMission.ts";
   import { objectiveSystemIDs } from "../bridge/locationWrapper.ts";
@@ -21,9 +22,10 @@
   import { showInfo } from "./showInfo.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
 
-  let { store, flow, agentID, openSerial, onClose, onShowSystem }: {
+  let { store, flow, agentID, openSerial, onClose, onShowSystem, onFittedRestrictions }: {
     store: ClientStore; flow: AppFlow; agentID: number; openSerial: number; onClose: () => void;
     onShowSystem: (id: number) => void;
+    onFittedRestrictions: (listID: number, nameID: number | null) => void;
   } = $props();
   const agents = $derived(store.agents), names = $derived(store.names), words = $derived(store.words);
   const station = $derived(store.station), flight = $derived(store.flight);
@@ -38,10 +40,22 @@
     briefing: "UI/Agents/StandardMission/MissionBriefing",
     offerExpiry: "UI/Agents/Dialogue/ThisOfferExpiresAt",
     missionExpiry: "UI/Agents/Dialogue/ThisMissionExpiresAt",
+    fitted: "UI/Agents/StandardMission/DungeonObjectiveSpecialFittingRestrictions",
   } as const;
   const closeActions = new Set(["reset", "declined", "completed", "quit", "failed", "offered", "offer_removed"]);
   const marks = { done: "✓", open: "○", failed: "✕" };
   let detail = $state.raw<JournalMissionDetails | null>(null);
+  let dungeonData = $state.raw<Readonly<Record<string, DungeonData | null>> | null>(null);
+  const dungeonIDs = $derived([...new Set(detail?.objectives.dungeons.flatMap(({ dungeonID }) => dungeonID === null ? [] : [dungeonID]) ?? [])]);
+  $effect(() => {
+    const ids = dungeonIDs;
+    let current = true;
+    dungeonData = null;
+    if (ids.length) void loadDungeons(ids, flow.requestOptions()).then(data => {
+      if (current) dungeonData = data;
+    }).catch(() => {});
+    return () => { current = false; };
+  });
   let failure = $state("");
   let revision = $state(0);
 
@@ -187,6 +201,7 @@
     <div class="briefing"><LabelText markup={missionMarkup(briefing)} {followerOf} /></div>
     {#if expiry}<p class="expiration">{expiry}</p>{/if}
     {#each blocks as block}
+      {@const dungeon = block.dungeonID == null ? null : dungeonData?.[block.dungeonID]}
       {#if block.title}<h3 class={block.state ?? ""}>{plainText(block.title)}</h3>{/if}
       {#if block.text}
         <div class="objective-text" class:warning={block.kind === "warning"}>
@@ -232,6 +247,16 @@
               follow: () => flow.openShipRestrictions(dungeonID),
             } : null} />
         </div>
+      {/if}
+      {#if dungeon?.fittedModuleRestrictionListID}
+        {@const listID = dungeon.fittedModuleRestrictionListID}
+        {@const link = `journal-fitted-restrictions:${listID}`}
+        {@const notice = formatTemplate($words.templates[labels.fitted] ?? "This site contains special {startHttpLink}fitting restrictions{endHttpLink}.", {
+          startHttpLink: `<a href="${link}">`, endHttpLink: "</a>",
+        }, { nameOf })}
+        <div class="objective-fitted-restrictions"><LabelText markup={`<color=0xffe3170d>${notice}</color>`} followerOf={url =>
+          url === link ? { kind: "showInfo", hint: linkWord("UI/Commands/ShowInfo"),
+            follow: () => onFittedRestrictions(listID, dungeon.nameID) } : null} /></div>
       {/if}
     {/each}
   {/if}

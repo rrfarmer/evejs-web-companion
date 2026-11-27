@@ -225,6 +225,7 @@
   import type { ContactScope, NamedAddressBook } from "../bridge/contacts.ts";
   import SafeLogoffTimer from "./SafeLogoffTimer.svelte";
   import JournalMissionPopup from "./JournalMissionPopup.svelte";
+  import FittedModuleRestrictions from "./FittedModuleRestrictions.svelte";
   import type { MySovHub, SovHubDetails, SovHubExtras } from "../app/flow.ts";
 
   // The app's navy panels in the client's greys, for as long as the play mode is up (play/clientTint.ts).
@@ -289,6 +290,9 @@
   }
   type JournalPopupWindow = WindowRect & { id: string; agentID: number; z: number; minimized: boolean; serial: number };
   let journalPopups = $state<JournalPopupWindow[]>([]);
+  const FITTED_RESTRICTIONS_WINDOW = "type_list_window";
+  const FITTED_RESTRICTIONS_CAPTION = "UI/Agents/Dialogue/DungeonDisallowedFittedTypesRestrictionsCaption";
+  let fittedRestrictions = $state<(WindowRect & { id: string; z: number; minimized: boolean; serial: number; listID: number; nameID: number | null }) | null>(null);
   const journalWords = $derived(session?.store.words);
   const journalNames = $derived(session?.store.names);
   const JOURNAL_CAPTION = "UI/Agents/MissionJournalWithAgent";
@@ -296,6 +300,7 @@
     void session?.id;
     void $station?.online?.characterID;
     journalPopups = [];
+    fittedRestrictions = null;
   });
   function focusJournal(w: JournalPopupWindow): void {
     w.z = topZ() + 1;
@@ -334,6 +339,23 @@
     const name = resolvedName($journalNames?.resolved ?? {}, "agent", agentID, "Agent");
     const template = $journalWords?.templates[JOURNAL_CAPTION];
     return template ? plainText(formatTemplate(template, { agentID }, { nameOf: () => name })) : `Mission Journal with ${name}`;
+  }
+  function openFittedRestrictions(listID: number, nameID: number | null): void {
+    if (!session) return;
+    const id = FITTED_RESTRICTIONS_WINDOW;
+    const desktop = flightDesktopSize();
+    const size = fittedRestrictions ?? keptPlace(id) ?? {
+      x: Math.max(0, (desktop.w - 480) / 2), y: Math.max(0, (desktop.h - 480) / 2), w: 480, h: 480,
+    };
+    fittedRestrictions = { x: size.x, y: size.y, w: Math.min(desktop.w, Math.max(240, size.w)),
+      h: Math.min(desktop.h, Math.max(480, size.h)), id, z: topZ() + 1, minimized: false,
+      serial: (fittedRestrictions?.serial ?? 0) + 1, listID, nameID };
+    activeWinKey = id;
+    session.flow.requestWords([FITTED_RESTRICTIONS_CAPTION]);
+  }
+  function closeFittedRestrictions(): void {
+    fittedRestrictions = null;
+    if (activeWinKey === FITTED_RESTRICTIONS_WINDOW) activeWinKey = null;
   }
   let bayWindows = $state<{ key: string; title: string; win: { id: string; x: number; y: number; w: number; h: number; z: number; minimized: boolean } }[]>([]);
   $effect(() => {
@@ -2706,6 +2728,11 @@
         else toggleJournalMinimize(journal);
         return true;
       }
+      if (fittedRestrictions && activeWinKey === fittedRestrictions.id && !fittedRestrictions.minimized) {
+        if (close) { void playUiEvent("ui_object_close_play"); closeFittedRestrictions(); }
+        else { fittedRestrictions.minimized = true; activeWinKey = null; }
+        return true;
+      }
       const bay = bayWindows.find((b) => b.win.id === activeWinKey);
       if (bay) {
         if (close) { void playUiEvent("ui_object_close_play"); bayWindows = bayWindows.filter((b) => b !== bay); } else { bay.win.minimized = true; activeWinKey = null; }
@@ -2722,10 +2749,11 @@
     // (the space view's own windows too: one that can be closed (IsKillable) closed, one that cannot minimized)
     if (cmd === "CmdCloseAllWindows") {
       const guarded = wins.filter(win => closeGuards.has(win.id));
-      const othersOpen = guarded.length !== wins.length || journalPopups.length > 0;
+      const othersOpen = guarded.length !== wins.length || journalPopups.length > 0 || fittedRestrictions !== null;
       if (othersOpen) void playUiEvent("ui_object_close_play");
       wins = guarded;
       journalPopups = [];
+      closeFittedRestrictions();
       for (const win of guarded) closePlayWindow(win.id, !othersOpen);
       for (const w of spaceWindows()) {
         const close = w.querySelector<HTMLElement>(".pw-close");
@@ -5119,9 +5147,20 @@
         onMove={(x, y) => Object.assign(popup, { x, y })} onResizeRect={rect => Object.assign(popup, rect)}
         onGeometryCommit={() => keepPlace(popup)} minWidth={420} minHeight={400}>
         <JournalMissionPopup store={session.store} flow={session.flow} agentID={popup.agentID} openSerial={popup.serial}
-          onClose={() => closeJournal(popup)} onShowSystem={showSystemOnMap} />
+          onClose={() => closeJournal(popup)} onShowSystem={showSystemOnMap} onFittedRestrictions={openFittedRestrictions} />
       </DesktopWindow>
     {/each}
+    {#if fittedRestrictions}
+      {@const popup = fittedRestrictions}
+      <DesktopWindow win={popup} title={plainText($journalWords?.templates[FITTED_RESTRICTIONS_CAPTION] ?? "Fitting Restrictions")}
+        icon={clientTexture("res:/UI/Texture/WindowIcons/info.png")} focused={activeWinKey === popup.id}
+        onFocus={() => { popup.z = topZ() + 1; activeWinKey = popup.id; }} onClose={closeFittedRestrictions}
+        onToggleMinimize={() => { popup.minimized = true; activeWinKey = null; }}
+        onMove={(x, y) => Object.assign(popup, { x, y })} onResizeRect={rect => Object.assign(popup, rect)}
+        onGeometryCommit={() => keepPlace(popup)} minWidth={240} minHeight={480}>
+        {#key popup.serial}<FittedModuleRestrictions {session} listID={popup.listID} nameID={popup.nameID} />{/key}
+      </DesktopWindow>
+    {/if}
     <!-- not the each block's only child: an each that is the only child of its element is emptied by clearing the
          element, which would take the space view's own windows (the overview, Selected Item, ...) kept in it too -->
     <span class="fly-windows-anchor" hidden></span>

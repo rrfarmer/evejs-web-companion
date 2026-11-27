@@ -110,6 +110,7 @@ export interface PaneBlock {
   /** A dungeon that is over: its words are struck through, and this says what became of it. */
   readonly outcome?: string | null;
   readonly rows: readonly PaneRow[];
+  readonly dungeonID?: number | null;
   readonly shipRestrictions?: { readonly dungeonID: number; readonly special: boolean };
   /** The objective a block is for, so the page can put its own controls beside it. */
   readonly objective?: MissionObjective;
@@ -304,6 +305,7 @@ export function objectivePane(objectives: MissionObjectives, context: PaneContex
       kind: "objective",
       title: words(dungeon.optional ? PANE_LABELS.optionalHeader : PANE_LABELS.objectiveHeader),
       text: body,
+      ...(context.rich ? { dungeonID: dungeon.dungeonID } : {}),
       outcome: completionStatus === null ? null : words(completionStatus === 1 ? PANE_LABELS.dungeonCompleted : PANE_LABELS.dungeonFailed),
       rows: row(objectiveCompleted === null ? "open" : objectiveCompleted === 1 ? "done" : "failed", PANE_LABELS.objectiveLocation, placeText(dungeon.location), ownerInfo(dungeon.ownerID)),
       ...(shipRestrictions ? { shipRestrictions } : {}),
