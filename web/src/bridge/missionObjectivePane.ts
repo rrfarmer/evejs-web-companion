@@ -18,7 +18,7 @@
 //
 // Not done: the client's warning about low security on the way (it plots the route); the banner about
 // reduced payouts in high security; the
-// links to a dungeon's ship restrictions; a blueprint's properties after its name; a heraldry agent's
+// links to a dungeon's fitted-type restrictions; a blueprint's properties after its name; a heraldry agent's
 // own loyalty points.
 
 import { formatTemplate, plainText, QUANTITY_AND_ITEM } from "./clientWords.ts";
@@ -56,6 +56,8 @@ export const PANE_LABELS = Object.freeze({
   dungeonCompleted: `${FOLDER}DungeonObjectiveCompleted`,
   dungeonFailed: `${FOLDER}DungeonObjectiveFailed`,
   objectiveLocation: `${FOLDER}ObjectiveLocation`,
+  normalShipRestrictions: `${FOLDER}DungeonObjectiveNormalRestrictions`,
+  specialShipRestrictions: `${FOLDER}DungeonObjectiveSpecialRestrictions`,
   grantedItems: `${FOLDER}GrantedItems`,
   grantedDetail: `${FOLDER}GrantedItemDetail`,
   grantedDetailAccepted: `${FOLDER}AcceptedGrantedItemDetail`,
@@ -108,6 +110,7 @@ export interface PaneBlock {
   /** A dungeon that is over: its words are struck through, and this says what became of it. */
   readonly outcome?: string | null;
   readonly rows: readonly PaneRow[];
+  readonly shipRestrictions?: { readonly dungeonID: number; readonly special: boolean };
   /** The objective a block is for, so the page can put its own controls beside it. */
   readonly objective?: MissionObjective;
 }
@@ -295,12 +298,15 @@ export function objectivePane(objectives: MissionObjectives, context: PaneContex
     const objectiveCompleted = failed ? 0 : dungeon.objectiveCompleted;
     const stock = words(dungeon.optional ? PANE_LABELS.optionalBody : PANE_LABELS.dungeonBody);
     const body = dungeon.briefingMessage === null ? stock : context.say(dungeon.briefingMessage) ?? stock;
+    const shipRestrictions = context.rich && dungeon.shipRestrictions !== null && dungeon.dungeonID !== null && dungeon.dungeonID > 0
+      ? { dungeonID: dungeon.dungeonID, special: dungeon.shipRestrictions === 1 } : null;
     blocks.push({
       kind: "objective",
       title: words(dungeon.optional ? PANE_LABELS.optionalHeader : PANE_LABELS.objectiveHeader),
       text: body,
       outcome: completionStatus === null ? null : words(completionStatus === 1 ? PANE_LABELS.dungeonCompleted : PANE_LABELS.dungeonFailed),
       rows: row(objectiveCompleted === null ? "open" : objectiveCompleted === 1 ? "done" : "failed", PANE_LABELS.objectiveLocation, placeText(dungeon.location), ownerInfo(dungeon.ownerID)),
+      ...(shipRestrictions ? { shipRestrictions } : {}),
     });
   }
 

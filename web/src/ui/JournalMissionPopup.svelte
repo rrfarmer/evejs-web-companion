@@ -4,7 +4,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { journalMessageMarkup, journalMessagePhrases, type JournalMissionDetails } from "../bridge/journalMission.ts";
   import { objectiveSystemIDs } from "../bridge/locationWrapper.ts";
-  import { PANE_WORD_LABELS, objectivePane, paneMessageIDs, paneNameRefs } from "../bridge/missionObjectivePane.ts";
+  import { PANE_LABELS, PANE_WORD_LABELS, objectivePane, paneMessageIDs, paneNameRefs } from "../bridge/missionObjectivePane.ts";
   import type { MissionMessage } from "../bridge/missionObjectives.ts";
   import { questionMarkup, wordsLabels, wordsNameRefs, type ClientWording } from "../bridge/questions.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
@@ -107,6 +107,15 @@
   function missionMarkup(text: string): string {
     return text.replace(/(<font\b[^<>]*?\bcolor\s*=\s*["']?)#([\da-f]{6})(?=["'\s>])/gi,
       (_, attr: string, color: string) => `${attr}0xff${color}`);
+  }
+  function restrictionNotice(special: boolean, link: string): string {
+    const label = special ? PANE_LABELS.specialShipRestrictions : PANE_LABELS.normalShipRestrictions;
+    const fallback = special ? "This site contains special {startHttpLink}ship restrictions{endHttpLink}."
+      : "This site contains normal {startHttpLink}ship restrictions{endHttpLink}.";
+    const notice = formatTemplate($words.templates[label] ?? fallback, {
+      startHttpLink: `<a href="${link}">`, endHttpLink: "</a>",
+    }, { nameOf });
+    return special ? `<color=0xffe3170d>${notice}</color>` : notice;
   }
   const client = $derived.by<ClientWording>(() => {
     const record = $agents.agentRecords[agentID];
@@ -212,6 +221,17 @@
             </li>
           {/each}
         </ul>
+      {/if}
+      {#if block.shipRestrictions}
+        {@const { dungeonID, special } = block.shipRestrictions}
+        {@const link = `journal-ship-restrictions:${dungeonID}`}
+        <div class="objective-restrictions">
+          <LabelText markup={restrictionNotice(special, link)}
+            followerOf={url => url === link ? {
+              kind: "showInfo", hint: linkWord("UI/Commands/ShowInfo"),
+              follow: () => flow.openShipRestrictions(dungeonID),
+            } : null} />
+        </div>
       {/if}
     {/each}
   {/if}

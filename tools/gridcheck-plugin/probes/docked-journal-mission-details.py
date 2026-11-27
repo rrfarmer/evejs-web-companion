@@ -1,10 +1,15 @@
 import blue
 import re
 from eve.client.script.ui.station.agents import agents as agents_module
-from eve.client.script.ui.station.agents.agentDialogueUtil import GetMissionDetailsWindowHTML
+from eve.client.script.ui.station.agents.agentDialogueUtil import GetMissionDetailsWindowHTML, _ProcessDungeonData
 from eve.client.script.ui.station.agents.missionDetailsWindow import MissionDetailsWindow
 from eve.client.script.ui.shared.maps.starMapSvc import GetCharUiSetting, SetCharUiSetting
 from evelink.client.handlers.show_info.parse import parse_show_info_url
+from evelink.client.handlers.local_service.handler import handle_local_service_link
+from evedungeons.client.ship_restrictions_window import ShipRestrictionsWindow
+from evedungeons.client.util import GetDungeonShipRestrictionsTypeListID
+from evedungeons.client.data import GetDungeon
+import localization
 
 
 def bookmark_menu(url):
@@ -47,6 +52,42 @@ def bookmark_route_menus(url):
         SetCharUiSetting(key, original)
 
 
+def ship_restriction_window(mission, agent_id, dungeon_id):
+    dungeons = mission['objectives'].get('dungeons', [])
+    if not dungeons:
+        return None
+    dungeon = next((one for one in dungeons
+                    if one.get('dungeonID') == dungeon_id and one.get('shipRestrictions') == 1), None)
+    measured_on_mission = dungeon is not None
+    if not measured_on_mission:
+        dungeon = dict(dungeons[0], dungeonID=dungeon_id)
+
+    def notice(state):
+        html = _ProcessDungeonData(dict(dungeon, shipRestrictions=state), agent_id)
+        marker = html.index('localsvc:method=PopupDungeonShipRestrictionList')
+        return html[html.rfind('\n', 0, marker) + 1:html.index('<br>', marker)]
+
+    special = notice(1)
+    link = re.search(r'href=(localsvc:[^>]+)', special).group(1)
+    existing = ShipRestrictionsWindow.GetIfOpen()
+    if existing:
+        raise RuntimeError('A Ship Restrictions window is already open')
+    try:
+        handle_local_service_link(link)
+        window = ShipRestrictionsWindow.GetIfOpen()
+        if not window or window._dungeon_id != dungeon_id:
+            raise RuntimeError('The mission link did not open the dungeon restrictions window')
+        types = sorted({type_id for group in window._types_by_group.values() for type_id in group})
+        return dict(dungeon=dungeon_id, gate=window._gate_id, measuredOnMission=measured_on_mission,
+                    normal=notice(0), special=special, caption=window.GetCaption(),
+                    header=localization.GetByMessageID(GetDungeon(dungeon_id).dungeonNameID),
+                    typeList=GetDungeonShipRestrictionsTypeListID(dungeon_id), allowed=types)
+    finally:
+        window = ShipRestrictionsWindow.GetIfOpen()
+        if window:
+            window.Close()
+
+
 def observe():
     svc = sm.GetService('agents')
     journal = sm.GetService('journal')
@@ -84,6 +125,8 @@ def observe():
                                 image=body.startswith('<img')) for url, body in links],
                     bookmarkMenus=[bookmark_menu(url) for url in dungeon_links],
                     bookmarkRouteMenus=bookmark_route_menus(dungeon_links[0]) if dungeon_links else None,
+                    shipRestrictions=[ship_restriction_window(mission, agent_id, dungeon_id)
+                                      for dungeon_id in (841, 2493)],
                     colors=[dict(color=color, text=re.sub(r'<[^>]*>', '', text).strip())
                             for color, text in colors if text],
                     bold=bold)
