@@ -29,6 +29,7 @@
   import { addType } from "../bridge/marketQuickbar.ts";
   import { changeQuickbar } from "./marketQuickbar.ts";
   import { isComparable } from "../bridge/typeComparison.ts";
+  import { ROLE_GML, ROLE_WORLDMOD, sessionHasRole } from "../bridge/gmWrites.ts";
   import { typeCompareTarget } from "./typeCompare.ts";
   let { session, trade, inFront }: { session: Session; trade: DirectTradeWindow; inFront: boolean } = $props();
   // svelte-ignore state_referenced_locally
@@ -106,14 +107,25 @@
     compare: ["UI/Compare/CompareButton", "Compare"],
     selectAll: ["UI/Common/SelectAll", "Select All"],
     invert: ["UI/Inventory/InvertSelection", "Invert Selection"],
+    refresh: ["UI/Commands/Refresh", "Refresh"],
   } as const;
   function itemEntry(key: keyof typeof itemWords, run: () => void, count?: number): ContextEntry {
     const [path, fallback] = itemWords[key];
     const label = word(path, fallback);
     return { label: count === undefined ? label : `${label} (${count})`, path, run, info: key === "info" };
   }
-  function paneEntries(owner: number): ContextEntry[] {
-    return [itemEntry("selectAll", () => selectInPane(owner)), itemEntry("invert", () => selectInPane(owner, true))];
+  function paneEntries(owner: number): (ContextEntry | null)[] {
+    const entries: (ContextEntry | null)[] = [];
+    const role = $station.online?.role;
+    if (sessionHasRole(role, ROLE_GML) || sessionHasRole(role, ROLE_WORLDMOD)) {
+      entries.push(itemEntry("refresh", () => void run(async () => {
+        if (await session.flow.directTrades.refreshPane(trade.state.containerID, owner)) {
+          setSelection(owner, new Set(), null);
+        }
+      })), null);
+    }
+    entries.push(itemEntry("selectAll", () => selectInPane(owner)), itemEntry("invert", () => selectInPane(owner, true)));
+    return entries;
   }
   function openPaneMenu(event: MouseEvent, owner: number): void {
     event.preventDefault();
@@ -160,8 +172,7 @@
       const held = restrictions?.[id];
       return (types?.get(id)?.marketGroupID ?? 0) > 0 && held && !held.includes(36) && !held.includes(142);
     });
-    const groups: ContextEntry[][] = [[], [], [], paneEntries(owner)];
-    const [infoEntries, marketEntries, compareEntries] = groups;
+    const infoEntries: ContextEntry[] = [], marketEntries: ContextEntry[] = [], compareEntries: ContextEntry[] = [];
     if (subjects.length === 1) {
       infoEntries.push(itemEntry("info", () => showInfo({ kind: "type", typeID, itemID })));
       if (marketable.length) {
@@ -180,7 +191,8 @@
     if (typeIDs.some(id => isComparable(comparison?.types.get(id) ?? null))) {
       compareEntries.push(itemEntry("compare", () => typeCompareTarget.ask(subjects), subjects.length > 1 ? subjects.length : undefined));
     }
-    itemMenu.open(x, y, groups.filter(group => group.length).flatMap((group, i) => i ? [null, ...group] : group));
+    itemMenu.open(x, y, [infoEntries, marketEntries, compareEntries, paneEntries(owner)]
+      .filter(group => group.length).flatMap((group, i) => i ? [null, ...group] : group));
   }
   $effect(() => {
     if (!inFront || !trade.abortOnClose || geometry.minimized) {

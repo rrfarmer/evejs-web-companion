@@ -176,6 +176,24 @@ export function createDirectTrades(deps: Dependencies) {
     const amount = await deps.quantity(w.state.money[index]!, await deps.wealth());
     if (amount !== null && get(id)) await offerDirectTradeMoney(deps.act, w.moniker, amount);
   }
+  async function refreshPane(id: number, ownerID: number): Promise<boolean> {
+    const w = get(id);
+    if (!w?.abortOnClose || !w.state.traders.includes(ownerID)) return false;
+    const captured = generation;
+    const owns = (row: JsonValue) => Number(readRowField(row, "ownerID")) === ownerID;
+    const before = w.state.items.filter(owns);
+    const listed = await listDirectTrade(deps.ask, w.moniker);
+    const current = get(id);
+    if (captured !== generation || !current?.abortOnClose || current.moniker !== w.moniker ||
+        listed.containerID !== id || !listed.traders.includes(ownerID)) return false;
+    // An inventory notice for this side may be newer than the completed List.
+    const live = current.state.items.filter(owns);
+    if (live.length !== before.length || live.some((row, index) => row !== before[index])) return false;
+    amend(id, trade => ({ ...trade, state: {
+      ...trade.state, items: [...trade.state.items.filter(row => !owns(row)), ...listed.items.filter(owns)],
+    } }));
+    return true;
+  }
   async function offerItems(id: number, itemID: number, place: InventoryPlace, shift: boolean): Promise<void> {
     const w = get(id); if (!w?.abortOnClose) return;
     const { rows, sourceID } = await deps.source(itemID, place);
@@ -234,6 +252,6 @@ export function createDirectTrades(deps: Dependencies) {
     const old = windows.get(); generation++; windows.set([]); opening.clear();
     if (abort) for (const w of old) if (w.abortOnClose) void abortDirectTrade(deps.act, w.moniker).catch(deps.report);
   }
-  return { windows: readonlySignal(windows), start, receive, cancel, accept, offerMoney, offerItems, offerFitted, reset, report: deps.report };
+  return { windows: readonlySignal(windows), start, receive, cancel, accept, offerMoney, refreshPane, offerItems, offerFitted, reset, report: deps.report };
 }
 export type DirectTrades = ReturnType<typeof createDirectTrades>;
