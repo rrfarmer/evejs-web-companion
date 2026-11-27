@@ -22,6 +22,11 @@
   import { AGENT_CLOSE_LABEL, AGENT_MISSION_STATE, agentButtonWord, agentConversationFooter, offerOpen } from "../bridge/agents.ts";
   import { MISSION_REPLAY_WORD_LABELS, MISSION_TIME_WORD_LABELS, missionReplayText, missionTimeShown, missionTimeText } from "../bridge/missionTime.ts";
   import LabelText from "./LabelText.svelte";
+  import OwnerPicture from "./OwnerPicture.svelte";
+  import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
+  import { clientTexture } from "./skillGroupIcons.ts";
+  import { showInfo, subjectOfShowInfoLink } from "./showInfo.ts";
+  import { startLinkDrag } from "./linkFollowers.ts";
   import { INTERVAL_WORD_LABELS, SHORT_INTERVAL_WORD_LABELS } from "../bridge/timeInterval.ts";
   import { PANE_WORD_LABELS, objectivePane, paneMessageIDs, paneNameRefs, type PaneBlock, type PaneMark } from "../bridge/missionObjectivePane.ts";
   import type { MissionMessage } from "../bridge/missionObjectives.ts";
@@ -56,6 +61,8 @@
   const standings = store.standings;
   // svelte-ignore state_referenced_locally
   const skills = store.skills;
+  // svelte-ignore state_referenced_locally
+  const imageServer = flow.imageServer;
   // Where the pilot's session is now: the marks beside a mission's objectives go by it (bridge/sessionPlace.ts).
   const place = $derived(sessionPlace($flight.status, $station.online));
 
@@ -63,6 +70,11 @@
   let error = $state("");
   const standalone = $derived(conversationAgentID !== null);
   const conversationOwner = $derived(conversationAgentID ?? $agents.activeAgentID);
+  const portrait = $derived(conversationOwner === null ? null : portraitUrl($imageServer, conversationOwner, 256));
+  const portraitUrls = $derived([...(portrait ? [portrait] : []), clientTexture(portraitDefaultPath(256))]);
+  const showInfoLabel = "UI/Commands/ShowInfo";
+  const showInfoWords = $derived(plainText($words.templates[showInfoLabel] ?? "Show Info"));
+  const headerInfoIcon = clientTexture("res:/ui/texture/icons/38_16_208.png");
   const layout = $derived(conversationAgentID === null ? $agents : $agents.conversationLayouts[conversationAgentID]);
   const conversation = $derived(layout?.conversation ?? null);
   const briefing = $derived(layout?.briefing ?? null);
@@ -436,7 +448,7 @@
     if (agentID === null || conversation === null) return;
     flow.requestAgentRecord(agentID);
     const divisionNameID = $agents.agentRecords[agentID]?.divisionNameID ?? null;
-    flow.requestWords([...AGENT_HEADER_WORD_LABELS, ...(divisionNameID === null ? [] : [`#${divisionNameID}`])]);
+    flow.requestWords([...AGENT_HEADER_WORD_LABELS, showInfoLabel, ...(divisionNameID === null ? [] : [`#${divisionNameID}`])]);
     const location = agentLocation;
     if (location !== null) {
       flow.requestNames([agentLocationNameRef(location)]);
@@ -634,15 +646,42 @@
 <div class:standalone-conversation={standalone} class:double-pane={standalone && (pane.length > 0 || !!briefing || !!conversation?.lastActionInfo.missionCompleted)}>
 {#if conversation}
   <section>
-    <h2>Conversation · {agentName(conversationOwner)}</h2>
-    {#if header}
-      <!-- GetAgentLocationHeader, which the client's window begins what the agent says with (no portrait, no link). -->
-      <div class="mission-page-card agent-header">
-        <strong class="mission-page-card-name">{header.name}</strong>
-        {#if header.division}<span class="mission-page-card-line minor">{header.division}</span>{/if}
-        {#if header.location}<span class="mission-page-card-line">{header.location}</span>{/if}
-        {#if header.standing}<span class="mission-page-card-line standing" class:low={header.standingLow}>{header.standing}</span>{/if}
-        {#if header.loyaltyPoints}<span class="mission-page-card-line">{header.loyaltyPoints}</span>{/if}
+    {#if !standalone}<h2>Conversation · {agentName(conversationOwner)}</h2>{/if}
+    {#if header && conversationOwner !== null}
+      {@const agentID = conversationOwner}
+      <div class="agent-header">
+        <OwnerPicture name={header.name} urls={portraitUrls} size={128} />
+        <div class="mission-page-card">
+          <div class="agent-header-name">
+            <span>{header.name}</span>
+            <button type="button" class="agent-header-info" title={showInfoWords} aria-label={showInfoWords}
+              onclick={() => showInfo({ kind: "character", characterID: agentID })}>
+              <img src={headerInfoIcon} width="16" height="16" alt="" />
+            </button>
+          </div>
+          {#if header.division}<span class="mission-page-card-line minor">{header.division}</span>{/if}
+          {#if header.location.length}
+            <div class="agent-header-location">
+              {#each header.location as part}
+                {#if part.link}
+                  {@const {typeID, itemID} = part.link}
+                  {@const url = `showinfo:${typeID}//${itemID}`}
+                  <a href={url} class="evelink showInfo" title={showInfoWords} draggable="true"
+                    onclick={event => {
+                      event.preventDefault();
+                      const subject = subjectOfShowInfoLink(url);
+                      showInfo(subject && subject.kind !== "type" ? subject : { kind: "spaceObject", typeID, itemID });
+                    }}
+                    ondragstart={event => startLinkDrag(event, url, part.text)}>{part.text}</a>
+                {:else}
+                  <span style:color={part.color}>{part.text}</span>
+                {/if}
+              {/each}
+            </div>
+          {/if}
+          {#if header.standing}<span class="mission-page-card-line standing agent-header-standing" class:low={header.standingLow}>{header.standing}</span>{/if}
+          {#if header.loyaltyPoints}<span class="mission-page-card-line">{header.loyaltyPoints}</span>{/if}
+        </div>
       </div>
     {/if}
     {#if talkTitle}
@@ -885,6 +924,11 @@
 {/if}
 
 <style>
+  .agent-header { display: grid; grid-template-columns: 128px minmax(0, 1fr); align-items: start; gap: 12px; }
+  .agent-header-name { display: flex; align-items: center; gap: 0.4rem; font-size: 18px; }
+  .agent-header-info { display: inline-flex; padding: 0; border: 0; background: transparent; min-height: 0; }
+  .agent-header-info img { width: 16px; height: 16px; }
+  .agent-header-location, .agent-header-standing { margin-top: 0.65em; }
   .agent-briefing-choice { margin: 0.75em 0; }
   .agent-briefing-choice button {
     padding: 0;

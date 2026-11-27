@@ -12,13 +12,12 @@
 //   (UI/Agents/Dialogue/EffectiveStanding and its Low form, the number in bold);
 //   the loyalty points, where the last action's info says some (UI/Agents/Dialogue/LoyaltyPointsTableRow).
 //
-// Here it is plain text: no portrait, no link, no colour. Tranquility answers GetAgentLocationWrap with a dict of
-// three, the place's type, its solar system and the place (a station); EveJS answers the same three.
+// GetAgentLocationWrap returns the place's type, its solar system and the place itself.
 
 import { formatTemplate, plainText } from "./clientWords.ts";
 import type { AgentRecord } from "./agents.ts";
 import { effectiveStandingWithAgent } from "./effectiveStanding.ts";
-import { LOCATION_WORD_LABELS, wrapLocation } from "./locationWrapper.ts";
+import { LOCATION_WORD_LABELS, wrapLocationRuns, type PlaceRun } from "./locationWrapper.ts";
 import type { NameKind } from "../store/names.ts";
 import { readDictEntry, type JsonValue } from "./wire.ts";
 
@@ -57,7 +56,7 @@ export interface AgentHeader {
   readonly name: string;
   readonly division: string | null;
   /** Where the agent is, wrapped as LocationWrapper wraps it; null while the window has not been told. */
-  readonly location: string | null;
+  readonly location: readonly PlaceRun[];
   /** In the client's words; null until the agent's record and the pilot's standings and skills are all to hand. */
   readonly standing: string | null;
   /** Whether the standing is a low one (the client writes the number in bold). */
@@ -98,7 +97,7 @@ export function agentLocationNameRef(location: AgentLocationWrap): { readonly ki
   return { kind: placeKind(location.locationID), id: location.locationID };
 }
 
-/** GetAgentLocationHeader, as plain text, a line for each of its parts. */
+/** The text and location runs in GetAgentLocationHeader. */
 export function agentHeader(input: AgentHeaderInput, context: AgentHeaderContext): AgentHeader {
   const words = (label: string, args: Record<string, string | number>): string | null => {
     const template = context.templates[label];
@@ -107,12 +106,14 @@ export function agentHeader(input: AgentHeaderInput, context: AgentHeaderContext
   const record = input.record;
   const divisionName = record === null || record.divisionNameID === null ? null : context.messageText(record.divisionNameID);
   const location = input.location;
+  const placeName = location === null ? "" : context.nameOf(placeKind(location.locationID), location.locationID);
+  const placeLink = location?.typeID == null ? null : { typeID: location.typeID, itemID: location.locationID };
   const effective = record === null || input.standings === null || input.skillLevel === null ? null : effectiveStandingWithAgent(record, input.standings, input.skillLevel);
   return {
     name: context.nameOf("owner", input.agentID),
     division: divisionName === null ? null : words(AGENT_HEADER_LABELS.division, { divisionName }),
-    location: location === null ? null
-      : wrapLocation(context.nameOf(placeKind(location.locationID), location.locationID), location.solarSystemID, context.templates, context.securityOf, context.ownSecurityStatus),
+    location: location === null ? [] : wrapLocationRuns(placeName, location.solarSystemID, context.templates,
+      context.securityOf, context.ownSecurityStatus, placeLink) ?? [{ text: placeName, ...(placeLink ? { link: placeLink } : {}) }],
     standing: effective === null ? null : words(effective.low ? AGENT_HEADER_LABELS.effectiveStandingLow : AGENT_HEADER_LABELS.effectiveStanding, { effectiveStanding: effective.value }),
     standingLow: effective !== null && effective.low,
     // "if loyaltyPoints:": none, or nought, says nothing.

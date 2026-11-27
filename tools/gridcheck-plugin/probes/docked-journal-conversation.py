@@ -54,6 +54,9 @@ def observe():
             return [getattr(button, 'label', None) for button in window.buttonGroup.buttons]
 
         observed['offerButtons'] = buttons()
+        observed['header'] = dict(
+            html=window.GetAgentHeader({}),
+            withLoyalty=window.GetAgentHeader({'loyaltyPoints': 1234}))
         observed['tracking'] = observe_tracking(agent_id)
         observed['footer'] = window.buttonGroup.align == uiconst.TOBOTTOM
         special = [
