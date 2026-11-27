@@ -1,9 +1,39 @@
 import blue
 import localization
+import re
 from carbonui import uiconst
+from evedungeons.client.ship_restrictions_window import ShipRestrictionsWindow
+from evedungeons.client.util import GetDungeonShipRestrictionsTypeListID
+from evelink.client.handlers.local_service.handler import handle_local_service_link
 from eve.common.lib import appConst
 from eve.client.script.ui.station.agents.agentDialogueWindow import AgentDialogueWindow
 from jobboard.client import get_agent_mission_job
+
+
+def observe_ship_restrictions(window, objectives):
+    dungeons = objectives.get('dungeons', [])
+    if not dungeons:
+        return None
+    dungeon_id = 2493
+    source = next((row for row in dungeons if row.get('dungeonID') == dungeon_id), dungeons[0])
+    html = [window._GetObjectiveHTML(dict(objectives, dungeons=[dict(source, dungeonID=dungeon_id, shipRestrictions=flag)]))
+            for flag in (0, 1)]
+    link = re.search(r'href=(localsvc:method=PopupDungeonShipRestrictionList[^>]+)', html[1]).group(1)
+    if ShipRestrictionsWindow.GetIfOpen():
+        raise RuntimeError('Ship Restrictions is already open')
+    try:
+        handle_local_service_link(link)
+        panel = ShipRestrictionsWindow.GetIfOpen()
+        if not panel or panel._dungeon_id != dungeon_id:
+            raise RuntimeError('Agent objective link did not open Ship Restrictions')
+        return dict(dungeon=dungeon_id, gate=panel._gate_id, caption=panel.GetCaption(),
+                    typeList=GetDungeonShipRestrictionsTypeListID(dungeon_id),
+                    allowed=sorted({type_id for group in panel._types_by_group.values() for type_id in group}),
+                    normal=html[0], special=html[1], conversationHeld=not window.destroyed)
+    finally:
+        panel = ShipRestrictionsWindow.GetIfOpen()
+        if panel:
+            panel.Close()
 
 
 def observe_tracking(agent_id):
@@ -60,6 +90,7 @@ def observe():
         objective_data = window.GetAgentMoniker().GetMissionObjectiveInfo()
         if objective_data:
             observed['objectivesHTML'] = window._GetObjectiveHTML(objective_data)
+            observed['shipRestrictions'] = observe_ship_restrictions(window, objective_data)
         observed['tracking'] = observe_tracking(agent_id)
         observed['footer'] = window.buttonGroup.align == uiconst.TOBOTTOM
         special = [

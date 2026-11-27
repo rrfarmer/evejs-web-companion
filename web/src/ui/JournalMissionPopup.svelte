@@ -5,7 +5,7 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { journalMessageMarkup, journalMessagePhrases, missionMarkup, type JournalMissionDetails } from "../bridge/journalMission.ts";
   import { objectiveSystemIDs } from "../bridge/locationWrapper.ts";
-  import { PANE_LABELS, PANE_WORD_LABELS, objectivePane, paneMessageIDs, paneNameRefs } from "../bridge/missionObjectivePane.ts";
+  import { PANE_WORD_LABELS, objectivePane, paneMessageIDs, paneNameRefs } from "../bridge/missionObjectivePane.ts";
   import type { MissionMessage } from "../bridge/missionObjectives.ts";
   import { questionMarkup, wordsLabels, wordsNameRefs, type ClientWording } from "../bridge/questions.ts";
   import { sessionPlace } from "../bridge/sessionPlace.ts";
@@ -15,6 +15,7 @@
   import { resolvedName, type NameKind } from "../store/names.ts";
   import type { QuestionWords } from "../store/types.ts";
   import LabelText from "./LabelText.svelte";
+  import MissionShipRestrictionNotice from "./MissionShipRestrictionNotice.svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import { LINK_WORDS, missionLinkFollower, startLinkDrag, type LinkFollower } from "./linkFollowers.ts";
   import { solarSystemMenu, solarSystemMenuWords } from "./solarSystemMenu.ts";
@@ -110,15 +111,6 @@
     } };
   }
 
-  function restrictionNotice(special: boolean, link: string): string {
-    const label = special ? PANE_LABELS.specialShipRestrictions : PANE_LABELS.normalShipRestrictions;
-    const fallback = special ? "This site contains special {startHttpLink}ship restrictions{endHttpLink}."
-      : "This site contains normal {startHttpLink}ship restrictions{endHttpLink}.";
-    const notice = formatTemplate($words.templates[label] ?? fallback, {
-      startHttpLink: `<a href="${link}">`, endHttpLink: "</a>",
-    }, { nameOf });
-    return special ? `<color=0xffe3170d>${notice}</color>` : notice;
-  }
   const client = $derived.by<ClientWording>(() => {
     const record = $agents.agentRecords[agentID];
     return {
@@ -226,15 +218,7 @@
         </ul>
       {/if}
       {#if block.shipRestrictions}
-        {@const { dungeonID, special } = block.shipRestrictions}
-        {@const link = `journal-ship-restrictions:${dungeonID}`}
-        <div class="objective-restrictions">
-          <LabelText markup={restrictionNotice(special, link)}
-            followerOf={url => url === link ? {
-              kind: "showInfo", hint: linkWord("UI/Commands/ShowInfo"),
-              follow: () => flow.openShipRestrictions(dungeonID),
-            } : null} />
-        </div>
+        <MissionShipRestrictionNotice {...block.shipRestrictions} templates={$words.templates} onOpen={flow.openShipRestrictions} />
       {/if}
       {#if dungeon?.fittedModuleRestrictionListID}
         {@const listID = dungeon.fittedModuleRestrictionListID}

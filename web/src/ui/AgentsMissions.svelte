@@ -22,6 +22,7 @@
   import { AGENT_CLOSE_LABEL, AGENT_MISSION_STATE, agentButtonWord, agentConversationFooter, offerOpen } from "../bridge/agents.ts";
   import { MISSION_REPLAY_WORD_LABELS, MISSION_TIME_WORD_LABELS, missionReplayText, missionTimeShown, missionTimeText } from "../bridge/missionTime.ts";
   import LabelText from "./LabelText.svelte";
+  import MissionShipRestrictionNotice from "./MissionShipRestrictionNotice.svelte";
   import TypeIcon from "./TypeIcon.svelte";
   import OwnerPicture from "./OwnerPicture.svelte";
   import { portraitDefaultPath, portraitUrl } from "./ownerImages.ts";
@@ -783,6 +784,9 @@
               </li>
             {/each}
           </ul>
+        {/if}
+        {#if block.shipRestrictions}
+          <MissionShipRestrictionNotice {...block.shipRestrictions} templates={$words.templates} onOpen={flow.openShipRestrictions} />
         {/if}
         {#if block.objective?.kind === "transport"}
           {@const transport = block.objective}
