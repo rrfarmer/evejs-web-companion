@@ -113,6 +113,8 @@ import { activityClusterCentroid, groupActivityPins, mapZoomValue, type Activity
 
 /** mapViewConst.py */
 const UNIVERSE_SCALE = 1.5e-13;
+const MAP_LIGHT_YEAR = 9460000000000000 * UNIVERSE_SCALE;
+const JOVE_REGIONS = new Set([10000004, 10000017, 10000019]);
 const MIN_CAMERA_DISTANCE = 1.0;
 const MAX_CAMERA_DISTANCE = 160000.0;
 /** mapView.py ZOOM_DIST_SYSTEM: the distance the map opens at on a system. */
@@ -192,7 +194,7 @@ const STAR_FS = `
     gl_FragColor = t * vColour;
   }`;
 const BUBBLE_VS = `
-  attribute vec3 iPos; attribute vec3 iColour; attribute float iSize; attribute float iShape;
+  attribute vec3 iPos; attribute vec3 iColour; attribute float iSize; attribute float iShape; attribute float iJumpRange;
   uniform vec2 distanceRange; uniform vec4 sizeControls; uniform float cameraDistanceScalingFactor;
   uniform float staticSize; uniform float sizeFactor; uniform vec4 atlasConfiguration;
   varying vec4 vColour; varying vec2 vUv; varying vec4 vAtlas;
@@ -200,7 +202,7 @@ const BUBBLE_VS = `
     vec4 mv = modelViewMatrix * vec4(iPos, 1.0);
     float d = sqrt(dot(mv.xyz, mv.xyz) + 1.0);
     float fade = clamp(distanceRange.x / d, 0.8, 1.0);
-    vColour = vec4(iColour, 1.0) * fade;
+    vColour = vec4(iColour, staticSize > 0.0 ? 1.0 : 1.0 + 2.0 * iJumpRange) * fade;
     float size = staticSize > 0.0 ? staticSize : iSize * sizeFactor;
     mv.xy += d * cameraDistanceScalingFactor * size * sizeControls.x * position.xy;
     gl_Position = projectionMatrix * mv;
@@ -324,6 +326,13 @@ export class StarMap {
   private convoyTex: THREE.Texture | null = null;
   private closed = false;
   private shapes: THREE.InstancedBufferAttribute | null = null;
+  private jumpStrength: THREE.InstancedBufferAttribute | null = null;
+  private jumpSource: number | null = null;
+  private jumpLightYears = 0;
+  private excludeIneligibleJumps = false;
+  private jumpTargets = new Set<number>();
+  private jumpExcluded = new Set<number>();
+  private jumpSphere: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial> | null = null;
   private extraMesh: THREE.Mesh | null = null;
   /** The marker size type the abstract sprites are at (MARKER_NONE / MEDIUM / BIG), and the big markers' names. */
   markerSize: "none" | "medium" | "big" = "none";
@@ -507,6 +516,8 @@ export class StarMap {
     geometry.setAttribute("iSize", this.starSizes);
     this.shapes = new THREE.InstancedBufferAttribute(new Float32Array(iSize.length), 1);
     geometry.setAttribute("iShape", this.shapes);
+    this.jumpStrength = new THREE.InstancedBufferAttribute(new Float32Array(iSize.length), 1);
+    geometry.setAttribute("iJumpRange", this.jumpStrength);
     geometry.instanceCount = data.systems.length;
     const starMat = new THREE.ShaderMaterial({ uniforms: this.starUniforms, vertexShader: STAR_VS, fragmentShader: STAR_FS, transparent: true, depthWrite: false, side: THREE.DoubleSide });
     logDepth(starMat);
@@ -658,6 +669,54 @@ export class StarMap {
     this.select(systemID, this.camera.position.distanceTo(this.controls.target) > 50_000);
   }
 
+  setJumpRange(source: number | null, lightYears: number, excludeIneligible: boolean): void {
+    if (this.jumpSource === source && this.jumpLightYears === lightYears && this.excludeIneligibleJumps === excludeIneligible) return;
+    this.jumpSource = source;
+    this.jumpLightYears = lightYears;
+    this.excludeIneligibleJumps = excludeIneligible;
+    this.jumpTargets.clear();
+    this.jumpExcluded.clear();
+    const origin = source === null ? undefined : this.layouts.own.get(source);
+    const radius = lightYears * MAP_LIGHT_YEAR;
+    if (origin && radius > 0) {
+      for (const [id, , , , faction, region, , , security] of this.data?.systems ?? []) {
+        const position = this.layouts.own.get(id);
+        if (id === source || !position || position.distanceToSquared(origin) > radius * radius) continue;
+        const eligible = (security ?? 0) < 0.45 && faction !== 500026 && id !== 30100000 && !JOVE_REGIONS.has(region);
+        (excludeIneligible && !eligible ? this.jumpExcluded : this.jumpTargets).add(id);
+      }
+      if (!this.jumpSphere) {
+        this.jumpSphere = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), new THREE.MeshBasicMaterial({
+          color: 0x519cbd, transparent: true, opacity: 0.08, depthWrite: false, side: THREE.BackSide,
+        }));
+        this.scene.add(this.jumpSphere);
+      }
+      this.jumpSphere.position.copy(origin);
+      this.jumpSphere.scale.setScalar(radius);
+    }
+    this.updateJumpSphereVisibility();
+    const strength = this.jumpStrength;
+    if (strength) {
+      this.starOrder.forEach((id, index) => strength.setX(index, this.jumpTargets.has(id) ? 1 : 0));
+      strength.needsUpdate = true;
+    }
+    if (this.markerSize !== "none") this.writeShapes(this.markerSize);
+    const label = this.hoverLabel?.el.querySelector("span");
+    if (label && this.hoverID !== null) label.textContent = this.hoverSystemText(this.hoverID);
+  }
+
+  private updateJumpSphereVisibility(): void {
+    if (this.jumpSphere) this.jumpSphere.visible = !this.abstract && this.jumpLightYears > 0 &&
+      this.jumpSource !== null && this.layouts.own.has(this.jumpSource);
+  }
+
+  private hoverSystemText(systemID: number): string {
+    const name = this.names.get(systemID) ?? "";
+    if (this.jumpLightYears <= 0 || systemID === this.jumpSource) return name;
+    if (this.jumpExcluded.has(systemID)) return `${name} · Ineligible jump target`;
+    return `${name} · ${this.jumpTargets.has(systemID) ? "In jump range" : "Outside jump range"}`;
+  }
+
   selectLocation(locationID: number): void {
     if (!this.data) return;
     if (this.positions.has(locationID)) { this.select(locationID, true); return; }
@@ -724,7 +783,7 @@ export class StarMap {
       // CheckConstructHiliteContainer: CIRCLESIZE 14 at the point, a DashedCircle of 4 dashes, radius 7, line 0.8
       el.innerHTML = '<svg width="14" height="14" style="position:absolute;left:0;top:0;overflow:visible"><circle cx="7" cy="7" r="6.6" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="0.8" stroke-dasharray="5.18 5.18"/></svg>';
       const t = document.createElement("span");
-      t.textContent = this.names.get(systemID) ?? "";
+      t.textContent = this.hoverSystemText(systemID);
       t.style.cssText = "position:absolute;left:22px;top:1px;font-size:10px;line-height:12px;font-weight:700;color:rgba(255,255,255,0.75);"
         + "font-family:'EVE Sans Neue','Barlow Semi Condensed','Segoe UI',sans-serif;";
       el.appendChild(t);
@@ -756,6 +815,7 @@ export class StarMap {
       this.placeAreasAbstract();
     }
     this.abstract = abstract;
+    this.updateJumpSphereVisibility();
     this.root.dataset.layout = abstract ? "abstract" : "perspective";
     // UpdateCameraForAbstractView: Make2DCamera / Make3DCamera
     if (abstract) {
@@ -860,7 +920,9 @@ export class StarMap {
     if (!this.shapes) return;
     const a = this.shapes.array as Float32Array;
     this.starOrder.forEach((id, i) => {
-      a[i] = size === "big" ? (id === this.selectedID ? 1 : 0) : !this.preview.has(id) ? 4 : id === this.selectedID ? 6 : 5;
+      const bold = this.jumpTargets.has(id) ? 2 : 0;
+      const selected = id === this.selectedID ? 1 : 0;
+      a[i] = size === "big" ? selected + bold : this.preview.has(id) ? 5 + selected + bold : 4;
     });
     this.shapes.needsUpdate = true;
   }
@@ -1372,6 +1434,8 @@ export class StarMap {
     this.closed = true;
     this.stop();
     this.previewEvents.abort();
+    this.jumpSphere?.geometry.dispose();
+    this.jumpSphere?.material.dispose();
     this.convoyTex?.dispose();
     this.controls.dispose();
     this.renderer.dispose();

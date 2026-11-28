@@ -2794,7 +2794,42 @@
       dataView.hidden = !box.checked;
       void m.setLayout(box.checked);
     };
-    layout.append(abstract, current, home, dataView);
+    // dogma.const.attributeJumpDriveRange, in light-years, from the active fitted hull.
+    const rangeAttribute = 867;
+    const jump = focusButton(STAR_MAP_POINTERS.jumpRange, "Show jump range", "jump_range_map");
+    const jumpOptions = document.createElement("label");
+    const exclude = document.createElement("input");
+    exclude.type = "checkbox";
+    jumpOptions.append(exclude, document.createTextNode(" Exclude ineligible systems"));
+    const jumpKey = `evejs.user.${s.store.session.get().accountID ?? "local"}.mapJumpRange`;
+    let showJump = true;
+    try {
+      showJump = localStorage.getItem(jumpKey) !== "false";
+      exclude.checked = localStorage.getItem(`${jumpKey}.exclude`) === "true";
+    } catch { /* use native defaults */ }
+    const updateJumpRange = () => {
+      const fit = s.store.fitting.get();
+      const active = s.store.flight.get().status?.shipID ?? s.store.inventory.get().activeShipID;
+      const value = active !== null && active === fit.activeShipID ? fit.shipAttributes?.[rangeAttribute] : null;
+      const range = typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+      jump.hidden = range === 0;
+      jump.disabled = range === 0;
+      jump.setAttribute("aria-pressed", String(showJump));
+      jump.title = range > 0 ? `Jump range (${range.toLocaleString("en-US", { maximumFractionDigits: 2 })} ly)` : "Show jump range";
+      jumpOptions.hidden = range === 0 || !showJump;
+      m.setJumpRange(currentMapSystem(), showJump ? range : 0, exclude.checked);
+    };
+    jump.onclick = () => {
+      showJump = !showJump;
+      try { localStorage.setItem(jumpKey, String(showJump)); } catch { /* use the current session setting */ }
+      updateJumpRange();
+    };
+    exclude.onchange = () => {
+      try { localStorage.setItem(`${jumpKey}.exclude`, String(exclude.checked)); } catch { /* use the current session setting */ }
+      updateJumpRange();
+    };
+    jump.hidden = jumpOptions.hidden = true;
+    layout.append(abstract, current, home, dataView, jump, jumpOptions);
     m.root.appendChild(layout);
     mapHost.appendChild(m.root);
     m.start();
@@ -2823,8 +2858,12 @@
       const stop = s.flow.waypoints.subscribe(() => route());
       const filters = mountStarMapFilterControls(m, s);
       mapFilters = filters;
+      const stopFit = s.store.fitting.subscribe(updateJumpRange);
+      const stopFlight = s.store.flight.subscribe(updateJumpRange);
+      const stopInventory = s.store.inventory.subscribe(updateJumpRange);
+      if (!s.store.fitting.get().shipAttributes) void s.flow.loadFitting().catch(() => {});
       if (requestedMapMode !== "empire") filters.setMode(requestedMapMode, mapInFront);
-      m.root.addEventListener("star-map-closed", () => { stop(); filters.dispose(); }, { once: true });
+      m.root.addEventListener("star-map-closed", () => { stop(); stopFit(); stopFlight(); stopInventory(); filters.dispose(); }, { once: true });
     }).catch((e) => {
       notify({ kind: "danger", title: "Map", detail: e instanceof Error ? e.message : String(e) });
     });
@@ -6393,6 +6432,7 @@
   .fly-map :global(.star-map-layout button) { display: grid; place-items: center; width: 22px; height: 22px; padding: 0;
     border: 1px solid #fff3; background: #111b; cursor: pointer; }
   .fly-map :global(.star-map-layout button:disabled) { opacity: 0.5; cursor: default; }
+  .fly-map :global(.star-map-layout button[aria-pressed="true"]) { border-color: #78a8bf; }
   .fly-map :global(.star-map-layout button[hidden]) { display: none; }
   .fly-map :global(.star-map-layout img) { width: 16px; height: 16px; }
   .fly-map :global(.star-map-close) { position: absolute; top: 8px; right: 10px; z-index: 1; background: rgba(0,0,0,0.5);
