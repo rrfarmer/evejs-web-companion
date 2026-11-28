@@ -9943,9 +9943,9 @@ app.post("/api/bridge/chat/:roomName/settings/open", requireAuth, async (req, re
   try {
     const settings = await session.channelSettings(req.params.roomName, {
       ...context,
-      openSystemSettings: room => heldRequest(held, req.webSessionID, true, () => {
+      grantDirectoryChatOwnership: room => heldRequest(held, req.webSessionID, true, () => {
         context.assertCurrent();
-        return isGamePortHandle(held.bridgeSessionID) && gamePortPilots?.openSystemChatSettings?.(
+        return isGamePortHandle(held.bridgeSessionID) && gamePortPilots?.grantDirectoryChatOwnership?.(
           room, { userid: held.accountID }, held.bridgeSessionID);
       }),
     });

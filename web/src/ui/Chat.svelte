@@ -33,11 +33,12 @@
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { doubleClickOwner } from "./ownerDoubleClick.ts";
   import { dragCharacter } from "./characterDrag.ts";
-  import { ContextMenu } from "../play/contextMenu.ts";
+  import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
   import { CHAT_POINTERS } from "../play/uiPointer.ts";
   import { chatWordPattern } from "../bridge/chatWordFilters.ts";
   import ChatWordFilters from "./ChatWordFilters.svelte";
   import ChatModeration from "./ChatModeration.svelte";
+  import ChatChannelSettings from "./ChatChannelSettings.svelte";
   import type { ChatMember } from "../store/types.ts";
 
   let { store, flow, unread, openSkillPlanLink = null, openInventoryFilterLink = null, openChannels }: {
@@ -62,10 +63,13 @@
   const FILTERS_LABEL = "UI/Chat/ConfigureWordFiltersAndHighlights";
   const MOTD_LABEL = "UI/Chat/ReloadChannelMOTD";
   const SETTINGS_LABEL = "UI/Chat/ChannelSettingsSection";
+  const CONFIGURATION_LABEL = "UI/Chat/Configuration";
+  const OPEN_CONFIGURATION_LABEL = "UI/Chat/OpenChannelSettingsWnd";
   const CHANNELS_LABEL = "UI/Neocom/ChatChannelsBtn";
   let displayedMotd = $state<{ room: string; pilotID: number | null; text: string } | null>(null);
   let wordFiltersOpen = $state(false);
   let moderation = $state<{ room: string; action: "mute" | "kick"; member: ChatMember } | null>(null);
+  let settingsRoom = $state<string | null>(null);
   // svelte-ignore state_referenced_locally
   const names = store.names;
   // svelte-ignore state_referenced_locally
@@ -112,6 +116,9 @@
     const key = `${pilotID}:${activeKey}`;
     untrack(() => { if (draftFor) drafts[draftFor] = draft; draftFor = key; draft = drafts[key] ?? ""; });
   });
+  $effect(() => {
+    if (settingsRoom && !$conversations.rooms.some(({ channel }) => channel === settingsRoom)) settingsRoom = null;
+  });
   let sendBox = $state<HTMLInputElement | undefined>(undefined);
 
   // svelte-ignore state_referenced_locally
@@ -132,7 +139,7 @@
     const fleetMotd = channel === "fleet" && room === `fleet_${fleet.authoritativeFleetID}` && fleet.fleet
       ? fleet.fleet.motd.value ?? fleet.fleet.initState.value?.motd : undefined;
     const text = fleetMotd ?? state?.motd;
-    channelMenu.open(pointer?.clientX ?? bounds.left, pointer?.clientY ?? bounds.bottom, [
+    const entries: ContextEntry[] = [
       {
         label: linkWord(BLINK_LABEL) || "Blink on New Activity", path: BLINK_LABEL,
         checked: !$activity.disabled.has(channel), checkbox: true, run: () => flow.conversations.toggleActivityBlink(channel),
@@ -150,7 +157,32 @@
           displayedMotd = { room, pilotID, text };
         },
       }] : []),
-    ]);
+    ];
+    const x = pointer?.clientX ?? bounds.left, y = pointer?.clientY ?? bounds.bottom;
+    if (!room || !/^(?:player_\d+|system_\d+(?:_\d+)+)$/.test(room)) {
+      channelMenu.open(x, y, entries);
+      return;
+    }
+
+    const gear = event.type === "click";
+    const path = gear ? OPEN_CONFIGURATION_LABEL : CONFIGURATION_LABEL;
+    const settings: ContextEntry = {
+      label: linkWord(path) || (gear ? "Open Channel Setting Window" : "Configuration"),
+      path,
+      run: () => {
+        if (pilotID === requestedPilot && flow.conversations.state.get().rooms.some(({ channel }) => channel === room)) settingsRoom = room;
+      },
+    };
+    const requestedPilot = pilotID;
+    if (flow.conversations.canRecoverChannelOwnership()) {
+      channelMenu.open(x, y, [settings, ...entries]);
+      return;
+    }
+    const update = channelMenu.open(x, y, entries);
+    void flow.readChatChannelDirectory(null).then(rows => {
+      const affiliation = rows.find(row => row.roomName === room)?.affiliation;
+      if (pilotID === requestedPilot && (affiliation === "owner" || affiliation === "admin")) update([settings, ...entries]);
+    }).catch(() => {});
   }
 
   function canModerate(member: ChatMember): boolean {
@@ -356,7 +388,7 @@
   }
 
   onMount(() => {
-    flow.requestWords([...Object.keys(LINK_WORDS), BLINK_LABEL, FILTERS_LABEL, MOTD_LABEL, SETTINGS_LABEL, CHANNELS_LABEL,
+    flow.requestWords([...Object.keys(LINK_WORDS), BLINK_LABEL, FILTERS_LABEL, MOTD_LABEL, SETTINGS_LABEL, CONFIGURATION_LABEL, OPEN_CONFIGURATION_LABEL, CHANNELS_LABEL,
       ...["Channel", "Mute", "Unmute", "Kick"].map(label => `UI/Chat/${label}`)]);
     void refresh();
     poller.start();
@@ -522,6 +554,10 @@
 {/snippet}
 {#if wordFiltersOpen}<ChatWordFilters {store} {flow} close={() => { wordFiltersOpen = false; }} />{/if}
 {#if moderation}<ChatModeration {store} {flow} {...moderation} close={() => { moderation = null; }} />{/if}
+{#if settingsRoom}
+  <ChatChannelSettings {store} {flow} room={settingsRoom} close={() => { settingsRoom = null; }}
+    saved={() => { settingsRoom = null; }} ownershipLost={() => { settingsRoom = null; }} />
+{/if}
 
 <style>
   .chat-highlight { color: #64c75b; }

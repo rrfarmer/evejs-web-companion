@@ -141,12 +141,15 @@ export class ContextMenu {
     return this.panels[0] ? [...this.panels[0].querySelectorAll<HTMLElement>("[data-entry], [data-divider]")].map((el) => (el.dataset.divider !== undefined ? "---" : el.dataset.entry ?? "")) : [];
   }
 
-  open(x: number, y: number, entries: readonly (ContextEntry | null)[]): void {
+  open(x: number, y: number, entries: readonly (ContextEntry | null)[]): (entries: readonly (ContextEntry | null)[]) => void {
     this.close();
     const panel = this.panel(entries, 0);
     this.place(panel, x, y);
     document.addEventListener("mousedown", this.onDown, true);
     document.addEventListener("keydown", this.onKey, true);
+    return updated => {
+      if (this.panels[0] === panel) this.open(x, y, updated);
+    };
   }
 
   close(): void {

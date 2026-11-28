@@ -1937,9 +1937,13 @@ class XmppChatSession {
     if (joined?.roomName && !joined.pending && channel) {
       const system = roomName.startsWith("system_");
       let affiliation = system ? await this.systemChannelAffiliation(roomName, context) : channel.affiliation;
-      if (!affiliation && system && context.openSystemSettings && this.rooms.get(roomName) === joined && !joined.pending) {
+      if (!["owner", "admin"].includes(affiliation) && context.grantDirectoryChatOwnership &&
+          this.rooms.get(roomName) === joined && !joined.pending) {
         this.assertChatCurrent(context);
-        if (await context.openSystemSettings(roomName)) affiliation = await this.systemChannelAffiliation(roomName, context);
+        if (await context.grantDirectoryChatOwnership(roomName)) {
+          affiliation = system ? await this.systemChannelAffiliation(roomName, context) :
+            (await this.channelDirectory(null, context)).find(row => row.roomName === roomName)?.affiliation;
+        }
       }
       if (["owner", "admin"].includes(affiliation) && this.rooms.get(roomName) === joined && !joined.pending) {
         return { ...channel, affiliation };

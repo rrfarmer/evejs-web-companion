@@ -4475,11 +4475,11 @@ function createGamePortPilots({
     return names.map((name) => packets.text(name)).filter((name) => typeof name === "string" && name.length > 0);
   }
 
-  async function openSystemChatSettings(roomName, sessionFields, bridgeSessionID) {
+  async function grantDirectoryChatOwnership(roomName, sessionFields, bridgeSessionID) {
     const entry = held(bridgeSessionID, sessionFields);
     // ChannelSettingsDlg.ApplyAttributes requests ownership only for a GML session.
     const role = wholeOf(entry.session.attributes.role) ?? 0n;
-    if ((role & 18014398509481984n) === 0n || !/^system_\d+(?:_\d+)+$/.test(roomName)) return false;
+    if ((role & 18014398509481984n) === 0n || !/^(?:player_\d+|system_\d+(?:_\d+)+)$/.test(roomName)) return false;
     ledger.note(XMPP_CHAT_MGR, "GrantChannelOwnership",
       { status: "same", source: "xmppchatclient/xmppchannelsettings.py:125", note: null });
     return await entry.session.proxyCall(XMPP_CHAT_MGR, "GrantChannelOwnership", [roomName], null) === true;
@@ -7044,7 +7044,7 @@ function createGamePortPilots({
     hyperNetAvailable,
     chatSecret,
     chatChannels,
-    openSystemChatSettings,
+    grantDirectoryChatOwnership,
     chatSessionChanges,
     localChat,
     chatTaboos,

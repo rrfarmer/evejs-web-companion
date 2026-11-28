@@ -285,9 +285,9 @@
     const action = joined ? paths.leaveChannel : paths.joinChannel;
     const entries = [{ label: locale(action, joined ? "Leave Channel" : "Join Channel"), path: action,
       run: () => toggleMembership(channel.roomName, channel.label, joined) }];
-    const systemChannel = /^system_\d+(?:_\d+)+$/.test(channel.roomName);
+    const managedRoom = /^(?:player_\d+|system_\d+(?:_\d+)+)$/.test(channel.roomName);
     if (joined && (channel.affiliation === "owner" || channel.affiliation === "admin" ||
-        (systemChannel && flow.conversations.canOpenSystemChannelSettings()))) {
+        (managedRoom && flow.conversations.canRecoverChannelOwnership()))) {
       entries.push({ label: locale(paths.settings, "Settings"), path: paths.settings, run: () => { settingsRoom = channel.roomName; } });
     }
     if (channel.roomName.startsWith("player_") && channel.affiliation === "owner") entries.push({ label: locale(paths.deleteChannel, "Delete Channel"), path: paths.deleteChannel,

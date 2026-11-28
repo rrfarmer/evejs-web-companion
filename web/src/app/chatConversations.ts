@@ -42,7 +42,7 @@ const SESSION_CHANNEL_TITLES = new Map<string, readonly [string, string]>([
 export const SESSION_CHANNEL_WORDS = [...SESSION_CHANNEL_TITLES.values()].map(([label]) => label);
 // 3698585 carbon/common/script/sys/serviceConst.py ROLEMASK_ELEVATEDPLAYER.
 const ELEVATED_PLAYER_ROLES = 0x959c3fff7effffdfn;
-const SYSTEM_CHAT_OWNERSHIP_ROLE = 18014398509481984n;
+const CHAT_OWNERSHIP_GRANT_ROLE = 18014398509481984n;
 
 export function createChatConversations(hooks: Hooks) {
   let generation = 0, serial = 0, contactSerial = 0;
@@ -388,7 +388,7 @@ export function createChatConversations(hooks: Hooks) {
       await this.refresh();
     },
     isElevatedPlayer() { return (capture().role & ELEVATED_PLAYER_ROLES) !== 0n; },
-    canOpenSystemChannelSettings() { return (capture().role & SYSTEM_CHAT_OWNERSHIP_ROLE) !== 0n; },
+    canRecoverChannelOwnership() { return (capture().role & CHAT_OWNERSHIP_GRANT_ROLE) !== 0n; },
     async destroyDirectoryChannel(room: string) {
       await task(async scope => {
         await api.destroyChatChannel(room, scope.options);
