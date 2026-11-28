@@ -38,6 +38,9 @@ const portraitHairStyles = Object.freeze({
     hair_backcombed_03: "Short brushed back",
     hair_cornrows_01: "Cornrows",
     hair_dreadlong_01: "Long dreadlocks",
+    hair_implant_01: "Scalp implants I",
+    hair_implant_02: "Scalp implants II",
+    hair_implant_03: "Scalp implants III",
     hair_medium_01: "Medium length",
     hair_mediumcombed_01: "Medium combed",
     hair_mediumparted_02: "Medium part",
@@ -61,9 +64,11 @@ const scalpOnly = new Set([
   "hair_shortcut_02", "hair_shortcut_03", "hair_stubble_01", "hair_stubble_02",
 ]);
 const scalpAndMesh = new Set(["hair_bun_01", "hair_ponytail_02", "hair_ponytailshort_01"]);
+const implantScalp = new Set(["hair_implant_01", "hair_implant_02", "hair_implant_03"]);
 const modifierRowType = "eve.common.script.paperDoll.paperDollDefinitions.ModifierRow";
 
 function portraitScalpMode(style) {
+  if (implantScalp.has(style)) return "implant";
   if (scalpOnly.has(style)) return "only";
   return scalpAndMesh.has(style) ? "withMesh" : null;
 }

@@ -5,6 +5,7 @@
   import type { PortraitFraming } from "../app/flow.ts";
   import type { PortraitApparel, PortraitFrame, PortraitMakeup, PortraitMorph, PortraitSkinTone } from "../app/api.ts";
   import { compositePortraitColorLayer, type PortraitColorLayer } from "../three/portraitMakeup.ts";
+  import { compositePortraitImplant, type PortraitImplantMap, type PortraitImplantMaps } from "../three/portraitImplant.ts";
   import { applyPortraitMorphs } from "../three/portraitMorphs.ts";
   import { compressedSupport, loadDds } from "../three/ddsTexture";
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
@@ -39,9 +40,11 @@
     diffuseRect: number[];
     zonesRect: number[];
   };
+  type CroppedMapAsset = { url: string; rect: number[] };
+  type ImplantAsset = { implant: true; diffuse: CroppedMapAsset; normal: CroppedMapAsset; specular: CroppedMapAsset };
   let meshHairDisplay = $state<LoadState>("loading");
   let scalpDisplay = $state<LoadState>("ready");
-  let scalpAsset = $state.raw<ColorLayerAsset | null>(null);
+  let scalpAsset = $state.raw<ColorLayerAsset | ImplantAsset | null>(null);
   const hairDisplay = $derived(meshHairDisplay === "unavailable" || scalpDisplay === "unavailable" ? "unavailable"
     : meshHairDisplay === "loading" || scalpDisplay === "loading" ? "loading" : "ready");
   let outfitDisplay = $state<"loading" | "ready" | "unavailable">("loading");
@@ -188,12 +191,12 @@
       const { diffuse, rgb, scalp } = await response.json() as {
         diffuse?: string;
         rgb: [number, number, number];
-        scalp?: Omit<ColorLayerAsset, "colors">;
+        scalp?: Omit<ColorLayerAsset, "colors"> | ImplantAsset;
       };
       if (retired) return;
       if (scalp) {
         scalpDisplay = "loading";
-        scalpAsset = { ...scalp, colors: [rgb, rgb, rgb] };
+        scalpAsset = "implant" in scalp ? scalp : { ...scalp, colors: [rgb, rgb, rgb] };
       }
       if (!diffuse) {
         if (!scalp) throw new Error("Portrait hairstyle has no materials");
@@ -636,7 +639,30 @@
       };
       const irisLayer = irisAsset ? await readColorLayer({ asset: irisAsset, weight: 1, gloss: null }) : null;
       const faceLayers: [string, PortraitColorLayer][] = [];
-      if (scalp && !retired) {
+      let implant: PortraitImplantMaps | null = null;
+      if (scalp && "implant" in scalp && !retired) {
+        const loadImplantMap = async (asset: CroppedMapAsset, color = false): Promise<PortraitImplantMap> => {
+          if (retired) throw new Error("Portrait load retired");
+          const map = await loadMap(asset.url, color);
+          if (retired) {
+            map.texture.dispose();
+            map.bitmap.close();
+            throw new Error("Portrait load retired");
+          }
+          maps.push(map);
+          return { texture: map.texture, rect: new THREE.Vector4().fromArray(asset.rect) };
+        };
+        try {
+          implant = {
+            Diffuse: await loadImplantMap(scalp.diffuse, true),
+            Normal: await loadImplantMap(scalp.normal),
+            Specular: await loadImplantMap(scalp.specular),
+          };
+        } catch {
+          if (retired) return;
+        }
+        scalpDisplay = implant ? "ready" : "unavailable";
+      } else if (scalp && !retired) {
         const layer = await loadColorLayer(scalp, 1, null).catch(() => null);
         if (retired) return;
         if (layer) faceLayers.push(["portraitScalpHair", layer]);
@@ -659,10 +685,11 @@
       head = avatar;
       const surface = new THREE.MeshStandardMaterial({ map: maps[0]!.texture, normalMap: maps[1]!.texture, roughness: 0.76 });
       const tint = skinUniforms;
-      const skin = tint || faceLayers.length ? surface.clone() : surface;
+      const skin = tint || faceLayers.length || implant ? surface.clone() : surface;
       // The authored head normal packs tangent X in alpha and Y in green.
       // Read the two linear channels without premultiplying the PNG.
-      const configure = (material: THREE.MeshStandardMaterial, skinLayer: SkinUniforms | null, layers: readonly [string, PortraitColorLayer][] = []) => {
+      const configure = (material: THREE.MeshStandardMaterial, skinLayer: SkinUniforms | null,
+        layers: readonly [string, PortraitColorLayer][] = [], implantMaps: PortraitImplantMaps | null = null) => {
         material.onBeforeCompile = shader => {
           const layeredNormal = archetype ? `headNormal = mix(headNormal,
             texture2D( archetypeNormal, vNormalMapUv ).ag * 2.0 - 1.0, archetypeCoverage);` : "";
@@ -700,19 +727,22 @@
               #include <color_fragment>
             `);
           }
+          if (implantMaps) compositePortraitImplant(shader, implantMaps);
           for (const [name, layer] of layers) compositePortraitColorLayer(shader, name, layer);
           shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>",
             THREE.ShaderChunk.normal_fragment_maps.replace(
               "vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;",
               `vec2 headNormal = texture2D( normalMap, vNormalMapUv ).ag * 2.0 - 1.0;
                ${layeredNormal}
+               ${implantMaps ? `vec3 implantNormal = samplePortraitImplant(portraitImplantNormal, portraitImplantNormalRect, vNormalMapUv).rgb;
+               headNormal = mix(headNormal, implantNormal.rg * 2.0 - 1.0, implantNormal.b);` : ""}
                vec3 mapN = vec3( headNormal, sqrt( max( 0.0, 1.0 - dot( headNormal, headNormal ) ) ) );`,
             ));
         };
-        material.customProgramCacheKey = () => `portrait:${Boolean(archetype)}:${Boolean(skinLayer)}:${layers.map(([name, layer]) => name + (layer.gloss !== null ? "+" : "")).join(",")}`;
+        material.customProgramCacheKey = () => `portrait:${Boolean(archetype)}:${Boolean(skinLayer)}:${Boolean(implantMaps)}:${layers.map(([name, layer]) => name + (layer.gloss !== null ? "+" : "")).join(",")}`;
       };
       configure(surface, null);
-      if (skin !== surface) configure(skin, tint, faceLayers);
+      if (skin !== surface) configure(skin, tint, faceLayers, implant);
       applySurface(avatar, surface, new Set(transparent), new Set(eyelashMeshes), eyelashes, skin);
       if (irisLayer) {
         const eyes = surface.clone();

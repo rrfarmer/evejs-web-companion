@@ -926,7 +926,13 @@ async function extractPortraitHair(rf, gender, style, outRoot) {
   if (!rgb || rgb.length !== 3 || !rgb.every(value => Number.isFinite(value))) throw new Error("Invalid base hair color");
   fs.mkdirSync(dir, { recursive: true });
   const material = { rgb };
-  if (scalpMode) {
+  if (scalpMode === "implant") {
+    const maps = Object.entries({ diffuse: "d", normal: "mn", specular: "s" }).map(([role, channel]) => {
+      const filename = `${folder}/comp_head_${channel}_512.png`;
+      return [role, { url: copyRes(rf, filename, outRoot), rect: portraitPngRect(rf.read(filename)) }];
+    });
+    material.scalp = { implant: true, ...Object.fromEntries(maps) };
+  } else if (scalpMode) {
     const suffix = ["l", "z"].every(channel => rf.has(`${folder}/colorize_head_${channel}_512.png`)) ? "_512" : "";
     const diffuse = `${folder}/colorize_head_l${suffix}.png`, zones = `${folder}/colorize_head_z${suffix}.png`;
     material.scalp = {
@@ -934,7 +940,7 @@ async function extractPortraitHair(rf, gender, style, outRoot) {
       diffuseRect: portraitPngRect(rf.read(diffuse)), zonesRect: portraitPngRect(rf.read(zones)),
     };
   }
-  if (scalpMode !== "only") {
+  if (!scalpMode || scalpMode === "withMesh") {
     const pngMesh = pngPortraitHairMeshes.get(style);
     const source = `${folder}/${pngMesh ?? style}.gr2`;
     await extractPortraitMesh(rf, source, path.join(dir, `${style}.glb`), style);
