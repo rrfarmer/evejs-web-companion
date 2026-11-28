@@ -21,7 +21,7 @@ const { createClientTextures } = require("./clientData/clientTextures");
 const { appearanceWithSkinTone, skinToneCatalog, skinToneID } = require("./clientData/portraitSkinTones");
 const { portraitSnapshotBytes } = require("./clientData/portraitSnapshot");
 const { appearanceWithHair, portraitHairChoices, portraitHairID } = require("./clientData/portraitHair");
-const { appearanceWithHairColors, hairColorCatalog, hairColorSelection } = require("./clientData/portraitHairColors");
+const { appearanceWithHairColors, hairColorCatalog, hairColorLocation, hairColorSelection, portraitHairTints } = require("./clientData/portraitHairColors");
 const { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewMakeup } = require("./clientData/portraitPreview");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
 const { createSkillplanImport } = require("./clientData/importSkillplan");
@@ -19744,7 +19744,7 @@ async function dockedHairChoices(call, characterID) {
   const location = Number(Object.entries(locations ?? {}).find(([, row]) => row.modifierKey === "hair")?.[0]);
   const model = gender === 0 ? "female" : gender === 1 ? "male" : null;
   const choices = model ? portraitHairChoices(resources, model, race) : [];
-  const colorLocation = Number(Object.entries(colorLocations ?? {}).find(([, row]) => row.colorKey === "hair" && row.hasSecondary)?.[0]);
+  const colorLocation = hairColorLocation(colorLocations);
   const colors = model && Number.isSafeInteger(colorLocation)
     ? hairColorCatalog(model, colorNames, clientTextures.fileFor) : { primary: [], secondary: [] };
   return { location, choices, colorLocation, colors };
@@ -19779,6 +19779,7 @@ app.get("/api/bridge/character/:characterID/preview-appearance", requireAuth, as
     return res.json({ ok: true, appearance: {
       model, bloodlineID: strictPositiveID(bloodlineID),
       morphs: portraitPreviewMorphs(sculpts, sculptLocations),
+      hairTints: modifiers.hairstyle ? portraitHairTints(appearance, model, colorLocations, colorNames, clientTextures.fileFor) : null,
       ...modifiers, ...portraitPreviewMakeup(appearance, model, faceStyles, colorLocations, colorNames),
     } });
   } catch (error) { next(error); }

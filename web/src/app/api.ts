@@ -6386,6 +6386,12 @@ export interface CharacterPreviewAppearance {
   readonly iris: string | null;
   readonly makeup: readonly PortraitMakeup[];
   readonly hairstyle: string | null;
+  readonly hairTints?: PortraitHairTints;
+}
+
+function portraitRGB(value: JsonValue | undefined): RGB | undefined {
+  return Array.isArray(value) && value.length === 3 &&
+    value.every(channel => typeof channel === "number" && channel >= 0 && channel <= 1) ? value as unknown as RGB : undefined;
 }
 
 export async function loadCharacterPreviewAppearance(characterID: number, options: ApiOptions = {}):
@@ -6396,6 +6402,11 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
   const model = appearance?.model === "female" || appearance?.model === "male" ? appearance.model : null;
   const outfit = appearance?.outfit;
   const hairstyle = appearance?.hairstyle;
+  const hairTints = asObject(appearance?.hairTints);
+  const primary = portraitRGB(hairTints?.primary);
+  const colors = hairTints?.secondary;
+  const accent = Array.isArray(colors) && colors.length === 2 ? portraitRGB(colors[0]) : undefined;
+  const accentTip = Array.isArray(colors) && colors.length === 2 ? portraitRGB(colors[1]) : undefined;
   const iris = appearance?.iris;
   const makeup = (Array.isArray(appearance?.makeup) ? appearance.makeup : []).flatMap((value: JsonValue) => {
     const layer = asObject(value);
@@ -6434,6 +6445,7 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
     iris: typeof iris === "string" &&
       /^\/client-assets\/portrait-head\/(female|male)\/eyes\/eyes_[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(iris)?.[1] === model ? iris : null,
     hairstyle: typeof hairstyle === "string" && /^hair_[a-z0-9_]+$/.test(hairstyle) ? hairstyle : null,
+    ...(primary || (accent && accentTip) ? { hairTints: { primary, secondary: accent && accentTip ? [accent, accentTip] : undefined } } : {}),
   };
 }
 

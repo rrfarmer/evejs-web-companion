@@ -3,20 +3,30 @@
 const fs = require("node:fs");
 const { appearanceWithSkinTone, readColors, colorRowValues } = require("./portraitSkinTones");
 
+function hairColorLocation(locations) {
+  return Number(Object.entries(locations ?? {}).find(([, row]) => row.colorKey === "hair" && row.hasSecondary)?.[0]);
+}
+
+function readHairPalette(gender, name, fileFor) {
+  const file = fileFor(`res:/graphics/character/${gender}/paperdoll/hair/colors/${name}.color`);
+  if (!file) return null;
+  let contents;
+  try { contents = fs.readFileSync(file, "utf8"); }
+  catch (error) { if (error.code === "ENOENT") return null; throw error; }
+  const colors = Array.from(contents.split(/^pattern:/m, 1)[0].matchAll(/^- !!python\/tuple \[([^\]]+)\]/gm),
+    match => match[1].split(",").slice(0, 3).map(Number));
+  return colors.length === 3 && colors.every(rgb => rgb.length === 3 && rgb.every(value => value >= 0 && value <= 1))
+    ? colors : null;
+}
+
 function hairColorCatalog(gender, names, fileFor) {
   const groups = { primary: [], secondary: [] };
   for (const [key, row] of Object.entries(names ?? {})) {
     const name = row.colorName?.toLowerCase();
     const match = /^(0[1-9]|1[0-9]|2[0-8])_(a|bc)$/.exec(name);
     if (!match || (match[2] === "a" && Number(match[1]) > 22)) continue;
-    const file = fileFor(`res:/graphics/character/${gender}/paperdoll/hair/colors/${name}.color`);
-    if (!file) continue;
-    let contents;
-    try { contents = fs.readFileSync(file, "utf8"); }
-    catch (error) { if (error.code === "ENOENT") continue; throw error; }
-    const colors = Array.from(contents.split(/^pattern:/m, 1)[0].matchAll(/^- !!python\/tuple \[([^\]]+)\]/gm),
-      match => match[1].split(",").slice(0, 3).map(Number));
-    if (colors.length !== 3 || !colors.every(rgb => rgb.length === 3 && rgb.every(value => value >= 0 && value <= 1))) continue;
+    const colors = readHairPalette(gender, name, fileFor);
+    if (!colors) continue;
     groups[match[2] === "a" ? "primary" : "secondary"].push({ id: Number(key), key: name, name: `Color ${match[1]}`, colors });
   }
   for (const [key, group] of Object.entries(groups)) {
@@ -42,6 +52,15 @@ function hairColorSelection(payload, location) {
   return { primaryID: 0, secondaryID: 0 };
 }
 
+function portraitHairTints(appearance, gender, locations, names, fileFor) {
+  const { primaryID, secondaryID } = hairColorSelection(appearance, hairColorLocation(locations));
+  const primaryName = names?.[primaryID]?.colorName?.toLowerCase();
+  const secondaryName = names?.[secondaryID]?.colorName?.toLowerCase();
+  const primary = /^\d{2}_a$/.test(primaryName) ? readHairPalette(gender, primaryName, fileFor) : null;
+  const secondary = /^\d{2}_bc$/.test(secondaryName) ? readHairPalette(gender, secondaryName, fileFor) : null;
+  return primary || secondary ? { primary: primary?.[0], secondary: secondary?.slice(1) } : null;
+}
+
 function appearanceWithHairColors(payload, location, selection) {
   const source = payload ?? appearanceWithSkinTone(null, [], 0);
   const existing = readColors(source);
@@ -58,4 +77,4 @@ function appearanceWithHairColors(payload, location, selection) {
     [key, key === "colors" ? { type: "list", items: rows } : value]) } };
 }
 
-module.exports = { hairColorCatalog, hairColorSelection, appearanceWithHairColors };
+module.exports = { hairColorCatalog, hairColorLocation, hairColorSelection, appearanceWithHairColors, portraitHairTints };
