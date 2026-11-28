@@ -1,6 +1,7 @@
 "use strict";
 const { randomUUID } = require("node:crypto");
 const { trainingError } = require("./pilotTrainingRead");
+const { readCorporationRow } = require("../web/src/bridge/corporationRow.ts");
 
 // EveJS 0.12.9 server/src/services/corporation/corporationRuntimeState.js:
 // FULL_GRANTABLE_ROLE_MASK = FULL_ADMIN_ROLE_MASK & ~CORP_ROLE_DIRECTOR;
@@ -12,13 +13,9 @@ const RIGHTS = { roles: ORDINARY, grantableRoles: ORDINARY,
   grantableRolesAtBase: LOCATION, rolesAtOther: LOCATION, grantableRolesAtOther: LOCATION };
 function scalar(value) { return value && typeof value === "object" && "value" in value ? value.value : value; }
 function row(value) {
-  if (value?.type === "packedrow" && value.fields) return Object.fromEntries(Object.entries(value.fields).map(([k, v]) => [k, scalar(v)]));
-  const entries = value?.args?.entries;
-  if (!Array.isArray(entries)) throw trainingError("CORPORATION_STATE_UNKNOWN");
-  const fields = Object.fromEntries(entries);
-  if (fields.header?.items && fields.line?.items && fields.header.items.length === fields.line.items.length)
-    return Object.fromEntries(fields.header.items.map((key, i) => [key, scalar(fields.line.items[i])]));
-  return Object.fromEntries(entries.map(([key, v]) => [key, scalar(v)]));
+  const fields = readCorporationRow(value);
+  if (fields === null) throw trainingError("CORPORATION_STATE_UNKNOWN");
+  return fields;
 }
 function applications(value, corporationID, characterID) {
   if (value?.type !== "dict" || !Array.isArray(value.entries)) throw trainingError("APPLICATION_STATE_UNKNOWN");

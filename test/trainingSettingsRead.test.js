@@ -2,14 +2,16 @@
 const test = require("node:test"), assert = require("node:assert/strict");
 const { readTrainingSettingsContext } = require("../src/trainingSettingsRead");
 const wire = (fields) => ({ type: "object", args: { entries: Object.entries(fields) } });
-function fixture({ ceo = 5, roles = "1", mismatch = false, changed = false, foreign = false } = {}) {
+function fixture({ ceo = 5, roles = "1", mismatch = false, changed = false, foreign = false, corporationWire = wire } = {}) {
   let reads = 0; const calls = [];
   const account = { accountID: 17, username: "HaulerAccount" };
   const store = { async listCharactersForAccount(id) { assert.equal(id, 17); reads++; return [{ accountID: foreign ? 18 : 17, characterID: 22, characterName: "BHauler1", corporationID: changed && reads > 1 ? 99 : 98 }]; } };
   const gateway = { async callMethod(service, method, args, kwargs, session, bridge) {
     calls.push(method); assert.equal(service, "corpRegistry"); assert.equal(session.userid, 17); assert.equal(session.corpid, 98); assert.equal(bridge, undefined);
-    return { result: wire(method === "GetCorporation" ? { corporationID: mismatch ? 99 : 98, corporationName: "Marked By Luck", ceoID: ceo, walletDivision1: "Training funds" }
-      : { corporationID: 98, characterID: 22, roles }) };
+    const result = method === "GetCorporation"
+      ? corporationWire({ corporationID: mismatch ? 99 : 98, corporationName: "Marked By Luck", ceoID: ceo, walletDivision1: "Training funds" })
+      : wire({ corporationID: 98, characterID: 22, roles });
+    return { result };
   } };
   return { account, store, gateway, calls };
 }
@@ -18,6 +20,21 @@ test("settings names and wallet division labels come from owned corporation read
   assert.deepEqual(result.corporations, [{ corporationID: 98, name: "Marked By Luck", divisions: [{ accountKey: 1000, name: "Training funds" }] }]);
   assert.deepEqual(result.authorities, [{ characterID: 22, name: "BHauler1", corporationID: 98, eligible: true }]);
   assert.deepEqual(f.calls, ["GetCorporation", "GetMember"]);
+});
+test("settings decode the 24.02 corporation Row and refuse incomplete cells", async () => {
+  const corporationWire = (fields, truncated = false) => {
+    const cells = Object.values(fields).map(value => typeof value === "string" ? { type: "wstring", value } : value);
+    if (truncated) cells.pop();
+    return { type: "objectex2", header: [
+      [{ type: "token", value: "carbon.common.script.sys.row.Row" }],
+      [{ type: "list", items: Object.keys(fields) }, { type: "list", items: cells }],
+    ], list: [], dict: [] };
+  };
+  const result = await readTrainingSettingsContext(fixture({ corporationWire }));
+  assert.deepEqual(result.corporations, [{ corporationID: 98, name: "Marked By Luck", divisions: [{ accountKey: 1000, name: "Training funds" }] }]);
+  assert.equal(result.authorities[0].eligible, true);
+  const incomplete = fixture({ corporationWire: fields => corporationWire(fields, true) });
+  await assert.rejects(readTrainingSettingsContext(incomplete), { code: "CORPORATION_STATE_UNKNOWN" });
 });
 test("CEO, ordinary and unreadable-role members are never offered as onboarding authority", async () => {
   for (const options of [{ ceo: 22 }, { roles: "0" }, { roles: null }, { roles: "invalid" }]) {

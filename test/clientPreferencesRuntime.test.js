@@ -1,8 +1,10 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
 const { readFileSync } = require("node:fs");
 const { Module } = require("node:module");
+const path = require("node:path");
 const test = require("node:test");
 const { setImmediate: nextTurn } = require("node:timers/promises");
 const { getHeapSpaceStatistics, setFlagsFromString } = require("node:v8");
@@ -56,6 +58,40 @@ test("native value handles preserve identity, disposal, and numeric classes", ()
   const replacement = values.wrap({ object: original });
   assert.notEqual(replacement, value);
   assert.equal(replacement.identity, value.identity);
+});
+
+test("the bootstrap admits archived future packages and supplies their raise_ without a client install", () => {
+  execFileSync(process.env.EVEJS_PYTHON || (process.platform === "win32" ? "python" : "python3"),
+    ["-I", "-S", path.join(__dirname, "fixtures", "clientPreferencesArchive.py")], { windowsHide: true });
+});
+
+const installedClient = process.env.EVEJS_TEST_CLIENT_ROOT || process.env.EVEJS_TEST_V2402_CLIENT_ROOT;
+test("the installed client's CoreService methods share the archive's future.utils.raise_", {
+  skip: !installedClient && "Set EVEJS_TEST_CLIENT_ROOT to an installed V24.01 or V24.02 client",
+}, () => {
+  const { nativePreferencesShipped } = require("../scripts/build-native-preferences");
+  const binary = nativePreferencesShipped();
+  assert.ok(binary, "The test requires the shipped Windows x64 preferences binding");
+  const binding = require(binary);
+  const tq = path.resolve(installedClient, "tq");
+  const archive = path.join(tq, "code.ccp").replaceAll("\\", "/");
+  const bootstrap = readFileSync(path.join(__dirname, "../scripts/native-prefs/bootstrap.py"), "utf8");
+  binding.dispose(binding.initialize(path.join(tq, "bin64", "python27.dll"), Buffer.from(archive), bootstrap));
+  binding.dispose(binding.run(`
+probe_types = _create_static_service_types(None, None, None, 0, 0, 0, 0)
+import future.utils
+assert future.__file__.replace('\\\\', '/').startswith(_archive + '/')
+assert future.utils.__file__.replace('\\\\', '/').startswith(_archive + '/')
+for method in ('__init__', 'InitService', '__getattr__', '__setattr__'):
+    probe_raise = getattr(probe_types.CoreService, method).im_func.func_globals['raise_']
+    assert probe_raise is future.utils.raise_
+try:
+    probe_raise(ValueError, 'archive probe')
+except ValueError as exc:
+    assert str(exc) == 'archive probe'
+else:
+    raise AssertionError('The installed raise_ did not raise')
+`));
 });
 
 function largeObjectBytes() {

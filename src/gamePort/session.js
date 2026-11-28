@@ -28,6 +28,9 @@
 
 const zlib = require("node:zlib");
 const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
+const config = require("../config");
 const { marshalDecode, getDecodedNumberKind } = require("../gameProtocol/marshal");
 const { remoteObjectReference } = require("./objectReference");
 const { attributePythonType } = require("./clientDogmaArithmetic");
@@ -54,6 +57,35 @@ const RETAIL_CLIENT = Object.freeze({
   codename: "V24.01",
   region: "ccp",
 });
+const RETAIL_CLIENT_3724492 = Object.freeze({
+  ...RETAIL_CLIENT,
+  version: 24.02,
+  build: 3724492,
+  codename: "V24.02",
+});
+
+/** Use the installed build, or Web Companion's pinned SDE build on a host without client files. */
+function retailClientProfile(clientRoot = config.clientRoot, client = null) {
+  if (!clientRoot && client != null) return client;
+  const filename = clientRoot && path.join(clientRoot, "tq", "start.ini");
+  let build = config.sdeBuild;
+  if (filename) {
+    try {
+      const start = fs.readFileSync(filename, "utf8");
+      build = /^[ \t]*build[ \t]*=[ \t]*(\d+)[ \t]*\r?$/im.exec(start)?.[1];
+    } catch (error) {
+      throw new GamePortError("CLIENT_PROFILE_UNAVAILABLE", `Cannot read the installed EVE client's ${filename}: ${error.message}`);
+    }
+  }
+  const installed = [RETAIL_CLIENT, RETAIL_CLIENT_3724492].find(profile => profile.build === Number(build));
+  if (!installed) {
+    throw new GamePortError("CLIENT_PROFILE_UNAVAILABLE", `Unsupported or missing EVE client build in ${filename || "the configured SDE"}: ${build ?? "(missing)"}.`);
+  }
+  if (client != null && (client.build !== installed.build || client.codename !== installed.codename || client.version !== installed.version)) {
+    throw new GamePortError("CLIENT_PROFILE_MISMATCH", `Configured client ${client.codename} build ${client.build} differs from installed ${installed.codename} build ${installed.build}.`);
+  }
+  return client ?? installed;
+}
 
 /** boot.GetValue('handShakePaddingLength', 64): the client challenge's length. */
 const HANDSHAKE_PADDING_LENGTH = 64;
@@ -286,7 +318,8 @@ function readNotification(packet) {
 class GamePortSession {
   constructor({
     transport,
-    client = RETAIL_CLIENT,
+    client,
+    clientRoot,
     languageID = "EN",
     handshakeFunctions = KNOWN_HANDSHAKE_FUNCTIONS,
     onLoginProgram = null,
@@ -300,7 +333,12 @@ class GamePortSession {
   } = {}) {
     if (!transport) throw new TypeError("A game-port session needs a transport.");
     this.transport = transport;
-    this.client = client;
+    try {
+      this.client = retailClientProfile(clientRoot, client);
+    } catch (error) {
+      transport.close?.();
+      throw error;
+    }
     this.languageID = languageID;
     this.onLoginProgram = onLoginProgram;
     this.handshakeFunctions = handshakeFunctions;
@@ -547,17 +585,20 @@ class GamePortSession {
     // The checks GPS.py makes, in its order. A mismatch closes the connection.
     const [, machoVersion, , version, build, project] = server;
     const [codename, region = ""] = String(text(project) ?? "").split("@");
-    const refuse = (code, what) => this._fail(new GamePortError(code, `Incompatible ${what}: the server is ${text(project)} ${version} build ${build}, protocol ${machoVersion}.`));
-    if (region !== this.client.region) throw refuse("HANDSHAKE_INCOMPATIBLEREGION", "region");
-    if (codename !== this.client.codename) throw refuse("HANDSHAKE_INCOMPATIBLERELEASE", "release");
-    if (version !== this.client.version) throw refuse("HANDSHAKE_INCOMPATIBLEVERSION", "version");
-    if (machoVersion !== this.client.machoVersion) throw refuse("HANDSHAKE_INCOMPATIBLEPROTOCOL", "protocol");
-    if (this.client.build < build) throw refuse("HANDSHAKE_INCOMPATIBLEBUILD", "build");
+    const client = this.client;
+    const refuse = (code, what) => this._fail(new GamePortError(code,
+      `Incompatible ${what}: the server is ${text(project)} ${version} build ${build}, protocol ${machoVersion}. ` +
+      `The client is ${client.codename}@${client.region} ${client.version} build ${client.build}, protocol ${client.machoVersion}.`));
+    if (region !== client.region) throw refuse("HANDSHAKE_INCOMPATIBLEREGION", "region");
+    if (codename !== client.codename) throw refuse("HANDSHAKE_INCOMPATIBLERELEASE", "release");
+    if (version !== client.version) throw refuse("HANDSHAKE_INCOMPATIBLEVERSION", "version");
+    if (machoVersion !== client.machoVersion) throw refuse("HANDSHAKE_INCOMPATIBLEPROTOCOL", "protocol");
+    if (client.build < build) throw refuse("HANDSHAKE_INCOMPATIBLEBUILD", "build");
     this.serverVersion = { machoVersion, userCount: integer(server[2]), version, build, codename, region };
     // (secret, macho.version, 0, boot.version, boot.build, codename@region)
     this._writeRaw([
-      this.client.handshakeSecret, this.client.machoVersion, 0, this.client.version, this.client.build,
-      `${this.client.codename}@${this.client.region}`,
+      client.handshakeSecret, client.machoVersion, 0, client.version, client.build,
+      `${client.codename}@${client.region}`,
     ]);
   }
 
@@ -1374,5 +1415,5 @@ class GamePortSession {
 
 module.exports = {
   CLOCK_SYNC_INTERVAL_MS, COMPRESSION_THRESHOLD, GamePortError, GamePortSession, KNOWN_HANDSHAKE_FUNCTIONS,
-  MAX_IDLE_SECONDS_DEFAULT, RETAIL_CLIENT, describeError, readNotification,
+  MAX_IDLE_SECONDS_DEFAULT, RETAIL_CLIENT, describeError, readNotification, retailClientProfile,
 };

@@ -246,7 +246,7 @@ function fakeGateway(options = {}) {
         return {
           service,
           method,
-          result: utilRow({
+          result: options.corporationRow ?? utilRow({
             corporationID: 98000000,
             ...(options.divisionNames || DEFAULT_DIVISION_NAMES),
           }),
@@ -830,6 +830,36 @@ test("transfer refuses when the items are no longer at the source", async () => 
 // manager's bind, and its verdict by the place listed again.
 
 // --- corporation hangars ----------------------------------------------------
+
+test("hangar and wallet divisions read both GetCorporation Row formats", async () => {
+  const { divisionNamesOf } = require("../web/src/bridge/walletReads.ts");
+  const fields = {
+    division1: "Ore", division2: "Equipment", division7: "Reserves",
+    walletDivision1: "Ignored", walletDivision2: "Payroll", walletDivision7: "Réserve",
+  };
+  const current = {
+    type: "objectex2", header: [
+      [{ type: "token", value: "carbon.common.script.sys.row.Row" }],
+      [{ type: "list", items: Object.keys(fields) }, { type: "list", items: Object.values(fields).map(value => ({ type: "wstring", value })) }],
+    ],
+  };
+  const options = { items: fixtureItems() };
+  const { baseUrl } = await startTestServer({ gateway: fakeGateway(options) });
+  await selectOnServer(baseUrl);
+  for (const row of [utilRow(fields), current]) {
+    options.corporationRow = row;
+    const hangars = await apiRequest(baseUrl, "/api/bridge/inventory/corp");
+    assert.equal(hangars.response.status, 200);
+    assert.deepEqual(hangars.payload.divisions.map(d => d.name), ["Ore", "Equipment", null, null, null, null, "Reserves"]);
+    const wallet = await apiRequest(baseUrl, "/api/bridge/wallet");
+    assert.equal(wallet.response.status, 200);
+    const expected = { 1: null, 2: "Payroll", 3: null, 4: null, 5: null, 6: null, 7: "Réserve" };
+    assert.deepEqual(wallet.payload.divisionNames, expected);
+    assert.deepEqual(divisionNamesOf(row), expected);
+  }
+  const unrelated = { ...current, header: [[{ type: "token", value: "unrelated.Row" }], current.header[1]] };
+  assert.deepEqual(Object.values(divisionNamesOf(unrelated)), Array(7).fill(null));
+});
 
 test("GET corp reads the office, the division NAMES, and every division's contents", async () => {
   const gateway = fakeGateway({ items: fixtureItems() });
