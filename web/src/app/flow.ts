@@ -5913,6 +5913,7 @@ export interface AppFlow {
   readonly conversations: ChatConversations;
   loadChat(channel: ChatChannel): Promise<void>;
   reportChatSpammer(room: string, target: number, name: string): Promise<void>;
+  moderateChatMember(room: string, target: number, action: api.ChatModerationAction, minutes?: number, reason?: string): Promise<void>;
   /** R7 — send a message to a chat channel, then refresh its backlog. */
   sendChatMessage(channel: ChatChannel, message: string): Promise<void>;
   /** R7 — switch the active chat tab (Local <-> Corp). */
@@ -43649,6 +43650,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       scope.current();
       if (typeof room !== "string" || !/^player_\d+$/.test(room)) throw new Error("The channel could not be created.");
       return room;
+    },
+    async moderateChatMember(room, target, action, minutes, reason) {
+      await conversations.moderate(room, target, action, minutes, reason);
+      if (room.startsWith("corp_")) await loadChat("corp");
     },
     async reportChatSpammer(room, target, name) {
       if (target === onlineCharacterID()) return;

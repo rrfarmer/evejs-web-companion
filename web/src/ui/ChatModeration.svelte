@@ -32,7 +32,7 @@
     busy = true;
     error = "";
     try {
-      await flow.conversations.moderate(room, member.characterID, action, minutes, reason);
+      await flow.moderateChatMember(room, member.characterID, action, minutes, reason);
       close();
     } catch (cause) {
       error = cause instanceof Error ? cause.message : "The channel action could not be completed.";

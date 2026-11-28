@@ -1055,7 +1055,7 @@ class XmppChatSession {
     const oldMember = roster.get(characterID);
     if (roomName.startsWith("private_") && heldRoom?.seenMembers) heldRoom.seenMembers.add(characterID);
     if (unavailable) {
-      if (characterID === this.characterID && roomName.startsWith("player_") && heldRoom?.roomName === roomName &&
+      if (characterID === this.characterID && /^(player|system|corp)_/.test(roomName) && heldRoom?.roomName === roomName &&
         !heldRoom.pending && /<status\b[^>]*\bcode=['"]110['"]/i.test(xml)) {
         this.leaveRoom(heldRoom, false);
         return;
@@ -2148,7 +2148,15 @@ class XmppChatSession {
   }
 
   async moderateChannelMember(roomName, target, action, minutes, reason, context = {}) {
-    await this.managedDirectoryChannel(roomName, context);
+    if (/^corp_\d+$/.test(roomName)) {
+      this.assertChatCurrent(context);
+      const room = this.rooms.get("corp");
+      if (room?.roomName !== roomName || room.pending) {
+        throw new XmppChatError("Choose your joined corporation channel.", { code: "CHAT_MODERATION_REFUSED", statusCode: 403 });
+      }
+    } else {
+      await this.managedDirectoryChannel(roomName, context);
+    }
     const roster = this.rosters.get(roomName);
     const actor = roster?.get(this.characterID);
     const member = roster?.get(target);
@@ -2167,7 +2175,7 @@ class XmppChatSession {
     const role = (next) => stanzas.roomIq(roomName, "admin", "set",
       `<item nick='${target}' role='${next}'><reason>${escapeXml(reason)}</reason></item>`);
     const affiliation = (next) => stanzas.roomIq(roomName, "admin", "set",
-      `<item jid='${escapeXml(`${target}@${this.domain}`)}' affiliation='${next}'><reason>${escapeXml(reason)}</reason></item>`);
+      `<item jid='${escapeXml(`${target}@${this.domain}`)}' affiliation='${next}'><reason>character</reason></item>`);
     if (action === "unmute") {
       await request(role("participant"));
       await request(stanzas.roomRestrictionRecords(roomName, "mute", target));

@@ -198,8 +198,8 @@
   }
 
   function canModerate(member: ChatMember): boolean {
-    return !!activeRoom && /^(player|system)_/.test(activeRoom.channel) && member.characterID > 1 && member.characterID !== pilotID &&
-      member.role !== "moderator" && activeRoom.state.roster.some(row => row.characterID === pilotID && row.role === "moderator");
+    return /^(player|system|corp)_/.test(active.roomName ?? "") && member.characterID > 1 && member.characterID !== pilotID &&
+      member.role !== "moderator" && active.roster.some(row => row.characterID === pilotID && row.role === "moderator");
   }
   const REPORT_SPAM_LABEL = "UI/Chat/ReportIskSpammer";
 
@@ -226,7 +226,7 @@
         label: linkWord("UI/Chat/Channel") || "Channel",
         sub: [
           { label: linkWord(`UI/Chat/${muteLabel}`) || muteLabel, run: () => {
-            if (muted) void run(() => flow.conversations.moderate(room, characterID, "unmute"));
+            if (muted) void run(() => flow.moderateChatMember(room, characterID, "unmute"));
             else moderation = { room, action: "mute", member };
           } },
           { label: linkWord("UI/Chat/Kick") || "Kick", run: () => { moderation = { room, action: "kick", member }; } },
