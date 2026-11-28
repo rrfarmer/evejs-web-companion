@@ -593,8 +593,9 @@ export async function rollRandomCharacterName(
 export async function loadStationStatic(
   stationID: number,
   options: ApiOptions = {},
+  includeInfo = false,
 ): Promise<StationStatic | null> {
-  const data = await getJson(`/api/map/station/${stationID}`, options);
+  const data = await getJson(`/api/map/station/${stationID}${includeInfo ? "?info=1" : ""}`, options);
   const station = data.station;
   return typeof station === "object" && station !== null && !Array.isArray(station)
     ? (station as unknown as StationStatic)

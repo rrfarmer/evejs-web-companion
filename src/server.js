@@ -13987,7 +13987,17 @@ app.get("/api/map/station/:id", requireAuth, async (req, res, next) => {
       res.status(404).json({ ok: false, error: "STATION_NOT_FOUND" });
       return;
     }
-    res.json({ ok: true, source: "static-data", station: buildStationStatic(id) });
+    const station = buildStationStatic(id);
+    const usesOperation = id < 61_000_000 && ![12294, 12295, 12242].includes(station.stationTypeID);
+    if (usesOperation && station.operationID !== null && req.query.info === "1") {
+      const operations = await clientBuiltData.rows("stationOperations", [station.operationID]);
+      const operation = operations?.[station.operationID];
+      const fallback = staticData.buildJsonlIndex("stationOperations.jsonl").get(station.operationID);
+      station.descriptionID = operation?.descriptionID ?? null;
+      station.description = fallback?.description?.en ?? null;
+      if (Array.isArray(operation?.services)) station.serviceIDs = operation.services;
+    }
+    res.json({ ok: true, source: "static-data", station });
   } catch (error) {
     next(error);
   }

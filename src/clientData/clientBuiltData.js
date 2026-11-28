@@ -33,6 +33,7 @@ const MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
 // The tables read here: the name each goes by, the client's loader for it, and its resource (in lower case, as
 // the index is kept).
 const TABLES = Object.freeze({
+  stationOperations: Object.freeze({ loader: "stationOperationsLoader", resource: "res:/staticdata/stationoperations.fsdbinary" }),
   planetResourceDistributions: Object.freeze({ loader: "globalTypesLoader", resource: "res:/staticdata/globaltypes.fsdbinary" }),
   planetarySchematics: Object.freeze({ loader: "schematicsLoader", resource: "res:/staticdata/schematics.fsdbinary", keyOrder: true }),
   achievementEvents: Object.freeze({ loader: "achievementEventsLoader", resource: "res:/staticdata/achievementevents.fsdbinary" }),

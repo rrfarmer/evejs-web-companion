@@ -16,6 +16,7 @@
   import CorpLogo from "./CorpLogo.svelte";
   import InfoFreelanceProjects from "./InfoFreelanceProjects.svelte";
   import InfoNpcCorporationStations from "./InfoNpcCorporationStations.svelte";
+  import InfoNpcStation from "./InfoNpcStation.svelte";
   import InfoShipRequirements from "./InfoShipRequirements.svelte";
   import InfoJumpBridgeMechanics from "./InfoJumpBridgeMechanics.svelte";
   import InfoAttributeHint from "./InfoAttributeHint.svelte";
@@ -395,6 +396,8 @@
   let mapLocationRead = $state<MapLocationInfo | null>(null);
   const celestialKind = $derived($subject?.kind !== "spaceObject" ? null : $subject.typeID === 14 ? "moon" : $subject.typeID === 15 ? "belt"
     : headFacts?.typeID === $subject.typeID && headFacts?.groupID === 7 ? "planet" : null);
+  const npcStationID = $derived($subject?.kind === "spaceObject" && $subject.itemID >= 60_000_000 &&
+    $subject.itemID < 64_000_000 ? $subject.itemID : null);
   const planetType = $derived(headFacts?.typeID === typeID && headFacts?.groupID === 7 &&
     ($subject?.kind === "type" || $subject?.kind === "spaceObject"));
   const productionLabel = "UI/InfoWindow/TabNames/PlanetaryProduction";
@@ -1485,7 +1488,7 @@
       {/if}
       <div class="info-identity">
         <h2>{title}</h2>
-        {#if !showBeltAction && (!stargateRead || entity)}<p class="info-kind">{subjectKindLabel($subject)}</p>{/if}
+        {#if npcStationID === null && !showBeltAction && (!stargateRead || entity)}<p class="info-kind">{subjectKindLabel($subject)}</p>{/if}
         {#if typeName && typeName !== title}
           <p class="info-type">{typeName}</p>
         {/if}
@@ -1621,6 +1624,8 @@
           </ul>
         {/each}
       </div>
+    {:else if npcStationID !== null}
+      <InfoNpcStation {store} {flow} itemID={npcStationID} />
     {:else if showBeltAction}
       <nav class="character-info-tabs" aria-label="Asteroid belt information">
         <button type="button" aria-pressed={beltTab === "description"} onclick={() => beltTab = "description"}>{word(descriptionLabel) || "Description"}</button>
@@ -1790,7 +1795,7 @@
           <h3>{word("UI/Common/LocationTypes/Stations")}</h3>
           <ul class="info-territory">
             {#each systemStations as row (row.itemID)}
-              <li><button type="button" class="evelink showInfo" title={word("UI/Commands/ShowInfo")} onclick={() => showInfo({ kind: "type", typeID: row.typeID })}>{resolvedName($names.resolved, "station", row.itemID, "")}</button></li>
+              <li><button type="button" class="evelink showInfo" title={word("UI/Commands/ShowInfo")} onclick={() => showInfo({ kind: "spaceObject", itemID: row.itemID, typeID: row.typeID })}>{resolvedName($names.resolved, "station", row.itemID, "")}</button></li>
             {/each}
           </ul>
         {/if}
@@ -1958,7 +1963,7 @@
     <footer class="info-actions">
       <button type="button" onclick={() => openAgencyGroup(AGENCY_SCREEN_GROUPS.ASTEROID_BELTS!)}>{word(asteroidBeltsLabel) || "Asteroid Belts"}</button>
     </footer>
-  {:else if typeID !== null && (showMarketAction || showContractsAction || showIndustryAction || (showSkinrAction && toggleShipSkinr))}
+  {:else if npcStationID === null && typeID !== null && (showMarketAction || showContractsAction || showIndustryAction || (showSkinrAction && toggleShipSkinr))}
     <footer class="info-actions">
       {#if showMarketAction}
         <button type="button" onclick={() => showMarketDetails(typeID)}>{plainText(word(marketLabel)) || "View Market Details"}</button>
