@@ -202,7 +202,7 @@
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import { combatMovingMode } from "./combatSettings.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
-  import { stationPointerName, UI_POINTER_COMMAND } from "../play/uiPointer.ts";
+  import { LOBBY_POINTERS, stationPointerName, UI_POINTER_COMMAND } from "../play/uiPointer.ts";
   import type { DogmaTypeFacts } from "../bridge/dogma/location.ts";
   import { typeIconUrl } from "./typeIcons.ts";
   import { cycleProgressPercent } from "./moduleRack.ts";
@@ -5199,7 +5199,7 @@
                 onclick={() => changeStructureControl(false)}>{dockedViewWord("UI/Inflight/HUDOptions/ReleaseControl", "Release Control")}</button>
             </div>
           {:else}
-            <button class="undock" disabled={undockPending || structureControlPending || corvettePending} onclick={undock}>Undock</button>
+            <button class="undock" data-ui-pointer={LOBBY_POINTERS.undock} disabled={undockPending || structureControlPending || corvettePending} onclick={undock}>Undock</button>
             {#if dockedStructureID !== null}
               <button type="button" class="academy-service dock-view-mode" title={dockViewHint}
                 disabled={undockPending || structureControlPending || corvettePending}
@@ -5211,7 +5211,7 @@
                 disabled={structureControlAllowed !== true || structureControlPending || undockPending || corvettePending}
                 onclick={() => changeStructureControl(true)}>{dockedViewWord("UI/Commands/TakeStructureControl", "Take Control")}</button>
             {/if}
-            <button type="button" class="academy-service lobby-corvette" title={corvetteHint}
+            <button type="button" class="academy-service lobby-corvette" data-ui-pointer={LOBBY_POINTERS.corvette} title={corvetteHint}
               disabled={corvettePending || undockPending || structureControlPending || aboardCorvette || !$flight?.status?.shipID}
               onclick={boardLobbyCorvette}>{corvetteLabel}</button>
           {/if}
@@ -5223,7 +5223,7 @@
             </button>
           {/if}
           {#if error}<div class="error lobby-error">{error}</div>{/if}
-          <div class="lobby-services">
+          <div class="lobby-services" data-ui-pointer={LOBBY_POINTERS.services}>
             {#each lobbyServices as svc (svc.label)}
               <button type="button" class="lobby-svc" data-service-state={svc.unavailable ? "unavailable" : "available"}
                 title={svc.unavailable ? `${svc.label}\n${dockedViewWord("UI/Station/Lobby/Disabled", "Disabled")}` : svc.label}

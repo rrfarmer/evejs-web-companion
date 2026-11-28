@@ -3,7 +3,7 @@ import { helpPointerLinksFromDrop, helpPointerUrl, parseHelpPointerUrl } from ".
 import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
 import { clientTexture } from "../ui/skillGroupIcons.ts";
 import { EVE_MENU, NEOCOM_DEFAULT } from "./neocom.ts";
-import { CHARACTER_SHEET_POINTERS, CHAT_POINTERS, CONTRACT_POINTERS, CORPORATION_POINTERS, FITTING_POINTERS, FLEET_POINTERS, INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, MARKET_POINTERS, neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
+import { CHARACTER_SHEET_POINTERS, CHAT_POINTERS, CONTRACT_POINTERS, CORPORATION_POINTERS, FITTING_POINTERS, FLEET_POINTERS, INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, LOBBY_POINTERS, MARKET_POINTERS, neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
 
 const industryParent = neocomPointerName("industry");
 const contractsParent = neocomPointerName("contracts");
@@ -18,6 +18,7 @@ export const NEOCOM_POINTERS: readonly UiPointerTarget[] = [...NEOCOM_DEFAULT, .
   name: neocomPointerName(item.id), label: item.label, icon: item.icon,
 }));
 const tabIcon = clientTexture("res:/UI/Texture/Classes/HelpPointer/tabFlat.png");
+const buttonIcon = clientTexture("res:/UI/Texture/Classes/HelpPointer/buttonFlat.png");
 const fleet = FLEET_POINTERS;
 const fleetPointers: readonly UiPointerTarget[] = [
   { name: fleet.finder, label: "Find Fleets", icon: tabIcon, parent: fleetParent },
@@ -118,6 +119,13 @@ const marketQuotePointers = ([
 ]);
 export const INTERFACE_POINTERS: readonly UiPointerTarget[] = [
   ...WALLET_POINTERS,
+  { name: LOBBY_POINTERS.undock, label: "Undock Button", icon: buttonIcon },
+  { name: LOBBY_POINTERS.corvette, label: "Board my Corvette", icon: buttonIcon },
+  { name: LOBBY_POINTERS.services, label: "Station Services" },
+  { name: LOBBY_POINTERS.agents, label: "Station Services - Agents", icon: tabIcon },
+  { name: LOBBY_POINTERS.guests, label: "Station Services - Guests", icon: tabIcon },
+  { name: LOBBY_POINTERS.offices, label: "Offices", icon: tabIcon },
+  { name: LOBBY_POINTERS.hangars, label: "Station Services - Hangars", icon: tabIcon },
   { name: INVENTORY_POINTERS.stackAll, label: "Inventory Stack All", parent: neocomPointerName("inventory") },
   { name: INVENTORY_POINTERS.viewMode, label: "Change Inventory View",
     icon: clientTexture("res:/UI/Texture/eveicon/system_icons/grid_view_16px.png"), parent: neocomPointerName("inventory") },

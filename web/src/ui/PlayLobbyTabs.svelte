@@ -7,6 +7,7 @@
   import type { Session } from "../app/sessions.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
+  import { LOBBY_POINTERS } from "../play/uiPointer.ts";
   import { resolvedName, type NameKind, type NameRef } from "../store/names.ts";
   import type { StationGuest } from "../store/types.ts";
   import OwnerPicture from "./OwnerPicture.svelte";
@@ -212,10 +213,10 @@
 }} />
 
 <div class="lobby-tabs" role="tablist">
-  <button role="tab" class:on={tab === "guests"} aria-selected={tab === "guests"} onclick={() => choose("guests")}>Guests [{guests.length}]</button>
-  <button role="tab" class:on={tab === "agents"} aria-selected={tab === "agents"} onclick={() => choose("agents")}>Agents</button>
-  <button role="tab" class:on={tab === "offices"} aria-selected={tab === "offices"} onclick={() => choose("offices")}>Offices</button>
-  <button role="tab" class:on={tab === "hangars"} aria-selected={tab === "hangars"} onclick={() => choose("hangars")}>{word("UI/Station/Lobby/Hangars") || "Hangars"}</button>
+  <button role="tab" data-ui-pointer={LOBBY_POINTERS.guests} class:on={tab === "guests"} aria-selected={tab === "guests"} onclick={() => choose("guests")}>Guests [{guests.length}]</button>
+  <button role="tab" data-ui-pointer={LOBBY_POINTERS.agents} class:on={tab === "agents"} aria-selected={tab === "agents"} onclick={() => choose("agents")}>Agents</button>
+  <button role="tab" data-ui-pointer={LOBBY_POINTERS.offices} class:on={tab === "offices"} aria-selected={tab === "offices"} onclick={() => choose("offices")}>Offices</button>
+  <button role="tab" data-ui-pointer={LOBBY_POINTERS.hangars} class:on={tab === "hangars"} aria-selected={tab === "hangars"} onclick={() => choose("hangars")}>{word("UI/Station/Lobby/Hangars") || "Hangars"}</button>
 </div>
 {#if tab === "hangars"}
   <StationPanel store={session.store} flow={session.flow} lobbyHangars {onOpenInventory} {onReprocess} />

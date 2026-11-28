@@ -154,6 +154,16 @@ const stationServiceNames: Readonly<Record<string, string>> = {
   cloneBay: "medical", charcustomization: "charcustomization",
 };
 
+export const LOBBY_POINTERS = {
+  undock: "unique_UI_undockBtn",
+  corvette: "unique_UI_corvetteBtn",
+  services: "serviceButtons",
+  agents: "unique_UI_stationSvcAgents",
+  guests: "unique_UI_stationSvcGuests",
+  offices: "unique_UI_stationSvcOffices",
+  hangars: "unique_UI_stationSvcHangars",
+} as const;
+
 export function stationPointerName(icon: string): string | undefined {
   const name = stationServiceNames[icon];
   return name === undefined ? undefined : `unique_ui_stationSvc_${name}`;
