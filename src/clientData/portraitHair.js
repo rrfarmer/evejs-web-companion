@@ -63,14 +63,13 @@ const scalpOnly = new Set([
   "hair_mohawkcut_01", "hair_receding_01", "hair_receding_02", "hair_shortafro_03", "hair_shortcut_01",
   "hair_shortcut_02", "hair_shortcut_03", "hair_stubble_01", "hair_stubble_02",
 ]);
-const scalpAndMesh = new Set(["hair_bun_01", "hair_ponytail_02", "hair_ponytailshort_01"]);
 const implantScalp = new Set(["hair_implant_01", "hair_implant_02", "hair_implant_03"]);
 const modifierRowType = "eve.common.script.paperDoll.paperDollDefinitions.ModifierRow";
 
 function portraitScalpMode(style) {
   if (implantScalp.has(style)) return "implant";
   if (scalpOnly.has(style)) return "only";
-  return scalpAndMesh.has(style) ? "withMesh" : null;
+  return null;
 }
 
 function portraitHairStyle(gender, style) {

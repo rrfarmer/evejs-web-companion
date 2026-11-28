@@ -37,10 +37,10 @@
   type LoadState = "loading" | "ready" | "unavailable";
   type ColorLayerAsset = {
     diffuse: string;
-    zones: string;
+    zones?: string;
     colors: [number, number, number][];
     diffuseRect: number[];
-    zonesRect: number[];
+    zonesRect?: number[];
   };
   type CroppedMapAsset = { url: string; rect: number[] };
   type FinishAsset = { normal?: CroppedMapAsset; specular?: CroppedMapAsset };
@@ -649,18 +649,15 @@
       }
       const loadColorLayer = async (layer: ColorLayerAsset, weight: number, gloss: number | null,
         primaryScale = 1): Promise<PortraitColorLayer | null> => {
-        const detail = await loadMap(layer.diffuse, true);
-        if (retired) { detail.texture.dispose(); detail.bitmap.close(); return null; }
-        maps.push(detail);
-        const zones = await loadMap(layer.zones, false);
-        if (retired) { zones.texture.dispose(); zones.bitmap.close(); return null; }
-        maps.push(zones);
-        return { diffuse: detail.texture, zones: zones.texture,
+        const detail = await loadCroppedTexture({ url: layer.diffuse, rect: layer.diffuseRect }, maps, () => retired, true);
+        const zones = layer.zones && layer.zonesRect
+          ? await loadCroppedTexture({ url: layer.zones, rect: layer.zonesRect }, maps, () => retired) : null;
+        return { diffuse: detail.texture, zones,
           colors: layer.colors.map(([r, g, b], index) => {
             const scale = index === 0 ? primaryScale : 1;
             return new THREE.Color().setRGB(r * scale, g * scale, b * scale, THREE.SRGBColorSpace);
           }),
-          diffuseRect: new THREE.Vector4().fromArray(layer.diffuseRect), zonesRect: new THREE.Vector4().fromArray(layer.zonesRect),
+          diffuseRect: detail.rect,
           weight, gloss };
       };
       const readColorLayer = async (selection: PortraitMakeup): Promise<PortraitColorLayer | null> => {
@@ -775,7 +772,7 @@
                vec3 mapN = vec3( headNormal, sqrt( max( 0.0, 1.0 - dot( headNormal, headNormal ) ) ) );`,
             ));
         };
-        material.customProgramCacheKey = () => `portrait:${Boolean(archetype)}:${Boolean(skinLayer)}:${Boolean(implantMaps)}:${Boolean(finish.Normal)}:${Boolean(finish.Specular)}:${layers.map(([name, layer]) => name + (layer.gloss !== null ? "+" : "")).join(",")}`;
+        material.customProgramCacheKey = () => `portrait:${Boolean(archetype)}:${Boolean(skinLayer)}:${Boolean(implantMaps)}:${Boolean(finish.Normal)}:${Boolean(finish.Specular)}:${layers.map(([name, layer]) => `${name}/${Boolean(layer.zones)}/${layer.gloss !== null}`).join(",")}`;
       };
       configure(surface, null);
       if (skin !== surface) configure(skin, tint, faceLayers, implant, scalpFinish);

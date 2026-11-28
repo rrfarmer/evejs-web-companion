@@ -178,9 +178,9 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   const hair = /^\/portrait-hair\/(female|male)\/(hair_[a-z0-9_]+)\.(glb|json)$/.exec(rel);
   if (hair && portraitHairStyle(hair[1], hair[2])) {
     const scalpMode = portraitScalpMode(hair[2]);
-    if (hair[3] === "glb" && scalpMode && scalpMode !== "withMesh") return { file: path.join(dir, rel.slice(1)) };
+    if (hair[3] === "glb" && scalpMode) return { file: path.join(dir, rel.slice(1)) };
     const marker = hair[3] === "json" && canExtract()
-      ? (scalpMode === "implant" ? '"implant":true' : scalpMode === "only" ? '"finish":' : '"meshFinish":') : undefined;
+      ? (scalpMode === "implant" ? '"implant":true' : scalpMode === "only" ? '"finish":' : '"hairMeshBuild":2') : undefined;
     return { file: await ensure(rel.slice(1), ["--portrait-head", hair[1], "--portrait-hair", hair[2]], marker) };
   }
   const outfit = /^\/portrait-outfit\/((?:female|male)\/(?:(?:topmiddle|bottomouter|feet|accessories\/(?:nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+)\.json$/.exec(rel);
