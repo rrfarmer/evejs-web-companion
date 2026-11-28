@@ -4513,10 +4513,20 @@ export interface FactionInfo {
 }
 
 /** A solar system's item as the client lists it (GET /api/client-data/system-objects/:id). */
-export async function getPlanetResourceTypes(planetTypeID: number, options: ApiOptions = {}): Promise<readonly number[] | null> {
+export async function getPlanetResources(planetTypeID: number, options: ApiOptions = {}): Promise<{
+  readonly typeIDs: readonly number[]; readonly requiredFor: Readonly<Record<number, readonly number[]>>;
+} | null> {
   const data = await getJson(`/api/client-data/planet-resources/${planetTypeID}`, options);
   if (data.available !== true || !Array.isArray(data.resourceTypeIDs)) return null;
-  return data.resourceTypeIDs.filter((id): id is number => typeof id === "number" && Number.isSafeInteger(id) && id > 0);
+  const typeNumber = (id: JsonValue): id is number => typeof id === "number" && Number.isSafeInteger(id) && id > 0;
+  const typeIDs = data.resourceTypeIDs.filter(typeNumber);
+  const usage = asObject(data.requiredFor);
+  const requiredFor: Record<number, readonly number[]> = {};
+  for (const id of typeIDs) {
+    const outputs = usage?.[id];
+    if (Array.isArray(outputs)) requiredFor[id] = outputs.filter(typeNumber);
+  }
+  return { typeIDs, requiredFor };
 }
 
 export interface CelestialInfo {

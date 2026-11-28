@@ -14536,11 +14536,24 @@ app.get("/api/client-data/planet-resources/:id", requireAuth, async (req, res, n
     return;
   }
   try {
-    const types = await clientBuiltData.table("planetResourceDistributions");
+    const [types, schematics] = await Promise.all([
+      clientBuiltData.table("planetResourceDistributions"), clientBuiltData.table("planetarySchematics"),
+    ]);
     const distribution = types?.[id]?.resourceDistribution ?? {};
     const resourceTypeIDs = Object.entries(distribution).flatMap(([typeID, quality]) =>
       typeof quality === "number" && quality > 0 ? [Number(typeID)] : []);
-    res.json({ ok: true, available: types != null, resourceTypeIDs });
+    const requiredFor = {};
+    const resources = new Set(resourceTypeIDs);
+    for (const id of schematics?.["#order"] ?? []) {
+      const entries = Object.entries(schematics[id]?.types ?? {});
+      const output = entries.find(([, row]) => !row.isInput);
+      if (!output) continue;
+      for (const [key, row] of entries) {
+        const input = Number(key.slice(1));
+        if (row.isInput && resources.has(input)) (requiredFor[input] ??= []).push(Number(output[0].slice(1)));
+      }
+    }
+    res.json({ ok: true, available: types != null, resourceTypeIDs, requiredFor });
   } catch (error) {
     next(error);
   }

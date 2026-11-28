@@ -34,6 +34,7 @@ const MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
 // the index is kept).
 const TABLES = Object.freeze({
   planetResourceDistributions: Object.freeze({ loader: "globalTypesLoader", resource: "res:/staticdata/globaltypes.fsdbinary" }),
+  planetarySchematics: Object.freeze({ loader: "schematicsLoader", resource: "res:/staticdata/schematics.fsdbinary", keyOrder: true }),
   achievementEvents: Object.freeze({ loader: "achievementEventsLoader", resource: "res:/staticdata/achievementevents.fsdbinary" }),
   // The faction warfare dashboard's authored system and territory positions.
   warzonePositions: Object.freeze({ loader: "warZonesPositionDataLoader", resource: "res:/staticdata/warzonespositiondata.fsdbinary" }),
