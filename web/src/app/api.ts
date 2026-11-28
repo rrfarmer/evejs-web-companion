@@ -6364,12 +6364,12 @@ export async function loadPortraitBackgrounds(options: ApiOptions = {}): Promise
 }
 
 export type PortraitHead = "female" | "male";
-const portraitApparelSlots = ["topouter", "topmiddle", "bottomouter", "feet", "accessories/glasses"] as const;
+const portraitApparelSlots = ["topouter", "topmiddle", "bottomouter", "feet", "accessories/glasses", "accessories/masks"] as const;
 export type PortraitApparel = Readonly<Partial<Record<typeof portraitApparelSlots[number], string>>>;
 
 function portraitApparelAsset(url: JsonValue | undefined, model: PortraitHead | null, slot: keyof PortraitApparel): string | null {
   const match = typeof url === "string"
-    ? /^\/client-assets\/portrait-outfit\/(female|male)\/(topouter|topmiddle|bottomouter|feet|accessories\/glasses)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(url)
+    ? /^\/client-assets\/portrait-outfit\/(female|male)\/(topouter|topmiddle|bottomouter|feet|accessories\/(?:glasses|masks))\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(url)
     : null;
   return match?.[1] === model && match?.[2] === slot ? match[0] : null;
 }
@@ -6522,7 +6522,8 @@ export async function loadDockedApparel(gender: PortraitHead, options: ApiOption
     return { id: asNumberOrNull(entry?.id ?? (slot === "topmiddle" ? data.shirtID : undefined)) ?? 0, choices };
   }
   const slots = { outer: readSlot("outer"), topouter: readSlot("topouter"), topmiddle: readSlot("topmiddle"),
-    bottomouter: readSlot("bottomouter"), feet: readSlot("feet"), "accessories/glasses": readSlot("accessories/glasses") };
+    bottomouter: readSlot("bottomouter"), feet: readSlot("feet"), "accessories/glasses": readSlot("accessories/glasses"),
+    "accessories/masks": readSlot("accessories/masks") };
   return { slots, outfit: portraitOutfit(data.outfit, gender), robeHood: portraitRobeHood(data.robeHood),
     apparel: portraitApparel(data.apparel, gender) };
 }

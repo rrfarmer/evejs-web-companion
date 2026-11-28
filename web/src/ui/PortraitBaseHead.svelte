@@ -633,6 +633,7 @@
     const sculpts = morphs;
     const jewelry = piercings;
     const glasses = apparel?.["accessories/glasses"];
+    const mask = apparel?.["accessories/masks"];
     const irisAsset = iris;
     const makeupAssets = makeup;
     const scalp = scalpAsset;
@@ -894,13 +895,14 @@
           // A saved piece may have no single skinned model in this installation.
         }
       }
-      if (glasses && !retired) {
+      for (const url of [glasses, mask]) {
+        if (!url || retired) continue;
         let piece: THREE.Group | undefined;
         try {
-          const response = await fetch(glasses);
-          if (!response.ok) throw new Error("Glasses unavailable");
+          const response = await fetch(url);
+          if (!response.ok) continue;
           const data = await response.json() as { model: string; diffuse: string | null; zones: string | null;
-            colors: [number, number, number, number][]; lensAreas: number[] };
+            colors: [number, number, number, number][]; lensAreas?: number[] };
           const texture = async (url: string | null, color: boolean) => {
             if (!url || retired) return null;
             const map = await loadMap(url, color);
@@ -916,18 +918,18 @@
           if (retired) { release(piece); return; }
           const colors = data.colors.map(([r, g, b]) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace));
           const dyed = diffuse && zones && colors.length === 3;
-          const frame = new THREE.MeshStandardMaterial({ map: diffuse, color: dyed ? 0xffffff : colors[0] ?? 0x343434,
+          const frame = new THREE.MeshStandardMaterial({ map: diffuse, color: dyed ? 0xffffff : colors[0] ?? (diffuse ? 0xffffff : 0x343434),
             metalness: 0.35, roughness: 0.36 });
           if (dyed) applyOutfitPalette(frame, zones, colors);
           const color = colors[2] ?? new THREE.Color(0x2b3037);
-          const lens = new THREE.MeshStandardMaterial({ color, transparent: true, side: THREE.DoubleSide,
-            depthWrite: false, opacity: 0.83 - 0.45 * Math.max(color.r, color.g, color.b), roughness: 0.22 });
-          lens.forceSinglePass = true;
+          const lens = data.lensAreas?.length ? new THREE.MeshStandardMaterial({ color, transparent: true, side: THREE.DoubleSide,
+            depthWrite: false, opacity: 0.83 - 0.45 * Math.max(color.r, color.g, color.b), roughness: 0.22 }) : null;
+          if (lens) lens.forceSinglePass = true;
           const originals = new Set<THREE.Material>();
           piece.traverse(node => {
             if (!(node instanceof THREE.Mesh) || Array.isArray(node.material)) return;
             originals.add(node.material);
-            node.material = data.lensAreas.includes(node.material.userData.index) ? lens : frame;
+            node.material = lens && data.lensAreas?.includes(node.material.userData.index) ? lens : frame;
           });
           for (const material of originals) material.dispose();
           avatar.add(piece);

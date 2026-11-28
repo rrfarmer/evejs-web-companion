@@ -41,11 +41,11 @@
   let bodyRegionID = $state(0);
   let outfitCatalog = $state.raw<{ key: string; names: ReadonlySet<string> } | null>(null);
   let bodyEdits = $state.raw<Partial<BodySculptSliders>>({});
-  let selection = $state({ outer: 0, topouter: 0, topmiddle: 0, bottomouter: 0, feet: 0, "accessories/glasses": 0 });
+  let selection = $state({ outer: 0, topouter: 0, topmiddle: 0, bottomouter: 0, feet: 0, "accessories/glasses": 0, "accessories/masks": 0 });
   let robeHood = $state(0);
   const slotLabels = { outer: "Outerwear", topouter: "Overshirt", topmiddle: "Shirt", bottomouter: "Trousers", feet: "Footwear",
-    "accessories/glasses": "Eyewear" };
-  const optionalApparelSlots = ["outer", "topouter", "accessories/glasses"];
+    "accessories/glasses": "Eyewear", "accessories/masks": "Masks" };
+  const optionalApparelSlots = ["outer", "topouter", "accessories/glasses", "accessories/masks"] as const;
   let showOutfit = $state(false);
   let preview = $state<"backdrop" | "female" | "male">("backdrop");
   let failed = $state(false);
@@ -158,7 +158,7 @@
     : plainText($words.templates[facialHairLabel] ?? "") || "Facial Hair Color");
   const apparelChoices = $derived(dockedApparelSlots.flatMap(slot => {
     const group = options?.clothing?.slots[slot];
-    const optional = optionalApparelSlots.includes(slot);
+    const optional = optionalApparelSlots.some(optionalSlot => optionalSlot === slot);
     return group && (group.choices.length || (optional && group.id))
       ? [{ slot, group, optional, choice: group.choices.find(row => row.id === selection[slot]) }] : [];
   }));
@@ -171,8 +171,9 @@
     for (const { slot, choice } of apparelChoices) {
       if (slot !== "outer" && choice) layers[slot] = choice.asset;
     }
-    if (selection.topouter === 0) delete layers.topouter;
-    if (selection["accessories/glasses"] === 0) delete layers["accessories/glasses"];
+    for (const slot of optionalApparelSlots) {
+      if (slot !== "outer" && selection[slot] === 0) delete layers[slot];
+    }
     return layers;
   });
   const jacket = $derived(selection.outer === 0 ? null

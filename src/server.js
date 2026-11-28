@@ -19757,7 +19757,29 @@ async function dockedHairChoices(call, characterID) {
   return { location, choices, colorLocation, colors, model, locations, resources, beardLocation, beards };
 }
 
-async function dockedApparelChoices(call, characterID) {
+async function dockedOwnedApparel(held, webSessionID) {
+  const wardrobeFlag = 3;
+  const reads = await Promise.allSettled([
+    inventoryCall(held, webSessionID, "hangar", "List", [ITEM_FLAG_HANGAR], null),
+    boundCall(held, webSessionID, containerBindSpec(held.characterID), "List", [wardrobeFlag], null),
+  ]);
+  const types = new Set();
+  for (const [i, read] of reads.entries()) {
+    if (read.status === "rejected") {
+      if (read.reason?.code === "SESSION_NOT_FOUND") throw read.reason;
+      continue;
+    }
+    const flag = i === 0 ? ITEM_FLAG_HANGAR : wardrobeFlag;
+    for (const item of decodeInventoryRows(read.value.result)) {
+      if (item.flagID === flag && item.quantity > 0 && (i === 1 || item.categoryID === null || item.categoryID === 30)) {
+        types.add(item.typeID);
+      }
+    }
+  }
+  return types;
+}
+
+async function dockedApparelChoices(call, characterID, ownedTypeIDs) {
   const [{ result: roster }, locations, resources] = await Promise.all([
     call("charUnboundMgr", "GetCharacterSelectionData", []),
     clientBuiltData.table("paperDollModifierLocations"), clientBuiltData.table("paperDollResources"),
@@ -19769,7 +19791,7 @@ async function dockedApparelChoices(call, characterID) {
   const groups = Object.fromEntries(apparelSlots.map(slot => {
     const location = Number(Object.entries(locations ?? {}).find(([, row]) => row.modifierKey === slot)?.[0]);
     const choices = model && Number.isSafeInteger(location)
-      ? portraitApparelChoices(resources, model, race, slot, clientTextures.fileFor) : [];
+      ? portraitApparelChoices(resources, model, race, slot, clientTextures.fileFor, ownedTypeIDs) : [];
     return [slot, { location, choices }];
   }));
   return { model, locations, resources, groups };
@@ -19782,8 +19804,10 @@ app.get("/api/bridge/character/apparel", requireAuth, async (req, res, next) => 
   try {
     const { flight } = await readHeldFlight(held, req.webSessionID);
     if (!flight?.docked) return res.status(409).json({ ok: false, error: "LOCATION_CHANGED" });
+    const { result: state } = await call("charMgr", "GetPaperdollState", []);
+    const ownedTypeIDs = state === 2 ? undefined : await dockedOwnedApparel(held, req.webSessionID);
     const [{ model, locations, resources, groups }, { result: appearance }] = await Promise.all([
-      dockedApparelChoices(call, held.characterID), call("paperDollServer", "GetMyPaperDollData", [held.characterID]),
+      dockedApparelChoices(call, held.characterID, ownedTypeIDs), call("paperDollServer", "GetMyPaperDollData", [held.characterID]),
     ]);
     const preview = model ? portraitPreviewModifiers(appearance, model, locations, resources) : null;
     const slots = Object.fromEntries(Object.entries(groups).map(([slot, { location, choices }]) => {
@@ -20063,7 +20087,9 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
         if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
       }
       if (requestedApparel.length || robeHood !== null) {
-        const { groups, model, locations, resources } = await dockedApparelChoices(call, held.characterID);
+        const ownedTypeIDs = !initial && requestedApparel.some(([slot, id]) => slot === "accessories/masks" && id > 0)
+          ? await dockedOwnedApparel(held, req.webSessionID) : undefined;
+        const { groups, model, locations, resources } = await dockedApparelChoices(call, held.characterID, ownedTypeIDs);
         for (const [slot, id] of requestedApparel) {
           const { location, choices } = groups[slot];
           if (!Number.isSafeInteger(location) || (id !== 0 && !choices.some(choice => choice.id === id))) {
@@ -20075,7 +20101,7 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
             if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
           }
         }
-        if (requestedApparel.some(([, id]) => id === 0) &&
+        if (requestedApparel.some(([slot, id]) => (slot === "outer" || slot === "topouter") && id === 0) &&
             !["outer", "topouter", "topmiddle"].some(slot => portraitModifierID(appearance ?? current, groups[slot].location))) {
           return res.status(400).json({ ok: false, error: "MISSING_REQUIRED_CLOTHING", message: "Choose at least one upper garment." });
         }
