@@ -6568,6 +6568,10 @@ export async function loadPortraitSkinTones(gender: PortraitHead, options: ApiOp
   return { skinToneID: asNumberOrNull(data.skinToneID) ?? 0, choices };
 }
 
+export async function activateResculptCertificate(itemID: number, dockedLocationID: number, options: ApiOptions = {}): Promise<void> {
+  await postJson("/api/bridge/character/resculpt-certificate", { itemID, dockedLocationID, confirm: true }, options);
+}
+
 export async function savePortrait(draft: { backgroundID: number; fieldOfView: number | null;
     skinTone: { id: number; gender: PortraitHead } | null; hairID: number | null;
     hairColor?: PortraitHairColor | null; hairDarkness?: number | null; beardID?: number | null;

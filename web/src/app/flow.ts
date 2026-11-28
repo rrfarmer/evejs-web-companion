@@ -4592,6 +4592,7 @@ export interface AppFlow {
   exchangeSecurityTags(stationID: number, target: number, current: number): Promise<void>;
   readDockedPortraitOptions(): Promise<DockedPortraitOptions>;
   saveDockedPortrait(draft: DockedPortraitDraft): Promise<void>;
+  activateResculptCertificate(itemID: number): Promise<void>;
   publishDockedPortraitImage(jpeg: string): Promise<void>;
   warpToPlanetLaunch(launchID: number): Promise<void>;
   removePlanetLaunch(launchID: number): Promise<void>;
@@ -10668,6 +10669,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   function portraitHeadFor(characterID: number | undefined): api.PortraitHead | null {
     const gender = store.character.get().characters.find(character => character.characterID === characterID)?.gender;
     return gender === 0 ? "female" : gender === 1 ? "male" : null;
+  }
+
+  async function activateResculptCertificate(itemID: number): Promise<void> {
+    const pilot = store.station.get().online;
+    const location = dockedNow();
+    if (!pilot || location === null) return;
+    const current = callOptions.captureRequestGuard!();
+    if (!await askDialog("ActivateCharacterReSculpt", { type: "dict", entries: [["charName", pilot.characterName]] },
+      `Use one character resculpt certificate for ${pilot.characterName}?`)) return;
+    current();
+    await api.activateResculptCertificate(itemID, location, callOptions);
+    current();
+    allAssetsKept = null;
+    await refreshOpenPlaces();
   }
 
   async function saveDockedPortrait({ skinToneID, ...draft }: DockedPortraitDraft): Promise<void> {
@@ -43021,6 +43036,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     exchangeSecurityTags,
     readDockedPortraitOptions,
     saveDockedPortrait,
+    activateResculptCertificate,
     publishDockedPortraitImage,
 
     async approachPlanetLaunch(containerID) {

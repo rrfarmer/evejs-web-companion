@@ -19853,6 +19853,26 @@ app.get("/api/bridge/character/hairstyles", requireAuth, async (req, res, next) 
   } catch (error) { next(error); }
 });
 
+app.post("/api/bridge/character/resculpt-certificate", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held || !requireWriteConfirmation(req, res, "Confirm activation of the resculpt certificate.")) return;
+  const { itemID, dockedLocationID } = req.body;
+  if (!Number.isSafeInteger(itemID) || itemID <= 0 || !Number.isSafeInteger(dockedLocationID) || dockedLocationID <= 0) {
+    return res.status(400).json({ ok: false, error: "INVALID_CERTIFICATE", message: "Select a resculpt certificate in your inventory." });
+  }
+  try {
+    const { flight } = await readHeldFlight(held, req.webSessionID);
+    if (!flight?.docked || (flight.structureID ?? flight.stationID) !== dockedLocationID) {
+      return res.status(409).json({ ok: false, error: "LOCATION_CHANGED", message: "Your docked location changed." });
+    }
+    const activation = await heldTopLevelCall(held, req.webSessionID, "userSvc", "ActivateCharacterReSculpt", [itemID], null);
+    if (activation.result !== true) {
+      return res.status(409).json({ ok: false, error: "CERTIFICATE_NOT_ACTIVATED", message: "The resculpt certificate could not be activated." });
+    }
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
 app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) => {
   const held = requireHeldBridgeSession(req, res);
   if (!held || !requireWriteConfirmation(req, res, "Use Save portrait to confirm your changes.")) return;

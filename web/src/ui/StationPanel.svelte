@@ -266,6 +266,12 @@
   function assemblable(row: InventoryItemRow, place: InventoryPlace): boolean {
     return offersAssembleContainer(row, isDocked, inPilotLocation(place));
   }
+  const RESCULPT_CERTIFICATE_LABEL = "UI/Commands/ActivateCharacterReSculptToken";
+  function offersResculptCertificate(row: InventoryItemRow, place: InventoryPlace): boolean {
+    if (!isDocked || (row.typeID !== 34132 && row.typeID !== 89956)) return false;
+    return place.kind === "hangar" || place.kind === "cargo" ||
+      (place.kind === "shipBay" && place.bay === "cargo" && openShip?.itemID === $inventory.activeShipID);
+  }
   function assembleWords(): string {
     const template = $words.templates[ASSEMBLE_CONTAINER_LABEL];
     return typeof template === "string" ? plainText(formatTemplate(template, {}, { nameOf: () => "" })) : "Assemble";
@@ -281,6 +287,10 @@
       return;
     }
     if (group.readOnly) return;
+    if (offersResculptCertificate(row, group.place)) {
+      void run(() => flow.activateResculptCertificate(row.itemID));
+      return;
+    }
     if (activatable(row, group.place)) {
       openKeyWindow(row);
       return;
@@ -640,7 +650,7 @@
   }
 
   onMount(() => {
-    flow.requestWords([ABYSS_WINDOW_LABELS.activateKey, CONFIRM_MOVE_TO_NEWBIE_SHIP, ASSEMBLE_CONTAINER_LABEL,
+    flow.requestWords([ABYSS_WINDOW_LABELS.activateKey, CONFIRM_MOVE_TO_NEWBIE_SHIP, ASSEMBLE_CONTAINER_LABEL, RESCULPT_CERTIFICATE_LABEL,
       "UI/Inventory/AssetSafety/AssetSafetyDeliveries", REPAIR_QUOTE_LABEL, REPACKAGE_LABEL, SPLIT_STACK_LABEL,
       MARKET_DETAILS_LABEL, SELL_ITEM_LABEL, SELL_ITEMS_LABEL, MOVE_TO_PLEX_VAULT]);
     void run(async () => {
@@ -2620,6 +2630,12 @@
         {#if activatable(menu.row, menu.place)}
           <button type="button" class="stn-menu-item" onclick={() => openKeyWindow(menu!.row)}>
             {activateWords(menu.row)}
+          </button>
+        {/if}
+        {#if !menu.readOnly && offersResculptCertificate(menu.row, menu.place)}
+          <button type="button" class="stn-menu-item" disabled={busy}
+            onclick={() => contextAction(row => void run(() => flow.activateResculptCertificate(row.itemID)))}>
+            {plainText($words.templates[RESCULPT_CERTIFICATE_LABEL] ?? "") || "Activate Resculpt Certificate"}
           </button>
         {/if}
         {#if assemblable(menu.row, menu.place)}
