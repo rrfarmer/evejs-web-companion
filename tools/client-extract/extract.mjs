@@ -954,7 +954,9 @@ async function extractPortraitHair(rf, gender, style, outRoot) {
     await extractPortraitMesh(rf, source, path.join(dir, `${style}.glb`), style);
     material.diffuse = copyRes(rf, `${folder}/${pngMesh ? "colorize_hair_l.png" : "colorize_hair_l_256.dds"}`, outRoot);
     material.meshFinish = finishMaps("hair");
-    material.hairMeshBuild = 2;
+    const meshZones = installedPng("colorize_hair_z");
+    if (meshZones) material.meshZones = croppedMap(meshZones);
+    material.hairMeshBuild = 3;
   }
   writeExtracted(path.join(dir, `${style}.json`), JSON.stringify(material));
 }

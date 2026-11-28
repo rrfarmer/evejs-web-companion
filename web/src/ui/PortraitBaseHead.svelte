@@ -3,7 +3,7 @@
   import * as THREE from "three";
   import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
   import type { PortraitFraming } from "../app/flow.ts";
-  import type { PortraitApparel, PortraitFrame, PortraitMakeup, PortraitMorph, PortraitSkinTone } from "../app/api.ts";
+  import type { PortraitApparel, PortraitFrame, PortraitHairTints, PortraitMakeup, PortraitMorph, PortraitSkinTone } from "../app/api.ts";
   import { compositePortraitColorLayer, type PortraitColorLayer } from "../three/portraitMakeup.ts";
   import { compositePortraitImplant, compositePortraitScalpFinish, type PortraitCroppedTexture, type PortraitImplantMaps,
     type PortraitSurfaceFinish } from "../three/portraitImplant.ts";
@@ -13,7 +13,7 @@
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
   import { capturePointer } from "./pointerCapture.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, outfit, apparel, morphs, piercings, iris, makeup }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, hairTints, outfit, apparel, morphs, piercings, iris, makeup }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
@@ -23,6 +23,7 @@
     hasSkinTones?: boolean;
     skinColors?: PortraitSkinTone["colors"];
     hairstyle?: string;
+    hairTints?: PortraitHairTints;
     outfit?: string;
     apparel?: PortraitApparel;
     morphs?: readonly PortraitMorph[];
@@ -200,6 +201,7 @@
     const active = renderer;
     const gender = model;
     const style = hairstyle;
+    const tints = hairTints;
     const fullBody = Boolean(outfit);
     if (!active) return;
     if (!style) {
@@ -216,16 +218,18 @@
       const stem = `/client-assets/portrait-hair/${gender}/${style}`;
       const response = await fetch(stem + ".json");
       if (!response.ok) throw new Error("Portrait hairstyle unavailable");
-      const { diffuse, rgb, scalp, meshFinish } = await response.json() as {
+      const { diffuse, rgb, scalp, meshFinish, meshZones } = await response.json() as {
         diffuse?: string;
         rgb: [number, number, number];
         scalp?: Omit<ColorizedScalpAsset, "colors"> | ImplantAsset;
         meshFinish?: FinishAsset;
+        meshZones?: CroppedMapAsset;
       };
       if (retired) return;
+      const colors = [tints?.primary ?? rgb, tints?.secondary?.[0] ?? rgb, tints?.secondary?.[1] ?? rgb];
       if (scalp) {
         scalpDisplay = "loading";
-        scalpAsset = "implant" in scalp ? scalp : { ...scalp, colors: [rgb, rgb, rgb] };
+        scalpAsset = "implant" in scalp ? scalp : { ...scalp, colors };
       }
       if (!diffuse) {
         if (!scalp) throw new Error("Portrait hairstyle has no materials");
@@ -242,15 +246,17 @@
       detail.colorSpace = THREE.SRGBColorSpace;
       detail.wrapS = detail.wrapT = THREE.ClampToEdgeWrapping;
       const finish = await loadFinish(meshFinish, finishMaps, () => retired);
+      const zones = tints && meshZones ? await loadCroppedTexture(meshZones, finishMaps, () => retired).catch(() => null) : null;
       if (retired) return;
       const { scene: object } = await loader.loadAsync(stem + ".glb");
       if (retired) { release(object); return; }
       hair = object;
       const surface = new THREE.MeshStandardMaterial({
-        map: detail, color: new THREE.Color().setRGB(...rgb, THREE.SRGBColorSpace),
+        map: detail, color: zones ? 0xffffff : new THREE.Color().setRGB(...colors[0]!, THREE.SRGBColorSpace),
         side: THREE.DoubleSide, roughness: 0.8, alphaTest: 0.20, alphaToCoverage: true,
       });
-      if (finish.Normal || finish.Specular) applyPortraitHairFinish(surface, finish);
+      if (finish.Normal || finish.Specular || zones) applyPortraitHairFinish(surface, finish, zones,
+        colors.map(color => new THREE.Color().setRGB(...color, THREE.SRGBColorSpace)));
       applySurface(hair, surface, new Set(), new Set(), null, surface);
       scene.add(hair);
       if (fullBody) {

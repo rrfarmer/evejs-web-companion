@@ -6454,13 +6454,37 @@ export interface PortraitHairstyle {
   readonly style: string;
 }
 
+export interface PortraitHairColor {
+  readonly primaryID: number;
+  readonly secondaryID: number;
+}
+
+export interface PortraitHairPalette extends PortraitSkinTone {
+  readonly key: string;
+}
+
+export interface PortraitHairTints {
+  readonly primary?: RGB;
+  readonly secondary?: readonly [RGB, RGB];
+}
+
 export async function loadPortraitHairstyles(options: ApiOptions = {}):
-    Promise<{ hairID: number; choices: readonly PortraitHairstyle[] }> {
+    Promise<{ hairID: number; choices: readonly PortraitHairstyle[]; hairColor: PortraitHairColor;
+      colors: { primary: readonly PortraitHairPalette[]; secondary: readonly PortraitHairPalette[] } }> {
   const data = await getJson("/api/bridge/character/hairstyles", options);
   const choices = (Array.isArray(data.choices) ? data.choices : []).flatMap(row =>
     row && Number.isSafeInteger(row.id) && typeof row.name === "string" && typeof row.style === "string" &&
     /^hair_[a-z0-9_]+$/.test(row.style) ? [{ id: row.id, name: row.name, style: row.style }] : []);
-  return { hairID: asNumberOrNull(data.hairID) ?? 0, choices };
+  const palette = (rows: unknown): PortraitHairPalette[] => (Array.isArray(rows) ? rows : []).flatMap(row =>
+    row && Number.isSafeInteger(row.id) && typeof row.key === "string" && typeof row.name === "string" &&
+    Array.isArray(row.colors) && row.colors.length === 3 && row.colors.every((rgb: unknown) =>
+      Array.isArray(rgb) && rgb.length === 3 && rgb.every(value => typeof value === "number" && Number.isFinite(value)))
+      ? [row as PortraitHairPalette] : []);
+  const hairColor = asObject(data.hairColor);
+  const colors = asObject(data.colors);
+  return { hairID: asNumberOrNull(data.hairID) ?? 0, choices,
+    hairColor: { primaryID: asNumberOrNull(hairColor?.primaryID) ?? 0, secondaryID: asNumberOrNull(hairColor?.secondaryID) ?? 0 },
+    colors: { primary: palette(colors?.primary), secondary: palette(colors?.secondary) } };
 }
 
 export async function loadPortraitSkinTones(gender: PortraitHead, options: ApiOptions = {}):
@@ -6477,7 +6501,7 @@ export async function loadPortraitSkinTones(gender: PortraitHead, options: ApiOp
 
 export async function savePortrait(draft: { backgroundID: number; fieldOfView: number | null;
     skinTone: { id: number; gender: PortraitHead } | null; hairID: number | null;
-    dockedLocationID: number; initialFrame?: PortraitFrame }, options: ApiOptions = {}): Promise<void> {
+    hairColor?: PortraitHairColor | null; dockedLocationID: number; initialFrame?: PortraitFrame }, options: ApiOptions = {}): Promise<void> {
   await postJson("/api/bridge/character/portrait", { ...draft, confirm: true }, options);
 }
 

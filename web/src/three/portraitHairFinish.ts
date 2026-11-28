@@ -1,11 +1,31 @@
-import { ShaderChunk, type MeshStandardMaterial } from "three";
-import type { PortraitSurfaceFinish } from "./portraitImplant.ts";
+import { ShaderChunk, type Color, type MeshStandardMaterial } from "three";
+import type { PortraitCroppedTexture, PortraitSurfaceFinish } from "./portraitImplant.ts";
 
-export function applyPortraitHairFinish(material: MeshStandardMaterial, finish: PortraitSurfaceFinish): void {
+export function applyPortraitHairFinish(material: MeshStandardMaterial, finish: PortraitSurfaceFinish,
+  zones: PortraitCroppedTexture | null, colors: Color[]): void {
   const { Normal: normal, Specular: specular } = finish;
   material.normalMap = normal?.texture ?? null;
-  material.customProgramCacheKey = () => `portrait-hair:${Boolean(normal)}:${Boolean(specular)}`;
+  material.customProgramCacheKey = () => `portrait-hair:${Boolean(normal)}:${Boolean(specular)}:${Boolean(zones)}`;
   material.onBeforeCompile = shader => {
+    if (zones) {
+      shader.uniforms.portraitHairZones = { value: zones.texture };
+      shader.uniforms.portraitHairZonesRect = { value: zones.rect };
+      shader.uniforms.portraitHairPalette = { value: colors };
+      shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
+        #include <map_pars_fragment>
+        uniform sampler2D portraitHairZones;
+        uniform vec4 portraitHairZonesRect;
+        uniform vec3 portraitHairPalette[3];
+      `).replace("#include <color_fragment>", `
+        vec2 hairZonesUv = (vMapUv - portraitHairZonesRect.xy) / portraitHairZonesRect.zw;
+        vec2 hairZonesInside = step(vec2(0.0), hairZonesUv) * step(hairZonesUv, vec2(1.0));
+        vec3 hairZones = texture2D(portraitHairZones, hairZonesUv).rgb * hairZonesInside.x * hairZonesInside.y;
+        float hairWeight = dot(hairZones, vec3(1.0));
+        vec3 hairTint = hairZones.r * portraitHairPalette[0] + hairZones.g * portraitHairPalette[1] + hairZones.b * portraitHairPalette[2];
+        diffuseColor.rgb *= mix(portraitHairPalette[0], hairTint / max(hairWeight, 0.001), clamp(hairWeight, 0.0, 1.0));
+        #include <color_fragment>
+      `);
+    }
     if (normal) {
       shader.uniforms.portraitHairNormalRect = { value: normal.rect };
       shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `

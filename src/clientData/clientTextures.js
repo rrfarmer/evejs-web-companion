@@ -47,7 +47,8 @@ function createClientTextures({ clientRoot = null, readFile = fs.readFileSync } 
     if (!clientRoot) return null;
     const asked = String(resPath || "").toLowerCase();
     const skinTone = /^res:\/graphics\/character\/(female|male)\/paperdoll\/skintone\/basic\/[a-z]+_(dark|middark|default|midlight|light)\.color$/.test(asked);
-    if (!(TEXTURE_PATH.test(asked) || PORTRAIT_BACKDROP.test(asked) || skinTone || HUD_PATH.test(asked) || RENDER_PATH.test(asked) || HOLO_PATH.test(asked) || FACTION_FONT_PATH.test(asked) || UI_FONT_PATH.test(asked) || SHIP_PATTERN_MASK.test(asked) || asked === PLANET_RESOURCE_PATTERN) || asked.includes("..")) return null;
+    const hairColor = /^res:\/graphics\/character\/(female|male)\/paperdoll\/hair\/colors\/\d{2}_(a|bc)\.color$/.test(asked);
+    if (!(TEXTURE_PATH.test(asked) || PORTRAIT_BACKDROP.test(asked) || skinTone || hairColor || HUD_PATH.test(asked) || RENDER_PATH.test(asked) || HOLO_PATH.test(asked) || FACTION_FONT_PATH.test(asked) || UI_FONT_PATH.test(asked) || SHIP_PATTERN_MASK.test(asked) || asked === PLANET_RESOURCE_PATTERN) || asked.includes("..")) return null;
     if (index === null) index = readResourceIndex(readFile(path.join(clientRoot, "tq", "resfileindex.txt"), "utf8"));
     const relative = index.get(asked);
     return relative ? path.join(clientRoot, "ResFiles", relative) : null;
