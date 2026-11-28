@@ -122,6 +122,25 @@
     for (const material of materials) material.dispose();
   }
 
+  function applyOutfitPalette(material: THREE.MeshStandardMaterial, zones: THREE.Texture, colors: THREE.Color[]): void {
+    material.onBeforeCompile = shader => {
+      shader.uniforms.outfitZones = { value: zones };
+      shader.uniforms.outfitColors = { value: colors };
+      shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
+        #include <map_pars_fragment>
+        uniform sampler2D outfitZones;
+        uniform vec3 outfitColors[3];
+      `).replace("#include <map_fragment>", `
+        #include <map_fragment>
+        vec3 zones = texture2D(outfitZones, vMapUv).rgb;
+        float coverage = dot(zones, vec3(1.0));
+        vec3 tint = zones.r * outfitColors[0] + zones.g * outfitColors[1] + zones.b * outfitColors[2];
+        diffuseColor.rgb *= mix(vec3(1.0), tint / max(coverage, 0.001), clamp(coverage, 0.0, 1.0));
+      `);
+    };
+    material.customProgramCacheKey = () => "portrait-outfit-palette";
+  }
+
   function release(object: THREE.Object3D): void {
     const resources = new Set<THREE.BufferGeometry | THREE.Material | THREE.Skeleton>();
     object.traverse(node => {
@@ -608,6 +627,7 @@
     const withSkin = hasSkinTones;
     const sculpts = morphs;
     const jewelry = piercings;
+    const glasses = apparel?.["accessories/glasses"];
     const irisAsset = iris;
     const makeupAssets = makeup;
     const scalp = scalpAsset;
@@ -867,6 +887,47 @@
           avatar.add(piece);
         } catch {
           // A saved piece may have no single skinned model in this installation.
+        }
+      }
+      if (glasses && !retired) {
+        let piece: THREE.Group | undefined;
+        try {
+          const response = await fetch(glasses);
+          if (!response.ok) throw new Error("Glasses unavailable");
+          const data = await response.json() as { model: string; diffuse: string | null; zones: string | null;
+            colors: [number, number, number, number][]; lensAreas: number[] };
+          const texture = async (url: string | null, color: boolean) => {
+            if (!url || retired) return null;
+            const map = await loadMap(url, color);
+            if (retired) { map.texture.dispose(); map.bitmap.close(); return null; }
+            maps.push(map);
+            return map.texture;
+          };
+          const diffuse = await texture(data.diffuse, true);
+          const zones = await texture(data.zones, false);
+          if (retired) return;
+          piece = (await loader.loadAsync(data.model)).scene;
+          if (!retired && sculpts?.length) await applyPortraitMorphs(piece, data.model.replace(/\.glb$/, ""), sculpts, () => retired);
+          if (retired) { release(piece); return; }
+          const colors = data.colors.map(([r, g, b]) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace));
+          const dyed = diffuse && zones && colors.length === 3;
+          const frame = new THREE.MeshStandardMaterial({ map: diffuse, color: dyed ? 0xffffff : colors[0] ?? 0x343434,
+            metalness: 0.35, roughness: 0.36 });
+          if (dyed) applyOutfitPalette(frame, zones, colors);
+          const color = colors[2] ?? new THREE.Color(0x2b3037);
+          const lens = new THREE.MeshStandardMaterial({ color, transparent: true, side: THREE.DoubleSide,
+            depthWrite: false, opacity: 0.83 - 0.45 * Math.max(color.r, color.g, color.b), roughness: 0.22 });
+          lens.forceSinglePass = true;
+          const originals = new Set<THREE.Material>();
+          piece.traverse(node => {
+            if (!(node instanceof THREE.Mesh) || Array.isArray(node.material)) return;
+            originals.add(node.material);
+            node.material = data.lensAreas.includes(node.material.userData.index) ? lens : frame;
+          });
+          for (const material of originals) material.dispose();
+          avatar.add(piece);
+        } catch {
+          if (piece) release(piece);
         }
       }
       scene.add(avatar);

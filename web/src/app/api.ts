@@ -6364,7 +6364,15 @@ export async function loadPortraitBackgrounds(options: ApiOptions = {}): Promise
 }
 
 export type PortraitHead = "female" | "male";
-export type PortraitApparel = Readonly<Partial<Record<"topouter" | "topmiddle" | "bottomouter" | "feet", string>>>;
+const portraitApparelSlots = ["topouter", "topmiddle", "bottomouter", "feet", "accessories/glasses"] as const;
+export type PortraitApparel = Readonly<Partial<Record<typeof portraitApparelSlots[number], string>>>;
+
+function portraitApparelAsset(url: JsonValue | undefined, model: PortraitHead | null, slot: keyof PortraitApparel): string | null {
+  const match = typeof url === "string"
+    ? /^\/client-assets\/portrait-outfit\/(female|male)\/(topouter|topmiddle|bottomouter|feet|accessories\/glasses)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(url)
+    : null;
+  return match?.[1] === model && match?.[2] === slot ? match[0] : null;
+}
 export interface PortraitMorph {
   readonly name: string;
   readonly weight: number;
@@ -6426,11 +6434,9 @@ function portraitRGB(value: JsonValue | undefined): RGB | undefined {
 function portraitApparel(value: JsonValue | undefined, model: PortraitHead | null): PortraitApparel {
   const data = asObject(value);
   const layers: Partial<Record<keyof PortraitApparel, string>> = {};
-  for (const slot of ["topouter", "topmiddle", "bottomouter", "feet"] as const) {
-    const url = data?.[slot];
-    if (typeof url !== "string") continue;
-    const match = /^\/client-assets\/portrait-outfit\/(female|male)\/(topouter|topmiddle|bottomouter|feet)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(url);
-    if (match && match[1] === model && match[2] === slot) layers[slot] = url;
+  for (const slot of portraitApparelSlots) {
+    const url = portraitApparelAsset(data?.[slot], model, slot);
+    if (url) layers[slot] = url;
   }
   return layers;
 }
@@ -6492,7 +6498,7 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
   };
 }
 
-export const dockedApparelSlots = ["outer", "topouter", "topmiddle", "bottomouter", "feet"] as const;
+export const dockedApparelSlots = ["outer", ...portraitApparelSlots] as const;
 export type DockedApparelSlot = typeof dockedApparelSlots[number];
 
 export interface DockedApparel {
@@ -6510,15 +6516,13 @@ export async function loadDockedApparel(gender: PortraitHead, options: ApiOption
     const rows = entry?.choices ?? (slot === "topmiddle" ? data.choices : undefined);
     const choices = (Array.isArray(rows) ? rows : []).flatMap(row => {
       if (!row || !Number.isSafeInteger(row.id) || typeof row.name !== "string" || typeof row.asset !== "string") return [];
-      const match = /^\/client-assets\/portrait-outfit\/(female|male)\/(topouter|topmiddle|bottomouter|feet)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(row.asset);
-      const asset = slot === "outer" ? portraitOutfit(row.asset, gender)
-        : match?.[1] === gender && match[2] === slot ? row.asset : null;
+      const asset = slot === "outer" ? portraitOutfit(row.asset, gender) : portraitApparelAsset(row.asset, gender, slot);
       return asset ? [{ id: row.id, name: row.name, asset }] : [];
     });
     return { id: asNumberOrNull(entry?.id ?? (slot === "topmiddle" ? data.shirtID : undefined)) ?? 0, choices };
   }
   const slots = { outer: readSlot("outer"), topouter: readSlot("topouter"), topmiddle: readSlot("topmiddle"),
-    bottomouter: readSlot("bottomouter"), feet: readSlot("feet") };
+    bottomouter: readSlot("bottomouter"), feet: readSlot("feet"), "accessories/glasses": readSlot("accessories/glasses") };
   return { slots, outfit: portraitOutfit(data.outfit, gender), robeHood: portraitRobeHood(data.robeHood),
     apparel: portraitApparel(data.apparel, gender) };
 }

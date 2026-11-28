@@ -41,10 +41,11 @@
   let bodyRegionID = $state(0);
   let outfitCatalog = $state.raw<{ key: string; names: ReadonlySet<string> } | null>(null);
   let bodyEdits = $state.raw<Partial<BodySculptSliders>>({});
-  let selection = $state({ outer: 0, topouter: 0, topmiddle: 0, bottomouter: 0, feet: 0 });
+  let selection = $state({ outer: 0, topouter: 0, topmiddle: 0, bottomouter: 0, feet: 0, "accessories/glasses": 0 });
   let robeHood = $state(0);
-  const slotLabels = { outer: "Outerwear", topouter: "Overshirt", topmiddle: "Shirt", bottomouter: "Trousers", feet: "Footwear" };
-  const optionalApparelSlots = ["outer", "topouter"];
+  const slotLabels = { outer: "Outerwear", topouter: "Overshirt", topmiddle: "Shirt", bottomouter: "Trousers", feet: "Footwear",
+    "accessories/glasses": "Eyewear" };
+  const optionalApparelSlots = ["outer", "topouter", "accessories/glasses"];
   let showOutfit = $state(false);
   let preview = $state<"backdrop" | "female" | "male">("backdrop");
   let failed = $state(false);
@@ -171,6 +172,7 @@
       if (slot !== "outer" && choice) layers[slot] = choice.asset;
     }
     if (selection.topouter === 0) delete layers.topouter;
+    if (selection["accessories/glasses"] === 0) delete layers["accessories/glasses"];
     return layers;
   });
   const jacket = $derived(selection.outer === 0 ? null
@@ -318,7 +320,7 @@
         {:else if pilotHead && backdrop}
           <PortraitBaseHead bind:this={portraitView} model={pilotHead} backdropUrl={url} backdropIsDds={backdrop.isDds}
             bloodlineID={options.bloodlineID} framing={options.framing} {fieldOfView}
-            {hasSkinTones} skinColors={skinTone?.colors} hairstyle={chosenHair?.style} {hairTints}
+            {hasSkinTones} skinColors={skinTone?.colors} hairstyle={chosenHair?.style} {hairTints} {apparel}
             makeup={facialHair} {facialHairScale} {morphs} />
         {:else if backdrop?.isDds}
           <PortraitBackdrop {url} />
