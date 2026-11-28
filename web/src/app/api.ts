@@ -4536,7 +4536,7 @@ export interface CelestialInfo {
   readonly statistics: Readonly<Record<string, number>>;
 }
 
-export async function getCelestialInfo(itemID: number, kind: "moon" | "planet", options: ApiOptions = {}): Promise<CelestialInfo | null> {
+export async function getCelestialInfo(itemID: number, kind: "moon" | "planet" | "belt", options: ApiOptions = {}): Promise<CelestialInfo | null> {
   const data = await getJson(`/api/client-data/${kind}s/${itemID}`, options);
   const celestial = asObject(data[kind]);
   if (!celestial || typeof celestial.solarSystemID !== "number" || typeof celestial.celestialIndex !== "number") return null;

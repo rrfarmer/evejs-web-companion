@@ -22,6 +22,8 @@
   import { getCelestialInfo, loadTypeListsHolding, type CelestialInfo } from "../app/api.ts";
   import InfoCelestialAttributes from "./InfoCelestialAttributes.svelte";
   import InfoPlanetProduction from "./InfoPlanetProduction.svelte";
+  import { AGENCY_SCREEN_GROUPS } from "./agencyContentGroups.ts";
+  import { openAgencyGroup } from "./agencyRequests.ts";
   import { findInContracts } from "./contractsSearch.ts";
   import { showMarketDetails } from "./marketDetails.ts";
   import EmploymentHistoryEntries from "./EmploymentHistoryEntries.svelte";
@@ -383,7 +385,7 @@
   let corporationRead = $state<CorporationInfoRead | null>(null);
   /** A map place's read (infosvc.UpdateDataCelestial for a region, a constellation or a solar system). */
   let mapLocationRead = $state<MapLocationInfo | null>(null);
-  const celestialKind = $derived($subject?.kind !== "spaceObject" ? null : $subject.typeID === 14 ? "moon"
+  const celestialKind = $derived($subject?.kind !== "spaceObject" ? null : $subject.typeID === 14 ? "moon" : $subject.typeID === 15 ? "belt"
     : headFacts?.typeID === $subject.typeID && headFacts?.groupID === 7 ? "planet" : null);
   const planetType = $derived(headFacts?.typeID === typeID && headFacts?.groupID === 7 &&
     ($subject?.kind === "type" || $subject?.kind === "spaceObject"));
@@ -392,12 +394,21 @@
   $effect(() => { $subject; showPlanetProduction = false; });
   $effect(() => { if (planetType) flow.requestWords([productionLabel, "UI/InfoWindow/TabNames/Attributes", "UI/InfoWindow/TabNames/Description"]); });
   const viewPlanetLabel = "UI/PI/Common/ViewInPlanetMode";
+  const asteroidBeltsLabel = "UI/Common/AsteroidBelts";
   const showPlanetAction = $derived(celestialKind === "planet" && !!onViewPlanet);
+  const showBeltAction = $derived(!shipLiveOnly && typeID === 15);
   $effect(() => { if (showPlanetAction) flow.requestWords([viewPlanetLabel]); });
+  $effect(() => { if (showBeltAction) flow.requestWords([asteroidBeltsLabel]); });
   let celestialRead = $state<CelestialInfo | null>(null);
   let celestialReadDone = $state(false);
-  const celestialTitle = $derived(celestialRead ? word(celestialKind === "moon" ? "UI/Locations/LocationMoonFormatter" : "UI/Locations/LocationPlanetFormatter", {
-    solarSystemID: celestialRead.solarSystemID, romanCelestialIndex: intToRoman(celestialRead.celestialIndex), orbitIndex: celestialRead.orbitIndex,
+  const celestialNamePaths = {
+    moon: "UI/Locations/LocationMoonFormatter",
+    planet: "UI/Locations/LocationPlanetFormatter",
+    belt: "UI/Locations/LocationAsteroidBeltFormatter",
+  } as const;
+  const celestialTitle = $derived(celestialRead && celestialKind ? word(celestialNamePaths[celestialKind], {
+    solarSystemID: celestialRead.solarSystemID, romanCelestialIndex: intToRoman(celestialRead.celestialIndex),
+    orbitIndex: celestialRead.orbitIndex, typeID: typeID ?? 0,
   }, namedAs) : "");
   /** A faction's read (infosvc.UpdateDataFaction). */
   let factionRead = $state<FactionInfo | null>(null);
@@ -1684,7 +1695,7 @@
           <ul class="info-orbits">
             {#each orbitalBodies as { row, indent } (row.itemID)}
               <li style:padding-left={`${indent * 1.2}rem`} class:info-orbit-moon={row.groupID === 8} class:info-orbit-belt={row.groupID === 9}>
-                <button type="button" class="evelink showInfo" title={word("UI/Commands/ShowInfo")} onclick={() => showInfo(row.groupID === 7 || row.groupID === 8
+                <button type="button" class="evelink showInfo" title={word("UI/Commands/ShowInfo")} onclick={() => showInfo(row.groupID === 7 || row.groupID === 8 || row.groupID === 9
                   ? { kind: "spaceObject", itemID: row.itemID, typeID: row.typeID } : { kind: "type", typeID: row.typeID })}>{celestialName(row, read.itemID)}</button>{#if row.groupID === 7}<span class="info-orbit-kind">{" " + resolvedName($names.resolved, "type", row.typeID, "")}</span>{/if}
               </li>
             {/each}
@@ -1857,6 +1868,10 @@
   {#if showPlanetAction && $subject.kind === "spaceObject"}
     <footer class="info-actions">
       <button type="button" onclick={() => onViewPlanet?.($subject.itemID)}>{word(viewPlanetLabel)}</button>
+    </footer>
+  {:else if showBeltAction}
+    <footer class="info-actions">
+      <button type="button" onclick={() => openAgencyGroup(AGENCY_SCREEN_GROUPS.ASTEROID_BELTS!)}>{word(asteroidBeltsLabel) || "Asteroid Belts"}</button>
     </footer>
   {:else if typeID !== null && (showMarketAction || showContractsAction || showIndustryAction || (showSkinrAction && toggleShipSkinr))}
     <footer class="info-actions">

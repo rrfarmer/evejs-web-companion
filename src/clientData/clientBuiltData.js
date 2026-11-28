@@ -618,7 +618,9 @@ function createClientBuiltData({
     const systems = readFsdStatic(buffer, SOLAR_SYSTEM_CONTENT, { keys: [row.solarSystemID] });
     const system = systems[String(row.solarSystemID)];
     const planets = system?.planets ?? {};
-    const celestial = groupID === 7 ? planets[itemID] : Object.values(planets).find(planet => planet.moons?.[itemID])?.moons[itemID];
+    const satellites = groupID === 9 ? "asteroidBelts" : "moons";
+    const celestial = groupID === 7 ? planets[itemID]
+      : Object.values(planets).find(planet => planet[satellites]?.[itemID])?.[satellites][itemID];
     return { ...row, statistics: celestial?.statistics ?? {} };
   }
 

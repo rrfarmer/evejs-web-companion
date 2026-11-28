@@ -14560,7 +14560,7 @@ app.get("/api/client-data/planet-resources/:id", requireAuth, async (req, res, n
 });
 
 // Info.GetCelestialStatisticsForCelestial reads these attributes from the installed client's solarSystemContent.
-for (const [kind, groupID] of [["moon", 8], ["planet", 7]]) {
+for (const [kind, groupID] of [["moon", 8], ["planet", 7], ["belt", 9]]) {
   app.get(`/api/client-data/${kind}s/:id`, requireAuth, async (req, res, next) => {
     const id = Number(req.params.id);
     if (!Number.isSafeInteger(id) || id < 40_000_000 || id >= 50_000_000) {

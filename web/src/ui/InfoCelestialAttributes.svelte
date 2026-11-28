@@ -8,7 +8,7 @@
   import { showInfo } from "./showInfo.ts";
 
   let { store, flow, statistics, kind, itemID }: {
-    store: ClientStore; flow: AppFlow; statistics: Readonly<Record<string, number>>; kind: "moon" | "planet"; itemID: number;
+    store: ClientStore; flow: AppFlow; statistics: Readonly<Record<string, number>>; kind: "moon" | "planet" | "belt"; itemID: number;
   } = $props();
   const words = $derived(store.words);
   const names = $derived(store.names);
@@ -79,7 +79,9 @@
     ["surfaceGravity", "attributeSurfaceGravity", "Surface Gravity", (v: number) => text("formatSurfaceGravity", `${number(v)} m/s²`, v)],
     ["temperature", "attributeTemperature", "Temperature", (v: number) => text("formatTempatureKelvin", `${Math.trunc(v)} K`, String(Math.trunc(v)))],
   ] as const;
-  const rows = $derived(definitions.filter(([key]) => statistics[key] !== undefined && (key !== "eccentricity" || kind === "planet")));
+  const beltAttributes = new Set(["density", "eccentricity", "massDust", "orbitPeriod", "orbitRadius"]);
+  const rows = $derived(definitions.filter(([key]) => statistics[key] !== undefined &&
+    (kind === "belt" ? beltAttributes.has(key) : kind !== "moon" || key !== "eccentricity")));
   $effect(() => flow.requestWords([attributes, ...definitions.map(([, key]) => root + key),
     ...["formatDensity", "formatEccentricity", "formatEscapeVelocity", "formatMassInKG", "formatOrbitalPeriodInt", "formatOrbitalPeriodFloat",
       "formatOrbitalRadiusInAU", "formatOrbitalRadiusInKM", "formatSurfacePresureVeryLow", "formatSurfacePresure",
