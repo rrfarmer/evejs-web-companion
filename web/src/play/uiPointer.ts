@@ -12,6 +12,16 @@ export interface UiPointerTarget {
 export const UI_POINTER_COMMAND = "CmdGetUiPointer";
 export const UI_POINTER_DRAG_TYPE = "application/x-evejs-ui-pointer";
 
+export const STAR_MAP_POINTERS = {
+  layout: "unique_UI_mapLayout",
+  current: "unique_UI_mapFocusCurrentLocation",
+  home: "unique_UI_mapFocusHomeStation",
+  colors: "unique_UI_mapColorSettings",
+  abstract: "unique_UI_map2DLayoutToggle",
+  jumpRange: "unique_UI_mapJumpRangeToggle",
+  dataView: "unique_UI_mapDataViewToggle",
+} as const;
+
 export const SKILLS_POINTERS = {
   plans: "unique_UI_skill_plans_tab",
   catalogue: "unique_UI_skill_catalogue_tab",

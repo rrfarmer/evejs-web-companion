@@ -762,6 +762,7 @@ export class Neocom {
         const b = defaults.get(id)!;
         const c = document.createElement("button");
         c.className = "eve-menu-entry";
+        c.dataset.uiPointer = neocomPointerName(id);
         c.innerHTML = `<img src="${b.icon}" alt=""><span></span>`;
         c.querySelector("span")!.textContent = b.label;
         if (id === "chat") wireChatTrigger(c);

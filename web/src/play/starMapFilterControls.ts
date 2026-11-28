@@ -4,6 +4,7 @@ import { sessionPlace } from "../bridge/sessionPlace.ts";
 import { MAP_COLOR_MODES, type StarMapColorMode } from "../bridge/starMapFilters.ts";
 import { openAgencyGroup } from "../ui/agencyRequests.ts";
 import type { StarMap } from "./starMap.ts";
+import { STAR_MAP_POINTERS } from "./uiPointer.ts";
 
 const LABEL = "UI/Map/ColorMapBy";
 const MINING = "UI/Map/MapPallet/categoryMining";
@@ -26,6 +27,7 @@ export function mountStarMapFilterControls(map: StarMap, session: Session) {
   controls.className = "star-map-filters";
   const label = document.createElement("label"), caption = document.createElement("span");
   const select = document.createElement("select");
+  select.dataset.uiPointer = STAR_MAP_POINTERS.colors;
   label.append(caption, select);
   const mining = document.createElement("optgroup"), npc = document.createElement("optgroup");
   const options = Object.entries(MAP_COLOR_MODES).map(([mode, definition]) => {

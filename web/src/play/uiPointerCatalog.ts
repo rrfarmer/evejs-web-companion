@@ -3,7 +3,7 @@ import { helpPointerLinksFromDrop, helpPointerUrl, parseHelpPointerUrl } from ".
 import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
 import { clientTexture } from "../ui/skillGroupIcons.ts";
 import { EVE_MENU, NEOCOM_DEFAULT } from "./neocom.ts";
-import { CHARACTER_SHEET_POINTERS, CHAT_POINTERS, CONTRACT_POINTERS, CORPORATION_POINTERS, FITTING_POINTERS, FLEET_POINTERS, INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, LOBBY_POINTERS, MARKET_POINTERS, neocomPointerName, SKILLS_POINTERS, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
+import { CHARACTER_SHEET_POINTERS, CHAT_POINTERS, CONTRACT_POINTERS, CORPORATION_POINTERS, FITTING_POINTERS, FLEET_POINTERS, INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, LOBBY_POINTERS, MARKET_POINTERS, neocomPointerName, SKILLS_POINTERS, STAR_MAP_POINTERS, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
 
 const industryParent = neocomPointerName("industry");
 const contractsParent = neocomPointerName("contracts");
@@ -11,6 +11,7 @@ const corporationParent = neocomPointerName("corporation");
 const fleetParent = neocomPointerName("fleet");
 const characterSheetParent = neocomPointerName("charactersheet");
 const skillsParent = neocomPointerName("skills");
+const mapParent = neocomPointerName("map");
 const menuOnlyPointers = new Set([industryParent, contractsParent, corporationParent, fleetParent]);
 const extraNeocomPointers = new Set([...menuOnlyPointers, characterSheetParent]);
 const extraNeocomEntries = EVE_MENU.flatMap(group => group.items)
@@ -23,6 +24,17 @@ export const NEOCOM_POINTERS: readonly UiPointerTarget[] = [
 ];
 const tabIcon = clientTexture("res:/UI/Texture/Classes/HelpPointer/tabFlat.png");
 const buttonIcon = clientTexture("res:/UI/Texture/Classes/HelpPointer/buttonFlat.png");
+const starMap = STAR_MAP_POINTERS;
+const starMapPointers: readonly UiPointerTarget[] = [
+  { name: starMap.layout, label: "Map - Change Layout", parent: mapParent },
+  { name: starMap.current, label: "Map - Focus Current Location", parent: mapParent },
+  { name: starMap.home, label: "Map - Focus Home Station", parent: mapParent },
+  { name: starMap.colors, label: "Map - Legend - Filter Visualization", parent: mapParent,
+    icon: clientTexture("res:/UI/Texture/Icons/44_32_4.png") },
+  { name: starMap.abstract, label: "Map - Toggle 2D Layout", parent: mapParent },
+  { name: starMap.jumpRange, label: "Map - Toggle Jump Range Visualization" },
+  { name: starMap.dataView, label: "Map - Toggle Persistent Data View", parent: starMap.abstract },
+];
 const skills = SKILLS_POINTERS;
 const skillPointers: readonly UiPointerTarget[] = [
   { name: skills.plans, label: "Skill Plans", icon: tabIcon, parent: skillsParent },
@@ -151,6 +163,7 @@ export const INTERFACE_POINTERS: readonly UiPointerTarget[] = [
   ...chatPointers,
   ...fleetPointers,
   ...skillPointers,
+  ...starMapPointers,
   { name: sheet.expand, label: "Expand/Collapse Character Sheet", parent: characterSheetParent,
     icon: clientTexture("res:/UI/Texture/Shared/DarkStyle/forward.png") },
   ...characterSheetTabs,
@@ -183,6 +196,14 @@ export const STATION_POINTER_LINK_LABEL = "UI/Help/PointerWndStationServicesLong
 export function resolveUiPointer(target: UiPointerTarget): HTMLElement | null {
   const node = visiblePointerTarget(target.name);
   if (node) return node;
+  if (target.name === mapParent) {
+    const button = document.querySelector<HTMLElement>(`.fly-neocom .nc-buttons [data-ui-pointer="${mapParent}"]`);
+    if (button && getComputedStyle(button).visibility === "hidden") {
+      const overflow = document.querySelector<HTMLElement>(".fly-neocom .nc-overflow:not([hidden])");
+      if (overflow) return overflow;
+    }
+    return document.querySelector<HTMLElement>(".fly-neocom .neocom .eve");
+  }
   if (menuOnlyPointers.has(target.name)) return document.querySelector<HTMLElement>(".fly-neocom .neocom .eve");
   if (!target.parent) return null;
   const parent = UI_POINTER_BY_NAME.get(target.parent);

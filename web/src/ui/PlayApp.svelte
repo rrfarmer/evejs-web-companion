@@ -202,7 +202,7 @@
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import { combatMovingMode } from "./combatSettings.ts";
   import { shortcutOf } from "../play/shortcutKeys.ts";
-  import { LOBBY_POINTERS, stationPointerName, UI_POINTER_COMMAND } from "../play/uiPointer.ts";
+  import { LOBBY_POINTERS, STAR_MAP_POINTERS, stationPointerName, UI_POINTER_COMMAND } from "../play/uiPointer.ts";
   import type { DogmaTypeFacts } from "../bridge/dogma/location.ts";
   import { typeIconUrl } from "./typeIcons.ts";
   import { cycleProgressPercent } from "./moduleRack.ts";
@@ -2720,6 +2720,8 @@
     const s = session;
     const m = new StarMap();
     starMap = m;
+    const currentMapSystem = () => sessionPlace(s.store.flight.get().status, s.store.station.get().online).solarSystemID
+      ?? live?.hello?.solarSystemID ?? null;
     const close = document.createElement("button");
     close.className = "star-map-close";
     close.title = "Close";
@@ -2727,14 +2729,47 @@
     close.onclick = () => toggleStarMap(false);
     m.root.appendChild(close);
     // the map's layout option (its settings' "Abstract layout": VIEWMODE_LAYOUT_SHOW_ABSTRACT_SETTINGS)
-    const layout = document.createElement("label");
+    const layout = document.createElement("div");
     layout.className = "star-map-layout";
+    const abstract = document.createElement("label");
+    abstract.dataset.uiPointer = STAR_MAP_POINTERS.layout;
     const box = document.createElement("input");
     box.type = "checkbox";
     box.onchange = () => void m.setLayout(box.checked);
     // the client's map opens in it (VIEWMODE_LAYOUT_SHOW_ABSTRACT_DEFAULT True)
     box.checked = true;
-    layout.append(box, document.createTextNode(" Abstract layout"));
+    box.dataset.uiPointer = STAR_MAP_POINTERS.abstract;
+    abstract.append(box, document.createTextNode(" Abstract layout"));
+    const focusButton = (name: string, label: string, icon: string) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.uiPointer = name;
+      button.title = label;
+      button.setAttribute("aria-label", label);
+      const img = document.createElement("img");
+      img.alt = "";
+      img.src = clientTexture(`res:/UI/Texture/eveicon/category_icons/${icon}_16px.png`);
+      button.append(img);
+      button.disabled = true;
+      return button;
+    };
+    const current = focusButton(STAR_MAP_POINTERS.current, "Focus current location", "focus_viewfinder");
+    current.onclick = () => {
+      const here = currentMapSystem();
+      if (here !== null) m.centerOnSystem(here);
+    };
+    const home = focusButton(STAR_MAP_POINTERS.home, "Focus home station", "find_home_station");
+    home.onclick = async () => {
+      home.disabled = true;
+      try {
+        const station = await s.flow.redeemHomeStation();
+        const system = station === null ? null : await s.flow.waypointSystem(station);
+        if (starMap === m && system !== null) m.centerOnSystem(system);
+      } finally {
+        if (starMap === m) home.disabled = false;
+      }
+    };
+    layout.append(abstract, current, home);
     m.root.appendChild(layout);
     mapHost.appendChild(m.root);
     m.start();
@@ -2751,8 +2786,8 @@
     }).catch(() => {});
     void s.flow.loadStarMap().then((data) => {
       if (starMap !== m) return;
-      const here = sessionPlace(s.store.flight.get().status, s.store.station.get().online).solarSystemID ?? live?.hello?.solarSystemID ?? null;
-      m.build(data, here);
+      m.build(data, currentMapSystem());
+      current.disabled = home.disabled = false;
       const location = requestedMapLocation;
       if (location && !location.zoom) m.select(location.id);
       void m.setLayout(box.checked).then(() => {
@@ -6328,7 +6363,12 @@
     from, 62.5%, to { opacity: 0; }
     31.25% { opacity: .02; }
   }
-  .fly-map :global(.star-map-layout) { position: absolute; top: 10px; right: 42px; z-index: 1; color: rgba(255,255,255,0.75); font-size: 11px; }
+  .fly-map :global(.star-map-layout) { position: absolute; top: 8px; right: 42px; z-index: 1; display: flex; align-items: center; gap: 4px;
+    color: rgba(255,255,255,0.75); font-size: 11px; }
+  .fly-map :global(.star-map-layout button) { display: grid; place-items: center; width: 22px; height: 22px; padding: 0;
+    border: 1px solid #fff3; background: #111b; cursor: pointer; }
+  .fly-map :global(.star-map-layout button:disabled) { opacity: 0.5; cursor: default; }
+  .fly-map :global(.star-map-layout img) { width: 16px; height: 16px; }
   .fly-map :global(.star-map-close) { position: absolute; top: 8px; right: 10px; z-index: 1; background: rgba(0,0,0,0.5);
     color: #ccc; border: 1px solid rgba(255,255,255,0.2); width: 22px; height: 22px; cursor: pointer; }
   .fly-map :global(.star-map-filters) { position: absolute; top: 34px; right: 10px; z-index: 1; display: grid;

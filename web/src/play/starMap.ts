@@ -642,6 +642,11 @@ export class StarMap {
     this.moveTo(target, zoomToItem ? ZOOM_DIST_SYSTEM : undefined);
   }
 
+  centerOnSystem(systemID: number): void {
+    // LookAtCurrentLocation and LookAtHomeStation keep the zoom inside this distance.
+    this.select(systemID, this.camera.position.distanceTo(this.controls.target) > 50_000);
+  }
+
   selectLocation(locationID: number): void {
     if (!this.data) return;
     if (this.positions.has(locationID)) { this.select(locationID, true); return; }
