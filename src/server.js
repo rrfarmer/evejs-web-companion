@@ -9893,7 +9893,7 @@ app.get("/api/bridge/chat/directory", requireAuth, async (req, res, next) => {
     return res.status(400).json({ ok: false, error: "INVALID_CHANNEL_NAME", message: "Enter a channel name of up to 60 characters." });
   }
   try {
-    const channels = await session.channelDirectory(name, chatContext(held, req));
+    const channels = await session.channelDirectory(name, chatContext(held, req), true);
     res.json({ ok: true, channels });
   } catch (error) { next(error); }
 });
@@ -9931,6 +9931,25 @@ app.get("/api/bridge/chat/:roomName/settings", requireAuth, async (req, res, nex
   if (!session) return chatUnavailable(res);
   try {
     res.json({ ok: true, settings: await session.channelSettings(req.params.roomName, chatContext(held, req)) });
+  } catch (error) { next(error); }
+});
+
+app.post("/api/bridge/chat/:roomName/settings/open", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held || !requireWriteConfirmation(req, res, "Open Settings from the channel menu.")) return;
+  const session = heldChatSession(held);
+  if (!session) return chatUnavailable(res);
+  const context = chatContext(held, req);
+  try {
+    const settings = await session.channelSettings(req.params.roomName, {
+      ...context,
+      openSystemSettings: room => heldRequest(held, req.webSessionID, true, () => {
+        context.assertCurrent();
+        return isGamePortHandle(held.bridgeSessionID) && gamePortPilots?.openSystemChatSettings?.(
+          room, { userid: held.accountID }, held.bridgeSessionID);
+      }),
+    });
+    res.json({ ok: true, settings });
   } catch (error) { next(error); }
 });
 

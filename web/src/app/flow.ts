@@ -5918,7 +5918,7 @@ export interface AppFlow {
   setChatChannel(channel: ChatChannel): void;
   readChatChannelDirectory(name: string | null): Promise<readonly api.ChatDirectoryChannel[]>;
   createChatDirectoryChannel(name: string): Promise<string>;
-  chatDirectoryChannelSettings(room: string, change?: api.ChatChannelSettingsChange): Promise<api.ChatChannelSettings>;
+  chatDirectoryChannelSettings(room: string, change?: api.ChatChannelSettingsChange, open?: boolean): Promise<api.ChatChannelSettings>;
   chatDirectoryChannelAccess(room: string, list: api.ChatAccessList, change?: api.ChatAccessChange): Promise<readonly { id: number; name: string; temporary: boolean; removable: boolean }[]>;
   readChatChannelMembers(rooms: readonly string[]): Promise<ReadonlyMap<string, number>>;
   /**
@@ -43648,9 +43648,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (typeof room !== "string" || !/^player_\d+$/.test(room)) throw new Error("The channel could not be created.");
       return room;
     },
-    async chatDirectoryChannelSettings(room, change) {
+    async chatDirectoryChannelSettings(room, change, open) {
       const scope = captureMemberOperation();
-      const settings = await api.chatChannelSettings(room, change ?? null, scope.options);
+      const settings = await api.chatChannelSettings(room, change ?? null, scope.options, open);
       scope.current();
       if (change) conversations.updateDirectoryChannelTitle(room, settings.name);
       return settings;

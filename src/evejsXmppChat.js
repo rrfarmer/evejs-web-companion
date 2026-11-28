@@ -1874,7 +1874,7 @@ class XmppChatSession {
   }
 
   /** Native GetChannels and GetChannelByDisplayName read the same directory. */
-  async channelDirectory(displayName, context = {}) {
+  async channelDirectory(displayName, context = {}, joinedSystemAffiliations = false) {
     await this.ensureReady();
     this.assertChatCurrent(context);
     const node = displayName === null ? "forme" : `byname/${displayName}`;
@@ -1890,7 +1890,12 @@ class XmppChatSession {
       if (domain !== this.conferenceDomain || !/^[a-z0-9]+_[a-z0-9_-]+$/i.test(roomName ?? "")) continue;
       rows.push({ roomName, name: attr(item, "name"), affiliation: attr(item, "node") || null });
     }
-    return rows;
+    if (!joinedSystemAffiliations) return rows;
+    return Promise.all(rows.map(async row => {
+      const joined = this.rooms.get(row.roomName);
+      if (!row.roomName.startsWith("system_") || !joined?.roomName || joined.pending) return row;
+      return { ...row, affiliation: await this.systemChannelAffiliation(row.roomName, context) };
+    }));
   }
 
   async destroyChannel(roomName, context = {}) {
@@ -1907,21 +1912,44 @@ class XmppChatSession {
     this.leaveRoom(this.rooms.get(roomName), false);
   }
 
-  async managedPlayerChannel(roomName, context) {
-    if (typeof roomName !== "string" || !/^player_\d+$/.test(roomName)) {
-      throw new XmppChatError("Choose a player chat channel.", { code: "INVALID_CHANNEL", statusCode: 400 });
+  async systemChannelAffiliation(roomName, context) {
+    const stanzas = this.retailStanzas();
+    const actor = `${this.characterID}@${this.domain}`;
+    for (const affiliation of ["owner", "admin"]) {
+      this.assertChatCurrent(context);
+      const response = await this.requestChatInformation(
+        stanzas.roomIq(roomName, "admin", "get", `<item affiliation='${affiliation}'/>`), "system channel affiliation");
+      this.assertChatCurrent(context);
+      if (attr(response.match(/^<iq\b[^>]*>/i)?.[0] || "", "type") !== "result") continue;
+      if ([...response.matchAll(/<item\b[^>]*>/gi)].some(([item]) => attr(item, "affiliation") === affiliation && attr(item, "jid") === actor)) {
+        return affiliation;
+      }
     }
-    const channels = await this.channelDirectory(null, context);
-    const channel = channels.find(row => row.roomName === roomName);
+    return null;
+  }
+
+  async managedDirectoryChannel(roomName, context) {
+    if (typeof roomName !== "string" || !/^(?:player_\d+|system_\d+(?:_\d+)+)$/.test(roomName)) {
+      throw new XmppChatError("Choose a player or system chat channel.", { code: "INVALID_CHANNEL", statusCode: 400 });
+    }
+    const channel = (await this.channelDirectory(null, context)).find(row => row.roomName === roomName);
     const joined = this.rooms.get(roomName);
-    if (!joined?.roomName || joined.pending || !["owner", "admin"].includes(channel?.affiliation)) {
-      throw new XmppChatError("Join a channel you own or operate to open Settings.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
+    if (joined?.roomName && !joined.pending && channel) {
+      const system = roomName.startsWith("system_");
+      let affiliation = system ? await this.systemChannelAffiliation(roomName, context) : channel.affiliation;
+      if (!affiliation && system && context.openSystemSettings && this.rooms.get(roomName) === joined && !joined.pending) {
+        this.assertChatCurrent(context);
+        if (await context.openSystemSettings(roomName)) affiliation = await this.systemChannelAffiliation(roomName, context);
+      }
+      if (["owner", "admin"].includes(affiliation) && this.rooms.get(roomName) === joined && !joined.pending) {
+        return { ...channel, affiliation };
+      }
     }
-    return channel;
+    throw new XmppChatError("Join a channel you own or operate to open Settings.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
   }
 
   async channelSettings(roomName, context = {}) {
-    const channel = await this.managedPlayerChannel(roomName, context);
+    const channel = await this.managedDirectoryChannel(roomName, context);
     const settings = { name: channel.name, motd: this.roomSubjects.get(roomName) || "", owner: channel.affiliation === "owner",
       access: null, passwordProtected: false };
     if (!settings.owner) return settings;
@@ -1980,7 +2008,7 @@ class XmppChatSession {
   }
 
   async channelAccess(roomName, list, change, context = {}) {
-    const channel = await this.managedPlayerChannel(roomName, context);
+    const channel = await this.managedDirectoryChannel(roomName, context);
     const stanzas = this.retailStanzas();
     const roleList = list === "operators" || list === "owners";
     const affiliation = { operators: "admin", owners: "owner", blocked: "outcast" }[list] ?? "member";
@@ -2056,7 +2084,10 @@ class XmppChatSession {
   }
 
   async moderateChannelMember(roomName, target, action, minutes, reason, context = {}) {
-    await this.managedPlayerChannel(roomName, context);
+    if (typeof roomName !== "string" || !/^player_\d+$/.test(roomName)) {
+      throw new XmppChatError("Choose a player chat channel.", { code: "INVALID_CHANNEL", statusCode: 400 });
+    }
+    await this.managedDirectoryChannel(roomName, context);
     const roster = this.rosters.get(roomName);
     const actor = roster?.get(this.characterID);
     const member = roster?.get(target);

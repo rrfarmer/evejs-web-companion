@@ -40,7 +40,7 @@
     let mounted = true;
     dialog.showModal();
     flow.requestWords(Object.values(paths));
-    void flow.chatDirectoryChannelSettings(room).then(settings => {
+    void flow.chatDirectoryChannelSettings(room, undefined, room.startsWith("system_")).then(settings => {
       if (!mounted) return;
       current = settings;
       name = settings.name;

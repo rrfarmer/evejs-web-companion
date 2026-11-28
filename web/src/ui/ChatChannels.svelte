@@ -285,10 +285,12 @@
     const action = joined ? paths.leaveChannel : paths.joinChannel;
     const entries = [{ label: locale(action, joined ? "Leave Channel" : "Join Channel"), path: action,
       run: () => toggleMembership(channel.roomName, channel.label, joined) }];
-    if (joined && (channel.affiliation === "owner" || channel.affiliation === "admin")) {
+    const systemChannel = /^system_\d+(?:_\d+)+$/.test(channel.roomName);
+    if (joined && (channel.affiliation === "owner" || channel.affiliation === "admin" ||
+        (systemChannel && flow.conversations.canOpenSystemChannelSettings()))) {
       entries.push({ label: locale(paths.settings, "Settings"), path: paths.settings, run: () => { settingsRoom = channel.roomName; } });
     }
-    if (channel.affiliation === "owner") entries.push({ label: locale(paths.deleteChannel, "Delete Channel"), path: paths.deleteChannel,
+    if (channel.roomName.startsWith("player_") && channel.affiliation === "owner") entries.push({ label: locale(paths.deleteChannel, "Delete Channel"), path: paths.deleteChannel,
       run: () => deleteChannel(channel) });
     if (!joined && channel.roomName.startsWith("player_") && channel.affiliation !== "owner") {
       entries.push({ label: locale(paths.forgetChannel, "Forget Channel"), path: paths.forgetChannel,

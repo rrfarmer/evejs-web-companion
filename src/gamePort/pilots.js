@@ -4475,6 +4475,16 @@ function createGamePortPilots({
     return names.map((name) => packets.text(name)).filter((name) => typeof name === "string" && name.length > 0);
   }
 
+  async function openSystemChatSettings(roomName, sessionFields, bridgeSessionID) {
+    const entry = held(bridgeSessionID, sessionFields);
+    // ChannelSettingsDlg.ApplyAttributes requests ownership only for a GML session.
+    const role = wholeOf(entry.session.attributes.role) ?? 0n;
+    if ((role & 18014398509481984n) === 0n || !/^system_\d+(?:_\d+)+$/.test(roomName)) return false;
+    ledger.note(XMPP_CHAT_MGR, "GrantChannelOwnership",
+      { status: "same", source: "xmppchatclient/xmppchannelsettings.py:125", note: null });
+    return await entry.session.proxyCall(XMPP_CHAT_MGR, "GrantChannelOwnership", [roomName], null) === true;
+  }
+
   /**
    * chatutil.spam.GetTaboos (chatutil/spam.py 21 to 24): the domains that are banned in chat, which a chat window
    * asks for as it first puts a line out or sends one (IsSpam: xmppchatclient/xmppchatwindow.py 358, 955), memoized
@@ -7034,6 +7044,7 @@ function createGamePortPilots({
     hyperNetAvailable,
     chatSecret,
     chatChannels,
+    openSystemChatSettings,
     chatSessionChanges,
     localChat,
     chatTaboos,

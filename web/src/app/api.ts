@@ -2207,9 +2207,10 @@ export interface ChatChannelSettingsChange {
   readonly password?: string;
   readonly motd: string;
 }
-export async function chatChannelSettings(roomName: string, change: ChatChannelSettingsChange | null, options: ApiOptions = {}): Promise<ChatChannelSettings> {
+export async function chatChannelSettings(roomName: string, change: ChatChannelSettingsChange | null, options: ApiOptions = {}, open = false): Promise<ChatChannelSettings> {
   const path = `/api/bridge/chat/${encodeURIComponent(roomName)}/settings`;
-  const data = change === null ? await getJson(path, options) : await postJson(path, change, options);
+  const data = change !== null ? await postJson(path, change, options)
+    : open ? await postJson(`${path}/open`, { confirm: true }, options) : await getJson(path, options);
   const value = (data.settings ?? {}) as Record<string, JsonValue>;
   if (typeof value.name !== "string" || typeof value.motd !== "string" || typeof value.owner !== "boolean" ||
       typeof value.passwordProtected !== "boolean" || !(value.access === null || value.access === "allowed" || value.access === "moderated" || value.access === "blocked")) {
