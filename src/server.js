@@ -22,7 +22,7 @@ const { appearanceWithSkinTone, skinToneCatalog, skinToneID } = require("./clien
 const { portraitSnapshotBytes } = require("./clientData/portraitSnapshot");
 const { appearanceWithHair, appearanceWithModifier, portraitBeardChoices, portraitHairChoices, portraitHairID,
   portraitModifier, portraitModifierID } = require("./clientData/portraitHair");
-const { apparelSlots, optionalApparelSlots, ownedApparelSlots, portraitApparelChoices } = require("./clientData/portraitApparel");
+const { apparelSlots, optionalApparelSlots, portraitApparelChoices } = require("./clientData/portraitApparel");
 const { appearanceWithHairColors, appearanceWithHairDarkness, hairColorCatalog, hairColorLocation, hairColorSelection,
   portraitHairDarkness, portraitHairTints } = require("./clientData/portraitHairColors");
 const { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewMakeup,
@@ -19779,11 +19779,13 @@ async function dockedOwnedApparel(held, webSessionID) {
   return types;
 }
 
-async function dockedApparelChoices(call, characterID, ownedTypeIDs) {
+async function dockedApparelChoices(call, characterID, readOwnedTypeIDs, selected = null) {
   const [{ result: roster }, locations, resources] = await Promise.all([
     call("charUnboundMgr", "GetCharacterSelectionData", []),
     clientBuiltData.table("paperDollModifierLocations"), clientBuiltData.table("paperDollResources"),
   ]);
+  const ownedTypeIDs = readOwnedTypeIDs && (selected === null || selected.some(([, id]) => resources?.[id]?.typeID != null))
+    ? await readOwnedTypeIDs() : undefined;
   const pilot = roster?.[2]?.items?.find(row => readMailKeyVal(row, "characterID") === characterID);
   const gender = readMailKeyVal(pilot, "gender");
   const model = gender === 0 ? "female" : gender === 1 ? "male" : null;
@@ -19805,9 +19807,9 @@ app.get("/api/bridge/character/apparel", requireAuth, async (req, res, next) => 
     const { flight } = await readHeldFlight(held, req.webSessionID);
     if (!flight?.docked) return res.status(409).json({ ok: false, error: "LOCATION_CHANGED" });
     const { result: state } = await call("charMgr", "GetPaperdollState", []);
-    const ownedTypeIDs = state === 2 ? undefined : await dockedOwnedApparel(held, req.webSessionID);
+    const readOwnedTypeIDs = state === 2 ? undefined : () => dockedOwnedApparel(held, req.webSessionID);
     const [{ model, locations, resources, groups }, { result: appearance }] = await Promise.all([
-      dockedApparelChoices(call, held.characterID, ownedTypeIDs), call("paperDollServer", "GetMyPaperDollData", [held.characterID]),
+      dockedApparelChoices(call, held.characterID, readOwnedTypeIDs), call("paperDollServer", "GetMyPaperDollData", [held.characterID]),
     ]);
     const preview = model ? portraitPreviewModifiers(appearance, model, locations, resources) : null;
     const slots = Object.fromEntries(Object.entries(groups).map(([slot, { location, choices }]) => {
@@ -20087,9 +20089,8 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
         if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
       }
       if (requestedApparel.length || robeHood !== null) {
-        const ownedTypeIDs = !initial && requestedApparel.some(([slot, id]) => ownedApparelSlots.includes(slot) && id > 0)
-          ? await dockedOwnedApparel(held, req.webSessionID) : undefined;
-        const { groups, model, locations, resources } = await dockedApparelChoices(call, held.characterID, ownedTypeIDs);
+        const readOwnedTypeIDs = initial ? undefined : () => dockedOwnedApparel(held, req.webSessionID);
+        const { groups, model, locations, resources } = await dockedApparelChoices(call, held.characterID, readOwnedTypeIDs, requestedApparel);
         for (const [slot, id] of requestedApparel) {
           const { location, choices } = groups[slot];
           if (!Number.isSafeInteger(location) || (id !== 0 && !choices.some(choice => choice.id === id))) {

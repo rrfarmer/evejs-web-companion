@@ -21,8 +21,7 @@ const apparelFamilies = {
     "accessories/masks": ["mask_m", "mask_cyberpunk_m01"] },
 };
 const apparelSlots = Object.keys(apparelFamilies.male);
-const ownedApparelSlots = ["bottommiddle", "accessories/masks"];
-const optionalApparelSlots = ["outer", "topouter", "accessories/glasses", ...ownedApparelSlots];
+const optionalApparelSlots = ["outer", "topouter", "accessories/glasses", "bottommiddle", "accessories/masks"];
 const stockApparelFactions = { a: "Amarr", c: "Caldari", g: "Gallente", m: "Minmatar" };
 
 function isPortraitApparelType(path) {
@@ -35,10 +34,9 @@ function portraitApparelChoices(resources, model, race, slot, fileFor, ownedType
   const families = apparelFamilies[model][slot];
   const glasses = slot === "accessories/glasses";
   const masks = slot === "accessories/masks";
-  const owned = ownedApparelSlots.includes(slot);
   return Object.entries(resources ?? {}).flatMap(([key, row]) => {
     if (row.resGender !== gender || row.empireRestrictions?.includes(race) ||
-        (row.typeID != null && !(owned && ownedTypeIDs?.has(row.typeID)))) return [];
+        (row.typeID != null && !ownedTypeIDs?.has(row.typeID))) return [];
     const path = /^(outer|topouter|topmiddle|bottommiddle|bottomouter|feet|accessories\/(?:glasses|masks))\/([a-z0-9_]+)\/types\/([a-z0-9_]+)\.type$/i.exec(row.resPath?.toLowerCase());
     if (!path || path[1] !== slot || !families.includes(path[2])) return [];
     const [, , family, variant] = path;
@@ -48,7 +46,7 @@ function portraitApparelChoices(resources, model, race, slot, fileFor, ownedType
     const shade = (masks ? variant.slice(family.length + 1) : variant.split("_").slice(glasses ? (pilotGlasses ? 2 : 3) : 1).join("_"))
       .replaceAll("_", " ").replace(/(?<=[a-z])(\d+)/, " $1");
     const name = shade ? shade[0].toUpperCase() + shade.slice(1) : "Classic";
-    const faction = slot === "outer" || owned ? null : stockApparelFactions[family.at(-4)];
+    const faction = slot === "outer" || slot === "bottommiddle" || masks ? null : stockApparelFactions[family.at(-4)];
     const label = glasses ? `${pilotGlasses ? "Pilot" : "Slick"} ${name}`
       : masks ? `${family.startsWith("mask_cyberpunk") ? "Cyberpunk" : "Mask"} ${name}`
       : family === "robeam01" ? `Amarr robe ${name}`
@@ -59,4 +57,4 @@ function portraitApparelChoices(resources, model, race, slot, fileFor, ownedType
   });
 }
 
-module.exports = { apparelSlots, optionalApparelSlots, ownedApparelSlots, isPortraitApparelType, portraitApparelChoices };
+module.exports = { apparelSlots, optionalApparelSlots, isPortraitApparelType, portraitApparelChoices };
