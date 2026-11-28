@@ -36,6 +36,8 @@
   } = $props();
   const visibleHairstyle = $derived(outfit && robeHood > 0 ? undefined : hairstyle);
   const hasEyewearHairFit = $derived(/\/(?:glasses_(?:pilot|slick)_01|goggles_01)\//.test(apparel?.["accessories/glasses"] ?? ""));
+  let outfitHairFit = $state.raw<{ source: string; weight: number } | null>(null);
+  const hairLift = $derived(outfitHairFit && outfitHairFit.source === outfit ? outfitHairFit.weight : 0);
   let canvas: HTMLCanvasElement;
   let renderer = $state.raw<THREE.WebGLRenderer | null>(null);
   let display = $state<"loading" | "ready" | "unavailable">("loading");
@@ -229,6 +231,7 @@
     const tints = hairTints;
     const fullBody = Boolean(outfit);
     const fitEyewear = hasEyewearHairFit;
+    const lift = hairLift;
     if (!active) return;
     if (!style) {
       active.render(scene, camera);
@@ -275,9 +278,10 @@
       const zones = tints && meshZones ? await loadCroppedTexture(meshZones, finishMaps, () => retired).catch(() => null) : null;
       if (retired) return;
       const { scene: object } = await loader.loadAsync(stem + ".glb");
-      if (!retired && fitEyewear) {
-        await applyPortraitMorphs(object, stem, [{ name: "pushhairglassesshape", weight: 1 }], () => retired);
-      }
+      const fit: PortraitMorph[] = [];
+      if (fitEyewear) fit.push({ name: "pushhairglassesshape", weight: 1 });
+      if (lift) fit.push({ name: "pushhairupshape", weight: lift });
+      if (!retired) await applyPortraitMorphs(object, stem, fit, () => retired);
       if (retired) { release(object); return; }
       hair = object;
       const surface = new THREE.MeshStandardMaterial({
@@ -344,7 +348,8 @@
       model: string; diffuse: string | null; zones: string | null; normal: string | null;
       colors: [number, number, number, number][]; occludes: string[]; skinMeshes: string[];
       skinBase?: string; bodyParts?: string[]; hoods?: string[];
-      trouserFit?: readonly PortraitMorph[]; bootMask?: CroppedMapAsset; bodyCutout?: CroppedMapAsset;
+      trouserFit?: readonly PortraitMorph[]; outfitFit?: readonly PortraitMorph[];
+      bootMask?: CroppedMapAsset; bodyCutout?: CroppedMapAsset;
       diffuseRect?: number[]; zonesRect?: number[]; normalRect?: number[];
     };
     const manifest = async (url: string): Promise<Garment> => {
@@ -353,12 +358,15 @@
       return await response.json() as Garment;
     };
     let skin: THREE.MeshStandardMaterial | undefined;
+    let garmentFit: readonly PortraitMorph[] = [];
     const hiddenBodyParts = new Set<string>();
     const loadBodyModel = async (path: string, fit: readonly PortraitMorph[] = []): Promise<THREE.Group | null> => {
       const { scene: mesh } = await loader.loadAsync(path);
       bodyModels.add(path);
-      if (!retired && (bodyMorphs.length || fit.length)) {
-        await applyPortraitMorphs(mesh, path.replace(/\.glb$/, ""), [...bodyMorphs, ...fit], () => retired);
+      if (!retired) {
+        const catalog = garmentFit.length ? await loadOutfitMorphNames(path) : [];
+        const supportedFit = garmentFit.filter(morph => catalog.includes(morph.name));
+        if (!retired) await applyPortraitMorphs(mesh, path.replace(/\.glb$/, ""), [...bodyMorphs, ...supportedFit, ...fit], () => retired);
       }
       if (!retired) return mesh;
       release(mesh);
@@ -525,6 +533,18 @@
       }
       const skinDetail = await texture(`/client-assets/graphics/character/${gender}/paperdoll/skintone/basic/colorize_body_l_512.png`, true).catch(() => null);
       if (retired) return;
+      const fitWeights = new Map<string, number>();
+      for (const layer of worn) for (const { name, weight } of layer.outfitFit ?? []) {
+        fitWeights.set(name, Math.max(weight, fitWeights.get(name) ?? weight));
+      }
+      const subtractOcclusion = ({ name, weight }: PortraitMorph): PortraitMorph => {
+        const path = `utilityshapes/${name}`;
+        const occlusion = worn.reduce((total, garment) => total + Number(garment.occludes.some(entry => entry.toLowerCase() === path)), 0);
+        return { name, weight: weight - occlusion };
+      };
+      const resolvedFit = [...fitWeights].map(([name, weight]) => subtractOcclusion({ name, weight }));
+      outfitHairFit = { source, weight: resolvedFit.find(morph => morph.name === "pushhairupshape")?.weight ?? 0 };
+      garmentFit = resolvedFit.filter(morph => morph.name !== "pushhairupshape" && morph.weight !== 0);
       for (const name of occludes) hiddenBodyParts.add(name.toLowerCase());
       skin = new THREE.MeshStandardMaterial({ map: skinDetail, color: skinDetail ? 0xffffff : 0xb59280, roughness: 0.78 });
       body = new THREE.Group();
@@ -532,11 +552,7 @@
         ? await manifest(extra.bottommiddle) : undefined;
       for (const layer of worn) {
         const isLegwear = layer === legwear;
-        const fit = isLegwear && !layer.skinBase ? footwear?.trouserFit?.map(morph => {
-          const path = `utilityshapes/${morph.name}`;
-          const occlusion = worn.reduce((total, garment) => total + Number(garment.occludes.includes(path)), 0);
-          return { name: morph.name, weight: morph.weight - occlusion };
-        }) : undefined;
+        const fit = isLegwear && !layer.skinBase ? footwear?.trouserFit?.map(subtractOcclusion) : undefined;
         const cutout = isLegwear ? footwear?.bootMask : upperUnderlayers?.has(layer) ? outer.bodyCutout : undefined;
         await loadGarment(layer, body, fit, cutout, isLegwear ? tights : undefined);
       }

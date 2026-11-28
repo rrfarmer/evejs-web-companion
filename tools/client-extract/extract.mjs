@@ -1182,6 +1182,10 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     const match = /^utilityshapes\/(pantstuck[a-z]+shape)(?:###(\d+(?:\.\d+)?))?$/i.exec(dependency);
     return match ? [{ name: match[1].toLowerCase(), weight: Math.min(1, Number(match[2] ?? 1)) }] : [];
   }) : [];
+  const outfitFit = spacesuit ? (metadata?.dependantModifiers ?? []).flatMap(dependency => {
+    const match = /^utilityshapes\/([a-z0-9_]+shape)(?:###(-?\d+(?:\.\d+)?))?$/i.exec(dependency);
+    return match ? [{ name: match[1].toLowerCase(), weight: Math.min(1, Number(match[2] ?? 1)) }] : [];
+  }) : [];
   const bootMaskName = footwear && (metadata?.dependantModifiers ?? []).find(dependency =>
     /^dependants\/bootmasks\/bootmask[a-z]+$/i.test(dependency));
   const bootMask = bootMaskName ? `res:/graphics/character/${gender}/paperdoll/${bootMaskName.toLowerCase()}/comp_body_m.png` : null;
@@ -1189,7 +1193,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const rect = filename => filename?.endsWith(".png") ? portraitPngRect(rf.read(filename)) : [0, 0, 1, 1];
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
-    outfitBuild: spacesuit ? 17 : skirt ? 16 : footwear ? 14 : fittedEyewear ? 12 : masks ? 10 : slot === "bottommiddle" ? 9 : glasses ? 8 : amarrRobe ? 7 : slot === "topmiddle" ? 5 : trousers ? 15 : 4,
+    outfitBuild: spacesuit ? 18 : skirt ? 16 : footwear ? 14 : fittedEyewear ? 12 : masks ? 10 : slot === "bottommiddle" ? 9 : glasses ? 8 : amarrRobe ? 7 : slot === "topmiddle" ? 5 : trousers ? 15 : 4,
     model: `/client-assets/portrait-outfit/${model}`, source, type: typePath, variation, palette, colors, occludes, skinMeshes,
     diffuse: diffuse ? copyRes(rf, diffuse, outRoot) : null,
     zones: zones ? copyRes(rf, zones, outRoot) : null,
@@ -1198,6 +1202,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     ...(glasses ? { lensAreas: meshes.flatMap(mesh => mesh.transparentAreas ?? []).map(area => area.index ?? 0) } : {}),
     ...(fittedEyewear ? { headMorphs } : {}),
     ...(trouserFit.length ? { trouserFit } : {}),
+    ...(outfitFit.length ? { outfitFit } : {}),
     ...(bootMask ? { bootMask: { url: copyRes(rf, bootMask, outRoot), rect: rect(bootMask) } } : {}),
     ...(monocle ? { opaqueLensAreas: meshes.flatMap(mesh => mesh.opaqueAreas ?? [])
       .filter(area => /^C_Custom_Glass/i.test(area.effect?.name ?? "")).map(area => area.index ?? 0) } : {}),

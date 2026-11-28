@@ -180,10 +180,10 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   if (makeup) return { file: await ensure(rel.slice(1), ["--portrait-head", makeup[1], "--portrait-makeup", makeup[2]]) };
   const beard = /^\/portrait-head\/male\/makeup\/(beard\/(?:(?:beard_(?:0[1-9]|10))\/hair_(?:default|\d{2}_a)(?:~\d{2}_bc)?|(?:stubble|fiveoc)\/default))\.json$/.exec(rel);
   if (beard) return { file: await ensure(rel.slice(1), ["--portrait-head", "male", "--portrait-makeup", beard[1]]) };
-  const hairFit = /^\/portrait-hair\/(female|male)\/(hair_[a-z0-9_]+)\/morphs\/pushhairglassesshape\.json$/.exec(rel);
+  const hairFit = /^\/portrait-hair\/(female|male)\/(hair_[a-z0-9_]+)\/morphs\/(pushhair(?:glasses|up)shape)\.json$/.exec(rel);
   if (hairFit && portraitHairStyle(hairFit[1], hairFit[2]) && !portraitScalpMode(hairFit[2])) {
     return { file: await ensure(rel.slice(1), ["--portrait-head", hairFit[1], "--portrait-hair", hairFit[2],
-      "--portrait-morph", "pushhairglassesshape"]) };
+      "--portrait-morph", hairFit[3]]) };
   }
   const hair = /^\/portrait-hair\/(female|male)\/(hair_[a-z0-9_]+)\.(glb|json)$/.exec(rel);
   if (hair && portraitHairStyle(hair[1], hair[2])) {
@@ -196,7 +196,7 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   const outfit = /^\/portrait-outfit\/((?:female|male)\/(?:(?:topouter|topmiddle|bottommiddle|bottomouter|feet|accessories\/(?:glasses|masks|nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+)\.json$/.exec(rel);
   if (outfit) {
     const kind = outfit[1];
-    const build = /\/(?:bottomouter\/spacesuit_01|spacesuit_top_01)\//.test(kind) ? 17
+    const build = /\/(?:bottomouter\/spacesuit_01|spacesuit_top_01)\//.test(kind) ? 18
       : /\/bottomouter\/skirtmilf0[12]\//.test(kind) ? 16 : kind.includes("/bottomouter/") ? 15
       : kind.includes("/feet/") ? 14 : /\/accessories\/glasses\/(?:monocle_|eyeimp01\/)/.test(kind) ? 12 : kind.includes("/accessories/masks/") ? 10
       : kind.includes("/bottommiddle/") ? 9 : kind.includes("/accessories/glasses/") ? 8
