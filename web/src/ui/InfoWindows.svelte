@@ -14,8 +14,9 @@
   import { infoShiftPressed } from "./showInfo.ts";
   import { notify } from "./notices.ts";
 
-  let { session, inFront, host, onOpenIndustry }: {
+  let { session, inFront, host, onOpenIndustry, onViewPlanet }: {
     session: Session; inFront: boolean; host: InfoWindowHost | null; onOpenIndustry?: () => void;
+    onViewPlanet?: (planetID: number) => void;
   } = $props();
   // svelte-ignore state_referenced_locally
   const windows = session.flow.infoWindows.state;
@@ -89,7 +90,7 @@
         <ShipInfoContent store={session.store} flow={session.flow} subject={w.subject} typeID={w.entry.identity.typeID} {expanded} height={w.h - 46} requirementsRequest={w.requirementsRequest} skinsRequest={w.skinsRequest}
           active={visible && !w.minimized && (!host?.mobile || w.modal || w.id === mobileID)} openParagonHub={host?.openParagonHub} />
       {:else}<ShowInfo store={session.store} flow={session.flow} subject={w.subject} corporationResult={w.visibleCorporationResult}
-        toggleShipSkinr={host?.toggleShipSkinr} {onOpenIndustry} />{/if}
+        toggleShipSkinr={host?.toggleShipSkinr} {onOpenIndustry} {onViewPlanet} />{/if}
     </ErrorBoundary>{/if}</div>
   {/key}
 {/snippet}

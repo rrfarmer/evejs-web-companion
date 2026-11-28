@@ -19,8 +19,8 @@
   import InfoShipRequirements from "./InfoShipRequirements.svelte";
   import InfoJumpBridgeMechanics from "./InfoJumpBridgeMechanics.svelte";
   import InfoAttributeHint from "./InfoAttributeHint.svelte";
-  import { getMoonInfo, loadTypeListsHolding, type MoonInfo } from "../app/api.ts";
-  import InfoMoonAttributes from "./InfoMoonAttributes.svelte";
+  import { getCelestialInfo, loadTypeListsHolding, type CelestialInfo } from "../app/api.ts";
+  import InfoCelestialAttributes from "./InfoCelestialAttributes.svelte";
   import { findInContracts } from "./contractsSearch.ts";
   import { showMarketDetails } from "./marketDetails.ts";
   import EmploymentHistoryEntries from "./EmploymentHistoryEntries.svelte";
@@ -66,11 +66,12 @@
   import type { AppFlow } from "../app/flow.ts";
   import type { AgentRow, SpaceEntity } from "../store/types.ts";
 
-  let { store: pilotStore, flow: pilotFlow, subject: windowSubject, corporationResult: windowCorporationResult, shipLiveOnly = false, toggleShipSkinr, onOpenIndustry }: {
+  let { store: pilotStore, flow: pilotFlow, subject: windowSubject, corporationResult: windowCorporationResult, shipLiveOnly = false, toggleShipSkinr, onOpenIndustry, onViewPlanet }: {
     store: ClientStore; flow: AppFlow; subject: ReadableSignal<InfoSubject | null>;
     corporationResult?: ReadableSignal<CorporationInfoRead | null | undefined> | null; shipLiveOnly?: boolean;
     toggleShipSkinr?: () => void;
     onOpenIndustry?: () => void;
+    onViewPlanet?: (planetID: number) => void;
   } = $props();
   // A component belongs to one native window for its lifetime. Capture these
   // handles so chrome/focus changes cannot become dependencies of its reads.
@@ -304,7 +305,7 @@
     if (current.kind === "mapLocation") {
       return mapLocationRead?.name || mapTypeName(current.typeID);
     }
-    if (current.kind === "spaceObject" && current.typeID === 14 && moonRead) return moonName;
+    if (celestialKind && celestialRead) return celestialTitle;
     // A faction's name (cfg.eveowners).
     if (current.kind === "faction") {
       return factionRead?.name || resolvedName($names.resolved, "faction", current.factionID, "Unknown faction");
@@ -381,10 +382,15 @@
   let corporationRead = $state<CorporationInfoRead | null>(null);
   /** A map place's read (infosvc.UpdateDataCelestial for a region, a constellation or a solar system). */
   let mapLocationRead = $state<MapLocationInfo | null>(null);
-  let moonRead = $state<MoonInfo | null>(null);
-  let moonReadDone = $state(false);
-  const moonName = $derived(moonRead ? word("UI/Locations/LocationMoonFormatter", {
-    solarSystemID: moonRead.solarSystemID, romanCelestialIndex: intToRoman(moonRead.celestialIndex), orbitIndex: moonRead.orbitIndex,
+  const celestialKind = $derived($subject?.kind !== "spaceObject" ? null : $subject.typeID === 14 ? "moon"
+    : headFacts?.typeID === $subject.typeID && headFacts?.groupID === 7 ? "planet" : null);
+  const viewPlanetLabel = "UI/PI/Common/ViewInPlanetMode";
+  const showPlanetAction = $derived(celestialKind === "planet" && !!onViewPlanet);
+  $effect(() => { if (showPlanetAction) flow.requestWords([viewPlanetLabel]); });
+  let celestialRead = $state<CelestialInfo | null>(null);
+  let celestialReadDone = $state(false);
+  const celestialTitle = $derived(celestialRead ? word(celestialKind === "moon" ? "UI/Locations/LocationMoonFormatter" : "UI/Locations/LocationPlanetFormatter", {
+    solarSystemID: celestialRead.solarSystemID, romanCelestialIndex: intToRoman(celestialRead.celestialIndex), orbitIndex: celestialRead.orbitIndex,
   }, namedAs) : "");
   /** A faction's read (infosvc.UpdateDataFaction). */
   let factionRead = $state<FactionInfo | null>(null);
@@ -396,15 +402,16 @@
 
   $effect(() => {
     const current = $subject;
-    moonRead = null;
-    moonReadDone = false;
-    if (current?.kind !== "spaceObject" || current.typeID !== 14) return;
+    const kind = celestialKind;
+    celestialRead = null;
+    celestialReadDone = false;
+    if (current?.kind !== "spaceObject" || kind === null) return;
     let active = true;
-    void getMoonInfo(current.itemID, flow.requestOptions()).then(read => {
+    void getCelestialInfo(current.itemID, kind, flow.requestOptions()).then(read => {
       if (!active) return;
-      moonRead = read;
+      celestialRead = read;
       if (read) flow.requestNames([{ kind: "system", id: read.solarSystemID }]);
-    }).catch(() => {}).finally(() => { if (active) moonReadDone = true; });
+    }).catch(() => {}).finally(() => { if (active) celestialReadDone = true; });
     return () => { active = false; };
   });
 
@@ -1533,9 +1540,9 @@
         {/each}
       </div>
     {:else if $subject.kind === "spaceObject"}
-      {#if moonRead}
-        <InfoMoonAttributes {store} {flow} statistics={moonRead.statistics} />
-      {:else if $subject.typeID === 14 && !moonReadDone}
+      {#if celestialKind && celestialRead}
+        <InfoCelestialAttributes {store} {flow} statistics={celestialRead.statistics} kind={celestialKind} />
+      {:else if celestialKind && !celestialReadDone}
         <p class="note">Reading…</p>
       {:else if entity}
         <h3>Where it is</h3>
@@ -1581,7 +1588,7 @@
       {:else}
         <!-- ⚠ Said, not silently blanked. The window keeps the thing's identity
              and reports that it has gone, rather than showing stale numbers. -->
-        <p class="note">{$subject.typeID === 14 ? "Moon attributes are unavailable." : "This is no longer on your grid, so there is nothing live to report about it."}</p>
+        <p class="note">{celestialKind ? "Celestial attributes are unavailable." : "This is no longer on your grid, so there is nothing live to report about it."}</p>
       {/if}
     {:else if $subject.kind === "module"}
       {#if fittedModule}
@@ -1659,7 +1666,8 @@
           <ul class="info-orbits">
             {#each orbitalBodies as { row, indent } (row.itemID)}
               <li style:padding-left={`${indent * 1.2}rem`} class:info-orbit-moon={row.groupID === 8} class:info-orbit-belt={row.groupID === 9}>
-                <button type="button" class="evelink showInfo" title={word("UI/Commands/ShowInfo")} onclick={() => showInfo({ kind: "type", typeID: row.typeID })}>{celestialName(row, read.itemID)}</button>{#if row.groupID === 7}<span class="info-orbit-kind">{" " + resolvedName($names.resolved, "type", row.typeID, "")}</span>{/if}
+                <button type="button" class="evelink showInfo" title={word("UI/Commands/ShowInfo")} onclick={() => showInfo(row.groupID === 7 || row.groupID === 8
+                  ? { kind: "spaceObject", itemID: row.itemID, typeID: row.typeID } : { kind: "type", typeID: row.typeID })}>{celestialName(row, read.itemID)}</button>{#if row.groupID === 7}<span class="info-orbit-kind">{" " + resolvedName($names.resolved, "type", row.typeID, "")}</span>{/if}
               </li>
             {/each}
           </ul>
@@ -1824,11 +1832,15 @@
     {/if}
     {#if jumpBridge && typeID !== null}
       {#key typeID}<InfoJumpBridgeMechanics {store} {flow} {typeID} />{/key}
-    {:else if !shipLiveOnly && typeID !== null && $subject.kind === "spaceObject" && typeID !== 14}
+    {:else if !shipLiveOnly && typeID !== null && $subject.kind === "spaceObject" && !celestialKind}
       <InfoShipRequirements {store} {flow} {typeID} />
     {/if}
   {/if}
-  {#if typeID !== null && (showMarketAction || showContractsAction || showIndustryAction || (showSkinrAction && toggleShipSkinr))}
+  {#if showPlanetAction && $subject.kind === "spaceObject"}
+    <footer class="info-actions">
+      <button type="button" onclick={() => onViewPlanet?.($subject.itemID)}>{word(viewPlanetLabel)}</button>
+    </footer>
+  {:else if typeID !== null && (showMarketAction || showContractsAction || showIndustryAction || (showSkinrAction && toggleShipSkinr))}
     <footer class="info-actions">
       {#if showMarketAction}
         <button type="button" onclick={() => showMarketDetails(typeID)}>{plainText(word(marketLabel)) || "View Market Details"}</button>

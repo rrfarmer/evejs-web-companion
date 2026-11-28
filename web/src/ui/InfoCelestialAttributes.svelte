@@ -3,7 +3,9 @@
   import type { ClientStore } from "../store/clientStore.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
 
-  let { store, flow, statistics }: { store: ClientStore; flow: AppFlow; statistics: Readonly<Record<string, number>> } = $props();
+  let { store, flow, statistics, kind }: {
+    store: ClientStore; flow: AppFlow; statistics: Readonly<Record<string, number>>; kind: "moon" | "planet";
+  } = $props();
   const words = $derived(store.words);
   const root = "UI/Generic/FormatPlanetAttributes/";
   const attributes = "UI/InfoWindow/TabNames/Attributes";
@@ -14,6 +16,7 @@
   }
   const definitions = [
     ["density", "attributeDensity", "Density", (v: number) => text("formatDensity", `${number(v)} kg/m³`, v)],
+    ["eccentricity", "attributeEccentricity", "Eccentricity", (v: number) => text("formatEccentricity", number(v), v)],
     ["escapeVelocity", "attributeEscapeVelocity", "Escape Velocity", (v: number) => text("formatEscapeVelocity", `${number(v / 1000)} km/s`, v / 1000)],
     ["massDust", "attributeMassDust", "Mass", (v: number) => text("formatMassInKG", `${v.toExponential(1)} kg`, v.toExponential(1))],
     ["orbitPeriod", "attributeOrbitPeriod", "Orbit Period", (v: number) => {
@@ -30,16 +33,17 @@
     ["surfaceGravity", "attributeSurfaceGravity", "Surface Gravity", (v: number) => text("formatSurfaceGravity", `${number(v)} m/s²`, v)],
     ["temperature", "attributeTemperature", "Temperature", (v: number) => text("formatTempatureKelvin", `${Math.trunc(v)} K`, String(Math.trunc(v)))],
   ] as const;
+  const rows = $derived(definitions.filter(([key]) => statistics[key] !== undefined && (key !== "eccentricity" || kind === "planet")));
   $effect(() => flow.requestWords([attributes, ...definitions.map(([, key]) => root + key),
-    ...["formatDensity", "formatEscapeVelocity", "formatMassInKG", "formatOrbitalPeriodInt", "formatOrbitalPeriodFloat",
+    ...["formatDensity", "formatEccentricity", "formatEscapeVelocity", "formatMassInKG", "formatOrbitalPeriodInt", "formatOrbitalPeriodFloat",
       "formatOrbitalRadiusInAU", "formatOrbitalRadiusInKM", "formatSurfacePresureVeryLow", "formatSurfacePresure",
       "formatSurfaceGravity", "formatTempatureKelvin"].map(key => root + key)]));
 </script>
 
-{#if definitions.some(([key]) => statistics[key] !== undefined)}
+{#if rows.length}
   <h3>{$words.templates[attributes] ?? "Attributes"}</h3>
   <dl class="kv" aria-label={$words.templates[attributes] ?? "Attributes"}>
-    {#each definitions as [key, path, fallback, display] (key)}
+    {#each rows as [key, path, fallback, display] (key)}
       {@const value = statistics[key]}
       {#if value !== undefined}<dt>{text(path, fallback)}</dt><dd>{display(value)}</dd>{/if}
     {/each}

@@ -592,13 +592,13 @@ function createClientBuiltData({
   }
 
   let solarSystemContent = null;
-  async function moonInfo(itemID) {
+  async function celestialInfo(itemID, groupID) {
     if (!available()) return null;
     const { DatabaseSync } = require("node:sqlite");
     const database = new DatabaseSync(path.join(clientRoot, ...MAP_OBJECTS), { readOnly: true });
     let row;
     try {
-      row = database.prepare("SELECT solarSystemID, celestialIndex, orbitIndex FROM celestials WHERE celestialID = ? AND groupID = 8").get(itemID);
+      row = database.prepare("SELECT solarSystemID, celestialIndex, orbitIndex FROM celestials WHERE celestialID = ? AND groupID = ?").get(itemID, groupID);
     } finally {
       database.close();
     }
@@ -615,8 +615,9 @@ function createClientBuiltData({
     const [{ readFsdStatic }, buffer] = await Promise.all([import("../../tools/client-extract/lib/fsdStatic.mjs"), solarSystemContent]);
     const systems = readFsdStatic(buffer, SOLAR_SYSTEM_CONTENT, { keys: [row.solarSystemID] });
     const system = systems[String(row.solarSystemID)];
-    const moon = Object.values(system?.planets ?? {}).map(planet => planet.moons?.[itemID]).find(Boolean);
-    return { ...row, statistics: moon?.statistics ?? {} };
+    const planets = system?.planets ?? {};
+    const celestial = groupID === 7 ? planets[itemID] : Object.values(planets).find(planet => planet.moons?.[itemID])?.moons[itemID];
+    return { ...row, statistics: celestial?.statistics ?? {} };
   }
 
   return {
@@ -624,7 +625,7 @@ function createClientBuiltData({
     table,
     rows,
     systemObjects,
-    moonInfo,
+    celestialInfo,
     infoBubbleGroups,
     infoBubbleTypeBonuses,
     infoBubbleTypeElements,

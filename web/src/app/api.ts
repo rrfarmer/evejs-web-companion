@@ -4513,23 +4513,23 @@ export interface FactionInfo {
 }
 
 /** A solar system's item as the client lists it (GET /api/client-data/system-objects/:id). */
-export interface MoonInfo {
+export interface CelestialInfo {
   readonly solarSystemID: number;
   readonly celestialIndex: number;
   readonly orbitIndex: number;
   readonly statistics: Readonly<Record<string, number>>;
 }
 
-export async function getMoonInfo(itemID: number, options: ApiOptions = {}): Promise<MoonInfo | null> {
-  const data = await getJson(`/api/client-data/moons/${itemID}`, options);
-  const moon = asObject(data.moon);
-  if (!moon || typeof moon.solarSystemID !== "number" || typeof moon.celestialIndex !== "number" ||
-      typeof moon.orbitIndex !== "number") return null;
+export async function getCelestialInfo(itemID: number, kind: "moon" | "planet", options: ApiOptions = {}): Promise<CelestialInfo | null> {
+  const data = await getJson(`/api/client-data/${kind}s/${itemID}`, options);
+  const celestial = asObject(data[kind]);
+  if (!celestial || typeof celestial.solarSystemID !== "number" || typeof celestial.celestialIndex !== "number") return null;
   const statistics: Record<string, number> = {};
-  for (const [key, value] of Object.entries(asObject(moon.statistics) ?? {})) {
+  for (const [key, value] of Object.entries(asObject(celestial.statistics) ?? {})) {
     if (typeof value === "number" && Number.isFinite(value)) statistics[key] = value;
   }
-  return { solarSystemID: moon.solarSystemID, celestialIndex: moon.celestialIndex, orbitIndex: moon.orbitIndex, statistics };
+  return { solarSystemID: celestial.solarSystemID, celestialIndex: celestial.celestialIndex,
+    orbitIndex: typeof celestial.orbitIndex === "number" ? celestial.orbitIndex : 0, statistics };
 }
 
 export interface SystemObjectRow {
