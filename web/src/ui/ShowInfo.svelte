@@ -19,7 +19,8 @@
   import InfoShipRequirements from "./InfoShipRequirements.svelte";
   import InfoJumpBridgeMechanics from "./InfoJumpBridgeMechanics.svelte";
   import InfoAttributeHint from "./InfoAttributeHint.svelte";
-  import { loadTypeListsHolding } from "../app/api.ts";
+  import { getMoonInfo, loadTypeListsHolding, type MoonInfo } from "../app/api.ts";
+  import InfoMoonAttributes from "./InfoMoonAttributes.svelte";
   import { findInContracts } from "./contractsSearch.ts";
   import { showMarketDetails } from "./marketDetails.ts";
   import EmploymentHistoryEntries from "./EmploymentHistoryEntries.svelte";
@@ -303,6 +304,7 @@
     if (current.kind === "mapLocation") {
       return mapLocationRead?.name || mapTypeName(current.typeID);
     }
+    if (current.kind === "spaceObject" && current.typeID === 14 && moonRead) return moonName;
     // A faction's name (cfg.eveowners).
     if (current.kind === "faction") {
       return factionRead?.name || resolvedName($names.resolved, "faction", current.factionID, "Unknown faction");
@@ -379,6 +381,11 @@
   let corporationRead = $state<CorporationInfoRead | null>(null);
   /** A map place's read (infosvc.UpdateDataCelestial for a region, a constellation or a solar system). */
   let mapLocationRead = $state<MapLocationInfo | null>(null);
+  let moonRead = $state<MoonInfo | null>(null);
+  let moonReadDone = $state(false);
+  const moonName = $derived(moonRead ? word("UI/Locations/LocationMoonFormatter", {
+    solarSystemID: moonRead.solarSystemID, romanCelestialIndex: intToRoman(moonRead.celestialIndex), orbitIndex: moonRead.orbitIndex,
+  }, namedAs) : "");
   /** A faction's read (infosvc.UpdateDataFaction). */
   let factionRead = $state<FactionInfo | null>(null);
   let allianceRead = $state<AllianceInfoExtra | null>(null);
@@ -386,6 +393,20 @@
   let ownerReadDone = $state(false);
   /** The latest read asked; an older one's answer is dropped. Not reactive. */
   let ownerReads = 0;
+
+  $effect(() => {
+    const current = $subject;
+    moonRead = null;
+    moonReadDone = false;
+    if (current?.kind !== "spaceObject" || current.typeID !== 14) return;
+    let active = true;
+    void getMoonInfo(current.itemID, flow.requestOptions()).then(read => {
+      if (!active) return;
+      moonRead = read;
+      if (read) flow.requestNames([{ kind: "system", id: read.solarSystemID }]);
+    }).catch(() => {}).finally(() => { if (active) moonReadDone = true; });
+    return () => { active = false; };
+  });
 
   $effect(() => {
     const current = $subject;
@@ -1512,7 +1533,11 @@
         {/each}
       </div>
     {:else if $subject.kind === "spaceObject"}
-      {#if entity}
+      {#if moonRead}
+        <InfoMoonAttributes {store} {flow} statistics={moonRead.statistics} />
+      {:else if $subject.typeID === 14 && !moonReadDone}
+        <p class="note">Reading…</p>
+      {:else if entity}
         <h3>Where it is</h3>
         <dl class="kv">
           <dt>Distance</dt>
@@ -1556,7 +1581,7 @@
       {:else}
         <!-- ⚠ Said, not silently blanked. The window keeps the thing's identity
              and reports that it has gone, rather than showing stale numbers. -->
-        <p class="note">This is no longer on your grid, so there is nothing live to report about it.</p>
+        <p class="note">{$subject.typeID === 14 ? "Moon attributes are unavailable." : "This is no longer on your grid, so there is nothing live to report about it."}</p>
       {/if}
     {:else if $subject.kind === "module"}
       {#if fittedModule}
@@ -1799,7 +1824,7 @@
     {/if}
     {#if jumpBridge && typeID !== null}
       {#key typeID}<InfoJumpBridgeMechanics {store} {flow} {typeID} />{/key}
-    {:else if !shipLiveOnly && typeID !== null && $subject.kind === "spaceObject"}
+    {:else if !shipLiveOnly && typeID !== null && $subject.kind === "spaceObject" && typeID !== 14}
       <InfoShipRequirements {store} {flow} {typeID} />
     {/if}
   {/if}

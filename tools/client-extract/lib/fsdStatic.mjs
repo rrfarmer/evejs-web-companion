@@ -585,7 +585,7 @@ function dict(d, off, schema) {
 // dictLoader.IndexLoader, read out whole (iteritems). Each value is read from its own slice of
 // the file; a value that is itself a buildIndex dict is another IndexLoader over its slice.
 // MultiIndexLoader iterates the same way; its named sub-indexes are not read.
-function indexDict(d, schema, offsetToData, offsetToFooter = 0) {
+function indexDict(d, schema, offsetToData, offsetToFooter = 0, keys = null) {
   const fileObjectSize = d.u32(offsetToData);
   const sizeAt = offsetToFooter !== 0 ? offsetToFooter - 4 : offsetToData + fileObjectSize;
   const footerSize = d.u32(sizeAt);
@@ -593,6 +593,7 @@ function indexDict(d, schema, offsetToData, offsetToFooter = 0) {
   const valueSchema = schema.valueTypes;
   const out = newDict(d.opts);
   for (const [key, offset, size] of footer) {
+    if (keys && !keys.has(key)) continue;
     const at = 4 + offsetToData + offset;
     let v;
     try {
@@ -639,6 +640,7 @@ export function readFsdSchema(buffer, name = "<buffer>") {
  * options.schema: the sibling .schema file (YAML text or bytes) or a parsed schema; required for
  *   files without an embedded schema.
  * options.maps: dicts as Maps with their typed keys, instead of objects keyed by str(key).
+ * options.keys: restrict an indexed root dictionary to the listed keys.
  */
 export function readFsdStatic(buffer, name = "<buffer>", options = {}) {
   const u8 = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
@@ -657,7 +659,8 @@ export function readFsdStatic(buffer, name = "<buffer>", options = {}) {
       schema = parseSchemaYaml(schema, name);
     }
     const d = new Data(u8, opts);
-    if (schema.type === "dict" && schema.buildIndex) return indexDict(d, schema, offsetToData);
+    if (schema.type === "dict" && schema.buildIndex) return indexDict(d, schema, offsetToData, 0,
+      options.keys === undefined ? null : new Set(options.keys));
     return represent(d, offsetToData, schema);
   } catch (e) {
     if (e instanceof FsdError) throw e.finish(name);

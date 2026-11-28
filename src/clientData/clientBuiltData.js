@@ -219,6 +219,7 @@ const INFO_BUBBLES = "res:/staticdata/infobubbles.static";
 // The client's own map of each solar system's celestials and NPC stations (eveCfg.LoadSqliteDB('mapObjects'): a
 // packaged client's bin:/staticdata/mapObjects.db), which GetLocationsLocalBySystem reads a system's items from.
 const MAP_OBJECTS = ["tq", "bin64", "staticdata", "mapObjects.db"];
+const SOLAR_SYSTEM_CONTENT = "res:/staticdata/solarsystemcontent.static";
 
 // An alpha clone's skills and their highest levels, by race (clonegrade/storage.py CloneGradeStorage:
 // fsdlite.EveStorage(data='clonegrades', cache='clonegrades.static')): the same kind of cache, a record by race.
@@ -590,11 +591,40 @@ function createClientBuiltData({
     }
   }
 
+  let solarSystemContent = null;
+  async function moonInfo(itemID) {
+    if (!available()) return null;
+    const { DatabaseSync } = require("node:sqlite");
+    const database = new DatabaseSync(path.join(clientRoot, ...MAP_OBJECTS), { readOnly: true });
+    let row;
+    try {
+      row = database.prepare("SELECT solarSystemID, celestialIndex, orbitIndex FROM celestials WHERE celestialID = ? AND groupID = 8").get(itemID);
+    } finally {
+      database.close();
+    }
+    if (!row) return null;
+    if (!solarSystemContent) {
+      const index = readResourceIndex(readFile(path.join(clientRoot, "tq", "resfileindex.txt"), "utf8"));
+      const resource = index.get(SOLAR_SYSTEM_CONTENT);
+      if (!resource) return null;
+      solarSystemContent = fs.promises.readFile(path.join(clientRoot, "ResFiles", resource)).catch(error => {
+        solarSystemContent = null;
+        throw error;
+      });
+    }
+    const [{ readFsdStatic }, buffer] = await Promise.all([import("../../tools/client-extract/lib/fsdStatic.mjs"), solarSystemContent]);
+    const systems = readFsdStatic(buffer, SOLAR_SYSTEM_CONTENT, { keys: [row.solarSystemID] });
+    const system = systems[String(row.solarSystemID)];
+    const moon = Object.values(system?.planets ?? {}).map(planet => planet.moons?.[itemID]).find(Boolean);
+    return { ...row, statistics: moon?.statistics ?? {} };
+  }
+
   return {
     available,
     table,
     rows,
     systemObjects,
+    moonInfo,
     infoBubbleGroups,
     infoBubbleTypeBonuses,
     infoBubbleTypeElements,

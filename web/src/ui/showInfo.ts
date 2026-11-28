@@ -41,6 +41,9 @@ export function subjectOfShowInfoLink(url: string): InfoSubject | null {
   if (parsed.typeID === TYPE_ALLIANCE) return parsed.itemID === null ? null : { kind: "alliance", allianceID: parsed.itemID };
   // A region's, constellation's or solar system's link: its info window (infosvc.UpdateDataCelestial).
   if (MAP_LOCATION_TYPES.has(parsed.typeID)) return parsed.itemID === null ? null : { kind: "mapLocation", typeID: parsed.typeID, itemID: parsed.itemID };
+  if (parsed.typeID === 14 && parsed.itemID !== null && parsed.itemID >= 40_000_000 && parsed.itemID < 50_000_000) {
+    return { kind: "spaceObject", typeID: parsed.typeID, itemID: parsed.itemID };
+  }
   // A faction's link: its info window (infosvc.UpdateDataFaction).
   if (parsed.typeID === TYPE_FACTION) return parsed.itemID === null ? null : { kind: "faction", factionID: parsed.itemID };
   if (OWNER_AND_PLACE_TYPES.has(parsed.typeID)) return null;

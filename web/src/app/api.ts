@@ -4513,6 +4513,25 @@ export interface FactionInfo {
 }
 
 /** A solar system's item as the client lists it (GET /api/client-data/system-objects/:id). */
+export interface MoonInfo {
+  readonly solarSystemID: number;
+  readonly celestialIndex: number;
+  readonly orbitIndex: number;
+  readonly statistics: Readonly<Record<string, number>>;
+}
+
+export async function getMoonInfo(itemID: number, options: ApiOptions = {}): Promise<MoonInfo | null> {
+  const data = await getJson(`/api/client-data/moons/${itemID}`, options);
+  const moon = asObject(data.moon);
+  if (!moon || typeof moon.solarSystemID !== "number" || typeof moon.celestialIndex !== "number" ||
+      typeof moon.orbitIndex !== "number") return null;
+  const statistics: Record<string, number> = {};
+  for (const [key, value] of Object.entries(asObject(moon.statistics) ?? {})) {
+    if (typeof value === "number" && Number.isFinite(value)) statistics[key] = value;
+  }
+  return { solarSystemID: moon.solarSystemID, celestialIndex: moon.celestialIndex, orbitIndex: moon.orbitIndex, statistics };
+}
+
 export interface SystemObjectRow {
   readonly itemID: number;
   readonly typeID: number;

@@ -14528,6 +14528,21 @@ app.get("/api/client-data/accounting-entry-types", requireAuth, async (req, res,
 // the corporation's factionID), what its overview's Faction column names for a thing an NPC owns (overviewWindow.py
 // 967 to 975). `available` is false when the table could not be read (no client install, or no Python to host the
 // client's loader); `factions` is then empty.
+// Moon attributes come from the installed client's solarSystemContent, as in Info.GetCelestialStatisticsForCelestial.
+app.get("/api/client-data/moons/:id", requireAuth, async (req, res, next) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 40_000_000 || id >= 50_000_000) {
+    res.status(400).json({ ok: false, error: "INVALID_MOON", message: "A moon's item number is required." });
+    return;
+  }
+  try {
+    const moon = await clientBuiltData.moonInfo?.(id) ?? null;
+    res.json({ ok: true, moon });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // A solar system's items as the client lists them (mapSvc.GetSolarsystemItems: eveCfg.GetLocationsLocalBySystem, from
 // the client's own map database): each celestial and NPC station by its number, type, group, the item it orbits and
 // its celestial and orbit index; a stargate with the system it leads to, and a celestial with a name of its own (its
