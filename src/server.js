@@ -9844,6 +9844,8 @@ function followHeldChat(held) {
 }
 
 function chatContext(held, req) {
+  const identity = { userid: held.accountID };
+  const onGamePort = isGamePortHandle(held.bridgeSessionID);
   return {
     // The system the held session is in RIGHT NOW, kept current by every
     // flight-status read. Used only to notice that this pilot has MOVED — the
@@ -9851,6 +9853,11 @@ function chatContext(held, req) {
     // computes a room name. See ensureChannel in src/evejsXmppChat.js.
     solarSystemID: Number(held.solarSystemID) || 0,
     limit: Number(req.query?.limit) || undefined,
+    canManageCorporationChat: room => onGamePort && gamePortPilots?.canManageCorporationChat?.(room, identity, held.bridgeSessionID) === true,
+    setCorporationChatMotd: (room, jid, motd) => heldRequest(held, req.webSessionID, true, () => {
+      assertHeldRequestGeneration(req, held);
+      return onGamePort && gamePortPilots?.setCorporationChatMotd?.(room, jid, motd, identity, held.bridgeSessionID);
+    }),
     assertCurrent: () => {
       assertHeldRequestGeneration(req, held);
       assertCurrentHeldSession(held, req.webSessionID);
@@ -9931,6 +9938,16 @@ app.get("/api/bridge/chat/:roomName/settings", requireAuth, async (req, res, nex
   if (!session) return chatUnavailable(res);
   try {
     res.json({ ok: true, settings: await session.channelSettings(req.params.roomName, chatContext(held, req)) });
+  } catch (error) { next(error); }
+});
+
+app.get("/api/bridge/chat/:roomName/settings/availability", requireAuth, (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held) return;
+  const context = chatContext(held, req);
+  try {
+    context.assertCurrent();
+    res.json({ ok: true, available: context.canManageCorporationChat(req.params.roomName) });
   } catch (error) { next(error); }
 });
 

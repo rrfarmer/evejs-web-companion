@@ -117,7 +117,8 @@
     untrack(() => { if (draftFor) drafts[draftFor] = draft; draftFor = key; draft = drafts[key] ?? ""; });
   });
   $effect(() => {
-    if (settingsRoom && !$conversations.rooms.some(({ channel }) => channel === settingsRoom)) settingsRoom = null;
+    if (settingsRoom && $chat.corp.roomName !== settingsRoom &&
+        !$conversations.rooms.some(({ channel }) => channel === settingsRoom)) settingsRoom = null;
   });
   let sendBox = $state<HTMLInputElement | undefined>(undefined);
 
@@ -159,7 +160,8 @@
       }] : []),
     ];
     const x = pointer?.clientX ?? bounds.left, y = pointer?.clientY ?? bounds.bottom;
-    if (!room || !/^(?:player_\d+|system_\d+(?:_\d+)+)$/.test(room)) {
+    const corporation = channel === "corp" && Boolean(room?.startsWith("corp_"));
+    if (!room || (!corporation && !/^(?:player_\d+|system_\d+(?:_\d+)+)$/.test(room))) {
       channelMenu.open(x, y, entries);
       return;
     }
@@ -170,18 +172,23 @@
       label: linkWord(path) || (gear ? "Open Channel Setting Window" : "Configuration"),
       path,
       run: () => {
-        if (pilotID === requestedPilot && flow.conversations.state.get().rooms.some(({ channel }) => channel === room)) settingsRoom = room;
+        const joined = corporation ? store.chat.get().corp.roomName === room :
+          flow.conversations.state.get().rooms.some(({ channel }) => channel === room);
+        if (pilotID === requestedPilot && joined) settingsRoom = room;
       },
     };
     const requestedPilot = pilotID;
-    if (flow.conversations.canRecoverChannelOwnership()) {
+    if (!corporation && flow.conversations.canRecoverChannelOwnership()) {
       channelMenu.open(x, y, [settings, ...entries]);
       return;
     }
     const update = channelMenu.open(x, y, entries);
-    void flow.readChatChannelDirectory(null).then(rows => {
+    const eligible = corporation ? flow.corporationChatSettingsAvailable(room) : flow.readChatChannelDirectory(null).then(rows => {
       const affiliation = rows.find(row => row.roomName === room)?.affiliation;
-      if (pilotID === requestedPilot && (affiliation === "owner" || affiliation === "admin")) update([settings, ...entries]);
+      return affiliation === "owner" || affiliation === "admin";
+    });
+    void eligible.then(available => {
+      if (pilotID === requestedPilot && available) update([settings, ...entries]);
     }).catch(() => {});
   }
 

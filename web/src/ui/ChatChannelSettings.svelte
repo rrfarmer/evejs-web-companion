@@ -15,7 +15,7 @@
     ownershipLost: () => void;
   } = $props();
   const paths = {
-    title: "UI/Chat/ChannelConfiguration", general: "UI/Generic/General", name: "UI/Chat/ChannelName",
+    title: "UI/Chat/ChannelConfiguration", general: "UI/Generic/General", name: "UI/Chat/ChannelName", corp: "UI/Common/Corp",
     password: "UI/Chat/Password", retype: "UI/Chat/RetypePassword", access: "UI/Chat/DefaultAccess",
     motd: "UI/Chat/Motd", allowed: "UI/Chat/Allowed", moderated: "UI/Chat/Moderated", blocked: "UI/Chat/Blocked", muted: "UI/Chat/Muted", operators: "UI/Chat/Operators", owners: "UI/Chat/Owners",
     ok: "UI/Common/Buttons/OK", cancel: "UI/Common/Buttons/Cancel", muteHint: "UI/Chat/HowtoMuteHint",
@@ -35,12 +35,13 @@
   let tab = $state<"general" | ChatAccessList>("general");
   let changingAccess = $state(false);
   const generalForm = $props.id();
+  const corporation = $derived(/^corp_\d+$/.test(room));
 
   onMount(() => {
     let mounted = true;
     dialog.showModal();
     flow.requestWords(Object.values(paths));
-    void flow.chatDirectoryChannelSettings(room, undefined, flow.conversations.canRecoverChannelOwnership()).then(settings => {
+    void flow.chatDirectoryChannelSettings(room, undefined, !corporation && flow.conversations.canRecoverChannelOwnership()).then(settings => {
       if (!mounted) return;
       current = settings;
       name = settings.name;
@@ -59,8 +60,8 @@
     error = "";
     const trimmedName = name.trim();
     const changedPassword = password === unchangedPassword || (!current.passwordProtected && !password) ? undefined : password;
-    if (current.owner) {
-      if (!trimmedName) { error = "Enter a channel name."; return; }
+    if (current.owner && !trimmedName) { error = "Enter a channel name."; return; }
+    if (current.access !== null) {
       if (password !== retype) { error = "The passwords do not match."; return; }
       if (changedPassword && (changedPassword.length < 3 || changedPassword !== changedPassword.trim())) {
         error = "Use at least three characters for the password, with no leading or trailing spaces.";
@@ -73,12 +74,12 @@
     }
     pending = true;
     try {
-      const change = current.owner ? {
-        ...(trimmedName !== current.name ? { name: trimmedName } : {}),
-        ...(access !== current.access ? { access } : {}),
-        ...(changedPassword !== undefined ? { password: changedPassword } : {}),
+      const change = {
+        ...(current.owner && trimmedName !== current.name ? { name: trimmedName } : {}),
+        ...(current.access !== null && access !== current.access ? { access } : {}),
+        ...(current.access !== null && changedPassword !== undefined ? { password: changedPassword } : {}),
         motd,
-      } : { motd };
+      };
       saved(await flow.chatDirectoryChannelSettings(room, change));
     } catch (cause) {
       error = cause instanceof Error ? cause.message : "The channel settings could not be saved.";
@@ -94,19 +95,24 @@
   {#if current}
     <nav class="channel-tabs" aria-label="Channel settings">
       <button type="button" aria-pressed={tab === "general"} disabled={pending || changingAccess} onclick={() => { tab = "general"; }}>{label("general", "General")}</button>
+      {#if !corporation}
       <button type="button" aria-pressed={tab === "allowed"} disabled={pending || changingAccess} onclick={() => { tab = "allowed"; }}>{label("allowed", "Allowed")}</button>
       <button type="button" aria-pressed={tab === "blocked"} disabled={pending || changingAccess} onclick={() => { tab = "blocked"; }}>{label("blocked", "Blocked")}</button>
       <button type="button" aria-pressed={tab === "muted"} disabled={pending || changingAccess} onclick={() => { tab = "muted"; }}>{label("muted", "Muted")}</button>
       <button type="button" aria-pressed={tab === "operators"} disabled={pending || changingAccess} onclick={() => { tab = "operators"; }}>{label("operators", "Operators")}</button>
       <button type="button" aria-pressed={tab === "owners"} disabled={pending || changingAccess} onclick={() => { tab = "owners"; }}>{label("owners", "Owners")}</button>
+      {/if}
     </nav>
   {/if}
   <form id={generalForm} hidden={tab !== "general"} onsubmit={submit}>
     {#if current}
       <fieldset disabled={pending}>
         <legend>{label("general", "General")}</legend>
-        <label>{label("name", "Channel Name")}<input type="text" maxlength="50" bind:value={name} readonly={!current.owner} /></label>
-        {#if current.owner}
+        <label>{label("name", "Channel Name")}
+          {#if corporation}<input type="text" value={label("corp", current.name)} readonly />
+          {:else}<input type="text" maxlength="50" bind:value={name} readonly={!current.owner} />{/if}
+        </label>
+        {#if current.access !== null}
           <label>{label("password", "Password")}<input type="password" maxlength="20" autocomplete="new-password" bind:value={password} /></label>
           <label>{label("retype", "Re-type Password")}<input type="password" maxlength="20" autocomplete="new-password" bind:value={retype} /></label>
           <label>{label("access", "Default Access")}

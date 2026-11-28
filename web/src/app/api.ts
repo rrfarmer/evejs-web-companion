@@ -2207,6 +2207,10 @@ export interface ChatChannelSettingsChange {
   readonly password?: string;
   readonly motd: string;
 }
+
+export async function corporationChatSettingsAvailable(roomName: string, options: ApiOptions = {}): Promise<boolean> {
+  return (await getJson(`/api/bridge/chat/${encodeURIComponent(roomName)}/settings/availability`, options)).available === true;
+}
 export async function chatChannelSettings(roomName: string, change: ChatChannelSettingsChange | null, options: ApiOptions = {}, open = false): Promise<ChatChannelSettings> {
   const path = `/api/bridge/chat/${encodeURIComponent(roomName)}/settings`;
   const data = change !== null ? await postJson(path, change, options)

@@ -1953,13 +1953,16 @@ class XmppChatSession {
   }
 
   async channelSettings(roomName, context = {}) {
-    const channel = await this.managedDirectoryChannel(roomName, context);
+    const corporation = /^corp_\d+$/.test(roomName);
+    const channel = corporation ? await this.managedCorporationChannel(roomName, context) : await this.managedDirectoryChannel(roomName, context);
     const settings = { name: channel.name, motd: this.roomSubjects.get(roomName) || "", owner: channel.affiliation === "owner",
       access: null, passwordProtected: false };
-    if (!settings.owner) return settings;
+    if (!settings.owner && !corporation) return settings;
     const response = await this.requestChatInformation(this.retailStanzas().roomIq(roomName, "owner", "get"), "channel settings");
     this.assertChatCurrent(context);
+    if (corporation) await this.managedCorporationChannel(roomName, context);
     if (attr(response.match(/^<iq\b[^>]*>/i)?.[0] || "", "type") !== "result") {
+      if (corporation) return settings;
       throw new XmppChatError("The chat server refused to read channel settings.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
     }
     const fields = new Map();
@@ -1970,16 +1973,27 @@ class XmppChatSession {
     if (fields.get("FORM_TYPE") !== "http://jabber.org/protocol/muc#roomconfig") {
       throw new XmppChatError("The chat server did not return a channel settings form.", { code: "CHAT_SETTINGS_UNAVAILABLE", statusCode: 502 });
     }
-    return { ...settings, name: fields.get("muc#roomconfig_roomname") || settings.name,
+    return { ...settings, name: corporation ? settings.name : fields.get("muc#roomconfig_roomname") || settings.name,
       motd: this.roomSubjects.get(roomName) || "", passwordProtected: fields.get("muc#roomconfig_passwordprotectedroom") === "1",
       access: fields.get("muc#roomconfig_membersonly") === "1" ? "blocked" : fields.get("members_by_default") === "1" ? "allowed" : "moderated" };
   }
 
+  async managedCorporationChannel(roomName, context) {
+    const refused = () => new XmppChatError("Only a chat manager can configure their corporation channel.",
+      { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
+    if (!context.canManageCorporationChat?.(roomName)) throw refused();
+    const room = await this.ensureChannel("corp", context);
+    this.assertChatCurrent(context);
+    if (room?.roomName !== roomName || !context.canManageCorporationChat(roomName)) throw refused();
+    return { name: "Corp", roomJid: room.roomJid };
+  }
+
   async saveChannelSettings(roomName, change, context = {}) {
+    const corporation = /^corp_\d+$/.test(roomName);
     const before = await this.channelSettings(roomName, context);
     const { name, access, password, motd } = change;
-    if (!before.owner && (name !== undefined || access !== undefined || password !== undefined)) {
-      throw new XmppChatError("Only the channel owner can change its name, password, or access.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
+    if ((!before.owner && name !== undefined) || (before.access === null && (access !== undefined || password !== undefined))) {
+      throw new XmppChatError("This channel does not allow those settings changes.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
     }
     const fields = [];
     if (name !== undefined && name !== before.name) fields.push(["muc#roomconfig_roomname", name]);
@@ -1995,6 +2009,7 @@ class XmppChatSession {
     if (fields.length) {
       fields.unshift(["FORM_TYPE", "http://jabber.org/protocol/muc#roomconfig"]);
       const values = fields.map(([key, value]) => `<field var='${key}'><value>${escapeXml(value)}</value></field>`).join("");
+      if (corporation) await this.managedCorporationChannel(roomName, context);
       this.assertChatCurrent(context);
       const response = await this.requestChatInformation(stanzas.roomIq(roomName, "owner", "set",
         `<x xmlns='jabber:x:data' type='submit'>${values}</x>`), "channel settings update");
@@ -2003,9 +2018,19 @@ class XmppChatSession {
         throw new XmppChatError("The chat server refused to save channel settings.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
       }
     }
-    if (motd !== this.roomSubjects.get(roomName) && (motd || this.roomSubjects.has(roomName))) {
+    const previousMotd = this.roomSubjects.get(roomName);
+    if (motd !== previousMotd && (motd || this.roomSubjects.has(roomName))) {
       this.assertChatCurrent(context);
-      await this.requestChatInformation({ id: `subject:${roomName}`, xml: stanzas.roomSubject(roomName, motd), expectedSubject: motd }, "channel message update");
+      if (corporation) {
+        const { roomJid } = await this.managedCorporationChannel(roomName, context);
+        if (!await context.setCorporationChatMotd?.(roomName, roomJid, motd)) {
+          throw new XmppChatError("The chat server refused to save the corporation message of the day.",
+            { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
+        }
+        if (this.roomSubjects.get(roomName) === previousMotd) this.roomSubjects.set(roomName, motd);
+      } else {
+        await this.requestChatInformation({ id: `subject:${roomName}`, xml: stanzas.roomSubject(roomName, motd), expectedSubject: motd }, "channel message update");
+      }
       this.assertChatCurrent(context);
     }
     return this.channelSettings(roomName, context);
