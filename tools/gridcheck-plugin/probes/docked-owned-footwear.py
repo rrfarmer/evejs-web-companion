@@ -31,9 +31,13 @@ def observe():
                 context.character.WaitForUpdate()
                 doll = context.character.doll
                 modifiers = [modifier for modifier in doll.buildDataManager.GetModifiersAsList() if 'feet/' in modifier.respath]
+                boot_masks = [modifier for modifier in doll.buildDataManager.GetSortedModifiers()
+                              if modifier.respath.startswith('dependants/bootmasks/')]
                 weights = {name: value for name, value in doll.buildDataManager.GetMorphTargets().iteritems()
                            if name.startswith('pantstuck')}
                 samples.append(dict(gender=gender, resource=resource, weights=weights,
+                                    masks=[dict(path=m.respath, weight=m.weight, maps=dict(m.mapMask),
+                                                uv=m.GetUVsForCompositing('body')) for m in boot_masks],
                                     geometry=[path for modifier in modifiers for path in modifier.meshGeometryResPaths.values()],
                                     effects=[area.effect.name for modifier in modifiers for mesh in modifier.meshes
                                              for area in mesh.opaqueAreas if area.effect],
