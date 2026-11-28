@@ -329,6 +329,10 @@ export class StarMap {
   markerSize: "none" | "medium" | "big" = "none";
   /** The mouse over the map (page coordinates), and the preview bubbles' systems (previewBubbleMarkerIDs). */
   private mouse: { x: number; y: number } | null = null;
+  private readonly previewEvents = new AbortController();
+  private persistentDataView = true;
+  private previewControlHeld = false;
+  private lastPreviewRefresh = -Infinity;
   preview = new Set<number>();
   private zoomValue = 1;
   private bigNames = new Map<number, HTMLDivElement>();
@@ -418,9 +422,16 @@ export class StarMap {
     canvas.addEventListener("pointermove", (e) => {
       this.mouse = { x: e.clientX, y: e.clientY };
       if (!down) this.hover(this.starAt(e.clientX, e.clientY));
-      this.pickNearMouse();
+      if (!this.showAllPreview()) this.updatePreview();
     });
-    canvas.addEventListener("pointerleave", () => { this.hover(null); this.mouse = null; this.pickNearMouse(); });
+    canvas.addEventListener("pointerleave", () => { this.hover(null); this.mouse = null; if (!this.showAllPreview()) this.updatePreview(); });
+    const previewKey = (event: KeyboardEvent) => {
+      if (event.key === "Control") this.setPreviewControlHeld(event.ctrlKey);
+    };
+    const previewListener = { capture: true, signal: this.previewEvents.signal };
+    window.addEventListener("keydown", previewKey, previewListener);
+    window.addEventListener("keyup", previewKey, previewListener);
+    window.addEventListener("blur", () => this.setPreviewControlHeld(false), previewListener);
     this.camera = new THREE.PerspectiveCamera(THREE.MathUtils.radToDeg(1.0), 1, 0.1, MAX_CAMERA_DISTANCE * 4);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     // the mirrored canvas: a sideways drag keeps its sense on screen
@@ -801,24 +812,44 @@ export class StarMap {
     if (t >= 1) this.morph = null;
   }
 
-  /** PickSceneNearMouse / ClearNearMouse: the preview bubbles' systems at the medium zoom, their shapes redone. */
-  private pickNearMouse(): void {
+  setPersistentDataView(enabled: boolean): void {
+    this.persistentDataView = enabled;
+    this.updatePreview();
+  }
+
+  private setPreviewControlHeld(held: boolean): void {
+    if (this.previewControlHeld === held) return;
+    this.previewControlHeld = held;
+    this.updatePreview();
+  }
+
+  private showAllPreview(): boolean {
+    return this.persistentDataView || this.previewControlHeld;
+  }
+
+  /** MapViewWorld: the viewport in persistent mode, or selection plus the area around the mouse. */
+  private updatePreview(): void {
+    const showAll = this.showAllPreview();
     const next = new Set<number>();
+    this.lastPreviewRefresh = performance.now();
     if (this.abstract && this.markerSize === "medium") {
-      if (this.selectedID !== null) next.add(this.selectedID);
-      if (this.mouse) {
+      if (!showAll && this.selectedID !== null) next.add(this.selectedID);
+      const mouse = this.mouse;
+      if (showAll || mouse) {
         const r = this.renderer.domElement.getBoundingClientRect();
         const box = 1400 / 5000 * r.height;
         const v = new THREE.Vector3();
+        const camera = this.screenCam;
         for (const [id, p] of this.positions) {
-          v.copy(p).project(this.screenCam);
+          v.copy(p).project(camera);
           if (v.z <= -1 || v.z >= 1) continue;
           const x = r.left + (v.x + 1) / 2 * r.width, y = r.top + (1 - v.y) / 2 * r.height;
           if (x < r.left - 20 || x > r.right + 20 || y < r.top - 20 || y > r.bottom + 20) continue;
-          if ((x - this.mouse.x) ** 2 + (y - this.mouse.y) ** 2 < box * box) next.add(id);
+          if (showAll || (mouse && (x - mouse.x) ** 2 + (y - mouse.y) ** 2 < box * box)) next.add(id);
         }
       }
     }
+    if (next.size > 2_000) return;
     if (next.size === this.preview.size && [...next].every((id) => this.preview.has(id))) return;
     this.preview = next;
     if (this.markerSize === "medium") this.writeShapes("medium");
@@ -853,7 +884,7 @@ export class StarMap {
       this.writeShapes(size);
     }
     if (size === "none") { for (const el of this.bigNames.values()) el.remove(); this.bigNames.clear(); }
-    this.pickNearMouse();
+    this.updatePreview();
   }
 
   private updateFilterHeat(): void {
@@ -1161,8 +1192,9 @@ export class StarMap {
   /** Each marker where its point projects (a bracket's place), its opacity as the client's. */
   private placeMarkers(w: number, h: number): void {
     const v = new THREE.Vector3();
+    const camera = this.screenCam;
     const project = (at: THREE.Vector3) => {
-      v.copy(at).project(this.screenCam);
+      v.copy(at).project(camera);
       return v.z < 1 && v.z > -1 ? { x: (v.x + 1) / 2 * w, y: (1 - v.y) / 2 * h } : null;
     };
     const eye = this.camera.position;
@@ -1174,8 +1206,9 @@ export class StarMap {
       // the medium names' opacity by the zoom value (_GetMarkerSizeToUse)
       const faint = this.zoomValue > 0.71 ? 0 : 0.3 + ((this.zoomValue - 0.71) / (0.66 - 0.71)) * 0.45;
       const seen = new Set<number>();
-      for (const [id, at] of this.positions) {
-        if (!big && !this.preview.has(id)) continue;
+      for (const id of big ? this.positions.keys() : this.preview) {
+        const at = this.positions.get(id);
+        if (!at) continue;
         const p = project(at);
         if (!p || p.x < -100 || p.x > w + 100 || p.y < -100 || p.y > h + 100) continue;
         seen.add(id);
@@ -1329,12 +1362,16 @@ export class StarMap {
     this.lineUniforms.targetResolution.value.set(this.renderer.domElement.width, this.renderer.domElement.height);
     this.lineUniforms.time.value = performance.now() / 1000;
     this.renderer.render(this.scene, this.camera);
+    if (this.markerSize === "medium" && this.showAllPreview() && performance.now() - this.lastPreviewRefresh >= 200) {
+      this.updatePreview();
+    }
     this.placeMarkers(w, h);
   }
 
   dispose(): void {
     this.closed = true;
     this.stop();
+    this.previewEvents.abort();
     this.convoyTex?.dispose();
     this.controls.dispose();
     this.renderer.dispose();

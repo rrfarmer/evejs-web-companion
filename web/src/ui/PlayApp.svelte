@@ -2735,7 +2735,6 @@
     abstract.dataset.uiPointer = STAR_MAP_POINTERS.layout;
     const box = document.createElement("input");
     box.type = "checkbox";
-    box.onchange = () => void m.setLayout(box.checked);
     // the client's map opens in it (VIEWMODE_LAYOUT_SHOW_ABSTRACT_DEFAULT True)
     box.checked = true;
     box.dataset.uiPointer = STAR_MAP_POINTERS.abstract;
@@ -2769,7 +2768,33 @@
         if (starMap === m) home.disabled = false;
       }
     };
-    layout.append(abstract, current, home);
+    const dataView = document.createElement("button");
+    dataView.type = "button";
+    dataView.dataset.uiPointer = STAR_MAP_POINTERS.dataView;
+    dataView.setAttribute("aria-label", "Persistent data view");
+    dataView.title = "Persistent data view";
+    const dataIcon = document.createElement("img");
+    dataIcon.alt = "";
+    dataView.append(dataIcon);
+    const dataViewKey = `evejs.user.${s.store.session.get().accountID ?? "local"}.mapPreviewModeActive`;
+    let persistent = true;
+    try { persistent = localStorage.getItem(dataViewKey) !== "false"; } catch { /* use the native default */ }
+    const showDataView = () => {
+      m.setPersistentDataView(persistent);
+      dataView.setAttribute("aria-pressed", String(persistent));
+      dataIcon.src = clientTexture(`res:/UI/Texture/eveicon/system_icons/${persistent ? "visibility" : "hidden"}_16px.png`);
+    };
+    showDataView();
+    dataView.onclick = () => {
+      persistent = !persistent;
+      showDataView();
+      try { localStorage.setItem(dataViewKey, String(persistent)); } catch { /* use the current session setting */ }
+    };
+    box.onchange = () => {
+      dataView.hidden = !box.checked;
+      void m.setLayout(box.checked);
+    };
+    layout.append(abstract, current, home, dataView);
     m.root.appendChild(layout);
     mapHost.appendChild(m.root);
     m.start();
@@ -6368,6 +6393,7 @@
   .fly-map :global(.star-map-layout button) { display: grid; place-items: center; width: 22px; height: 22px; padding: 0;
     border: 1px solid #fff3; background: #111b; cursor: pointer; }
   .fly-map :global(.star-map-layout button:disabled) { opacity: 0.5; cursor: default; }
+  .fly-map :global(.star-map-layout button[hidden]) { display: none; }
   .fly-map :global(.star-map-layout img) { width: 16px; height: 16px; }
   .fly-map :global(.star-map-close) { position: absolute; top: 8px; right: 10px; z-index: 1; background: rgba(0,0,0,0.5);
     color: #ccc; border: 1px solid rgba(255,255,255,0.2); width: 22px; height: 22px; cursor: pointer; }
