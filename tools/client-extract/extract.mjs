@@ -1069,6 +1069,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const eyeImplant = glasses && style === "eyeimp01";
   const fittedEyewear = monocle || eyeImplant;
   const footwear = slot === "feet";
+  const trousers = slot === "bottomouter";
   const masks = slot === "accessories/masks";
   const headwear = glasses || masks;
   const stem = slot === "outer" ? `${gender}/${style}` : `${gender}/${slot}/${style}`;
@@ -1085,7 +1086,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const [, variation, palette] = fields;
   const layers = variation ? [`${folder}/${variation}`, folder] : [folder];
   const definitionsAt = layer => rf.list(layer + "/", /\.black$/i).filter(res => !res.slice(layer.length + 1).includes("/"));
-  const variantDefinitions = (fittedEyewear || footwear) && variation ? definitionsAt(layers[0]) : [];
+  const variantDefinitions = (fittedEyewear || footwear || trousers) && variation ? definitionsAt(layers[0]) : [];
   const definitions = variantDefinitions.length ? variantDefinitions : definitionsAt(folder);
   const meshes = definitions.flatMap(res => readBlack(rf.read(res), res).meshes ?? []);
   const sources = new Set(meshes.map(mesh => mesh.geometryResPath?.toLowerCase())
@@ -1109,7 +1110,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const colors = Array.isArray(authoredColors) && authoredColors.length >= 3 &&
     authoredColors.slice(0, 3).every(color => Array.isArray(color) && color.length === 4 && color.every(Number.isFinite))
     ? authoredColors.slice(0, 3) : [];
-  const metadataPath = (fittedEyewear || footwear ? layers : [folder]).map(layer => `${layer}/metadata.yaml`).find(file => rf.has(file));
+  const metadataPath = (fittedEyewear || footwear || trousers ? layers : [folder]).map(layer => `${layer}/metadata.yaml`).find(file => rf.has(file));
   const metadata = metadataPath ? readYaml(metadataPath) : null;
   const occlusions = metadata?.occludesModifiers;
   const occludes = Array.isArray(occlusions) ? occlusions.filter(value => typeof value === "string") : [];
@@ -1185,7 +1186,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const rect = filename => filename?.endsWith(".png") ? portraitPngRect(rf.read(filename)) : [0, 0, 1, 1];
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
-    outfitBuild: footwear ? 14 : fittedEyewear ? 12 : masks ? 10 : slot === "bottommiddle" ? 9 : glasses ? 8 : amarrRobe ? 7 : slot === "topmiddle" ? 5 : 4,
+    outfitBuild: footwear ? 14 : fittedEyewear ? 12 : masks ? 10 : slot === "bottommiddle" ? 9 : glasses ? 8 : amarrRobe ? 7 : slot === "topmiddle" ? 5 : trousers ? 15 : 4,
     model: `/client-assets/portrait-outfit/${model}`, source, type: typePath, variation, palette, colors, occludes, skinMeshes,
     diffuse: diffuse ? copyRes(rf, diffuse, outRoot) : null,
     zones: zones ? copyRes(rf, zones, outRoot) : null,

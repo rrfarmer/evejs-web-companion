@@ -7,7 +7,8 @@ const apparelFamilies = {
     topouter: [],
     topmiddle: ["shirtaf01", "shirtcf01", "shirtgf01", "shirtmf01", "tanktopf01"],
     bottommiddle: ["tightsf01"],
-    bottomouter: ["pantsaf01", "pantscf01", "pantsgf01", "pantsmf01"],
+    bottomouter: ["pantsaf01", "pantscf01", "pantsgf01", "pantsmf01", "pantsalf_01", "pantscorpbusinessf01",
+      "pantsengf01", "pantsmilf01", "pantsprtf01", "pantsslf_01"],
     feet: ["bootsaf01", "bootscf01", "bootsgf01", "bootsmf01", "bootsalf_01", "bootsmilf01", "bootsmilf02",
       "bootsmilf03", "bootsprtf01", "bootsslf_01", "shoesengf01", "spaceboots01f"],
     "accessories/glasses": ["glasses_pilot_01", "glasses_slick_01", "goggles_01", "glasses_citadel_f01", "glasses_exo_f01", "monocle_01", "monocle_f_t02", "eyeimp01"],
@@ -16,7 +17,8 @@ const apparelFamilies = {
     topouter: ["shirtam01"],
     topmiddle: ["shirtcm01", "shirtgm01", "shirtmm01", "tanktopm01"],
     bottommiddle: [],
-    bottomouter: ["pantsam01", "pantscm01", "pantsgm01", "pantsmm01"],
+    bottomouter: ["pantsam01", "pantscm01", "pantsgm01", "pantsmm01", "pantsalm01", "pantsclm01",
+      "pantscorpbusinessm01", "pantsengm01", "pantsmilm01", "pantsprtm01"],
     feet: ["bootsam01", "bootscm01", "shoesgm01", "bootsmm01", "bootsalm01", "bootsclm01", "bootsmilm01",
       "bootsmilm02", "bootsmilm03", "bootsprtm01", "shoescorpbusinessm01", "shoesengm01"],
     "accessories/glasses": ["glasses_pilot_01", "glasses_slick_01", "goggles_01", "glasses_citadel_m01", "glasses_exo_m01", "monocle_01", "monocle_m_t02", "eyeimp01"],
@@ -34,6 +36,11 @@ const footwearNames = {
   bootsmilf03: "Military boots 3", bootsmilm03: "Military boots 3", bootsprtf01: "Prototype boots", bootsprtm01: "Prototype boots",
   bootsslf_01: "Slim boots", shoesengf01: "Engineering shoes", shoesengm01: "Engineering shoes",
   shoescorpbusinessm01: "Business shoes", spaceboots01f: "Space boots",
+};
+const trouserNames = {
+  pantsalf_01: "Alliance", pantsalm01: "Alliance", pantsclm01: "Classic",
+  pantscorpbusinessf01: "Business", pantscorpbusinessm01: "Business", pantsengf01: "Engineering", pantsengm01: "Engineering",
+  pantsmilf01: "Military", pantsmilm01: "Military", pantsprtf01: "Prototype", pantsprtm01: "Prototype", pantsslf_01: "Slim",
 };
 
 function isPortraitApparelType(path) {
@@ -55,7 +62,8 @@ function portraitApparelChoices(resources, model, race, slot, fileFor, ownedType
     const file = fileFor(`res:/graphics/character/${model}/paperdoll/${slot}/${family}/types/${variant}.type`);
     if (!file || !fs.existsSync(file)) return [];
     const footwear = slot === "feet" ? footwearNames[family] : null;
-    const variantShade = glasses || masks || footwear
+    const trousers = slot === "bottomouter" ? trouserNames[family] : null;
+    const variantShade = glasses || masks || footwear || trousers
       ? variant.startsWith(family) ? variant.slice(family.length + 1)
         : variant.slice(variant.indexOf("_") + 1).replace(/^01_/, "")
       : variant.split("_").slice(1).join("_");
@@ -66,6 +74,7 @@ function portraitApparelChoices(resources, model, race, slot, fileFor, ownedType
     const label = glasses ? `${eyewearNames[family]} ${name}`
       : masks ? `${family.startsWith("mask_cyberpunk") ? "Cyberpunk" : "Mask"} ${name}`
       : footwear ? `${footwear} ${name}`
+      : trousers ? `${trousers} trousers ${name}`
       : family === "robeam01" ? `Amarr robe ${name}`
       : /^tanktop[fm]01$/.test(family) ? `Tank top ${name.replace(/^Generic /, "")}`
       : faction ? `${faction} ${name}` : name;
