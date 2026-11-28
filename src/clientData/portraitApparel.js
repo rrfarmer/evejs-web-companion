@@ -30,9 +30,7 @@ function portraitApparelChoices(resources, model, race, slot, fileFor) {
   const families = apparelFamilies[model][slot];
   const glasses = slot === "accessories/glasses";
   return Object.entries(resources ?? {}).flatMap(([key, row]) => {
-    const raceListed = row.empireRestrictions?.includes(race);
-    if (row.resGender !== gender || row.typeID != null ||
-      (row.empireRestrictions?.length && (glasses ? raceListed : !raceListed))) return [];
+    if (row.resGender !== gender || row.typeID != null || row.empireRestrictions?.includes(race)) return [];
     const path = /^(outer|topouter|topmiddle|bottomouter|feet|accessories\/glasses)\/([a-z0-9_]+)\/types\/([a-z0-9_]+)\.type$/i.exec(row.resPath?.toLowerCase());
     if (!path || path[1] !== slot || !families.includes(path[2])) return [];
     const [, , family, variant] = path;
