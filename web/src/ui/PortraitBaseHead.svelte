@@ -640,6 +640,7 @@
     if (!active) return;
     let retired = false;
     let head: THREE.Group | null = null;
+    const headwear = new THREE.Group();
     let eyelashTexture: THREE.Texture | null = null;
     let eyelashes: THREE.MeshBasicMaterial | null = null;
     const maps: Awaited<ReturnType<typeof loadMap>>[] = [];
@@ -780,14 +781,59 @@
       if (!retired && sculpts?.length) await applyPortraitMorphs(avatar, stem, sculpts, () => retired);
       if (retired) { release(avatar); return; }
       head = avatar;
+      let skinCutout: PortraitCroppedTexture | null = null;
+      for (const url of [glasses, mask]) {
+        if (!url || retired) continue;
+        let piece: THREE.Group | undefined;
+        try {
+          const response = await fetch(url);
+          if (!response.ok) continue;
+          const data = await response.json() as { model: string; diffuse: string | null; zones: string | null;
+            colors: [number, number, number, number][]; lensAreas?: number[]; skinCutout?: CroppedMapAsset };
+          const texture = async (url: string | null, color: boolean) => {
+            if (!url || retired) return null;
+            const map = await loadMap(url, color);
+            if (retired) { map.texture.dispose(); map.bitmap.close(); return null; }
+            maps.push(map);
+            return map.texture;
+          };
+          const diffuse = await texture(data.diffuse, true);
+          const zones = await texture(data.zones, false);
+          if (retired) return;
+          piece = (await loader.loadAsync(data.model)).scene;
+          if (!retired && sculpts?.length) await applyPortraitMorphs(piece, data.model.replace(/\.glb$/, ""), sculpts, () => retired);
+          if (retired) { release(piece); return; }
+          const colors = data.colors.map(([r, g, b]) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace));
+          const dyed = diffuse && zones && colors.length === 3;
+          const frame = new THREE.MeshStandardMaterial({ map: diffuse, color: dyed ? 0xffffff : colors[0] ?? (diffuse ? 0xffffff : 0x343434),
+            metalness: 0.35, roughness: 0.36 });
+          if (dyed) applyOutfitPalette(frame, zones, colors);
+          const color = colors[2] ?? new THREE.Color(0x2b3037);
+          const lens = data.lensAreas?.length ? new THREE.MeshStandardMaterial({ color, transparent: true, side: THREE.DoubleSide,
+            depthWrite: false, opacity: 0.83 - 0.45 * Math.max(color.r, color.g, color.b), roughness: 0.22 }) : null;
+          if (lens) lens.forceSinglePass = true;
+          const originals = new Set<THREE.Material>();
+          piece.traverse(node => {
+            if (!(node instanceof THREE.Mesh) || Array.isArray(node.material)) return;
+            originals.add(node.material);
+            node.material = lens && data.lensAreas?.includes(node.material.userData.index) ? lens : frame;
+          });
+          for (const material of originals) material.dispose();
+          headwear.add(piece);
+          if (data.skinCutout) skinCutout = await loadCroppedTexture(data.skinCutout, maps, () => retired).catch(() => null);
+        } catch {
+          if (piece) release(piece);
+        }
+      }
+      if (retired) return;
       const surface = new THREE.MeshStandardMaterial({ map: maps[0]!.texture, normalMap: maps[1]!.texture, roughness: 0.76 });
       const tint = skinUniforms;
-      const skin = tint || faceLayers.length || implant ? surface.clone() : surface;
+      const skin = tint || faceLayers.length || implant || skinCutout ? surface.clone() : surface;
       // The authored head normal packs tangent X in alpha and Y in green.
       // Read the two linear channels without premultiplying the PNG.
       const configure = (material: THREE.MeshStandardMaterial, skinLayer: SkinUniforms | null,
         layers: readonly [string, PortraitColorLayer][] = [], implantMaps: PortraitImplantMaps | null = null,
-        finish: PortraitSurfaceFinish = {}) => {
+        finish: PortraitSurfaceFinish = {}, cutout: PortraitCroppedTexture | null = null) => {
         material.onBeforeCompile = shader => {
           const layeredNormal = archetype ? `headNormal = mix(headNormal,
             texture2D( archetypeNormal, vNormalMapUv ).ag * 2.0 - 1.0, archetypeCoverage);` : "";
@@ -828,6 +874,20 @@
           if (implantMaps) compositePortraitImplant(shader, implantMaps);
           for (const [name, layer] of layers) compositePortraitColorLayer(shader, name, layer);
           compositePortraitScalpFinish(shader, finish);
+          if (cutout) {
+            shader.uniforms.portraitSkinCutout = { value: cutout.texture };
+            shader.uniforms.portraitSkinCutoutRect = { value: cutout.rect };
+            shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
+              #include <map_pars_fragment>
+              uniform sampler2D portraitSkinCutout;
+              uniform vec4 portraitSkinCutoutRect;
+            `).replace("#include <alphatest_fragment>", `
+              #include <alphatest_fragment>
+              vec2 cutoutUV = (vMapUv - portraitSkinCutoutRect.xy) / portraitSkinCutoutRect.zw;
+              if (all(greaterThanEqual(cutoutUV, vec2(0.0))) && all(lessThanEqual(cutoutUV, vec2(1.0))) &&
+                  texture2D(portraitSkinCutout, cutoutUV).a >= 0.5) discard;
+            `);
+          }
           shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>",
             THREE.ShaderChunk.normal_fragment_maps.replace(
               "vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;",
@@ -842,11 +902,23 @@
                vec3 mapN = vec3( headNormal, sqrt( max( 0.0, 1.0 - dot( headNormal, headNormal ) ) ) );`,
             ));
         };
-        material.customProgramCacheKey = () => `portrait:${Boolean(archetype)}:${Boolean(skinLayer)}:${Boolean(implantMaps)}:${Boolean(finish.Normal)}:${Boolean(finish.Specular)}:${layers.map(([name, layer]) => `${name}/${Boolean(layer.zones)}/${layer.gloss !== null}`).join(",")}`;
+        material.customProgramCacheKey = () => `portrait:${Boolean(archetype)}:${Boolean(skinLayer)}:${Boolean(implantMaps)}:${Boolean(finish.Normal)}:${Boolean(finish.Specular)}:${Boolean(cutout)}:${layers.map(([name, layer]) => `${name}/${Boolean(layer.zones)}/${layer.gloss !== null}`).join(",")}`;
       };
       configure(surface, null);
-      if (skin !== surface) configure(skin, tint, faceLayers, implant, scalpFinish);
+      if (skin !== surface) configure(skin, tint, faceLayers, implant, scalpFinish, skinCutout);
       applySurface(avatar, surface, new Set(transparent), new Set(eyelashMeshes), eyelashes, skin);
+      if (skinCutout) {
+        const tearducts = surface.clone();
+        configure(tearducts, null, [], null, {}, skinCutout);
+        let attached = false;
+        avatar.traverse(node => {
+          if (node instanceof THREE.Mesh && /^Tearducts_GeoShape(?:_\d+)?$/i.test(node.name)) {
+            node.material = tearducts;
+            attached = true;
+          }
+        });
+        if (!attached) tearducts.dispose();
+      }
       if (irisLayer) {
         const eyes = surface.clone();
         configure(eyes, null, [["portraitIris", irisLayer]]);
@@ -895,48 +967,7 @@
           // A saved piece may have no single skinned model in this installation.
         }
       }
-      for (const url of [glasses, mask]) {
-        if (!url || retired) continue;
-        let piece: THREE.Group | undefined;
-        try {
-          const response = await fetch(url);
-          if (!response.ok) continue;
-          const data = await response.json() as { model: string; diffuse: string | null; zones: string | null;
-            colors: [number, number, number, number][]; lensAreas?: number[] };
-          const texture = async (url: string | null, color: boolean) => {
-            if (!url || retired) return null;
-            const map = await loadMap(url, color);
-            if (retired) { map.texture.dispose(); map.bitmap.close(); return null; }
-            maps.push(map);
-            return map.texture;
-          };
-          const diffuse = await texture(data.diffuse, true);
-          const zones = await texture(data.zones, false);
-          if (retired) return;
-          piece = (await loader.loadAsync(data.model)).scene;
-          if (!retired && sculpts?.length) await applyPortraitMorphs(piece, data.model.replace(/\.glb$/, ""), sculpts, () => retired);
-          if (retired) { release(piece); return; }
-          const colors = data.colors.map(([r, g, b]) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace));
-          const dyed = diffuse && zones && colors.length === 3;
-          const frame = new THREE.MeshStandardMaterial({ map: diffuse, color: dyed ? 0xffffff : colors[0] ?? (diffuse ? 0xffffff : 0x343434),
-            metalness: 0.35, roughness: 0.36 });
-          if (dyed) applyOutfitPalette(frame, zones, colors);
-          const color = colors[2] ?? new THREE.Color(0x2b3037);
-          const lens = data.lensAreas?.length ? new THREE.MeshStandardMaterial({ color, transparent: true, side: THREE.DoubleSide,
-            depthWrite: false, opacity: 0.83 - 0.45 * Math.max(color.r, color.g, color.b), roughness: 0.22 }) : null;
-          if (lens) lens.forceSinglePass = true;
-          const originals = new Set<THREE.Material>();
-          piece.traverse(node => {
-            if (!(node instanceof THREE.Mesh) || Array.isArray(node.material)) return;
-            originals.add(node.material);
-            node.material = lens && data.lensAreas?.includes(node.material.userData.index) ? lens : frame;
-          });
-          for (const material of originals) material.dispose();
-          avatar.add(piece);
-        } catch {
-          if (piece) release(piece);
-        }
-      }
+      avatar.add(headwear);
       scene.add(avatar);
       avatar.updateMatrixWorld(true);
       facialHairTints = beardTints;
@@ -950,6 +981,7 @@
         scene.remove(head);
         release(head);
       } else eyelashes?.dispose();
+      if (!headwear.parent) release(headwear);
       eyelashTexture?.dispose();
       for (const map of maps) {
         map.texture.dispose();
