@@ -781,6 +781,8 @@
       if (retired) { release(avatar); return; }
       head = avatar;
       let skinCutout: PortraitCroppedTexture | null = null;
+      let eyewearNormal: (PortraitCroppedTexture & { masked: boolean }) | null = null;
+      let eyeImplant: THREE.Group | null = null;
       const headMorphs = [...(sculpts ?? [])];
       for (const url of [glasses, mask]) {
         if (!url || retired) continue;
@@ -790,7 +792,8 @@
           if (!response.ok) continue;
           const data = await response.json() as { model: string; diffuse: string | null; zones: string | null;
             colors: [number, number, number, number][]; lensAreas?: number[]; opaqueLensAreas?: number[];
-            skinCutout?: CroppedMapAsset; headDiffuse?: CroppedMapAsset; headMorphs?: string[] };
+            skinCutout?: CroppedMapAsset; headDiffuse?: CroppedMapAsset; headZones?: CroppedMapAsset;
+            headNormal?: CroppedMapAsset & { masked: boolean }; headMorphs?: string[]; headSurface?: boolean };
           const texture = async (url: string | null, color: boolean) => {
             if (!url || retired) return null;
             const map = await loadMap(url, color);
@@ -804,31 +807,42 @@
           piece = (await loader.loadAsync(data.model)).scene;
           if (!retired && sculpts?.length) await applyPortraitMorphs(piece, data.model.replace(/\.glb$/, ""), sculpts, () => retired);
           if (retired) { release(piece); return; }
-          const colors = data.colors.map(([r, g, b]) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace));
-          const dyed = diffuse && zones && colors.length === 3;
-          const frame = new THREE.MeshStandardMaterial({ map: diffuse, color: dyed ? 0xffffff : colors[0] ?? (diffuse ? 0xffffff : 0x343434),
-            metalness: 0.35, roughness: 0.36 });
-          if (dyed) applyOutfitPalette(frame, zones, colors);
-          const color = colors[2] ?? new THREE.Color(0x2b3037);
-          const opaqueLens = Boolean(data.opaqueLensAreas?.length);
-          const lensAreas = data.opaqueLensAreas ?? data.lensAreas;
-          const lens = lensAreas?.length ? new THREE.MeshStandardMaterial({ color, transparent: !opaqueLens, side: THREE.DoubleSide,
-            depthWrite: opaqueLens, opacity: opaqueLens ? 1 : 0.83 - 0.45 * Math.max(color.r, color.g, color.b), roughness: 0.22 }) : null;
-          if (lens) lens.forceSinglePass = true;
-          const originals = new Set<THREE.Material>();
-          piece.traverse(node => {
-            if (!(node instanceof THREE.Mesh) || Array.isArray(node.material)) return;
-            originals.add(node.material);
-            node.material = lens && lensAreas?.includes(node.material.userData.index) ? lens : frame;
-          });
-          for (const material of originals) material.dispose();
+          if (data.headSurface) eyeImplant = piece;
+          else {
+            const colors = data.colors.map(([r, g, b]) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace));
+            const dyed = diffuse && zones && colors.length === 3;
+            const frame = new THREE.MeshStandardMaterial({ map: diffuse, color: dyed ? 0xffffff : colors[0] ?? (diffuse ? 0xffffff : 0x343434),
+              metalness: 0.35, roughness: 0.36 });
+            if (dyed) applyOutfitPalette(frame, zones, colors);
+            const color = colors[2] ?? new THREE.Color(0x2b3037);
+            const opaqueLens = Boolean(data.opaqueLensAreas?.length);
+            const lensAreas = data.opaqueLensAreas ?? data.lensAreas;
+            const lens = lensAreas?.length ? new THREE.MeshStandardMaterial({ color, transparent: !opaqueLens, side: THREE.DoubleSide,
+              depthWrite: opaqueLens, opacity: opaqueLens ? 1 : 0.83 - 0.45 * Math.max(color.r, color.g, color.b), roughness: 0.22 }) : null;
+            if (lens) lens.forceSinglePass = true;
+            const originals = new Set<THREE.Material>();
+            piece.traverse(node => {
+              if (!(node instanceof THREE.Mesh) || Array.isArray(node.material)) return;
+              originals.add(node.material);
+              node.material = lens && lensAreas?.includes(node.material.userData.index) ? lens : frame;
+            });
+            for (const material of originals) material.dispose();
+          }
           headwear.add(piece);
           if (data.skinCutout) skinCutout = await loadCroppedTexture(data.skinCutout, maps, () => retired).catch(() => null);
           for (const name of data.headMorphs ?? []) headMorphs.push({ name, weight: 1 });
           if (data.headDiffuse) {
-            const layer = await loadColorLayer({ diffuse: data.headDiffuse.url, diffuseRect: data.headDiffuse.rect, colors: [] }, 1, null)
+            const layer = await loadColorLayer({ diffuse: data.headDiffuse.url, diffuseRect: data.headDiffuse.rect,
+              ...(data.headZones && data.colors.length === 3 ? { zones: data.headZones.url, zonesRect: data.headZones.rect } : {}),
+              colors: data.colors.map(([r, g, b]) => [r, g, b]) }, 1, null)
               .catch(() => null);
-            if (layer) faceLayers.push(["portraitEyewear", layer]);
+            if (layer) {
+              faceLayers.push(["portraitEyewear", layer]);
+              if (data.headNormal) {
+                const normal = await loadCroppedTexture(data.headNormal, maps, () => retired).catch(() => null);
+                if (normal) eyewearNormal = { ...normal, masked: data.headNormal.masked };
+              }
+            }
           }
         } catch {
           if (piece) release(piece);
@@ -844,6 +858,7 @@
       const configure = (material: THREE.MeshStandardMaterial, skinLayer: SkinUniforms | null,
         layers: readonly [string, PortraitColorLayer][] = [], implantMaps: PortraitImplantMaps | null = null,
         finish: PortraitSurfaceFinish = {}, cutout: PortraitCroppedTexture | null = null) => {
+        const eyeNormal = material === skin ? eyewearNormal : null;
         material.onBeforeCompile = shader => {
           const layeredNormal = archetype ? `headNormal = mix(headNormal,
             texture2D( archetypeNormal, vNormalMapUv ).ag * 2.0 - 1.0, archetypeCoverage);` : "";
@@ -884,6 +899,15 @@
           if (implantMaps) compositePortraitImplant(shader, implantMaps);
           for (const [name, layer] of layers) compositePortraitColorLayer(shader, name, layer);
           compositePortraitScalpFinish(shader, finish);
+          if (eyeNormal) {
+            shader.uniforms.portraitEyewearNormal = { value: eyeNormal.texture };
+            shader.uniforms.portraitEyewearNormalRect = { value: eyeNormal.rect };
+            shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
+              #include <map_pars_fragment>
+              uniform sampler2D portraitEyewearNormal;
+              uniform vec4 portraitEyewearNormalRect;
+            `);
+          }
           if (cutout) {
             shader.uniforms.portraitSkinCutout = { value: cutout.texture };
             shader.uniforms.portraitSkinCutoutRect = { value: cutout.rect };
@@ -909,14 +933,20 @@
                vec2 scalpNormalInside = step(vec2(0.0), scalpNormalUv) * step(scalpNormalUv, vec2(1.0));
                vec2 scalpNormal = texture2D(portraitScalpNormal, scalpNormalUv).ag * 2.0 - 1.0;
                headNormal = mix(headNormal, scalpNormal, portraitScalpHairMask * scalpNormalInside.x * scalpNormalInside.y);` : ""}
+               ${eyeNormal ? `vec2 eyeNormalUv = (vNormalMapUv - portraitEyewearNormalRect.xy) / portraitEyewearNormalRect.zw;
+               vec2 eyeNormalInside = step(vec2(0.0), eyeNormalUv) * step(eyeNormalUv, vec2(1.0));
+               vec4 eyeNormalSample = texture2D(portraitEyewearNormal, eyeNormalUv);
+               headNormal = mix(headNormal, eyeNormalSample.${eyeNormal.masked ? "rg" : "ag"} * 2.0 - 1.0,
+                 ${eyeNormal.masked ? "eyeNormalSample.b" : "portraitEyewearMask"} * eyeNormalInside.x * eyeNormalInside.y);` : ""}
                vec3 mapN = vec3( headNormal, sqrt( max( 0.0, 1.0 - dot( headNormal, headNormal ) ) ) );`,
             ));
         };
-        material.customProgramCacheKey = () => `portrait:${Boolean(archetype)}:${Boolean(skinLayer)}:${Boolean(implantMaps)}:${Boolean(finish.Normal)}:${Boolean(finish.Specular)}:${Boolean(cutout)}:${layers.map(([name, layer]) => `${name}/${Boolean(layer.zones)}/${layer.gloss !== null}`).join(",")}`;
+        material.customProgramCacheKey = () => `portrait:${Boolean(archetype)}:${Boolean(skinLayer)}:${Boolean(implantMaps)}:${Boolean(finish.Normal)}:${Boolean(finish.Specular)}:${Boolean(cutout)}:${eyeNormal ? (eyeNormal.masked ? "masked" : "normal") : ""}:${layers.map(([name, layer]) => `${name}/${Boolean(layer.zones)}/${layer.gloss !== null}`).join(",")}`;
       };
       configure(surface, null);
       if (skin !== surface) configure(skin, tint, faceLayers, implant, scalpFinish, skinCutout);
       applySurface(avatar, surface, new Set(transparent), new Set(eyelashMeshes), eyelashes, skin);
+      if (eyeImplant) applySurface(eyeImplant, skin, new Set(), new Set(), null, skin);
       if (skinCutout) {
         const tearducts = surface.clone();
         configure(tearducts, null, [], null, {}, skinCutout);

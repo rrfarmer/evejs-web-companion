@@ -1066,6 +1066,8 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const slot = parts.slice(1, -2).join("/") || "outer";
   const glasses = slot === "accessories/glasses";
   const monocle = glasses && style.startsWith("monocle_");
+  const eyeImplant = glasses && style === "eyeimp01";
+  const fittedEyewear = monocle || eyeImplant;
   const masks = slot === "accessories/masks";
   const headwear = glasses || masks;
   const stem = slot === "outer" ? `${gender}/${style}` : `${gender}/${slot}/${style}`;
@@ -1082,7 +1084,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const [, variation, palette] = fields;
   const layers = variation ? [`${folder}/${variation}`, folder] : [folder];
   const definitionsAt = layer => rf.list(layer + "/", /\.black$/i).filter(res => !res.slice(layer.length + 1).includes("/"));
-  const variantDefinitions = monocle && variation ? definitionsAt(layers[0]) : [];
+  const variantDefinitions = fittedEyewear && variation ? definitionsAt(layers[0]) : [];
   const definitions = variantDefinitions.length ? variantDefinitions : definitionsAt(folder);
   const meshes = definitions.flatMap(res => readBlack(rf.read(res), res).meshes ?? []);
   const sources = new Set(meshes.map(mesh => mesh.geometryResPath?.toLowerCase())
@@ -1106,7 +1108,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const colors = Array.isArray(authoredColors) && authoredColors.length >= 3 &&
     authoredColors.slice(0, 3).every(color => Array.isArray(color) && color.length === 4 && color.every(Number.isFinite))
     ? authoredColors.slice(0, 3) : [];
-  const metadataPath = (monocle ? layers : [folder]).map(layer => `${layer}/metadata.yaml`).find(file => rf.has(file));
+  const metadataPath = (fittedEyewear ? layers : [folder]).map(layer => `${layer}/metadata.yaml`).find(file => rf.has(file));
   const metadata = metadataPath ? readYaml(metadataPath) : null;
   const occlusions = metadata?.occludesModifiers;
   const occludes = Array.isArray(occlusions) ? occlusions.filter(value => typeof value === "string") : [];
@@ -1163,25 +1165,33 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     : [/\/colorize_body_z_512\.png$/i, /\/colorize_body_z_256\.dds$/i, /\/colorize_body_z\.png$/i]);
   const normal = texture([/_n_512\.png$/i, /_n\.png$/i]);
   const skinCutout = masks ? layers.map(layer => `${layer}/comp_head_m.png`).find(file => rf.has(file)) : null;
-  const headDiffuse = monocle ? texture([/\/comp_head_d_512\.png$/i, /\/comp_head_d\.png$/i]) : null;
-  const headMorphs = monocle ? (metadata?.dependantModifiers ?? []).flatMap(dependency => {
-    const match = /^utilityshapes\/((?:(?:left|right)eyepatch|hidebrow(?:left|right))shape)$/i.exec(dependency);
+  const headDiffuse = eyeImplant ? texture([/\/colorize_head_l_512\.png$/i, /\/colorize_head_l\.png$/i])
+    : monocle ? texture([/\/comp_head_d_512\.png$/i, /\/comp_head_d\.png$/i]) : null;
+  const headZones = eyeImplant ? texture([/\/colorize_head_z_512\.png$/i, /\/colorize_head_z\.png$/i]) : null;
+  const headNormal = fittedEyewear ? texture([/\/comp_head_m?n_512\.png$/i, /\/comp_head_m?n\.png$/i]) : null;
+  const headMorphs = fittedEyewear ? (metadata?.dependantModifiers ?? []).flatMap(dependency => {
+    const match = /^utilityshapes\/((?:(?:left|right)eye(?:patch|missing)|hidebrow(?:left|right))shape)$/i.exec(dependency);
     return match ? [match[1].toLowerCase()] : [];
   }) : [];
   if (skinBase && !diffuse) throw new Error(`${typePath}: no authored garment texture`);
   const rect = filename => filename?.endsWith(".png") ? portraitPngRect(rf.read(filename)) : [0, 0, 1, 1];
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
-    outfitBuild: monocle ? 11 : masks ? 10 : slot === "bottommiddle" ? 9 : glasses ? 8 : amarrRobe ? 7 : slot === "topmiddle" ? 5 : 4,
+    outfitBuild: fittedEyewear ? 12 : masks ? 10 : slot === "bottommiddle" ? 9 : glasses ? 8 : amarrRobe ? 7 : slot === "topmiddle" ? 5 : 4,
     model: `/client-assets/portrait-outfit/${model}`, source, type: typePath, variation, palette, colors, occludes, skinMeshes,
     diffuse: diffuse ? copyRes(rf, diffuse, outRoot) : null,
     zones: zones ? copyRes(rf, zones, outRoot) : null,
     normal: normal ? copyRes(rf, normal, outRoot) : null,
     ...(surface ? { surface } : {}),
     ...(glasses ? { lensAreas: meshes.flatMap(mesh => mesh.transparentAreas ?? []).map(area => area.index ?? 0) } : {}),
-    ...(monocle ? { headMorphs, opaqueLensAreas: meshes.flatMap(mesh => mesh.opaqueAreas ?? [])
+    ...(fittedEyewear ? { headMorphs } : {}),
+    ...(monocle ? { opaqueLensAreas: meshes.flatMap(mesh => mesh.opaqueAreas ?? [])
       .filter(area => /^C_Custom_Glass/i.test(area.effect?.name ?? "")).map(area => area.index ?? 0) } : {}),
+    ...(eyeImplant ? { headSurface: true } : {}),
     ...(headDiffuse ? { headDiffuse: { url: copyRes(rf, headDiffuse, outRoot), rect: rect(headDiffuse) } } : {}),
+    ...(headZones ? { headZones: { url: copyRes(rf, headZones, outRoot), rect: rect(headZones) } } : {}),
+    ...(headNormal ? { headNormal: { url: copyRes(rf, headNormal, outRoot), rect: rect(headNormal),
+      masked: /\/comp_head_mn/i.test(headNormal) } } : {}),
     ...(skinCutout ? { skinCutout: { url: copyRes(rf, skinCutout, outRoot), rect: rect(skinCutout) } } : {}),
     ...(bodyParts.length ? { bodyParts } : {}),
     ...(hoods.length ? { hoods } : {}),
