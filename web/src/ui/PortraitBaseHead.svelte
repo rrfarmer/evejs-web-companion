@@ -167,16 +167,20 @@
     let retired = false;
     let hair: THREE.Group | null = null;
     let texture: THREE.Texture | null = null;
+    let bitmap: ImageBitmap | null = null;
     hairDisplay = "loading";
     void (async () => {
-      if (!compressedSupport(active).s3tc) throw new Error("Unsupported hair detail format");
       const stem = `/client-assets/portrait-hair/${gender}/${style}`;
       const response = await fetch(stem + ".json");
       if (!response.ok) throw new Error("Portrait hairstyle unavailable");
       const { diffuse, rgb } = await response.json() as { diffuse: string; rgb: [number, number, number] };
-      const detail = await loadDds(diffuse);
-      if (retired) { detail.dispose(); return; }
+      const dds = diffuse.endsWith(".dds");
+      if (dds && !compressedSupport(active).s3tc) throw new Error("Unsupported hair detail format");
+      const loaded = dds ? { texture: await loadDds(diffuse), bitmap: null } : await loadMap(diffuse, true);
+      const detail = loaded.texture;
+      if (retired) { detail.dispose(); loaded.bitmap?.close(); return; }
       texture = detail;
+      bitmap = loaded.bitmap;
       detail.colorSpace = THREE.SRGBColorSpace;
       detail.wrapS = detail.wrapT = THREE.ClampToEdgeWrapping;
       const { scene: object } = await loader.loadAsync(stem + ".glb");
@@ -203,6 +207,7 @@
       }
       hairBounds = null;
       texture?.dispose();
+      bitmap?.close();
     };
   });
 

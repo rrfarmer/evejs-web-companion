@@ -2,12 +2,13 @@
 
 const { appearanceWithSkinTone } = require("./portraitSkinTones");
 
-// Free styles with an installed skinned mesh and a full, uncropped hair atlas.
+// Free styles with an installed skinned mesh and hair atlas.
 const portraitHairStyles = Object.freeze({
   female: Object.freeze({
     hair_bob_02: "Bob",
     hair_braidedbun_01: "Braided bun",
     hair_braidedbun_02: "High braided bun",
+    hair_bun_01: "Small bun",
     hair_bun_02: "Bun",
     hair_cornrowspigtails_01: "Cornrow pigtails",
     hair_dreadlocks_01: "Dreadlocks",
@@ -19,7 +20,9 @@ const portraitHairStyles = Object.freeze({
     hair_mediumparted_04: "Medium swept part",
     hair_mediumstyled_01: "Medium styled",
     hair_mohawkunruly_01: "Tousled mohawk",
+    hair_ponytailshort_01: "Short ponytail",
     hair_ponytail_01: "Ponytail",
+    hair_ponytail_02: "Long ponytail",
     hair_short_01: "Short straight",
     hair_short_02: "Short layered",
     hair_shortpixietop_01: "Pixie cut",

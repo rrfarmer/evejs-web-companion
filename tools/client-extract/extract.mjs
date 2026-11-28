@@ -909,11 +909,19 @@ async function extractPortraitBrows(rf, gender, bloodline, outRoot, morph) {
   else await extractPortraitMesh(rf, source, stem + ".glb", "brows");
 }
 
+const pngPortraitHairMeshes = new Map([
+  ["hair_bun_01", "hair_ponytail_bun_small"],
+  ["hair_ponytail_02", "hair_ponytail_01"],
+  ["hair_ponytailshort_01", "hair_ponytail_short"],
+]);
+
 async function extractPortraitHair(rf, gender, style, outRoot) {
   if (!portraitHair.portraitHairStyle(gender, style)) throw new Error("Unknown portrait hairstyle");
   const paperDoll = `res:/graphics/character/${gender}/paperdoll`;
   const folder = `${paperDoll}/hair/${style}`;
-  const source = `${folder}/${style}.gr2`;
+  const pngMesh = pngPortraitHairMeshes.get(style);
+  const source = `${folder}/${pngMesh ?? style}.gr2`;
+  const diffuse = `${folder}/${pngMesh ? "colorize_hair_l.png" : "colorize_hair_l_256.dds"}`;
   const { root } = await readGranny(rf.read(source), source);
   const model = root.Models.find(entry => entry.Skeleton?.Bones?.length && entry.MeshBindings?.length);
   if (!model) throw new Error(`${source}: no skinned hair model`);
@@ -926,7 +934,7 @@ async function extractPortraitHair(rf, gender, style, outRoot) {
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, `${style}.glb`), writeGlb({ name: style, lods, bones, extras: { source } }));
   writeExtracted(path.join(dir, `${style}.json`), JSON.stringify({
-    diffuse: copyRes(rf, `${folder}/colorize_hair_l_256.dds`, outRoot), rgb,
+    diffuse: copyRes(rf, diffuse, outRoot), rgb,
   }));
 }
 
