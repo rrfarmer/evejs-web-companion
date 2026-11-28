@@ -17,6 +17,7 @@
   const paths = {
     title: "UI/Chat/ChannelConfiguration", general: "UI/Generic/General", name: "UI/Chat/ChannelName", corp: "UI/Common/Corp",
     fleet: "UI/Fleet/Fleet",
+    alliance: "UI/Common/Alliance",
     password: "UI/Chat/Password", retype: "UI/Chat/RetypePassword", access: "UI/Chat/DefaultAccess",
     motd: "UI/Chat/Motd", allowed: "UI/Chat/Allowed", moderated: "UI/Chat/Moderated", blocked: "UI/Chat/Blocked", muted: "UI/Chat/Muted", operators: "UI/Chat/Operators", owners: "UI/Chat/Owners",
     ok: "UI/Common/Buttons/OK", cancel: "UI/Common/Buttons/Cancel", muteHint: "UI/Chat/HowtoMuteHint",
@@ -36,7 +37,8 @@
   let tab = $state<"general" | ChatAccessList>("general");
   let changingAccess = $state(false);
   const generalForm = $props.id();
-  const proxyRoom = $derived(/^corp_\d+$/.test(room) ? "corp" : /^fleet_\d+$/.test(room) ? "fleet" : null);
+  const proxyRoom = $derived(/^corp_\d+$/.test(room) ? "corp" : /^fleet_\d+$/.test(room) ? "fleet" :
+    /^alliance_\d+$/.test(room) ? "alliance" : null);
 
   onMount(() => {
     let mounted = true;

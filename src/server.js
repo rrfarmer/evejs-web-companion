@@ -9853,15 +9853,15 @@ function chatContext(held, req) {
     // computes a room name. See ensureChannel in src/evejsXmppChat.js.
     solarSystemID: Number(held.solarSystemID) || 0,
     limit: Number(req.query?.limit) || undefined,
-    canManageCorporationChat: room => onGamePort && gamePortPilots?.canManageCorporationChat?.(room, identity, held.bridgeSessionID) === true,
+    canManageOrganizationChat: async room => onGamePort && await gamePortPilots?.canManageOrganizationChat?.(room, identity, held.bridgeSessionID) === true,
     canManageFleetChat: async room => onGamePort && await gamePortPilots?.canManageFleetChat?.(room, identity, held.bridgeSessionID) === true,
     fleetChatMotd: (room, motd) => heldRequest(held, req.webSessionID, motd !== undefined, () => {
       assertHeldRequestGeneration(req, held);
       return onGamePort ? gamePortPilots?.fleetChatMotd?.(room, identity, held.bridgeSessionID, motd) : null;
     }),
-    setCorporationChatMotd: (room, jid, motd) => heldRequest(held, req.webSessionID, true, () => {
+    setOrganizationChatMotd: (room, jid, motd) => heldRequest(held, req.webSessionID, true, () => {
       assertHeldRequestGeneration(req, held);
-      return onGamePort && gamePortPilots?.setCorporationChatMotd?.(room, jid, motd, identity, held.bridgeSessionID);
+      return onGamePort && gamePortPilots?.setOrganizationChatMotd?.(room, jid, motd, identity, held.bridgeSessionID);
     }),
     assertCurrent: () => {
       assertHeldRequestGeneration(req, held);
@@ -9953,7 +9953,7 @@ app.get("/api/bridge/chat/:roomName/settings/availability", requireAuth, async (
   try {
     context.assertCurrent();
     const room = req.params.roomName;
-    const available = room.startsWith("fleet_") ? await context.canManageFleetChat(room) : context.canManageCorporationChat(room);
+    const available = await (room.startsWith("fleet_") ? context.canManageFleetChat(room) : context.canManageOrganizationChat(room));
     context.assertCurrent();
     res.json({ ok: true, available });
   } catch (error) { next(error); }

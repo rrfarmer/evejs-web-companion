@@ -4485,18 +4485,30 @@ function createGamePortPilots({
     return await entry.session.proxyCall(XMPP_CHAT_MGR, "GrantChannelOwnership", [roomName], null) === true;
   }
 
-  function canManageCorporationChat(roomName, sessionFields, bridgeSessionID) {
-    const entry = held(bridgeSessionID, sessionFields);
-    const corporationID = attribute(entry, "corpid");
+  function hasOrganizationChatRole(entry) {
     const role = wholeOf(entry.session.attributes.corprole) ?? 0n;
     const compliance = keptGlobalConfig(entry).get("content_compliance_control_system_enabled");
     const value = typeof compliance === "boolean" ? Number(compliance) : (wholeOf(compliance) ?? packets.text(compliance));
     const enabled = /^\s*[+-]?\d+\s*$/.test(String(value)) && BigInt(value) !== 0n;
-    return Boolean(corporationID && roomName === `corp_${corporationID}` && (role & 36028797018963968n) !== 0n && !enabled);
+    return (role & 36028797018963968n) !== 0n && !enabled;
   }
 
-  async function setCorporationChatMotd(roomName, roomJid, motd, sessionFields, bridgeSessionID) {
-    if (!canManageCorporationChat(roomName, sessionFields, bridgeSessionID)) return false;
+  async function canManageOrganizationChat(roomName, sessionFields, bridgeSessionID) {
+    const entry = held(bridgeSessionID, sessionFields);
+    const corporationID = attribute(entry, "corpid");
+    if (!corporationID || !hasOrganizationChatRole(entry)) return false;
+    if (roomName === `corp_${corporationID}`) return true;
+    const allianceID = attribute(entry, "allianceid");
+    if (!allianceID || roomName !== `alliance_${allianceID}`) return false;
+    const version = entry.allianceVersion;
+    const info = await allianceKeptRead(entry, "info", "GetAlliance");
+    return allianceCurrent(entry, version) && corporationID === attribute(entry, "corpid") &&
+      allianceID === attribute(entry, "allianceid") && hasOrganizationChatRole(entry) &&
+      corporationID === positive(packets.dictGet(info?.args, "executorCorpID"));
+  }
+
+  async function setOrganizationChatMotd(roomName, roomJid, motd, sessionFields, bridgeSessionID) {
+    if (!await canManageOrganizationChat(roomName, sessionFields, bridgeSessionID)) return false;
     const entry = held(bridgeSessionID, sessionFields);
     ledger.note(XMPP_CHAT_MGR, "SetMotd",
       { status: "same", source: "xmppchatclient/xmppchatsvc.py:1487", note: null });
@@ -7090,8 +7102,8 @@ function createGamePortPilots({
     chatSecret,
     chatChannels,
     grantDirectoryChatOwnership,
-    canManageCorporationChat,
-    setCorporationChatMotd,
+    canManageOrganizationChat,
+    setOrganizationChatMotd,
     canManageFleetChat,
     fleetChatMotd,
     chatSessionChanges,

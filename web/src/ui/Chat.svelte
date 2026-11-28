@@ -160,7 +160,8 @@
       }] : []),
     ];
     const x = pointer?.clientX ?? bounds.left, y = pointer?.clientY ?? bounds.bottom;
-    const proxyControlled = (channel === "corp" || channel === "fleet") && Boolean(room?.startsWith(`${channel}_`));
+    const proxyControlled = (channel === "corp" || channel === "fleet" || channel === "alliance") &&
+      Boolean(room?.startsWith(`${channel}_`));
     if (!room || (!proxyControlled && !/^(?:player_\d+|system_\d+(?:_\d+)+)$/.test(room))) {
       channelMenu.open(x, y, entries);
       return;
