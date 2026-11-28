@@ -3043,6 +3043,7 @@ export interface AppFlow {
    */
   broadcastTravelToMe(): Promise<"sent" | "unsent" | "not-in-fleet" | "in-station" | "in-structure">;
   broadcastTravelToSystem(systemID: number): Promise<void>;
+  broadcastTravelToLocation(locationID: number, typeID: number): Promise<void>;
   /**
    * The right-click menu's broadcasts on a thing in space (fleetSvc.SendBroadcast_Target / _Heal_Target to the bubble,
    * _WarpTo / _AlignTo / _JumpTo to the system), at the client's default scope; false where nothing was sent.
@@ -19625,7 +19626,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     }
     return fleetBroadcasts.toBubble(name, broadcastScope.get(), shipID);
   }
-  async function broadcastTravelTo(destination: { systemID: number; typeID: number } | null):
+  async function broadcastTravelTo(destination: { locationID: number; typeID: number } | null):
     Promise<"sent" | "unsent" | "not-in-fleet" | "in-station" | "in-structure"> {
     const current = callOptions.captureRequestGuard!();
     if (store.fleet.get().availability !== "ready") {
@@ -19640,7 +19641,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (now.solarSystemID === null) {
       return "in-station";
     }
-    return (await fleetBroadcasts.toFleet("TravelTo", broadcastScope.get(), destination?.systemID ?? now.solarSystemID,
+    return (await fleetBroadcasts.toFleet("TravelTo", broadcastScope.get(), destination?.locationID ?? now.solarSystemID,
       destination?.typeID ?? null)) ? "sent" : "unsent";
   }
 
@@ -19654,9 +19655,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     if (refusal) sayDialog(refusal, null, "That needs a fleet and a ship in space.");
   }
 
-  async function broadcastTravelToSystem(systemID: number): Promise<void> {
+  async function broadcastTravelToLocation(locationID: number, typeID: number): Promise<void> {
     const current = callOptions.captureRequestGuard!();
-    const outcome = await broadcastTravelTo({ systemID, typeID: 5 });
+    const outcome = await broadcastTravelTo({ locationID, typeID });
     current();
     sayTravelToRefusal(outcome);
   }
@@ -42059,7 +42060,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     keepWarpDistance,
     toFleetMemberBeacon,
     broadcastTravelToMe,
-    broadcastTravelToSystem,
+    broadcastTravelToSystem: systemID => broadcastTravelToLocation(systemID, 5),
+    broadcastTravelToLocation,
     addToFleetWatchlist,
     removeFromFleetWatchlist,
     clearFleetBroadcastHistory() {

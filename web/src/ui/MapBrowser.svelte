@@ -15,6 +15,7 @@
   import BookmarkWindow from "./BookmarkWindow.svelte";
   import HomeStationPanel from "./HomeStationPanel.svelte";
   import { mapLocationMenu, mapLocationMenuWords } from "./mapLocationMenu.ts";
+  import { notify } from "./notices.ts";
 
   let { store, flow, request, onClose, onShowLocation, onShowSystemInBrowser, viewingPlanetID, onViewPlanet, onLeavePlanet }: {
     store: ClientStore; flow: AppFlow; request: { systemID: number };
@@ -36,6 +37,7 @@
     destination: ["UI/Inflight/SetDestination", "Set Destination"],
     waypoint: ["UI/Inflight/AddWaypoint", "Add Waypoint"],
     removeWaypoint: ["UI/Inflight/RemoveWaypoint", "Remove Waypoint"],
+    travelTo: ["UI/Fleet/FleetBroadcast/Commands/BroadcastTravelTo", "Broadcast: Travel to"],
     saveLocation: ["UI/Inflight/BookmarkLocation", "Save Location..."],
     bookmarkLabel: ["UI/PeopleAndPlaces/NewBookmarkLocationLabel", "{loc} ({group})"],
     home: ["UI/Menusvc/SetHomeStation", "Set Home Station"],
@@ -232,20 +234,32 @@
   }
   function celestialMenu(point: Point, here: number | null): (ContextEntry | null)[] {
     const entries: (ContextEntry | null)[] = [{ ...celestialEntry("info"), info: true, run: () => select(3, point, false) }];
-    const eligibleStation = point.station && !isDeprecatedStationType(point.typeID) && selection[0] !== 10_000_070;
+    const isStation = point.station && !isDeprecatedStationType(point.typeID);
+    const eligibleStation = isStation && selection[0] !== 10_000_070;
     if (eligibleStation) {
       const route = celestialRouteEntries(point.id, true, here, flow.waypoints.get());
       if (route.setDestination) entries.push({ ...celestialEntry("destination"), run: () => flow.setDestination(point.id) });
       if (route.addWaypoint) entries.push({ ...celestialEntry("waypoint"), run: () => flow.addWaypoint(point.id) });
       if (route.removeWaypoint) entries.push({ ...celestialEntry("removeWaypoint"), run: () => flow.clearWaypoints(point.id) });
     }
-    if (!point.station || !isDeprecatedStationType(point.typeID)) entries.push(null, {
+    if (!point.station || isStation) entries.push(null, {
       ...celestialEntry("saveLocation"), run: () => {
         const typeName = () => celestialGroupName(point);
         bookmark = { itemID: point.id, askIfKnown: true, typeName,
           name: () => celestialEntry("bookmarkLabel", { loc: point.id, group: typeName() }, point.name).label };
       },
     });
+    if (isStation && store.fleet.get().availability === "ready") {
+      const travel = celestialEntry("travelTo");
+      entries.push({
+        ...travel, icon: "res:/UI/Texture/classes/Fleet/Broadcast/16/travelTo.png",
+        run: () => {
+          void flow.broadcastTravelToLocation(point.id, point.typeID).catch(cause => {
+            if (cause?.code !== "SESSION_REQUEST_RETIRED") notify({ kind: "danger", title: travel.label, detail: String(cause) });
+          });
+        },
+      });
+    }
     if (eligibleStation) entries.push({ ...celestialEntry("home"), run: () => { homeStationID = point.id; } });
     if (point.groupID === 7) entries.push(viewingPlanetID === point.id
       ? { ...celestialEntry("leavePlanet"), run: onLeavePlanet }
