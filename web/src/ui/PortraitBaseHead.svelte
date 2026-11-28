@@ -344,6 +344,7 @@
       model: string; diffuse: string | null; zones: string | null; normal: string | null;
       colors: [number, number, number, number][]; occludes: string[]; skinMeshes: string[];
       skinBase?: string; bodyParts?: string[]; hoods?: string[];
+      trouserFit?: readonly PortraitMorph[];
       diffuseRect?: number[]; zonesRect?: number[]; normalRect?: number[];
     };
     const manifest = async (url: string): Promise<Garment> => {
@@ -352,23 +353,23 @@
       return await response.json() as Garment;
     };
     let skin: THREE.MeshStandardMaterial | undefined;
-    const loadBodyModel = async (path: string): Promise<THREE.Group | null> => {
+    const loadBodyModel = async (path: string, fit: readonly PortraitMorph[] = []): Promise<THREE.Group | null> => {
       const { scene: mesh } = await loader.loadAsync(path);
       bodyModels.add(path);
-      if (!retired && bodyMorphs.length) {
-        await applyPortraitMorphs(mesh, path.replace(/\.glb$/, ""), bodyMorphs, () => retired);
+      if (!retired && (bodyMorphs.length || fit.length)) {
+        await applyPortraitMorphs(mesh, path.replace(/\.glb$/, ""), [...bodyMorphs, ...fit], () => retired);
       }
       if (!retired) return mesh;
       release(mesh);
       return null;
     };
-    const loadGarment = async (data: Garment, group: THREE.Group) => {
+    const loadGarment = async (data: Garment, group: THREE.Group, fit?: readonly PortraitMorph[]) => {
       const diffuse = await texture(data.diffuse, true);
       const zones = data.colors.length === 3 ? await texture(data.zones, false) : null;
       const normal = await texture(data.normal, false);
       const skinBase = data.skinBase ? await texture(data.skinBase, true) : null;
       if (retired) return;
-      const object = await loadBodyModel(data.model);
+      const object = await loadBodyModel(data.model, fit);
       if (!object) return;
       group.add(object);
       const hoodMesh = data.hoods?.[hood];
@@ -462,11 +463,15 @@
           for (const name of layer.occludes) occludes.add(name);
         }
       }
+      let trousers: Garment | undefined;
+      let trouserFit: readonly PortraitMorph[] | undefined;
       for (const slot of ["bottomouter", "feet"] as const) {
         if (occludes.has(slot)) continue;
         const url = extra?.[slot] ?? (slot === "bottomouter" && !occludes.has("bottommiddle") ? extra?.bottommiddle : undefined);
         if (!url) throw new Error("This outfit requires additional apparel layers");
         const layer = await manifest(url);
+        if (slot === "bottomouter" && url === extra?.bottomouter) trousers = layer;
+        if (slot === "feet") trouserFit = layer.trouserFit;
         worn.push(layer);
         for (const name of layer.occludes) occludes.add(name);
       }
@@ -474,7 +479,7 @@
       if (retired) return;
       skin = new THREE.MeshStandardMaterial({ map: skinDetail, color: skinDetail ? 0xffffff : 0xb59280, roughness: 0.78 });
       body = new THREE.Group();
-      for (const layer of worn) await loadGarment(layer, body);
+      for (const layer of worn) await loadGarment(layer, body, layer === trousers ? trouserFit : undefined);
       if (retired) return;
       if (!occludes.has("hands") && !occludes.has("hand")) {
         const hands = await loadBodyModel(`/client-assets/portrait-outfit/${gender}/hands.glb`);
