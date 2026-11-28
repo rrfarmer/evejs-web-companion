@@ -1070,6 +1070,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const fittedEyewear = monocle || eyeImplant;
   const footwear = slot === "feet";
   const trousers = slot === "bottomouter";
+  const skirt = trousers && /^skirtmilf0[12]$/.test(style);
   const masks = slot === "accessories/masks";
   const headwear = glasses || masks;
   const stem = slot === "outer" ? `${gender}/${style}` : `${gender}/${slot}/${style}`;
@@ -1162,7 +1163,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   }
   const diffuse = texture(headwear ? [/\/colorize_acc_l_512\.png$/i, /\/colorize_acc_l\.png$/i, /\/mask_[a-z0-9_]+_d\.png$/i]
     : [/\/colorize_body_l_512\.png$/i, /\/colorize_body_l_256\.png$/i,
-      /\/colorize_body_l_256\.dds$/i, /\/colorize_body_l\.png$/i]);
+      /\/colorize_body_l_256\.dds$/i, /\/colorize_body_l\.png$/i, ...(skirt ? [/\/_l_512\.png$/i, /\/_l\.png$/i] : [])]);
   const zones = texture(headwear ? [/\/colorize_acc_z_512\.png$/i, /\/colorize_acc_z\.png$/i]
     : [/\/colorize_body_z_512\.png$/i, /\/colorize_body_z_256\.dds$/i, /\/colorize_body_z\.png$/i]);
   const normal = texture([/_n_512\.png$/i, /_n\.png$/i]);
@@ -1186,7 +1187,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const rect = filename => filename?.endsWith(".png") ? portraitPngRect(rf.read(filename)) : [0, 0, 1, 1];
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
-    outfitBuild: footwear ? 14 : fittedEyewear ? 12 : masks ? 10 : slot === "bottommiddle" ? 9 : glasses ? 8 : amarrRobe ? 7 : slot === "topmiddle" ? 5 : trousers ? 15 : 4,
+    outfitBuild: skirt ? 16 : footwear ? 14 : fittedEyewear ? 12 : masks ? 10 : slot === "bottommiddle" ? 9 : glasses ? 8 : amarrRobe ? 7 : slot === "topmiddle" ? 5 : trousers ? 15 : 4,
     model: `/client-assets/portrait-outfit/${model}`, source, type: typePath, variation, palette, colors, occludes, skinMeshes,
     diffuse: diffuse ? copyRes(rf, diffuse, outRoot) : null,
     zones: zones ? copyRes(rf, zones, outRoot) : null,

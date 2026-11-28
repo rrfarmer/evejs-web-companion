@@ -8,7 +8,7 @@ const apparelFamilies = {
     topmiddle: ["shirtaf01", "shirtcf01", "shirtgf01", "shirtmf01", "tanktopf01"],
     bottommiddle: ["tightsf01"],
     bottomouter: ["pantsaf01", "pantscf01", "pantsgf01", "pantsmf01", "pantsalf_01", "pantscorpbusinessf01",
-      "pantsengf01", "pantsmilf01", "pantsprtf01", "pantsslf_01"],
+      "pantsengf01", "pantsmilf01", "pantsprtf01", "pantsslf_01", "skirtmilf01", "skirtmilf02"],
     feet: ["bootsaf01", "bootscf01", "bootsgf01", "bootsmf01", "bootsalf_01", "bootsmilf01", "bootsmilf02",
       "bootsmilf03", "bootsprtf01", "bootsslf_01", "shoesengf01", "spaceboots01f"],
     "accessories/glasses": ["glasses_pilot_01", "glasses_slick_01", "goggles_01", "glasses_citadel_f01", "glasses_exo_f01", "monocle_01", "monocle_f_t02", "eyeimp01"],
@@ -42,6 +42,7 @@ const trouserNames = {
   pantscorpbusinessf01: "Business", pantscorpbusinessm01: "Business", pantsengf01: "Engineering", pantsengm01: "Engineering",
   pantsmilf01: "Military", pantsmilm01: "Military", pantsprtf01: "Prototype", pantsprtm01: "Prototype", pantsslf_01: "Slim",
 };
+const skirtNames = { skirtmilf01: "Military skirt 1", skirtmilf02: "Military skirt 2" };
 
 function isPortraitApparelType(path) {
   const match = /^res:\/graphics\/character\/(female|male)\/paperdoll\/(outer|topouter|topmiddle|bottommiddle|bottomouter|feet|accessories\/(?:glasses|masks))\/([a-z0-9_]+)\/types\/[a-z0-9_]+\.type$/.exec(path);
@@ -63,7 +64,8 @@ function portraitApparelChoices(resources, model, race, slot, fileFor, ownedType
     if (!file || !fs.existsSync(file)) return [];
     const footwear = slot === "feet" ? footwearNames[family] : null;
     const trousers = slot === "bottomouter" ? trouserNames[family] : null;
-    const variantShade = glasses || masks || footwear || trousers
+    const skirt = slot === "bottomouter" ? skirtNames[family] : null;
+    const variantShade = glasses || masks || footwear || trousers || skirt
       ? variant.startsWith(family) ? variant.slice(family.length + 1)
         : variant.slice(variant.indexOf("_") + 1).replace(/^01_/, "")
       : variant.split("_").slice(1).join("_");
@@ -75,6 +77,7 @@ function portraitApparelChoices(resources, model, race, slot, fileFor, ownedType
       : masks ? `${family.startsWith("mask_cyberpunk") ? "Cyberpunk" : "Mask"} ${name}`
       : footwear ? `${footwear} ${name}`
       : trousers ? `${trousers} trousers ${name}`
+      : skirt ? `${skirt} ${name}`
       : family === "robeam01" ? `Amarr robe ${name}`
       : /^tanktop[fm]01$/.test(family) ? `Tank top ${name.replace(/^Generic /, "")}`
       : faction ? `${faction} ${name}` : name;
