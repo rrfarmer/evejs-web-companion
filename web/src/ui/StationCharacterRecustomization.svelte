@@ -31,7 +31,7 @@
   let primaryID = $state(0);
   let secondaryID = $state(0);
   let selection = $state({ outer: 0, topmiddle: 0, bottomouter: 0, feet: 0 });
-  const slotLabels = { outer: "Jacket", topmiddle: "Shirt", bottomouter: "Trousers", feet: "Boots" };
+  const slotLabels = { outer: "Jacket", topmiddle: "Shirt", bottomouter: "Trousers", feet: "Footwear" };
   let showOutfit = $state(false);
   let preview = $state<"backdrop" | "female" | "male">("backdrop");
   let failed = $state(false);
