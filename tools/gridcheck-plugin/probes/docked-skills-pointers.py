@@ -3,6 +3,7 @@ from carbonui.uicore import uicore
 from eve.client.script.ui.skillPlan.skillPlanDockablePanel import SkillPlanDockablePanel
 from eve.client.script.ui.shared.pointerTool.pointerChains import FindChainForPointer
 from eve.client.script.ui.shared.pointerTool.pointerToolFunctions import GetScreenElementsByUniqueName
+from eve.common.script.sys import idCheckers
 
 names = ('applySkillPointsBtn', 'skillplans_certified_tab', 'skillplans_corp_tab', 'skillplans_personal_tab',
          'skill_catalogue_tab', 'skill_plans_tab', 'skillqueue')
@@ -19,7 +20,8 @@ try:
     anchors = GetScreenElementsByUniqueName(ids)
     visible = dict((name, list(element.GetAbsolute())) for name, element in anchors.iteritems()
                    if element and not element.destroyed and element.IsVisible())
-    result = dict(station=session.stationid, rows=rows, visible=visible)
+    result = dict(build=3698585, station=session.stationid, corporation=session.corpid,
+                  playerCorporation=idCheckers.IsPlayerCorporation(session.corpid), rows=rows, visible=visible)
 finally:
     if window and not opened:
         window.Close()
