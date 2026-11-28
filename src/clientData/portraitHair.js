@@ -99,23 +99,27 @@ function modifierValues(row) {
   return row?.type === "objectex2" && fields?.[0]?.value === modifierRowType ? fields : null;
 }
 
-function portraitModifierID(payload, location) {
+function portraitModifier(payload, location) {
   for (const row of readModifiers(payload)?.rows ?? []) {
     const values = modifierValues(row);
-    if (values?.[1] === location) return values[2];
+    if (values?.[1] === location) return values;
   }
-  return 0;
+  return null;
 }
 
-function appearanceWithModifier(payload, location, id) {
+function portraitModifierID(payload, location) {
+  return portraitModifier(payload, location)?.[2] ?? 0;
+}
+
+function appearanceWithModifier(payload, location, id, variation = null) {
   const source = payload ?? appearanceWithSkinTone(null, [], 0);
   const existing = readModifiers(source);
   if (!existing) return null;
   const rows = existing.rows.filter(row => modifierValues(row)?.[1] !== location);
-  if (id) rows.push({ type: "objectex2", header: [[{ type: "token", value: modifierRowType }, location, id, null]], list: [], dict: [] });
+  if (id) rows.push({ type: "objectex2", header: [[{ type: "token", value: modifierRowType }, location, id, variation]], list: [], dict: [] });
   return { ...source, args: { ...source.args, entries: existing.entries.map(([key, value]) =>
     [key, key === "modifiers" ? { type: "list", items: rows } : value]) } };
 }
 
-module.exports = { appearanceWithHair: appearanceWithModifier, appearanceWithModifier, readModifiers, modifierValues,
+module.exports = { appearanceWithHair: appearanceWithModifier, appearanceWithModifier, readModifiers, modifierValues, portraitModifier,
   portraitHairChoices, portraitHairID: portraitModifierID, portraitModifierID, portraitHairStyle, portraitScalpMode };

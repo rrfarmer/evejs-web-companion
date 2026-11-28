@@ -6380,6 +6380,7 @@ export interface CharacterPreviewAppearance {
   readonly model: PortraitHead | null;
   readonly bloodlineID: number | null;
   readonly outfit: string | null;
+  readonly robeHood: number | null;
   readonly apparel: PortraitApparel;
   readonly morphs: readonly PortraitMorph[];
   readonly piercings: readonly string[];
@@ -6409,6 +6410,10 @@ function portraitApparel(value: JsonValue | undefined, model: PortraitHead | nul
 function portraitOutfit(url: JsonValue | undefined, model: PortraitHead | null): string | null {
   return typeof url === "string" &&
     /^\/client-assets\/portrait-outfit\/(female|male)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(url)?.[1] === model ? url : null;
+}
+
+function portraitRobeHood(value: JsonValue | undefined): number | null {
+  return value === 0 || value === 1 || value === 2 ? value : null;
 }
 
 export async function loadCharacterPreviewAppearance(characterID: number, options: ApiOptions = {}):
@@ -6447,6 +6452,7 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
   return {
     model, bloodlineID: asNumberOrNull(appearance?.bloodlineID),
     outfit: portraitOutfit(outfit, model),
+    robeHood: portraitRobeHood(appearance?.robeHood),
     apparel: portraitApparel(appearance?.apparel, model),
     morphs,
     piercings,
@@ -6464,6 +6470,7 @@ export type DockedApparelSlot = typeof dockedApparelSlots[number];
 export interface DockedApparel {
   readonly slots: Record<DockedApparelSlot, { id: number; choices: readonly { id: number; name: string; asset: string }[] }>;
   readonly outfit: string | null;
+  readonly robeHood: number | null;
   readonly apparel: PortraitApparel;
 }
 
@@ -6484,7 +6491,7 @@ export async function loadDockedApparel(gender: PortraitHead, options: ApiOption
   }
   const slots = { outer: readSlot("outer"), topouter: readSlot("topouter"), topmiddle: readSlot("topmiddle"),
     bottomouter: readSlot("bottomouter"), feet: readSlot("feet") };
-  return { slots, outfit: portraitOutfit(data.outfit, gender),
+  return { slots, outfit: portraitOutfit(data.outfit, gender), robeHood: portraitRobeHood(data.robeHood),
     apparel: portraitApparel(data.apparel, gender) };
 }
 
@@ -6552,7 +6559,7 @@ export async function loadPortraitSkinTones(gender: PortraitHead, options: ApiOp
 
 export async function savePortrait(draft: { backgroundID: number; fieldOfView: number | null;
     skinTone: { id: number; gender: PortraitHead } | null; hairID: number | null;
-    hairColor?: PortraitHairColor | null; apparelIDs?: Partial<Record<DockedApparelSlot, number>>;
+    hairColor?: PortraitHairColor | null; apparelIDs?: Partial<Record<DockedApparelSlot, number>>; robeHood?: number | null;
     dockedLocationID: number; initialFrame?: PortraitFrame }, options: ApiOptions = {}): Promise<void> {
   await postJson("/api/bridge/character/portrait", { ...draft, confirm: true }, options);
 }

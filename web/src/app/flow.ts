@@ -2308,6 +2308,7 @@ interface DockedPortraitDraft {
   readonly hairID: number | null;
   readonly hairColor?: api.PortraitHairColor | null;
   readonly apparelIDs?: Partial<Record<api.DockedApparelSlot, number>>;
+  readonly robeHood?: number | null;
   readonly initialFrame?: api.PortraitFrame;
 }
 

@@ -37,6 +37,7 @@ function portraitPreviewMorphs(rows, locations) {
 function portraitPreviewModifiers(appearance, gender, locations, resources) {
   const nativeGender = gender === "female" ? 0 : 1;
   let outfit = null;
+  let robeHood = null;
   let hairstyle = null;
   const faceStyles = {};
   const apparel = {};
@@ -58,8 +59,10 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
     if (garment && garment[1] === location.modifierKey) {
       const [, slot, style, variant] = garment;
       const root = `/client-assets/portrait-outfit/${gender}`;
-      if (slot === "outer") outfit = `${root}/${style}/${variant}.json`;
-      else apparel[slot] = `${root}/${slot}/${style}/${variant}.json`;
+      if (slot === "outer") {
+        outfit = `${root}/${style}/${variant}.json`;
+        if (gender === "male" && style === "robeam01") robeHood = fields[3] === 1 || fields[3] === 2 ? fields[3] : 0;
+      } else apparel[slot] = `${root}/${slot}/${style}/${variant}.json`;
     } else if (location.modifierKey === "hair") {
       const style = /^hair\/(hair_[a-z0-9_]+)\/types\/\1\.type$/.exec(resourcePath)?.[1];
       if (style) faceStyles.hair = style;
@@ -71,7 +74,7 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
       }
     }
   }
-  return { outfit, apparel, hairstyle, piercings: Object.values(piercings), faceStyles };
+  return { outfit, robeHood, apparel, hairstyle, piercings: Object.values(piercings), faceStyles };
 }
 
 function unitValue(field, fallback) {

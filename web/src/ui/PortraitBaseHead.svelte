@@ -13,7 +13,7 @@
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
   import { capturePointer } from "./pointerCapture.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, hairTints, outfit, apparel, morphs, piercings, iris, makeup }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, hairTints, outfit, robeHood = 0, apparel, morphs, piercings, iris, makeup }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
@@ -25,12 +25,14 @@
     hairstyle?: string;
     hairTints?: PortraitHairTints;
     outfit?: string;
+    robeHood?: number;
     apparel?: PortraitApparel;
     morphs?: readonly PortraitMorph[];
     piercings?: readonly string[];
     iris?: string;
     makeup?: readonly PortraitMakeup[];
   } = $props();
+  const visibleHairstyle = $derived(outfit && robeHood > 0 ? undefined : hairstyle);
   let canvas: HTMLCanvasElement;
   let renderer = $state.raw<THREE.WebGLRenderer | null>(null);
   let display = $state<"loading" | "ready" | "unavailable">("loading");
@@ -77,7 +79,7 @@
   const loader = new GLTFLoader();
 
   export function readPortraitFrame(): PortraitFrame | null {
-    if (display !== "ready" || backdropDisplay !== "ready" || (hairstyle && hairDisplay !== "ready")) return null;
+    if (display !== "ready" || backdropDisplay !== "ready" || (visibleHairstyle && hairDisplay !== "ready")) return null;
     const native = ({ x, y, z }: THREE.Vector3): PortraitFrame["position"] => [x, y, -z];
     return { position: native(camera.position), target: native(cameraTarget) };
   }
@@ -200,7 +202,7 @@
   $effect(() => {
     const active = renderer;
     const gender = model;
-    const style = hairstyle;
+    const style = visibleHairstyle;
     const tints = hairTints;
     const fullBody = Boolean(outfit);
     if (!active) return;
@@ -287,6 +289,7 @@
   $effect(() => {
     const active = renderer;
     const source = outfit;
+    const hood = robeHood;
     const extra = apparel;
     const gender = model;
     const bodyMorphs = morphs?.filter(morph => morph.body) ?? [];
@@ -311,7 +314,7 @@
     type Garment = {
       model: string; diffuse: string | null; zones: string | null; normal: string | null;
       colors: [number, number, number, number][]; occludes: string[]; skinMeshes: string[];
-      skinBase?: string; bodyParts?: string[];
+      skinBase?: string; bodyParts?: string[]; hoods?: string[];
       diffuseRect?: number[]; zonesRect?: number[]; normalRect?: number[];
     };
     const manifest = async (url: string): Promise<Garment> => {
@@ -338,7 +341,8 @@
       const object = await loadBodyModel(data.model);
       if (!object) return;
       group.add(object);
-      for (const path of data.bodyParts ?? []) {
+      const hoodMesh = data.hoods?.[hood];
+      for (const path of [...(data.bodyParts ?? []), ...(hoodMesh ? [hoodMesh] : [])]) {
         const part = await loadBodyModel(path);
         if (!part) return;
         object.add(part);
@@ -863,7 +867,7 @@
 </script>
 
 <canvas bind:this={canvas} class:full-body={Boolean(outfit)} data-portrait-head={display} data-backdrop-state={backdropUrl ? backdropDisplay : undefined}
-  data-portrait-hair={hairstyle ? hairDisplay : undefined}
+  data-portrait-hair={visibleHairstyle ? hairDisplay : undefined}
   data-portrait-outfit={outfit ? outfitDisplay : undefined}
   onpointerdown={startDrag} onpointermove={moveDrag} onpointerup={endDrag} onlostpointercapture={endDrag}
   oncontextmenu={event => { if (outfit) event.preventDefault(); }}
@@ -875,7 +879,7 @@
   <p role="status">{display === "loading" ? "Loading base head…" : "This base head could not be displayed."}</p>
 {:else if backdropUrl && backdropDisplay !== "ready"}
   <p role="status">{backdropDisplay === "loading" ? "Loading backdrop…" : "This backdrop could not be displayed."}</p>
-{:else if hairstyle && hairDisplay !== "ready"}
+{:else if visibleHairstyle && hairDisplay !== "ready"}
   <p role="status">{hairDisplay === "loading" ? "Loading hairstyle…" : "This hairstyle could not be displayed."}</p>
 {/if}
 

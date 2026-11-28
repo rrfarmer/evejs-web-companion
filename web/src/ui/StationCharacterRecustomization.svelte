@@ -31,6 +31,7 @@
   let primaryID = $state(0);
   let secondaryID = $state(0);
   let selection = $state({ outer: 0, topouter: 0, topmiddle: 0, bottomouter: 0, feet: 0 });
+  let robeHood = $state(0);
   const slotLabels = { outer: "Outerwear", topouter: "Overshirt", topmiddle: "Shirt", bottomouter: "Trousers", feet: "Footwear" };
   const optionalApparelSlots = ["outer", "topouter"];
   let showOutfit = $state(false);
@@ -77,9 +78,11 @@
   });
   const jacket = $derived(selection.outer === 0 ? null
     : apparelChoices.find(({ slot }) => slot === "outer")?.choice?.asset ?? options?.clothing?.outfit);
+  const adjustableHood = $derived(Boolean(jacket?.startsWith("/client-assets/portrait-outfit/male/robeam01/")));
+  const hoodChanged = $derived(adjustableHood && robeHood !== (options?.clothing?.robeHood ?? 0));
   const outfit = $derived(jacket ?? apparel.topouter ?? apparel.topmiddle);
   const hasChanges = $derived(initial || selected !== options?.backgroundID || zoomChanged || skinChanged || hairChanged ||
-    hairColorChanged || Object.keys(apparelIDs).length > 0);
+    hairColorChanged || hoodChanged || Object.keys(apparelIDs).length > 0);
   const busy = $derived(saving || publishing);
 
   onMount(() => {
@@ -97,6 +100,7 @@
       primaryID = data.hairColor.primaryID;
       secondaryID = data.hairColor.secondaryID;
       for (const slot of dockedApparelSlots) selection[slot] = data.clothing?.slots[slot].id ?? 0;
+      robeHood = data.clothing?.robeHood ?? 0;
     }).catch(() => { failed = true; });
   });
 
@@ -116,12 +120,14 @@
       await flow.saveDockedPortrait({ backgroundID, fieldOfView: initialFrame || zoomChanged ? fieldOfView : null,
         skinToneID: skinChanged ? skinToneID : null, hairID: hairChanged ? hairID : null,
         hairColor: hairColorChanged ? { primaryID, secondaryID } : null, apparelIDs,
+        robeHood: adjustableHood && (hoodChanged || apparelIDs.outer) ? robeHood : null,
         initialFrame: initialFrame ?? undefined });
       const clothing = options.clothing;
       if (clothing) {
         const slots = { ...clothing.slots };
         for (const slot of dockedApparelSlots) slots[slot] = { ...slots[slot], id: apparelIDs[slot] ?? slots[slot].id };
-        options = { ...options, clothing: { ...clothing, slots, apparel, outfit: jacket ?? null } };
+        options = { ...options, clothing: { ...clothing, slots, apparel, outfit: jacket ?? null,
+          robeHood: adjustableHood ? robeHood : null } };
       }
       options = { ...options, state: 0, backgroundID, framing, skinToneID, hairID, hairColor: { primaryID, secondaryID } };
       saveStatus = initialFrame ? "Appearance saved. You can now publish your portrait." : "Portrait settings saved.";
@@ -181,7 +187,7 @@
       {/if}
       <div class="image" class:outfit-preview={showOutfit}>
         {#if showOutfit && pilotHead && outfit}
-          <PortraitBaseHead model={pilotHead} bloodlineID={options.bloodlineID} {outfit} {apparel}
+          <PortraitBaseHead model={pilotHead} bloodlineID={options.bloodlineID} {outfit} {apparel} robeHood={adjustableHood ? robeHood : 0}
             hairstyle={chosenHair?.style} {hairTints} {hasSkinTones} skinColors={skinTone?.colors} />
         {:else if pilotHead && backdrop}
           <PortraitBaseHead bind:this={portraitView} model={pilotHead} backdropUrl={url} backdropIsDds={backdrop.isDds}
@@ -196,7 +202,10 @@
       {#if canSave}
         {#each apparelChoices as { slot, group, optional } (slot)}
           <label class="appearance-choice">{slotLabels[slot]}
-            <select bind:value={selection[slot]} disabled={busy} onchange={() => { saveStatus = ""; }}>
+            <select bind:value={selection[slot]} disabled={busy} onchange={event => {
+              if (slot === "outer") robeHood = Number(event.currentTarget.value) === group.id ? options?.clothing?.robeHood ?? 0 : 0;
+              saveStatus = "";
+            }}>
               {#if optional}<option value={0}>None</option>{/if}
               {#if (!optional || group.id) && !group.choices.some(choice => choice.id === group.id)}
                 <option value={group.id}>{group.id ? "Saved selection" : "No saved selection"}</option>
@@ -205,6 +214,15 @@
             </select>
           </label>
         {/each}
+        {#if adjustableHood}
+          <label class="appearance-choice">Hood
+            <select bind:value={robeHood} disabled={busy} onchange={() => { saveStatus = ""; }}>
+              <option value={0}>Down</option>
+              <option value={1}>Up</option>
+              <option value={2}>Covered</option>
+            </select>
+          </label>
+        {/if}
         {#if pilotHead && options.hairstyles.length}
           <label class="appearance-choice">Hairstyle
             <select bind:value={hairID} disabled={busy} onchange={() => { saveStatus = ""; }}>

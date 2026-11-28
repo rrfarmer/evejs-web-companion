@@ -20,7 +20,7 @@ const { readAchievementDefinitions, readCharacterTitleDefinitions, readPhasedFie
 const { createClientTextures } = require("./clientData/clientTextures");
 const { appearanceWithSkinTone, skinToneCatalog, skinToneID } = require("./clientData/portraitSkinTones");
 const { portraitSnapshotBytes } = require("./clientData/portraitSnapshot");
-const { appearanceWithHair, appearanceWithModifier, portraitHairChoices, portraitHairID, portraitModifierID } = require("./clientData/portraitHair");
+const { appearanceWithHair, appearanceWithModifier, portraitHairChoices, portraitHairID, portraitModifier, portraitModifierID } = require("./clientData/portraitHair");
 const { apparelSlots, optionalApparelSlots, portraitApparelChoices } = require("./clientData/portraitApparel");
 const { appearanceWithHairColors, hairColorCatalog, hairColorLocation, hairColorSelection, portraitHairTints } = require("./clientData/portraitHairColors");
 const { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewMakeup } = require("./clientData/portraitPreview");
@@ -19786,7 +19786,7 @@ app.get("/api/bridge/character/apparel", requireAuth, async (req, res, next) => 
       return [slot, { id, choices: editable ? choices : [] }];
     }));
     res.json({ ok: true, shirtID: slots.topmiddle.id, choices: slots.topmiddle.choices, slots,
-      outfit: preview?.outfit ?? null, apparel: preview?.apparel ?? {} });
+      outfit: preview?.outfit ?? null, robeHood: preview?.robeHood ?? null, apparel: preview?.apparel ?? {} });
   } catch (error) { next(error); }
 });
 
@@ -19848,7 +19848,7 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
   const held = requireHeldBridgeSession(req, res);
   if (!held || !requireWriteConfirmation(req, res, "Use Save portrait to confirm your changes.")) return;
   const { backgroundID, fieldOfView = null, dockedLocationID, skinTone = null, hairID = null, hairColor = null,
-    shirtID = null, apparelIDs = null, initialFrame = null } = req.body;
+    shirtID = null, apparelIDs = null, robeHood = null, initialFrame = null } = req.body;
   if (!Number.isSafeInteger(backgroundID) || backgroundID <= 0 ||
       !Number.isSafeInteger(dockedLocationID) || dockedLocationID <= 0) {
     return res.status(400).json({ ok: false, error: "INVALID_BACKDROP", message: "Choose an available portrait backdrop." });
@@ -19881,6 +19881,9 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
     return res.status(400).json({ ok: false, error: "INVALID_APPAREL", message: "Choose available apparel." });
   }
   const requestedApparel = Object.entries({ ...(shirtID === null ? {} : { topmiddle: shirtID }), ...apparelIDs });
+  if (robeHood !== null && ![0, 1, 2].includes(robeHood)) {
+    return res.status(400).json({ ok: false, error: "INVALID_ROBE_HOOD", message: "Choose an available hood position." });
+  }
   if (requestedApparel.some(([slot, id]) => !apparelSlots.includes(slot) || !Number.isSafeInteger(id) ||
     id < 0 || (id === 0 && !optionalApparelSlots.includes(slot)))) {
     return res.status(400).json({ ok: false, error: "INVALID_APPAREL", message: "Choose available apparel." });
@@ -19907,8 +19910,9 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
     let skinLocations;
     let hairLocation;
     let hairColorLocation;
+    let hoodLocation;
     const apparelToConfirm = [];
-    if (initial || skinTone || hairID !== null || hairColor !== null || requestedApparel.length) {
+    if (initial || skinTone || hairID !== null || hairColor !== null || requestedApparel.length || robeHood !== null) {
       const [{ skinLocations: locations, choices }, { result: current }] = await Promise.all([
         skinTone ? dockedSkinTones(call, held.characterID, skinTone.gender) : { skinLocations: [], choices: [] },
         call("paperDollServer", "GetMyPaperDollData", [held.characterID]),
@@ -19948,8 +19952,8 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
           if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
         }
       }
-      if (requestedApparel.length) {
-        const { groups } = await dockedApparelChoices(call, held.characterID);
+      if (requestedApparel.length || robeHood !== null) {
+        const { groups, model, locations, resources } = await dockedApparelChoices(call, held.characterID);
         for (const [slot, id] of requestedApparel) {
           const { location, choices } = groups[slot];
           if (!Number.isSafeInteger(location) || (id !== 0 && !choices.some(choice => choice.id === id))) {
@@ -19964,6 +19968,18 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
         if (requestedApparel.some(([, id]) => id === 0) &&
             !["outer", "topouter", "topmiddle"].some(slot => portraitModifierID(appearance ?? current, groups[slot].location))) {
           return res.status(400).json({ ok: false, error: "MISSING_REQUIRED_CLOTHING", message: "Choose at least one upper garment." });
+        }
+        if (robeHood !== null) {
+          hoodLocation = groups.outer.location;
+          const source = appearance ?? current;
+          const outer = portraitModifier(source, hoodLocation);
+          if (model !== "male" || locations?.[hoodLocation]?.variationKey !== "dependants/hood" ||
+              !outer || portraitPreviewModifiers(source, model, locations, resources).robeHood === null) {
+            return res.status(400).json({ ok: false, error: "INVALID_ROBE_HOOD", message: "Choose an outer garment with an adjustable hood." });
+          }
+          if ((outer[3] ?? 0) !== robeHood) {
+            appearance = appearanceWithModifier(source, hoodLocation, outer[2], robeHood);
+          }
         }
       }
     }
@@ -19989,6 +20005,7 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
         if (result == null || (skinTone && skinToneID(result, skinLocations) !== skinTone.id) ||
             (hairID !== null && portraitHairID(result, hairLocation) !== hairID) ||
             apparelToConfirm.some(([location, id]) => portraitModifierID(result, location) !== id) ||
+            (robeHood !== null && (portraitModifier(result, hoodLocation)?.[3] ?? 0) !== robeHood) ||
             (hairColor && (savedColor.primaryID !== hairColor.primaryID || savedColor.secondaryID !== hairColor.secondaryID))) {
           return res.status(409).json({ ok: false, error: "APPEARANCE_UNCONFIRMED", message: "The appearance changes could not be confirmed." });
         }

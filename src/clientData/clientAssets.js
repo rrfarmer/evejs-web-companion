@@ -186,7 +186,7 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   const outfit = /^\/portrait-outfit\/((?:female|male)\/(?:(?:topouter|topmiddle|bottomouter|feet|accessories\/(?:nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+)\.json$/.exec(rel);
   if (outfit) {
     const kind = outfit[1];
-    const build = kind.startsWith("male/robeam01/") ? 6 : kind.includes("/topmiddle/") ? 5 : 4;
+    const build = kind.startsWith("male/robeam01/") ? 7 : kind.includes("/topmiddle/") ? 5 : 4;
     const marker = build > 4 && !canExtract() ? undefined : `"outfitBuild":${build}`;
     return { file: await ensure(rel.slice(1), ["--portrait-outfit", outfit[1]], marker) };
   }
