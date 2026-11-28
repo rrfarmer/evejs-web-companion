@@ -193,10 +193,10 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
       ? (scalpMode === "implant" ? '"implant":true' : scalpMode === "only" ? '"finish":' : '"hairMeshBuild":3') : undefined;
     return { file: await ensure(rel.slice(1), ["--portrait-head", hair[1], "--portrait-hair", hair[2]], marker) };
   }
-  const outfit = /^\/portrait-outfit\/((?:female|male)\/(?:(?:topouter|topmiddle|bottomouter|feet|accessories\/(?:glasses|masks|nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+)\.json$/.exec(rel);
+  const outfit = /^\/portrait-outfit\/((?:female|male)\/(?:(?:topouter|topmiddle|bottommiddle|bottomouter|feet|accessories\/(?:glasses|masks|nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+)\.json$/.exec(rel);
   if (outfit) {
     const kind = outfit[1];
-    const build = /\/accessories\/(?:glasses|masks)\//.test(kind) ? 8
+    const build = kind.includes("/bottommiddle/") ? 9 : /\/accessories\/(?:glasses|masks)\//.test(kind) ? 8
       : kind.startsWith("male/robeam01/") ? 7 : kind.includes("/topmiddle/") ? 5 : 4;
     const marker = build > 4 && !canExtract() ? undefined : `"outfitBuild":${build}`;
     return { file: await ensure(rel.slice(1), ["--portrait-outfit", outfit[1]], marker) };

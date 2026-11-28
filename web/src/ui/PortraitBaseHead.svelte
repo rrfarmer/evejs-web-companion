@@ -464,7 +464,7 @@
       }
       for (const slot of ["bottomouter", "feet"] as const) {
         if (occludes.has(slot)) continue;
-        const url = extra?.[slot];
+        const url = extra?.[slot] ?? (slot === "bottomouter" && !occludes.has("bottommiddle") ? extra?.bottommiddle : undefined);
         if (!url) throw new Error("This outfit requires additional apparel layers");
         const layer = await manifest(url);
         worn.push(layer);

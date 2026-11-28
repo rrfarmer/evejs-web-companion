@@ -1084,7 +1084,8 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const sources = new Set(meshes.map(mesh => mesh.geometryResPath?.toLowerCase())
     .filter(resource => resource?.startsWith(folder + "/") && resource.endsWith(".gr2")));
   const textureOnlyTop = slot === "topmiddle" && sources.size === 0;
-  if (!textureOnlyTop && sources.size !== 1) throw new Error(`${typePath}: expected one authored skinned model`);
+  const textureOnlyLegs = slot === "bottommiddle" && sources.size === 0;
+  if (!textureOnlyTop && !textureOnlyLegs && sources.size !== 1) throw new Error(`${typePath}: expected one authored skinned model`);
   const [source] = sources;
   const layers = variation ? [`${folder}/${variation}`, folder] : [folder];
   const texture = (suffixes) => {
@@ -1133,6 +1134,12 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
         path.join(outRoot, "portrait-outfit", relative), part);
       bodyParts.push(`/client-assets/portrait-outfit/${relative}`);
     }
+  } else if (textureOnlyLegs) {
+    const paperDoll = `res:/graphics/character/${gender}/paperdoll`;
+    model = `${gender}/legs.glb`;
+    await extractPortraitMesh(rf, `${paperDoll}/bottominner/legs_nude/legs_nude.gr2`,
+      path.join(outRoot, "portrait-outfit", model), "legs");
+    skinBase = copyRes(rf, `${paperDoll}/basenude/caucasianbody_d_512.png`, outRoot);
   } else {
     await extractPortraitMesh(rf, source, path.join(dir, "model.glb"), style);
   }
@@ -1152,11 +1159,11 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const zones = texture(headwear ? [/\/colorize_acc_z_512\.png$/i, /\/colorize_acc_z\.png$/i]
     : [/\/colorize_body_z_512\.png$/i, /\/colorize_body_z_256\.dds$/i, /\/colorize_body_z\.png$/i]);
   const normal = texture([/_n_512\.png$/i, /_n\.png$/i]);
-  if (textureOnlyTop && !diffuse) throw new Error(`${typePath}: no authored top texture`);
+  if (skinBase && !diffuse) throw new Error(`${typePath}: no authored garment texture`);
   const rect = filename => filename?.endsWith(".png") ? portraitPngRect(rf.read(filename)) : [0, 0, 1, 1];
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
-    outfitBuild: headwear ? 8 : amarrRobe ? 7 : slot === "topmiddle" ? 5 : 4,
+    outfitBuild: slot === "bottommiddle" ? 9 : headwear ? 8 : amarrRobe ? 7 : slot === "topmiddle" ? 5 : 4,
     model: `/client-assets/portrait-outfit/${model}`, source, type: typePath, variation, palette, colors, occludes, skinMeshes,
     diffuse: diffuse ? copyRes(rf, diffuse, outRoot) : null,
     zones: zones ? copyRes(rf, zones, outRoot) : null,
@@ -1176,7 +1183,7 @@ function parseArgs(argv) {
     if (a === "--client") out.client = argv[++i];
     else if (a === "--portrait-outfit") {
       out.portraitOutfit = argv[++i];
-      if (!/^(?:female|male)\/(?:(?:topouter|topmiddle|bottomouter|feet|accessories\/(?:glasses|masks|nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+$/.test(out.portraitOutfit ?? "")) {
+      if (!/^(?:female|male)\/(?:(?:topouter|topmiddle|bottommiddle|bottomouter|feet|accessories\/(?:glasses|masks|nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+$/.test(out.portraitOutfit ?? "")) {
         throw new Error("--portrait-outfit needs gender/[slot/]style/variant");
       }
     }

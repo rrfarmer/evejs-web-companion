@@ -22,7 +22,7 @@ const { appearanceWithSkinTone, skinToneCatalog, skinToneID } = require("./clien
 const { portraitSnapshotBytes } = require("./clientData/portraitSnapshot");
 const { appearanceWithHair, appearanceWithModifier, portraitBeardChoices, portraitHairChoices, portraitHairID,
   portraitModifier, portraitModifierID } = require("./clientData/portraitHair");
-const { apparelSlots, optionalApparelSlots, portraitApparelChoices } = require("./clientData/portraitApparel");
+const { apparelSlots, optionalApparelSlots, ownedApparelSlots, portraitApparelChoices } = require("./clientData/portraitApparel");
 const { appearanceWithHairColors, appearanceWithHairDarkness, hairColorCatalog, hairColorLocation, hairColorSelection,
   portraitHairDarkness, portraitHairTints } = require("./clientData/portraitHairColors");
 const { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewMakeup,
@@ -20087,7 +20087,7 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
         if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
       }
       if (requestedApparel.length || robeHood !== null) {
-        const ownedTypeIDs = !initial && requestedApparel.some(([slot, id]) => slot === "accessories/masks" && id > 0)
+        const ownedTypeIDs = !initial && requestedApparel.some(([slot, id]) => ownedApparelSlots.includes(slot) && id > 0)
           ? await dockedOwnedApparel(held, req.webSessionID) : undefined;
         const { groups, model, locations, resources } = await dockedApparelChoices(call, held.characterID, ownedTypeIDs);
         for (const [slot, id] of requestedApparel) {

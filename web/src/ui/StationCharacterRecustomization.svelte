@@ -41,11 +41,11 @@
   let bodyRegionID = $state(0);
   let outfitCatalog = $state.raw<{ key: string; names: ReadonlySet<string> } | null>(null);
   let bodyEdits = $state.raw<Partial<BodySculptSliders>>({});
-  let selection = $state({ outer: 0, topouter: 0, topmiddle: 0, bottomouter: 0, feet: 0, "accessories/glasses": 0, "accessories/masks": 0 });
+  let selection = $state({ outer: 0, topouter: 0, topmiddle: 0, bottomouter: 0, bottommiddle: 0, feet: 0, "accessories/glasses": 0, "accessories/masks": 0 });
   let robeHood = $state(0);
   const slotLabels = { outer: "Outerwear", topouter: "Overshirt", topmiddle: "Shirt", bottomouter: "Trousers", feet: "Footwear",
-    "accessories/glasses": "Eyewear", "accessories/masks": "Masks" };
-  const optionalApparelSlots = ["outer", "topouter", "accessories/glasses", "accessories/masks"] as const;
+    bottommiddle: "Bottom, extra", "accessories/glasses": "Eyewear", "accessories/masks": "Masks" };
+  const optionalApparelSlots = ["outer", "topouter", "bottommiddle", "accessories/glasses", "accessories/masks"] as const;
   let showOutfit = $state(false);
   let preview = $state<"backdrop" | "female" | "male">("backdrop");
   let failed = $state(false);
