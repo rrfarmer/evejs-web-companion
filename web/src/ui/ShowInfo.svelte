@@ -21,6 +21,7 @@
   import InfoAttributeHint from "./InfoAttributeHint.svelte";
   import { getCelestialInfo, getStargateInfo, loadTypeListsHolding, type CelestialInfo, type StargateInfo } from "../app/api.ts";
   import InfoCelestialAttributes from "./InfoCelestialAttributes.svelte";
+  import InfoBeltOreTypes from "./InfoBeltOreTypes.svelte";
   import InfoPlanetProduction from "./InfoPlanetProduction.svelte";
   import { AGENCY_SCREEN_GROUPS } from "./agencyContentGroups.ts";
   import { openAgencyGroup } from "./agencyRequests.ts";
@@ -155,7 +156,8 @@
   // infoContentBase.construct_layout: techicon (16 x 16, RELATIVE at 0, 0 of the main icon's parent) set by
   // uix.GetTechLevelIcon for a type's icon (and a blueprint's), hidden for the rest
   let headFacts = $state<{ typeID: number; metaGroupID: number | null; groupID: number | null;
-    categoryID: number | null; marketGroupID: number | null; published: boolean } | null>(null);
+    categoryID: number | null; marketGroupID: number | null; published: boolean;
+    volume: number | null; mass: number | null } | null>(null);
   let footerLists = $state<{ typeID: number; held: readonly number[] } | null>(null);
   const marketLabel = "UI/Inventory/ItemActions/ViewTypesMarketDetails";
   const contractsLabel = "UI/Inventory/ItemActions/FindInContracts";
@@ -171,7 +173,8 @@
       if (!live) return;
       const facts = m?.get(t);
       headFacts = { typeID: t, metaGroupID: facts?.metaGroupID ?? null, groupID: facts?.groupID ?? null,
-        categoryID: facts?.categoryID ?? null, marketGroupID: facts?.marketGroupID ?? null, published: facts?.published === true };
+        categoryID: facts?.categoryID ?? null, marketGroupID: facts?.marketGroupID ?? null, published: facts?.published === true,
+        volume: facts?.volume ?? null, mass: facts?.mass ?? null };
     }).catch(() => {});
     return () => { live = false; };
   });
@@ -308,6 +311,7 @@
     if (current.kind === "mapLocation") {
       return mapLocationRead?.name || mapTypeName(current.typeID);
     }
+    if (showBeltAction && typeName) return typeName;
     if (celestialKind && celestialRead) return celestialTitle;
     if (stargateRead) {
       const destination = resolvedName($names.resolved, "system", stargateRead.destinationSystemID, "");
@@ -399,10 +403,18 @@
   $effect(() => { if (planetType) flow.requestWords([productionLabel, "UI/InfoWindow/TabNames/Attributes", "UI/InfoWindow/TabNames/Description"]); });
   const viewPlanetLabel = "UI/PI/Common/ViewInPlanetMode";
   const asteroidBeltsLabel = "UI/Common/AsteroidBelts";
+  const beltOreLabel = "UI/Agency/OreTypesInBelt";
   const showPlanetAction = $derived(celestialKind === "planet" && !!onViewPlanet);
   const showBeltAction = $derived(!shipLiveOnly && typeID === 15);
+  let beltTab = $state<"description" | "attributes" | "ore">("description");
+  const beltTypeDimensions = $derived($subject?.kind === "type" && showBeltAction && headFacts?.typeID === typeID &&
+    (headFacts.volume !== null || headFacts.mass !== null) ? headFacts : null);
   $effect(() => { if (showPlanetAction) flow.requestWords([viewPlanetLabel]); });
-  $effect(() => { if (showBeltAction) flow.requestWords([asteroidBeltsLabel]); });
+  $effect(() => {
+    $subject;
+    beltTab = "description";
+    if (showBeltAction) flow.requestWords([asteroidBeltsLabel, beltOreLabel, descriptionLabel, attributesLabel, "#233026", "#233287"]);
+  });
   let celestialRead = $state<CelestialInfo | null>(null);
   let celestialReadDone = $state(false);
   const celestialNamePaths = {
@@ -1414,6 +1426,17 @@
   {/each}
 {/snippet}
 
+{#snippet physicalDimensions(volume: number | null, mass: number | null)}
+  <dl class="kv" aria-label={word(attributesLabel) || "Attributes"}>
+    {#if volume !== null}
+      <dt>{word("#233026") || "Volume"}</dt><dd>{volume.toLocaleString(undefined, { maximumFractionDigits: 2 })} m3</dd>
+    {/if}
+    {#if mass !== null}
+      <dt>{word("#233287") || "Mass"}</dt><dd>{mass.toLocaleString(undefined, { maximumFractionDigits: 0 })} kg</dd>
+    {/if}
+  </dl>
+{/snippet}
+
 <!-- The Standings tab (PanelStandings): each section's shared owner, then each other owner and the standings, one way
      (toward the pilot) or both ways (a faction with another, its own first). -->
 {#snippet standingsTab()}
@@ -1462,7 +1485,7 @@
       {/if}
       <div class="info-identity">
         <h2>{title}</h2>
-        {#if !stargateRead || entity}<p class="info-kind">{subjectKindLabel($subject)}</p>{/if}
+        {#if !showBeltAction && (!stargateRead || entity)}<p class="info-kind">{subjectKindLabel($subject)}</p>{/if}
         {#if typeName && typeName !== title}
           <p class="info-type">{typeName}</p>
         {/if}
@@ -1598,6 +1621,23 @@
           </ul>
         {/each}
       </div>
+    {:else if showBeltAction}
+      <nav class="character-info-tabs" aria-label="Asteroid belt information">
+        <button type="button" aria-pressed={beltTab === "description"} onclick={() => beltTab = "description"}>{word(descriptionLabel) || "Description"}</button>
+        {#if beltTypeDimensions || (celestialRead && Object.keys(celestialRead.statistics).length)}
+          <button type="button" aria-pressed={beltTab === "attributes"} onclick={() => beltTab = "attributes"}>{word(attributesLabel) || "Attributes"}</button>
+        {/if}
+        <button type="button" aria-pressed={beltTab === "ore"} onclick={() => beltTab = "ore"}>{word(beltOreLabel) || "Potential Ores"}</button>
+      </nav>
+      {#if beltTab === "ore"}
+        <InfoBeltOreTypes {store} {flow} itemID={$subject.kind === "spaceObject" ? $subject.itemID : null} />
+      {:else if beltTab === "attributes" && celestialRead && $subject.kind === "spaceObject"}
+        <InfoCelestialAttributes {store} {flow} statistics={celestialRead.statistics} kind="belt" itemID={$subject.itemID} />
+      {:else if beltTab === "attributes" && beltTypeDimensions}
+        {@render physicalDimensions(beltTypeDimensions.volume, beltTypeDimensions.mass)}
+      {:else}
+        <div class="info-description">{@render markupLines(typeName)}</div>
+      {/if}
     {:else if $subject.kind === "spaceObject"}
       {#if celestialKind && celestialRead && $subject.kind === "spaceObject"}
         <InfoCelestialAttributes {store} {flow} statistics={celestialRead.statistics} kind={celestialKind} itemID={$subject.itemID} />
@@ -1612,14 +1652,7 @@
           </nav>
         {/if}
         {#if hasAttributes && stargateAttributes}
-          <dl class="kv" aria-label={word(attributesLabel) || "Attributes"}>
-            {#if stargateRead.volume !== null}
-              <dt>{word("#233026") || "Volume"}</dt><dd>{stargateRead.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })} m3</dd>
-            {/if}
-            {#if stargateRead.mass !== null}
-              <dt>{word("#233287") || "Mass"}</dt><dd>{stargateRead.mass.toLocaleString(undefined, { maximumFractionDigits: 0 })} kg</dd>
-            {/if}
-          </dl>
+          {@render physicalDimensions(stargateRead.volume, stargateRead.mass)}
         {:else}
           <div class="info-description">{@render markupLines(stargateDescription ?? "")}</div>
         {/if}

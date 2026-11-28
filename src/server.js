@@ -14576,6 +14576,20 @@ for (const [kind, groupID] of [["moon", 8], ["planet", 7], ["belt", 9]]) {
   });
 }
 
+app.get("/api/client-data/belt-ore-types/:id", requireAuth, async (req, res, next) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 40_000_000 || id >= 50_000_000) {
+    res.status(400).json({ ok: false, error: "INVALID_BELT", message: "An asteroid belt's item number is required." });
+    return;
+  }
+  try {
+    const typeIDs = await clientBuiltData.beltOreTypes(id);
+    res.json({ ok: true, available: typeIDs !== null, typeIDs: typeIDs ?? [] });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/client-data/stargates/:id", requireAuth, async (req, res, next) => {
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id < 50_000_000 || id >= 60_000_000) {
@@ -16437,6 +16451,7 @@ app.get("/api/client-data/type-meta", requireAuth, async (req, res, next) => {
           descriptionID: whole(type.descriptionID),
           groupID: whole(type.groupID),
           categoryID: whole(type.effectiveSource ? type.categoryID : groupCategories?.[whole(type.groupID)]),
+          ...(whole(type.groupID) === 9 ? { volume: type.volume ?? null, mass: type.mass ?? null } : {}),
         }
         : null;
     }

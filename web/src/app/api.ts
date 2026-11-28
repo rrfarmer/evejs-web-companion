@@ -4382,6 +4382,8 @@ export interface TypeMetaFacts {
   readonly descriptionID: number | null;
   readonly groupID: number | null;
   readonly categoryID: number | null;
+  readonly volume?: number | null;
+  readonly mass?: number | null;
 }
 
 /** Types' meta level, meta group, tech level, market group, group and category, and the meta groups' names' messages. */
@@ -4445,6 +4447,7 @@ export async function getTypeMeta(typeIDs: readonly number[], options: ApiOption
       descriptionID: numberOrNull(row.descriptionID),
       groupID: numberOrNull(row.groupID),
       categoryID: numberOrNull(row.categoryID),
+      ...(row.groupID === 9 ? { volume: numberOrNull(row.volume), mass: numberOrNull(row.mass) } : {}),
     });
   }
   const metaGroupNameIDs = new Map<number, number | null>();
@@ -4546,6 +4549,12 @@ export async function getCelestialInfo(itemID: number, kind: "moon" | "planet" |
   }
   return { solarSystemID: celestial.solarSystemID, celestialIndex: celestial.celestialIndex,
     orbitIndex: typeof celestial.orbitIndex === "number" ? celestial.orbitIndex : 0, statistics };
+}
+
+export async function getBeltOreTypes(itemID: number, options: ApiOptions = {}): Promise<readonly number[] | null> {
+  const data = await getJson(`/api/client-data/belt-ore-types/${itemID}`, options);
+  if (data.available !== true || !Array.isArray(data.typeIDs)) return null;
+  return data.typeIDs.filter((id): id is number => typeof id === "number" && Number.isSafeInteger(id) && id > 0);
 }
 
 export interface StargateInfo {

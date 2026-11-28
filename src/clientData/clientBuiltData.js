@@ -222,6 +222,20 @@ const INFO_BUBBLES = "res:/staticdata/infobubbles.static";
 // packaged client's bin:/staticdata/mapObjects.db), which GetLocationsLocalBySystem reads a system's items from.
 const MAP_OBJECTS = ["tq", "bin64", "staticdata", "mapObjects.db"];
 const SOLAR_SYSTEM_CONTENT = "res:/staticdata/solarsystemcontent.static";
+const BELT_ASTEROID_COUNTS = "res:/staticdata/asteroidcountbytypeidbeltid.static";
+// mining.client.ore_const groups ordinary ores and their variants in AsteroidCount's type ordering.
+const ORE_BASE_TYPES = new Map(Object.entries({
+  1230: [17470, 17471, 46689], 1228: [17463, 17464, 46687], 1224: [17459, 17460, 46686],
+  18: [17455, 17456, 46685], 1227: [17867, 17868, 46684], 20: [17452, 17453, 46683],
+  1226: [17448, 17449, 46682], 1231: [17444, 17445, 46681], 21: [17440, 17441, 46680],
+  1229: [17865, 17866, 46679], 1232: [17436, 17437, 46675], 19: [17466, 17467, 46688],
+  1225: [17432, 17433, 46677], 1223: [17428, 17429, 46676], 22: [17425, 17426, 46678],
+  52316: [56627, 56628], 11396: [17869, 17870], 74533: [74534, 74535, 74536],
+  74529: [74530, 74531, 74532], 74521: [74522, 74523, 74524], 74525: [74526, 74527, 74528],
+  52315: [56629, 56630], 52306: [56625, 56626], 81975: [81976, 81977, 81978],
+  82163: [82164, 82165, 82166], 81900: [81901, 81902, 81903], 82016: [82017, 82018, 82019],
+  82205: [82206, 82207, 82208],
+}).flatMap(([base, variants]) => variants.map(variant => [variant, Number(base)])));
 
 // An alpha clone's skills and their highest levels, by race (clonegrade/storage.py CloneGradeStorage:
 // fsdlite.EveStorage(data='clonegrades', cache='clonegrades.static')): the same kind of cache, a record by race.
@@ -606,6 +620,24 @@ function createClientBuiltData({
   }
 
   let solarSystemContent = null;
+  let beltAsteroidCounts = null;
+  async function beltOreTypes(itemID) {
+    if (!available()) return null;
+    if (!beltAsteroidCounts) {
+      const index = readResourceIndex(readFile(path.join(clientRoot, "tq", "resfileindex.txt"), "utf8"));
+      const resource = index.get(BELT_ASTEROID_COUNTS);
+      if (!resource) return null;
+      beltAsteroidCounts = fs.promises.readFile(path.join(clientRoot, "ResFiles", resource)).catch(error => {
+        beltAsteroidCounts = null;
+        throw error;
+      });
+    }
+    const [{ readFsdStatic }, buffer] = await Promise.all([import("../../tools/client-extract/lib/fsdStatic.mjs"), beltAsteroidCounts]);
+    const records = readFsdStatic(buffer, BELT_ASTEROID_COUNTS, { keys: [itemID] });
+    return Object.keys(records[itemID] ?? {}).map(Number)
+      .sort((a, b) => (ORE_BASE_TYPES.get(a) ?? a) - (ORE_BASE_TYPES.get(b) ?? b) || a - b);
+  }
+
   async function celestialInfo(itemID, groupID) {
     if (!available()) return null;
     const { DatabaseSync } = require("node:sqlite");
@@ -642,6 +674,7 @@ function createClientBuiltData({
     rows,
     systemObjects,
     celestialInfo,
+    beltOreTypes,
     stargateInfo,
     infoBubbleGroups,
     infoBubbleTypeBonuses,
