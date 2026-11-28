@@ -104,6 +104,27 @@
     if (!corporationAllowed && walletTab === "corporation") walletTab = "mine";
   });
   let currency = $state<"isk" | "plex" | "loyalty" | "evermarks">("isk");
+  let iskActivity = $state<"idle" | "new" | "unseen">("idle");
+  $effect(() => {
+    const pilot = characterID;
+    if (!retail || pilot === null) return;
+    iskActivity = "idle";
+    const updates = flow.walletBlink;
+    let previous = updates.get();
+    let settle: ReturnType<typeof setTimeout> | undefined;
+    const stop = updates.subscribe(change => {
+      if (change === previous) return;
+      previous = change;
+      if (change?.kind !== "personalIsk" || change.characterID !== pilot ||
+          !walletSetting(pilot, "notifyAccountChange") || currency === "isk") return;
+      iskActivity = "new";
+      clearTimeout(settle);
+      settle = setTimeout(() => {
+        if (iskActivity === "new") iskActivity = "unseen";
+      }, 5000);
+    });
+    return () => { stop(); clearTimeout(settle); };
+  });
   let loyaltyTab = $state<"overview" | "incursions" | "donate">("overview");
   let evermarksTab = $state<"overview" | "donate">("overview");
   const LP_LOG = "UI/Incursion/Journal/LoyaltyPointLog";
@@ -346,7 +367,10 @@
       </div>
     {/if}
     <div class="wl-tabs" hidden={walletTab !== "mine"}>
-      <button type="button" class="wl-tab currency-tab" class:sel={currency === "isk"} aria-pressed={currency === "isk"} onclick={() => (currency = "isk")}>
+      <button type="button" class="wl-tab currency-tab isk-tile" class:sel={currency === "isk"}
+        aria-pressed={currency === "isk"} data-activity={iskActivity}
+        onpointerenter={() => { if (iskActivity === "new") iskActivity = "unseen"; }}
+        onclick={() => { currency = "isk"; iskActivity = "idle"; }}>
         <span class="ic"><img alt="" src="/client-res/ui/texture/windowicons/wallet.png" /></span>
         <span class="data"><span class="top"><b>{tabWord("UI/Common/ISK", "ISK")}</b><span class="info" title={tabWord("UI/Wallet/WalletWindow/ISKDescription", "")}>i</span></span>
           <span class="amount">{$wallet.loaded ? balance : ""}</span></span>
@@ -505,6 +529,29 @@
 
 <style>
   .currency-tab { padding: 0; color: inherit; text-align: left; }
+  .isk-tile { position: relative; }
+  .wl-tab.isk-tile[data-activity="new"] {
+    background: color-mix(in srgb, var(--theme-alert, #e8a459) 22%, transparent);
+  }
+  .isk-tile[data-activity="new"]::after,
+  .isk-tile[data-activity="unseen"]::after {
+    content: "";
+    position: absolute;
+    width: 8px;
+    height: 1px;
+    bottom: 0;
+    left: 50%;
+    translate: -50% 0;
+    background: var(--theme-alert, #e8a459);
+    pointer-events: none;
+  }
+  .isk-tile[data-activity="new"]::after { width: 16px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .isk-tile[data-activity="new"] b { animation: wallet-isk-glow 1s 3; }
+  }
+  @keyframes wallet-isk-glow {
+    50% { text-shadow: 0 0 7px var(--theme-alert, #e8a459); }
+  }
   .evermarks-overview { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; padding: 20px 0 8px; }
   .evermarks-overview button { box-sizing: border-box; width: 128px; min-height: 160px; padding: 12px 6px;
     display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
