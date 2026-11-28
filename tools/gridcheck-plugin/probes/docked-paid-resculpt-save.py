@@ -20,10 +20,11 @@ def observe():
     raw = controller.UpdateExistingCharacter.__func__
     update = FunctionType(raw.func_code, dict(raw.func_globals, sm=services), raw.func_name, raw.func_defaults, raw.func_closure)
     samples = []
-    for state in (creation.paperdoll.State.no_recustomization, creation.paperdoll.State.resculpting):
+    first_appearance = creation.paperdoll.State.no_existing_customization
+    for state in (creation.paperdoll.State.no_recustomization, creation.paperdoll.State.resculpting, first_appearance):
         del calls[:]
         mode = controller.GetModeIDForDollState.__func__(None, state)
-        editor = KeyVal(_activeCharID=pilot, _characterData={pilot: KeyVal(dna=appearance)},
+        editor = KeyVal(_activeCharID=pilot, _characterData={pilot: KeyVal(dna=None if state == first_appearance else appearance)},
                         portraitManager=KeyVal(GetActivePortraitInfo=lambda: portrait, activePortraitIndex=0,
                                                GetPortraitSnapshotPath=lambda index: 'fixture'),
                         characterSvc=KeyVal(GetCharacterAppearanceInfo=lambda char_id: appearance,

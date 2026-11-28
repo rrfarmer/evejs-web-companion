@@ -111,6 +111,8 @@
   }
   const canPublish = $derived(options?.state === 0 && options.backgroundID !== null);
   const canSave = $derived(canPublish || ((initial || resculpt) && pilotHead !== null));
+  const needsFrame = $derived(initial || (resculpt && !options?.framing));
+  const reviewPortrait = $derived(needsFrame && showOutfit);
   const zoomChanged = $derived(Boolean(pilotHead && options?.framing && fieldOfView !== options.framing.fieldOfView));
   const skinTone = $derived(options?.skinTones.find(tone => tone.id === skinToneID));
   const hasSkinTones = $derived(Boolean(pilotHead && options?.skinTones.length));
@@ -216,10 +218,13 @@
     const paid = resculpt;
     const savedMorphs = morphs;
     const backgroundID = backdrop.id;
-    const needsFrame = initial || (paid && !options.framing);
+    if (reviewPortrait) {
+      showOutfit = false;
+      saveStatus = "";
+      return;
+    }
     const initialFrame = needsFrame ? portraitView?.readPortraitFrame() : undefined;
     if (needsFrame && !initialFrame) {
-      if (showOutfit) showOutfit = false;
       saveStatus = "Wait for the portrait preview to finish loading.";
       return;
     }
@@ -468,7 +473,7 @@
         {/if}
         <div class="portrait-actions">
           <button type="button" disabled={busy || !backdrop || (!hasChanges && !resculpt)} onclick={savePortrait}>
-            {saving ? "Saving…" : resculpt ? "Save resculpt" : initial ? "Save appearance" : "Save portrait"}
+            {saving ? "Saving…" : reviewPortrait ? "Review portrait" : resculpt ? "Save resculpt" : initial ? "Save appearance" : "Save portrait"}
           </button>
           {#if pilotHead && canPublish}
             <button type="button" disabled={busy || hasChanges || !portraitView || (hairID !== 0 && !chosenHair)} onclick={publishPortrait}>
