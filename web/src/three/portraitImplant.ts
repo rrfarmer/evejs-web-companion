@@ -11,6 +11,34 @@ export interface PortraitImplantMaps {
   Specular: PortraitImplantMap;
 }
 
+export type PortraitScalpFinish = Partial<Pick<PortraitImplantMaps, "Normal" | "Specular">>;
+
+export function compositePortraitScalpFinish(shader: WebGLProgramParametersWithUniforms, maps: PortraitScalpFinish): void {
+  for (const [role, map] of Object.entries(maps)) {
+    const name = "portraitScalp" + role;
+    shader.uniforms[name] = { value: map.texture };
+    shader.uniforms[name + "Rect"] = { value: map.rect };
+    shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
+      #include <map_pars_fragment>
+      uniform sampler2D ${name};
+      uniform vec4 ${name}Rect;
+    `);
+  }
+  if (maps.Specular) {
+    shader.fragmentShader = shader.fragmentShader.replace("#include <roughnessmap_fragment>", `
+      #include <roughnessmap_fragment>
+      vec2 scalpSpecularUv = (vMapUv - portraitScalpSpecularRect.xy) / portraitScalpSpecularRect.zw;
+      vec2 scalpSpecularInside = step(vec2(0.0), scalpSpecularUv) * step(scalpSpecularUv, vec2(1.0));
+      float scalpSpecularWeight = portraitScalpHairMask * scalpSpecularInside.x * scalpSpecularInside.y;
+      vec4 scalpSpecular = texture2D(portraitScalpSpecular, scalpSpecularUv);
+      roughnessFactor = mix(roughnessFactor, 1.0 - scalpSpecular.a, scalpSpecularWeight);
+    `).replace("#include <lights_physical_fragment>", `
+      #include <lights_physical_fragment>
+      material.specularColor *= mix(1.0, scalpSpecular.r, scalpSpecularWeight);
+    `);
+  }
+}
+
 export function compositePortraitImplant(shader: WebGLProgramParametersWithUniforms, maps: PortraitImplantMaps): void {
   for (const [role, map] of Object.entries(maps)) {
     shader.uniforms["portraitImplant" + role] = { value: map.texture };

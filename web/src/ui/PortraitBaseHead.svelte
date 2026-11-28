@@ -5,7 +5,8 @@
   import type { PortraitFraming } from "../app/flow.ts";
   import type { PortraitApparel, PortraitFrame, PortraitMakeup, PortraitMorph, PortraitSkinTone } from "../app/api.ts";
   import { compositePortraitColorLayer, type PortraitColorLayer } from "../three/portraitMakeup.ts";
-  import { compositePortraitImplant, type PortraitImplantMap, type PortraitImplantMaps } from "../three/portraitImplant.ts";
+  import { compositePortraitImplant, compositePortraitScalpFinish, type PortraitImplantMap, type PortraitImplantMaps,
+    type PortraitScalpFinish } from "../three/portraitImplant.ts";
   import { applyPortraitMorphs } from "../three/portraitMorphs.ts";
   import { compressedSupport, loadDds } from "../three/ddsTexture";
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
@@ -41,10 +42,11 @@
     zonesRect: number[];
   };
   type CroppedMapAsset = { url: string; rect: number[] };
+  type ColorizedScalpAsset = ColorLayerAsset & { finish?: { normal?: CroppedMapAsset; specular?: CroppedMapAsset } };
   type ImplantAsset = { implant: true; diffuse: CroppedMapAsset; normal: CroppedMapAsset; specular: CroppedMapAsset };
   let meshHairDisplay = $state<LoadState>("loading");
   let scalpDisplay = $state<LoadState>("ready");
-  let scalpAsset = $state.raw<ColorLayerAsset | ImplantAsset | null>(null);
+  let scalpAsset = $state.raw<ColorizedScalpAsset | ImplantAsset | null>(null);
   const hairDisplay = $derived(meshHairDisplay === "unavailable" || scalpDisplay === "unavailable" ? "unavailable"
     : meshHairDisplay === "loading" || scalpDisplay === "loading" ? "loading" : "ready");
   let outfitDisplay = $state<"loading" | "ready" | "unavailable">("loading");
@@ -191,7 +193,7 @@
       const { diffuse, rgb, scalp } = await response.json() as {
         diffuse?: string;
         rgb: [number, number, number];
-        scalp?: Omit<ColorLayerAsset, "colors"> | ImplantAsset;
+        scalp?: Omit<ColorizedScalpAsset, "colors"> | ImplantAsset;
       };
       if (retired) return;
       if (scalp) {
@@ -640,23 +642,24 @@
       const irisLayer = irisAsset ? await readColorLayer({ asset: irisAsset, weight: 1, gloss: null }) : null;
       const faceLayers: [string, PortraitColorLayer][] = [];
       let implant: PortraitImplantMaps | null = null;
+      const scalpFinish: PortraitScalpFinish = {};
+      const loadScalpMap = async (asset: CroppedMapAsset, color = false): Promise<PortraitImplantMap> => {
+        if (retired) throw new Error("Portrait load retired");
+        const map = await loadMap(asset.url, color);
+        if (retired) {
+          map.texture.dispose();
+          map.bitmap.close();
+          throw new Error("Portrait load retired");
+        }
+        maps.push(map);
+        return { texture: map.texture, rect: new THREE.Vector4().fromArray(asset.rect) };
+      };
       if (scalp && "implant" in scalp && !retired) {
-        const loadImplantMap = async (asset: CroppedMapAsset, color = false): Promise<PortraitImplantMap> => {
-          if (retired) throw new Error("Portrait load retired");
-          const map = await loadMap(asset.url, color);
-          if (retired) {
-            map.texture.dispose();
-            map.bitmap.close();
-            throw new Error("Portrait load retired");
-          }
-          maps.push(map);
-          return { texture: map.texture, rect: new THREE.Vector4().fromArray(asset.rect) };
-        };
         try {
           implant = {
-            Diffuse: await loadImplantMap(scalp.diffuse, true),
-            Normal: await loadImplantMap(scalp.normal),
-            Specular: await loadImplantMap(scalp.specular),
+            Diffuse: await loadScalpMap(scalp.diffuse, true),
+            Normal: await loadScalpMap(scalp.normal),
+            Specular: await loadScalpMap(scalp.specular),
           };
         } catch {
           if (retired) return;
@@ -665,7 +668,14 @@
       } else if (scalp && !retired) {
         const layer = await loadColorLayer(scalp, 1, null).catch(() => null);
         if (retired) return;
-        if (layer) faceLayers.push(["portraitScalpHair", layer]);
+        if (layer) {
+          faceLayers.push(["portraitScalpHair", layer]);
+          for (const [role, asset] of [["Normal", scalp.finish?.normal], ["Specular", scalp.finish?.specular]] as const) {
+            const map = asset && await loadScalpMap(asset).catch(() => null);
+            if (map) scalpFinish[role] = map;
+            if (retired) return;
+          }
+        }
         scalpDisplay = layer ? "ready" : "unavailable";
       }
       let brows: [string, PortraitColorLayer] | null = null;
@@ -689,7 +699,8 @@
       // The authored head normal packs tangent X in alpha and Y in green.
       // Read the two linear channels without premultiplying the PNG.
       const configure = (material: THREE.MeshStandardMaterial, skinLayer: SkinUniforms | null,
-        layers: readonly [string, PortraitColorLayer][] = [], implantMaps: PortraitImplantMaps | null = null) => {
+        layers: readonly [string, PortraitColorLayer][] = [], implantMaps: PortraitImplantMaps | null = null,
+        finish: PortraitScalpFinish = {}) => {
         material.onBeforeCompile = shader => {
           const layeredNormal = archetype ? `headNormal = mix(headNormal,
             texture2D( archetypeNormal, vNormalMapUv ).ag * 2.0 - 1.0, archetypeCoverage);` : "";
@@ -729,6 +740,7 @@
           }
           if (implantMaps) compositePortraitImplant(shader, implantMaps);
           for (const [name, layer] of layers) compositePortraitColorLayer(shader, name, layer);
+          compositePortraitScalpFinish(shader, finish);
           shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>",
             THREE.ShaderChunk.normal_fragment_maps.replace(
               "vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;",
@@ -736,13 +748,17 @@
                ${layeredNormal}
                ${implantMaps ? `vec3 implantNormal = samplePortraitImplant(portraitImplantNormal, portraitImplantNormalRect, vNormalMapUv).rgb;
                headNormal = mix(headNormal, implantNormal.rg * 2.0 - 1.0, implantNormal.b);` : ""}
+               ${finish.Normal ? `vec2 scalpNormalUv = (vNormalMapUv - portraitScalpNormalRect.xy) / portraitScalpNormalRect.zw;
+               vec2 scalpNormalInside = step(vec2(0.0), scalpNormalUv) * step(scalpNormalUv, vec2(1.0));
+               vec2 scalpNormal = texture2D(portraitScalpNormal, scalpNormalUv).ag * 2.0 - 1.0;
+               headNormal = mix(headNormal, scalpNormal, portraitScalpHairMask * scalpNormalInside.x * scalpNormalInside.y);` : ""}
                vec3 mapN = vec3( headNormal, sqrt( max( 0.0, 1.0 - dot( headNormal, headNormal ) ) ) );`,
             ));
         };
-        material.customProgramCacheKey = () => `portrait:${Boolean(archetype)}:${Boolean(skinLayer)}:${Boolean(implantMaps)}:${layers.map(([name, layer]) => name + (layer.gloss !== null ? "+" : "")).join(",")}`;
+        material.customProgramCacheKey = () => `portrait:${Boolean(archetype)}:${Boolean(skinLayer)}:${Boolean(implantMaps)}:${Boolean(finish.Normal)}:${Boolean(finish.Specular)}:${layers.map(([name, layer]) => name + (layer.gloss !== null ? "+" : "")).join(",")}`;
       };
       configure(surface, null);
-      if (skin !== surface) configure(skin, tint, faceLayers, implant);
+      if (skin !== surface) configure(skin, tint, faceLayers, implant, scalpFinish);
       applySurface(avatar, surface, new Set(transparent), new Set(eyelashMeshes), eyelashes, skin);
       if (irisLayer) {
         const eyes = surface.clone();
