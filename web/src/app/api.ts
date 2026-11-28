@@ -6458,7 +6458,7 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
   };
 }
 
-export const dockedApparelSlots = ["topmiddle", "bottomouter", "feet"] as const;
+export const dockedApparelSlots = ["outer", "topmiddle", "bottomouter", "feet"] as const;
 export type DockedApparelSlot = typeof dockedApparelSlots[number];
 
 export interface DockedApparel {
@@ -6476,11 +6476,14 @@ export async function loadDockedApparel(gender: PortraitHead, options: ApiOption
     const choices = (Array.isArray(rows) ? rows : []).flatMap(row => {
       if (!row || !Number.isSafeInteger(row.id) || typeof row.name !== "string" || typeof row.asset !== "string") return [];
       const match = /^\/client-assets\/portrait-outfit\/(female|male)\/(topmiddle|bottomouter|feet)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(row.asset);
-      return match?.[1] === gender && match[2] === slot ? [{ id: row.id, name: row.name, asset: row.asset }] : [];
+      const asset = slot === "outer" ? portraitOutfit(row.asset, gender)
+        : match?.[1] === gender && match[2] === slot ? row.asset : null;
+      return asset ? [{ id: row.id, name: row.name, asset }] : [];
     });
     return { id: asNumberOrNull(entry?.id ?? (slot === "topmiddle" ? data.shirtID : undefined)) ?? 0, choices };
   }
-  const slots = { topmiddle: readSlot("topmiddle"), bottomouter: readSlot("bottomouter"), feet: readSlot("feet") };
+  const slots = { outer: readSlot("outer"), topmiddle: readSlot("topmiddle"),
+    bottomouter: readSlot("bottomouter"), feet: readSlot("feet") };
   return { slots, outfit: portraitOutfit(data.outfit, gender),
     apparel: portraitApparel(data.apparel, gender) };
 }

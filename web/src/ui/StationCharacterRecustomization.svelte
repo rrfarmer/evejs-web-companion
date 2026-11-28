@@ -30,8 +30,8 @@
   let hairID = $state(0);
   let primaryID = $state(0);
   let secondaryID = $state(0);
-  let selection = $state({ topmiddle: 0, bottomouter: 0, feet: 0 });
-  const slotLabels = { topmiddle: "Shirt", bottomouter: "Trousers", feet: "Boots" };
+  let selection = $state({ outer: 0, topmiddle: 0, bottomouter: 0, feet: 0 });
+  const slotLabels = { outer: "Jacket", topmiddle: "Shirt", bottomouter: "Trousers", feet: "Boots" };
   let showOutfit = $state(false);
   let preview = $state<"backdrop" | "female" | "male">("backdrop");
   let failed = $state(false);
@@ -63,8 +63,9 @@
   const apparelIDs = $derived(Object.fromEntries(apparelChoices.flatMap(({ slot, group, choice }) =>
     choice && choice.id !== group.id ? [[slot, choice.id]] : [])));
   const apparel = $derived({ ...options?.clothing?.apparel, ...Object.fromEntries(apparelChoices.flatMap(({ slot, choice }) =>
-    choice ? [[slot, choice.asset]] : [])) });
-  const outfit = $derived(options?.clothing?.outfit ?? apparel.topmiddle);
+    slot !== "outer" && choice ? [[slot, choice.asset]] : [])) });
+  const jacket = $derived(apparelChoices.find(({ slot }) => slot === "outer")?.choice?.asset ?? options?.clothing?.outfit);
+  const outfit = $derived(jacket ?? apparel.topmiddle);
   const hasChanges = $derived(initial || selected !== options?.backgroundID || zoomChanged || skinChanged || hairChanged ||
     hairColorChanged || Object.keys(apparelIDs).length > 0);
   const busy = $derived(saving || publishing);
@@ -108,7 +109,7 @@
       if (clothing) {
         const slots = { ...clothing.slots };
         for (const slot of dockedApparelSlots) slots[slot] = { ...slots[slot], id: apparelIDs[slot] ?? slots[slot].id };
-        options = { ...options, clothing: { ...clothing, slots, apparel } };
+        options = { ...options, clothing: { ...clothing, slots, apparel, outfit: jacket ?? null } };
       }
       options = { ...options, state: 0, backgroundID, framing, skinToneID, hairID, hairColor: { primaryID, secondaryID } };
       saveStatus = initialFrame ? "Appearance saved. You can now publish your portrait." : "Portrait settings saved.";
