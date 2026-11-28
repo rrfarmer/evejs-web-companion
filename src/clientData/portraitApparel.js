@@ -1,6 +1,7 @@
 "use strict";
 
 const fs = require("node:fs");
+const { paperDollMetadataPath, paperDollWaistTuck, readPaperDollYaml } = require("../../tools/client-extract/lib/paperDollOutfit.mjs");
 
 const apparelFamilies = {
   female: { outer: ["jacketaf01", "jacketcf01", "jacketgf01", "jacketmf01", "spacesuit_top_01"],
@@ -49,6 +50,37 @@ function isPortraitApparelType(path) {
   return Boolean(match && apparelFamilies[match[1]][match[2]].includes(match[3]));
 }
 
+function isPortraitWaistTuckMetadata(path) {
+  const match = /^res:\/graphics\/character\/(female|male)\/paperdoll\/bottomouter\/([a-z0-9_]+)(?:\/[a-z0-9_]+)?\/metadata\.yaml$/.exec(path);
+  return Boolean(match && apparelFamilies[match[1]].bottomouter.includes(match[2])) ||
+    /^res:\/graphics\/character\/(female|male)\/paperdoll\/dependants\/waisttucking\/standard\/v1\/metadata\.yaml$/.test(path);
+}
+
+function portraitApparelCanTuck(resource, model, fileFor) {
+  if ((model !== "female" && model !== "male") || resource?.resGender !== (model === "female" ? 0 : 1)) return false;
+  const paperDoll = `res:/graphics/character/${model}/paperdoll`;
+  const typePath = typeof resource.resPath === "string" ? resource.resPath.toLowerCase().replace(/^res:\/.*\/paperdoll\//, "") : "";
+  const path = /^(bottomouter\/[a-z0-9_]+)\/types\/[a-z0-9_]+\.type$/.exec(typePath);
+  if (!path || !isPortraitApparelType(`${paperDoll}/${typePath}`)) return false;
+  const store = {
+    has(source) {
+      const file = fileFor(source);
+      return Boolean(file && fs.existsSync(file));
+    },
+    read: source => fs.readFileSync(fileFor(source)),
+  };
+  try {
+    if (!store.has(`${paperDoll}/${typePath}`)) return false;
+    const fields = readPaperDollYaml(store, `${paperDoll}/${typePath}`);
+    if (!Array.isArray(fields) || typeof fields[0] !== "string" || fields[0].toLowerCase() !== path[1] ||
+        typeof fields[1] !== "string" || !/^[a-z0-9_]*$/.test(fields[1])) return false;
+    const metadata = paperDollMetadataPath(store, `${paperDoll}/${path[1]}`, fields[1]);
+    return Boolean(metadata && paperDollWaistTuck(store, paperDoll, readPaperDollYaml(store, metadata)));
+  } catch {
+    return false;
+  }
+}
+
 function portraitApparelChoices(resources, model, race, slot, fileFor, ownedTypeIDs) {
   const gender = model === "female" ? 0 : 1;
   const families = apparelFamilies[model][slot];
@@ -85,8 +117,10 @@ function portraitApparelChoices(resources, model, race, slot, fileFor, ownedType
       : /^tanktop[fm]01$/.test(family) ? `Tank top ${name.replace(/^Generic /, "")}`
       : faction ? `${faction} ${name}` : name;
     return [{ id: Number(key), name: label,
+      ...(slot === "bottomouter" && portraitApparelCanTuck(row, model, fileFor) ? { canTuck: true } : {}),
       asset: `/client-assets/portrait-outfit/${model}/${slot === "outer" ? "" : `${slot}/`}${family}/${variant}.json` }];
   });
 }
 
-module.exports = { apparelSlots, optionalApparelSlots, isPortraitApparelType, portraitApparelChoices };
+module.exports = { apparelSlots, optionalApparelSlots, isPortraitApparelType, isPortraitWaistTuckMetadata,
+  portraitApparelCanTuck, portraitApparelChoices };

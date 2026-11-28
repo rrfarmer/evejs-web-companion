@@ -38,6 +38,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
+import { paperDollYaml, paperDollMetadataPath, paperDollWaistTuck, readPaperDollYaml } from "./lib/paperDollOutfit.mjs";
 import portraitHair from "../../src/clientData/portraitHair.js";
 import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
 import { childEffectRoots, hullOverlays, readEffectFile, readHullChildren, readHullControllers, readSpriteInstances, readTrafficInstances, readTurretStretch3, usedLocatorSets } from "./lib/children.mjs";
@@ -983,12 +984,6 @@ async function extractPortraitHair(rf, gender, style, outRoot, morph) {
   writeExtracted(path.join(dir, `${style}.json`), JSON.stringify(material));
 }
 
-const paperDollYaml = { customTags: [
-  { tag: "tag:yaml.org,2002:python/tuple", collection: "seq" },
-  { tag: "tag:yaml.org,2002:python/object:paperDoll.AvatarPartMetaData", collection: "map" },
-  { tag: "tag:yaml.org,2002:python/unicode", resolve: value => value },
-] };
-
 async function extractPortraitMesh(rf, source, file, name) {
   if (fs.existsSync(file)) return;
   const { root } = await readGranny(rf.read(source), source);
@@ -1079,7 +1074,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const paperDoll = `res:/graphics/character/${gender}/paperdoll`;
   const folder = `${paperDoll}/${slot}/${style}`;
   const typePath = `${folder}/types/${variant}.type`;
-  const readYaml = resource => parseYaml(rf.read(resource).toString("utf8"), paperDollYaml);
+  const readYaml = resource => readPaperDollYaml(rf, resource);
   const fields = readYaml(typePath);
   if (!Array.isArray(fields) || fields.length < 3 || fields.length > 4 ||
     (fields.length === 4 && !Array.isArray(fields[3])) ||
@@ -1114,13 +1109,10 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const colors = Array.isArray(authoredColors) && authoredColors.length >= 3 &&
     authoredColors.slice(0, 3).every(color => Array.isArray(color) && color.length === 4 && color.every(Number.isFinite))
     ? authoredColors.slice(0, 3) : [];
-  const metadataAt = (base, variant = "v0") => [`${base}/${variant || "v0"}/metadata.yaml`, `${base}/metadata.yaml`]
-    .find(resource => rf.has(resource));
+  const metadataAt = (base, variant) => paperDollMetadataPath(rf, base, variant);
   const metadataPath = sharedFit ? metadataAt(folder, variation)
     : fittedEyewear ? layers.map(layer => `${layer}/metadata.yaml`).find(resource => rf.has(resource)) : `${folder}/metadata.yaml`;
   const metadata = metadataPath && rf.has(metadataPath) ? readYaml(metadataPath) : null;
-  const waistSource = "dependants/waisttucking/standard";
-  const tuckedMetadata = `${paperDoll}/${waistSource}/v1/metadata.yaml`;
   const dependencies = metadata?.dependantModifiers ?? [];
   const occlusions = metadata?.occludesModifiers;
   const occludes = Array.isArray(occlusions) ? occlusions.filter(value => typeof value === "string") : [];
@@ -1232,11 +1224,12 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   if (skinBase && !diffuse) throw new Error(`${typePath}: no authored garment texture`);
   const rect = filename => filename?.endsWith(".png") ? portraitPngRect(rf.read(filename)) : [0, 0, 1, 1];
   let waistTuck = null;
-  if (trousers && dependencies.some(path => /^dependants\/waisttucking\//i.test(path)) && rf.has(tuckedMetadata)) {
+  const waistRules = trousers ? paperDollWaistTuck(rf, paperDoll, metadata) : null;
+  if (waistRules) {
     const tuck = dependencies.map(path => /^dependants\/tuck\/([a-z0-9_]+)(?:#|$)/i.exec(path)).find(Boolean);
     const mask = dependencies.map(path => /^dependants\/masktuck\/([a-z0-9_]+)(?:#|$)/i.exec(path)).find(Boolean);
     const maskSource = mask && `${paperDoll}/dependants/masktuck/${mask[1].toLowerCase()}/comp_body_m.png`;
-    waistTuck = { source: waistSource, occludes: readYaml(tuckedMetadata).occludesModifiers ?? [],
+    waistTuck = { ...waistRules,
       ...(tuck ? { model: await extractBodyPart("tuck", tuck[1].toLowerCase(), "tuck") } : {}),
       ...(maskSource && rf.has(maskSource) ? { mask: { url: copyRes(rf, maskSource, outRoot), rect: rect(maskSource) } } : {}),
     };

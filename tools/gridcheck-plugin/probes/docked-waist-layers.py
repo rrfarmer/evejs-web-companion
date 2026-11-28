@@ -44,6 +44,7 @@ def observe():
                 if not modifier.respath.startswith(('dependants/waisttucking/', 'dependants/tuck/', 'dependants/masktuck/', 'dependants/drape/')):
                     continue
                 waist.append(dict(path=modifier.respath, weight=modifier.weight, variation=modifier.currentVariation, mask=dict(modifier.mapMask),
+                                    options=modifier.GetVariations(),
                                     geometries=list(modifier.meshGeometryResPaths.values()),
                                     drawn=sum(mesh in rendered for mesh in modifier.meshes)))
             rules = sorted((name, weight) for name, weight in manager.occludeRules.items()

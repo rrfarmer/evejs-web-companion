@@ -6504,10 +6504,11 @@ export const dockedApparelSlots = ["outer", ...portraitApparelSlots] as const;
 export type DockedApparelSlot = typeof dockedApparelSlots[number];
 
 export interface DockedApparel {
-  readonly slots: Record<DockedApparelSlot, { id: number; choices: readonly { id: number; name: string; asset: string }[] }>;
+  readonly slots: Record<DockedApparelSlot, { id: number; choices: readonly { id: number; name: string; asset: string; canTuck?: boolean }[] }>;
   readonly outfit: string | null;
   readonly robeHood: number | null;
   readonly waistTuck: number;
+  readonly canTuck: boolean;
   readonly apparel: PortraitApparel;
 }
 
@@ -6520,7 +6521,7 @@ export async function loadDockedApparel(gender: PortraitHead, options: ApiOption
     const choices = (Array.isArray(rows) ? rows : []).flatMap(row => {
       if (!row || !Number.isSafeInteger(row.id) || typeof row.name !== "string" || typeof row.asset !== "string") return [];
       const asset = slot === "outer" ? portraitOutfit(row.asset, gender) : portraitApparelAsset(row.asset, gender, slot);
-      return asset ? [{ id: row.id, name: row.name, asset }] : [];
+      return asset ? [{ id: row.id, name: row.name, asset, ...(row.canTuck === true ? { canTuck: true } : {}) }] : [];
     });
     return { id: asNumberOrNull(entry?.id ?? (slot === "topmiddle" ? data.shirtID : undefined)) ?? 0, choices };
   }
@@ -6528,7 +6529,7 @@ export async function loadDockedApparel(gender: PortraitHead, options: ApiOption
     bottomouter: readSlot("bottomouter"), bottommiddle: readSlot("bottommiddle"), feet: readSlot("feet"), "accessories/glasses": readSlot("accessories/glasses"),
     "accessories/masks": readSlot("accessories/masks") };
   return { slots, outfit: portraitOutfit(data.outfit, gender), robeHood: portraitRobeHood(data.robeHood), waistTuck: data.waistTuck === 1 ? 1 : 0,
-    apparel: portraitApparel(data.apparel, gender) };
+    canTuck: data.canTuck === true, apparel: portraitApparel(data.apparel, gender) };
 }
 
 type RGB = readonly [number, number, number];
@@ -6659,7 +6660,7 @@ export function supportedSculptRegions(regions: readonly PortraitSculptRegion[],
 export async function savePortrait(draft: { backgroundID: number; fieldOfView: number | null;
     skinTone: { id: number; gender: PortraitHead } | null; hairID: number | null;
     hairColor?: PortraitHairColor | null; hairDarkness?: number | null; beardID?: number | null;
-    apparelIDs?: Partial<Record<DockedApparelSlot, number>>; robeHood?: number | null;
+    apparelIDs?: Partial<Record<DockedApparelSlot, number>>; robeHood?: number | null; waistTuck?: number | null;
     dockedLocationID: number; initialFrame?: PortraitFrame; resculpt?: boolean;
     faceSculpts?: readonly PortraitSculptEdit[]; bodySliders?: Partial<BodySculptSliders> | null;
     bodySculpts?: readonly PortraitSculptEdit[] }, options: ApiOptions = {}): Promise<void> {

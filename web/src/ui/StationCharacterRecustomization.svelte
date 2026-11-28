@@ -43,6 +43,7 @@
   let bodyEdits = $state.raw<Partial<BodySculptSliders>>({});
   let selection = $state({ outer: 0, topouter: 0, topmiddle: 0, bottomouter: 0, bottommiddle: 0, feet: 0, "accessories/glasses": 0, "accessories/masks": 0 });
   let robeHood = $state(0);
+  let waistTuck = $state(0);
   const slotLabels = { outer: "Outerwear", topouter: "Overshirt", topmiddle: "Shirt", bottomouter: "Legwear", feet: "Footwear",
     bottommiddle: "Bottom, extra", "accessories/glasses": "Eyewear", "accessories/masks": "Masks" };
   const optionalApparelSlots = ["outer", "topouter", "bottommiddle", "accessories/glasses", "accessories/masks"] as const;
@@ -181,8 +182,11 @@
   const adjustableHood = $derived(Boolean(jacket?.startsWith("/client-assets/portrait-outfit/male/robeam01/")));
   const hoodChanged = $derived(adjustableHood && robeHood !== (options?.clothing?.robeHood ?? 0));
   const outfit = $derived(jacket ?? apparel.topouter ?? apparel.topmiddle);
-  const waistTuck = $derived(selection.bottomouter === options?.clothing?.slots.bottomouter.id ? options?.clothing?.waistTuck ?? 0 : 0);
-  const outfitCatalogKey = $derived(JSON.stringify([outfit, apparel, robeHood, waistTuck]));
+  const legwearCanTuck = $derived(Boolean(apparelChoices.find(({ slot }) => slot === "bottomouter")?.choice?.canTuck ??
+    (selection.bottomouter === options?.clothing?.slots.bottomouter.id && options?.clothing?.canTuck)));
+  const adjustableWaist = $derived(legwearCanTuck && Boolean(apparel.topmiddle || apparel.topouter));
+  const waistChanged = $derived(adjustableWaist && waistTuck !== (options?.clothing?.waistTuck ?? 0));
+  const outfitCatalogKey = $derived(JSON.stringify([outfit, apparel, robeHood, adjustableWaist ? waistTuck : 0]));
   const bodyRegions = $derived(outfitCatalog?.key === outfitCatalogKey && options
     ? supportedSculptRegions(options.bodyRegions, outfitCatalog.names) : []);
   const bodyRegion = $derived(bodyRegions.find(region => region.id === bodyRegionID) ?? bodyRegions[0]);
@@ -190,7 +194,7 @@
     outfitCatalog = { key: outfitCatalogKey, names };
   }
   const hasChanges = $derived(initial || selected !== options?.backgroundID || zoomChanged || skinChanged || hairChanged ||
-    hairColorChanged || hairDarknessChanged || beardChanged || hoodChanged || faceSculpts.length > 0 ||
+    hairColorChanged || hairDarknessChanged || beardChanged || hoodChanged || waistChanged || faceSculpts.length > 0 ||
     bodySculpts.length > 0 || Object.keys(bodyEdits).length > 0 || Object.keys(apparelIDs).length > 0);
   const busy = $derived(saving || publishing);
 
@@ -214,6 +218,7 @@
       beardID = data.beardID;
       for (const slot of dockedApparelSlots) selection[slot] = data.clothing?.slots[slot].id ?? 0;
       robeHood = data.clothing?.robeHood ?? 0;
+      waistTuck = data.clothing?.waistTuck ?? 0;
     }).catch(() => { failed = true; });
   });
 
@@ -242,6 +247,7 @@
         hairColor: hairColorChanged ? { primaryID, secondaryID } : null,
         hairDarkness: hairDarknessChanged ? hairDarkness : null, beardID: beardChanged ? beardID : null, apparelIDs,
         robeHood: adjustableHood && (hoodChanged || apparelIDs.outer) ? robeHood : null,
+        waistTuck: adjustableWaist && (waistChanged || apparelIDs.bottomouter) ? waistTuck : null,
         initialFrame: initialFrame ?? undefined, resculpt: paid, faceSculpts, bodySculpts,
         bodySliders: Object.keys(bodyEdits).length ? bodyEdits : null });
       const clothing = options.clothing;
@@ -249,7 +255,8 @@
         const slots = { ...clothing.slots };
         for (const slot of dockedApparelSlots) slots[slot] = { ...slots[slot], id: apparelIDs[slot] ?? slots[slot].id };
         options = { ...options, clothing: { ...clothing, slots, apparel, outfit: jacket ?? null,
-          robeHood: adjustableHood ? robeHood : null, waistTuck: apparelIDs.bottomouter ? 0 : waistTuck } };
+          robeHood: adjustableHood ? robeHood : null, canTuck: legwearCanTuck,
+          waistTuck: adjustableWaist ? waistTuck : apparelIDs.bottomouter ? 0 : options.clothing.waistTuck } };
       }
       options = { ...options, state: 0, backgroundID, framing, skinToneID, hairID, hairColor: { primaryID, secondaryID },
         hairDarkness, beardID, beardStyle: beardStyle ?? null, morphs: savedMorphs };
@@ -315,7 +322,7 @@
       {/if}
       <div class="image" class:outfit-preview={showOutfit}>
         {#if showOutfit && pilotHead && outfit}
-          <PortraitBaseHead model={pilotHead} bloodlineID={options.bloodlineID} {outfit} {apparel} {waistTuck} robeHood={adjustableHood ? robeHood : 0}
+          <PortraitBaseHead model={pilotHead} bloodlineID={options.bloodlineID} {outfit} {apparel} waistTuck={adjustableWaist ? waistTuck : 0} robeHood={adjustableHood ? robeHood : 0}
             hairstyle={chosenHair?.style} {hairTints} {hasSkinTones} skinColors={skinTone?.colors}
             makeup={facialHair} {facialHairScale} {morphs}
             onOutfitMorphs={(initial || resculpt) ? receiveOutfitMorphs : undefined} />
@@ -388,6 +395,7 @@
           <label class="appearance-choice">{slotLabels[slot]}
             <select bind:value={selection[slot]} disabled={busy} onchange={event => {
               if (slot === "outer") robeHood = Number(event.currentTarget.value) === group.id ? options?.clothing?.robeHood ?? 0 : 0;
+              if (slot === "bottomouter") waistTuck = Number(event.currentTarget.value) === group.id ? options?.clothing?.waistTuck ?? 0 : 0;
               saveStatus = "";
             }}>
               {#if optional}<option value={0}>None</option>{/if}
@@ -398,6 +406,14 @@
             </select>
           </label>
         {/each}
+        {#if adjustableWaist}
+          <label class="appearance-choice">Waist
+            <select bind:value={waistTuck} disabled={busy} onchange={() => { saveStatus = ""; }}>
+              <option value={0}>Untucked</option>
+              <option value={1}>Tucked</option>
+            </select>
+          </label>
+        {/if}
         {#if adjustableHood}
           <label class="appearance-choice">Hood
             <select bind:value={robeHood} disabled={busy} onchange={() => { saveStatus = ""; }}>
