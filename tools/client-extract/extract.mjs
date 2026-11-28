@@ -1071,6 +1071,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const footwear = slot === "feet";
   const trousers = slot === "bottomouter";
   const skirt = trousers && /^skirtmilf0[12]$/.test(style);
+  const spacesuit = style === "spacesuit_01" || style === "spacesuit_top_01";
   const masks = slot === "accessories/masks";
   const headwear = glasses || masks;
   const stem = slot === "outer" ? `${gender}/${style}` : `${gender}/${slot}/${style}`;
@@ -1115,7 +1116,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const metadata = metadataPath ? readYaml(metadataPath) : null;
   const occlusions = metadata?.occludesModifiers;
   const occludes = Array.isArray(occlusions) ? occlusions.filter(value => typeof value === "string") : [];
-  const skinMeshes = meshes.filter(mesh => mesh.geometryResPath?.toLowerCase() === source &&
+  const skinMeshes = spacesuit ? [] : meshes.filter(mesh => mesh.geometryResPath?.toLowerCase() === source &&
     mesh.opaqueAreas?.some(area => /^c_skin/i.test(area.effect?.name ?? ""))).map(mesh => mesh.name);
   const surface = slot.startsWith("accessories/") ? meshes.flatMap(mesh => mesh.opaqueAreas ?? [])
     .map(area => area.effect?.parameters?.find(parameter => parameter.name === "MaterialDiffuseColor")?.value)
@@ -1168,6 +1169,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     : [/\/colorize_body_z_512\.png$/i, /\/colorize_body_z_256\.dds$/i, /\/colorize_body_z\.png$/i]);
   const normal = texture([/_n_512\.png$/i, /_n\.png$/i]);
   const skinCutout = masks ? layers.map(layer => `${layer}/comp_head_m.png`).find(file => rf.has(file)) : null;
+  const bodyCutout = style === "spacesuit_top_01" ? `${folder}/comp_body_m.png` : null;
   const headDiffuse = eyeImplant ? texture([/\/colorize_head_l_512\.png$/i, /\/colorize_head_l\.png$/i])
     : monocle ? texture([/\/comp_head_d_512\.png$/i, /\/comp_head_d\.png$/i]) : null;
   const headZones = eyeImplant ? texture([/\/colorize_head_z_512\.png$/i, /\/colorize_head_z\.png$/i]) : null;
@@ -1187,7 +1189,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const rect = filename => filename?.endsWith(".png") ? portraitPngRect(rf.read(filename)) : [0, 0, 1, 1];
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
-    outfitBuild: skirt ? 16 : footwear ? 14 : fittedEyewear ? 12 : masks ? 10 : slot === "bottommiddle" ? 9 : glasses ? 8 : amarrRobe ? 7 : slot === "topmiddle" ? 5 : trousers ? 15 : 4,
+    outfitBuild: spacesuit ? 17 : skirt ? 16 : footwear ? 14 : fittedEyewear ? 12 : masks ? 10 : slot === "bottommiddle" ? 9 : glasses ? 8 : amarrRobe ? 7 : slot === "topmiddle" ? 5 : trousers ? 15 : 4,
     model: `/client-assets/portrait-outfit/${model}`, source, type: typePath, variation, palette, colors, occludes, skinMeshes,
     diffuse: diffuse ? copyRes(rf, diffuse, outRoot) : null,
     zones: zones ? copyRes(rf, zones, outRoot) : null,
@@ -1205,9 +1207,11 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     ...(headNormal ? { headNormal: { url: copyRes(rf, headNormal, outRoot), rect: rect(headNormal),
       masked: /\/comp_head_mn/i.test(headNormal) } } : {}),
     ...(skinCutout ? { skinCutout: { url: copyRes(rf, skinCutout, outRoot), rect: rect(skinCutout) } } : {}),
+    ...(bodyCutout ? { bodyCutout: { url: copyRes(rf, bodyCutout, outRoot), rect: rect(bodyCutout) } } : {}),
     ...(bodyParts.length ? { bodyParts } : {}),
     ...(hoods.length ? { hoods } : {}),
-    ...(skinBase ? { skinBase, diffuseRect: rect(diffuse), zonesRect: rect(zones), normalRect: rect(normal) } : {}),
+    ...(skinBase ? { skinBase } : {}),
+    ...(skinBase || spacesuit ? { diffuseRect: rect(diffuse), zonesRect: rect(zones), normalRect: rect(normal) } : {}),
   }));
 }
 

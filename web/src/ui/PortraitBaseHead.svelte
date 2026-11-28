@@ -344,7 +344,7 @@
       model: string; diffuse: string | null; zones: string | null; normal: string | null;
       colors: [number, number, number, number][]; occludes: string[]; skinMeshes: string[];
       skinBase?: string; bodyParts?: string[]; hoods?: string[];
-      trouserFit?: readonly PortraitMorph[]; bootMask?: CroppedMapAsset;
+      trouserFit?: readonly PortraitMorph[]; bootMask?: CroppedMapAsset; bodyCutout?: CroppedMapAsset;
       diffuseRect?: number[]; zonesRect?: number[]; normalRect?: number[];
     };
     const manifest = async (url: string): Promise<Garment> => {
@@ -353,6 +353,7 @@
       return await response.json() as Garment;
     };
     let skin: THREE.MeshStandardMaterial | undefined;
+    const hiddenBodyParts = new Set<string>();
     const loadBodyModel = async (path: string, fit: readonly PortraitMorph[] = []): Promise<THREE.Group | null> => {
       const { scene: mesh } = await loader.loadAsync(path);
       bodyModels.add(path);
@@ -363,7 +364,7 @@
       release(mesh);
       return null;
     };
-    const applyBootCutout = (shader: Parameters<THREE.MeshStandardMaterial["onBeforeCompile"]>[0], mask: PortraitCroppedTexture,
+    const applyGarmentCutout = (shader: Parameters<THREE.MeshStandardMaterial["onBeforeCompile"]>[0], mask: PortraitCroppedTexture,
       uv: "vMapUv" | "vUv" = "vMapUv") => {
       shader.uniforms.outfitBootMask = { value: mask.texture };
       shader.uniforms.outfitBootMaskRect = { value: mask.rect };
@@ -378,17 +379,18 @@
             texture2D(outfitBootMask, bootMaskUV).a >= 0.5) discard;
       `);
     };
-    const loadGarmentMaterial = async (data: Garment, bootMask: PortraitCroppedTexture | null) => {
+    const loadGarmentMaterial = async (data: Garment, cutout: PortraitCroppedTexture | null) => {
       const diffuse = await texture(data.diffuse, true);
       const zones = data.colors.length === 3 ? await texture(data.zones, false) : null;
       const normal = await texture(data.normal, false);
       const skinBase = data.skinBase ? await texture(data.skinBase, true) : null;
       if (retired) return null;
+      const cropped = Boolean(diffuse && (skinBase || data.diffuseRect));
       const garment = new THREE.MeshStandardMaterial({ map: diffuse, normalMap: normal, roughness: 0.68, side: THREE.DoubleSide });
       garment.onBeforeCompile = shader => {
-        if (skinBase && diffuse) {
+        if (cropped) {
           const rect = (rect?: number[]) => new THREE.Vector4().fromArray(rect ?? [0, 0, 1, 1]);
-          shader.uniforms.shirtSkin = { value: skinBase };
+          if (skinBase) shader.uniforms.shirtSkin = { value: skinBase };
           shader.uniforms.shirtDiffuseRect = { value: rect(data.diffuseRect) };
           shader.uniforms.shirtZonesRect = { value: rect(data.zonesRect) };
           shader.uniforms.shirtNormalRect = { value: rect(data.normalRect) };
@@ -398,7 +400,7 @@
           }
           shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
             #include <map_pars_fragment>
-            uniform sampler2D shirtSkin;
+            ${skinBase ? "uniform sampler2D shirtSkin;" : ""}
             uniform vec4 shirtDiffuseRect;
             uniform vec4 shirtZonesRect;
             uniform vec4 shirtNormalRect;
@@ -414,9 +416,9 @@
               vec3 zones = texture2D(outfitZones, zoneUV).rgb * shirtClip(zoneUV);
               float coverage = dot(zones, vec3(1.0));
               vec3 tint = zones.r * outfitColors[0] + zones.g * outfitColors[1] + zones.b * outfitColors[2];
-              shirtFabric.rgb *= mix(outfitColors[0], tint / max(coverage, 0.001), clamp(coverage, 0.0, 1.0));
+              shirtFabric.rgb *= mix(${skinBase ? "outfitColors[0]" : "vec3(1.0)"}, tint / max(coverage, 0.001), clamp(coverage, 0.0, 1.0));
             ` : ""}
-            diffuseColor.rgb *= mix(texture2D(shirtSkin, vMapUv).rgb, shirtFabric.rgb, shirtAlpha);
+            diffuseColor.rgb *= ${skinBase ? "mix(texture2D(shirtSkin, vMapUv).rgb, shirtFabric.rgb, shirtAlpha)" : "shirtFabric.rgb"};
           `);
         } else if (zones && diffuse) {
           shader.uniforms.outfitZones = { value: zones };
@@ -433,35 +435,37 @@
             diffuseColor.rgb *= mix(vec3(1.0), tint / max(coverage, 0.001), clamp(coverage, 0.0, 1.0));
           `);
         }
-        if (bootMask && diffuse) applyBootCutout(shader, bootMask);
+        if (cutout && diffuse) applyGarmentCutout(shader, cutout);
         if (normal) shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>",
           THREE.ShaderChunk.normal_fragment_maps.replace(
             "vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;",
-            `${skinBase && diffuse ? `
+            `${cropped ? `
               vec2 normalUV = shirtUV(vNormalMapUv, shirtNormalRect);
-              vec2 xy = (texture2D(normalMap, normalUV).ag * 2.0 - 1.0) * shirtAlpha * shirtClip(normalUV);
+              vec2 xy = (texture2D(normalMap, normalUV).ag * 2.0 - 1.0) * ${skinBase ? "shirtAlpha * " : ""}shirtClip(normalUV);
             ` : "vec2 xy = texture2D(normalMap, vNormalMapUv).ag * 2.0 - 1.0;"}
             vec3 mapN = vec3(xy, sqrt(max(0.0, 1.0 - dot(xy, xy))));`));
       };
-      garment.customProgramCacheKey = () => `outfit:${Boolean(zones && diffuse)}:${Boolean(normal)}:${Boolean(skinBase)}:${Boolean(bootMask)}`;
+      garment.customProgramCacheKey = () => `outfit:${Boolean(zones && diffuse)}:${Boolean(normal)}:${Boolean(skinBase)}:${cropped}:${Boolean(cutout)}`;
       return garment;
     };
     const loadGarment = async (data: Garment, group: THREE.Group,
       fit?: readonly PortraitMorph[], mask?: CroppedMapAsset, tights?: Garment) => {
       const embeddedLegs = data.skinMeshes?.includes("LegsShape");
-      const bootMask = mask ? await loadCroppedTexture(mask, maps, () => retired) : null;
+      const cutout = mask ? await loadCroppedTexture(mask, maps, () => retired) : null;
       const object = await loadBodyModel(data.model, fit);
       if (!object) return;
       group.add(object);
       const hoodMesh = data.hoods?.[hood];
       for (const path of [...(data.bodyParts ?? []), ...(hoodMesh ? [hoodMesh] : [])]) {
+        const partName = path.split("/").at(-2);
+        if (partName && hiddenBodyParts.has(`dependants/${partName}`)) continue;
         const part = await loadBodyModel(path);
         if (!part) return;
         object.add(part);
       }
-      const garment = await loadGarmentMaterial(data, embeddedLegs ? null : bootMask);
+      const garment = await loadGarmentMaterial(data, embeddedLegs ? null : cutout);
       if (!garment) return;
-      const legSurface = embeddedLegs && tights ? await loadGarmentMaterial(tights, bootMask).catch(error => {
+      const legSurface = embeddedLegs && tights ? await loadGarmentMaterial(tights, cutout).catch(error => {
         garment.dispose();
         throw error;
       }) : null;
@@ -479,10 +483,10 @@
         if (name === "LegsShape" && legSurface) node.material = legSurface;
         else if (bareSkin && skin) {
           const surface = skin.clone();
-          if (name === "LegsShape" && bootMask) {
+          if (cutout && (!embeddedLegs || name === "LegsShape")) {
             surface.defines = { ...surface.defines, USE_UV: "" };
-            surface.onBeforeCompile = shader => applyBootCutout(shader, bootMask, "vUv");
-            surface.customProgramCacheKey = () => "outfit:skin:boot-mask";
+            surface.onBeforeCompile = shader => applyGarmentCutout(shader, cutout, "vUv");
+            surface.customProgramCacheKey = () => "outfit:skin:cutout";
           }
           node.material = surface;
         } else node.material = garment;
@@ -506,6 +510,7 @@
           for (const name of layer.occludes) occludes.add(name);
         }
       }
+      const upperUnderlayers = outer.bodyCutout ? new Set(worn.filter(layer => layer !== outer)) : null;
       let legwear: Garment | undefined;
       let footwear: Garment | undefined;
       for (const slot of ["bottomouter", "feet"] as const) {
@@ -520,6 +525,7 @@
       }
       const skinDetail = await texture(`/client-assets/graphics/character/${gender}/paperdoll/skintone/basic/colorize_body_l_512.png`, true).catch(() => null);
       if (retired) return;
+      for (const name of occludes) hiddenBodyParts.add(name.toLowerCase());
       skin = new THREE.MeshStandardMaterial({ map: skinDetail, color: skinDetail ? 0xffffff : 0xb59280, roughness: 0.78 });
       body = new THREE.Group();
       const tights = legwear?.skinMeshes?.includes("LegsShape") && !occludes.has("bottommiddle") && extra?.bottommiddle
@@ -531,7 +537,8 @@
           const occlusion = worn.reduce((total, garment) => total + Number(garment.occludes.includes(path)), 0);
           return { name: morph.name, weight: morph.weight - occlusion };
         }) : undefined;
-        await loadGarment(layer, body, fit, isLegwear ? footwear?.bootMask : undefined, isLegwear ? tights : undefined);
+        const cutout = isLegwear ? footwear?.bootMask : upperUnderlayers?.has(layer) ? outer.bodyCutout : undefined;
+        await loadGarment(layer, body, fit, cutout, isLegwear ? tights : undefined);
       }
       if (retired) return;
       if (!occludes.has("hands") && !occludes.has("hand")) {

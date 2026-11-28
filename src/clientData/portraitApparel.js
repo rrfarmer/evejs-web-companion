@@ -3,12 +3,12 @@
 const fs = require("node:fs");
 
 const apparelFamilies = {
-  female: { outer: ["jacketaf01", "jacketcf01", "jacketgf01", "jacketmf01"],
+  female: { outer: ["jacketaf01", "jacketcf01", "jacketgf01", "jacketmf01", "spacesuit_top_01"],
     topouter: [],
     topmiddle: ["shirtaf01", "shirtcf01", "shirtgf01", "shirtmf01", "tanktopf01"],
     bottommiddle: ["tightsf01"],
     bottomouter: ["pantsaf01", "pantscf01", "pantsgf01", "pantsmf01", "pantsalf_01", "pantscorpbusinessf01",
-      "pantsengf01", "pantsmilf01", "pantsprtf01", "pantsslf_01", "skirtmilf01", "skirtmilf02"],
+      "pantsengf01", "pantsmilf01", "pantsprtf01", "pantsslf_01", "skirtmilf01", "skirtmilf02", "spacesuit_01"],
     feet: ["bootsaf01", "bootscf01", "bootsgf01", "bootsmf01", "bootsalf_01", "bootsmilf01", "bootsmilf02",
       "bootsmilf03", "bootsprtf01", "bootsslf_01", "shoesengf01", "spaceboots01f"],
     "accessories/glasses": ["glasses_pilot_01", "glasses_slick_01", "goggles_01", "glasses_citadel_f01", "glasses_exo_f01", "monocle_01", "monocle_f_t02", "eyeimp01"],
@@ -65,7 +65,9 @@ function portraitApparelChoices(resources, model, race, slot, fileFor, ownedType
     const footwear = slot === "feet" ? footwearNames[family] : null;
     const trousers = slot === "bottomouter" ? trouserNames[family] : null;
     const skirt = slot === "bottomouter" ? skirtNames[family] : null;
-    const variantShade = glasses || masks || footwear || trousers || skirt
+    const spacesuit = family === "spacesuit_top_01" ? "Spacesuit top" : family === "spacesuit_01" ? "Spacesuit trousers" : null;
+    const variantShade = spacesuit ? variant.replace(/^spacesuit_01_(?:top_)?f_/, "")
+      : glasses || masks || footwear || trousers || skirt
       ? variant.startsWith(family) ? variant.slice(family.length + 1)
         : variant.slice(variant.indexOf("_") + 1).replace(/^01_/, "")
       : variant.split("_").slice(1).join("_");
@@ -78,6 +80,7 @@ function portraitApparelChoices(resources, model, race, slot, fileFor, ownedType
       : footwear ? `${footwear} ${name}`
       : trousers ? `${trousers} trousers ${name}`
       : skirt ? `${skirt} ${name}`
+      : spacesuit ? `${spacesuit} ${name}`
       : family === "robeam01" ? `Amarr robe ${name}`
       : /^tanktop[fm]01$/.test(family) ? `Tank top ${name.replace(/^Generic /, "")}`
       : faction ? `${faction} ${name}` : name;
