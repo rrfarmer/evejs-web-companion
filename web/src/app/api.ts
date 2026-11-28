@@ -6389,6 +6389,15 @@ export interface FaceSculptRegion {
     readonly value: number;
   }[];
 }
+
+export interface BodySculptSliders {
+  readonly weight: number;
+  readonly muscularity: number;
+}
+
+export interface BodySculptControls extends BodySculptSliders {
+  readonly limits: Readonly<Record<"thin" | "fat" | "muscular", number>>;
+}
 export interface PortraitMakeup {
   readonly asset: string;
   readonly weight: number;
@@ -6591,16 +6600,17 @@ export async function activateResculptCertificate(itemID: number, dockedLocation
   await postJson("/api/bridge/character/resculpt-certificate", { itemID, dockedLocationID, confirm: true }, options);
 }
 
-export async function loadFaceSculptControls(model: PortraitHead, options: ApiOptions = {}): Promise<readonly FaceSculptRegion[]> {
+export async function loadPortraitSculptControls(model: PortraitHead, options: ApiOptions = {}):
+    Promise<{ face: readonly FaceSculptRegion[]; body: BodySculptControls | null }> {
   const [data, catalog] = await Promise.all([
     getJson("/api/bridge/character/face-sculpts", options),
     fetch(`/client-assets/portrait-head/${model}.morphs.json`).then(async (response) => {
       if (!response.ok) throw new Error("Face sculpt geometry is unavailable.");
       return await response.json() as { names?: string[] };
-    }),
+    }).catch(() => ({ names: [] })),
   ]);
   const supported = new Set(Array.isArray(catalog.names) ? catalog.names : []);
-  return (Array.isArray(data.controls) ? data.controls : []).flatMap(row => {
+  const face = (Array.isArray(data.controls) ? data.controls : []).flatMap(row => {
     if (!row || !Number.isSafeInteger(row.id) || typeof row.prefix !== "string" ||
         !/^[a-z0-9_]+$/.test(row.prefix) || !Array.isArray(row.axes) || row.axes.length !== 3) return [];
     const axes = row.axes.flatMap((entry: { negative: string; positive: string; value: number }, axis: number) => {
@@ -6611,6 +6621,14 @@ export async function loadFaceSculptControls(model: PortraitHead, options: ApiOp
     });
     return axes.length ? [{ id: row.id, prefix: row.prefix, axes }] : [];
   });
+  const body = asObject(data.body);
+  const limits = asObject(body?.limits);
+  const fraction = (value: unknown): value is number => typeof value === "number" && value >= 0 && value <= 1;
+  return { face, body: fraction(body?.weight) && fraction(body?.muscularity) &&
+    fraction(limits?.thin) && limits.thin > 0 && fraction(limits?.fat) && limits.fat > 0 &&
+    fraction(limits?.muscular) && limits.muscular > 0
+    ? { weight: body.weight, muscularity: body.muscularity, limits: { thin: limits.thin, fat: limits.fat, muscular: limits.muscular } }
+    : null };
 }
 
 export async function savePortrait(draft: { backgroundID: number; fieldOfView: number | null;
@@ -6618,7 +6636,7 @@ export async function savePortrait(draft: { backgroundID: number; fieldOfView: n
     hairColor?: PortraitHairColor | null; hairDarkness?: number | null; beardID?: number | null;
     apparelIDs?: Partial<Record<DockedApparelSlot, number>>; robeHood?: number | null;
     dockedLocationID: number; initialFrame?: PortraitFrame; resculpt?: boolean;
-    faceSculpts?: readonly FaceSculptEdit[] }, options: ApiOptions = {}): Promise<void> {
+    faceSculpts?: readonly FaceSculptEdit[]; bodySliders?: Partial<BodySculptSliders> | null }, options: ApiOptions = {}): Promise<void> {
   await postJson("/api/bridge/character/portrait", { ...draft, confirm: true }, options);
 }
 

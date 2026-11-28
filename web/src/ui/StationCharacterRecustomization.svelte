@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { dockedApparelSlots, readCapturePortrait, type FaceSculptEdit, type PortraitHairTints, type PortraitMakeup } from "../app/api.ts";
+  import { dockedApparelSlots, readCapturePortrait, type BodySculptSliders, type FaceSculptEdit,
+    type PortraitHairTints, type PortraitMakeup } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { plainText } from "../bridge/clientWords.ts";
@@ -36,6 +37,7 @@
   let beardID = $state(0);
   let faceRegionID = $state(0);
   let faceEdits = $state.raw<Record<string, FaceSculptEdit>>({});
+  let bodyEdits = $state.raw<Partial<BodySculptSliders>>({});
   let selection = $state({ outer: 0, topouter: 0, topmiddle: 0, bottomouter: 0, feet: 0 });
   let robeHood = $state(0);
   const slotLabels = { outer: "Outerwear", topouter: "Overshirt", topmiddle: "Shirt", bottomouter: "Trousers", feet: "Footwear" };
@@ -55,7 +57,7 @@
   const faceSculpts = $derived(Object.values(faceEdits));
   const morphs = $derived.by(() => {
     if (!options) return [];
-    if (!faceSculpts.length) return options.morphs;
+    if (!faceSculpts.length && !Object.keys(bodyEdits).length) return options.morphs;
     const result = new Map(options.morphs.map(morph => [morph.name, morph]));
     for (const edit of faceSculpts) {
       const axis = options.faceSculpts.find(region => region.id === edit.locationID)?.axes.find(axis => axis.axis === edit.axis);
@@ -66,6 +68,18 @@
         const name = edit.value < 0 ? axis.negative : axis.positive;
         result.set(name, { name, weight: Math.abs(edit.value) });
       }
+    }
+    const limits = options.bodySculpt?.limits;
+    if (limits) {
+      const setBodyMorph = (name: string, weight: number) => {
+        if (weight > 0) result.set(name, { name, weight, body: true });
+        else result.delete(name);
+      };
+      if (bodyEdits.weight !== undefined) {
+        setBodyMorph("thinshape", Math.max(0, 1 - 2 * bodyEdits.weight) * limits.thin);
+        setBodyMorph("fatshape", Math.max(0, 2 * bodyEdits.weight - 1) * limits.fat);
+      }
+      if (bodyEdits.muscularity !== undefined) setBodyMorph("muscularshape", bodyEdits.muscularity * limits.muscular);
     }
     return [...result.values()];
   });
@@ -78,6 +92,14 @@
     if (value === saved) delete next[key];
     else next[key] = { locationID, axis, value };
     faceEdits = next;
+    saveStatus = "";
+  }
+  function editBody(slider: keyof BodySculptSliders, value: number, saved: number): void {
+    const next = { ...bodyEdits };
+    if (value === saved) delete next[slider];
+    else next[slider] = value;
+    bodyEdits = next;
+    showOutfit = true;
     saveStatus = "";
   }
   const canPublish = $derived(options?.state === 0 && options.backgroundID !== null);
@@ -117,6 +139,10 @@
   const eyebrowsLabel = "UI/Login/CharacterCreation/AssetMenu/EyebrowsColor";
   const facialHairLabel = "UI/Login/CharacterCreation/AssetMenu/FacialHairColor";
   const beardLabel = "UI/Login/CharacterCreation/AssetMenu/ModifierNames/FacialHair";
+  const bodyLabels = {
+    weight: "UI/Login/CharacterCreation/AssetMenu/ModifierNames/Weight",
+    muscularity: "UI/Login/CharacterCreation/AssetMenu/ModifierNames/Muscularity",
+  };
   const darknessLabel = $derived(pilotHead === "female"
     ? plainText($words.templates[eyebrowsLabel] ?? "") || "Eyebrows Color"
     : plainText($words.templates[facialHairLabel] ?? "") || "Facial Hair Color");
@@ -144,11 +170,12 @@
   const hoodChanged = $derived(adjustableHood && robeHood !== (options?.clothing?.robeHood ?? 0));
   const outfit = $derived(jacket ?? apparel.topouter ?? apparel.topmiddle);
   const hasChanges = $derived(initial || selected !== options?.backgroundID || zoomChanged || skinChanged || hairChanged ||
-    hairColorChanged || hairDarknessChanged || beardChanged || hoodChanged || faceSculpts.length > 0 || Object.keys(apparelIDs).length > 0);
+    hairColorChanged || hairDarknessChanged || beardChanged || hoodChanged || faceSculpts.length > 0 ||
+    Object.keys(bodyEdits).length > 0 || Object.keys(apparelIDs).length > 0);
   const busy = $derived(saving || publishing);
 
   onMount(() => {
-    flow.requestWords([eyebrowsLabel, facialHairLabel, beardLabel]);
+    flow.requestWords([eyebrowsLabel, facialHairLabel, beardLabel, ...Object.values(bodyLabels)]);
     if (characterID !== null) {
       void readCapturePortrait(characterID, 256, null, flow.requestOptions()).then(({ image }) => {
         if (image && currentImage === null) currentImage = `data:${image.contentType};base64,${image.base64}`;
@@ -178,6 +205,7 @@
     const needsFrame = initial || (paid && !options.framing);
     const initialFrame = needsFrame ? portraitView?.readPortraitFrame() : undefined;
     if (needsFrame && !initialFrame) {
+      if (showOutfit) showOutfit = false;
       saveStatus = "Wait for the portrait preview to finish loading.";
       return;
     }
@@ -191,7 +219,8 @@
         hairColor: hairColorChanged ? { primaryID, secondaryID } : null,
         hairDarkness: hairDarknessChanged ? hairDarkness : null, beardID: beardChanged ? beardID : null, apparelIDs,
         robeHood: adjustableHood && (hoodChanged || apparelIDs.outer) ? robeHood : null,
-        initialFrame: initialFrame ?? undefined, resculpt: paid, faceSculpts });
+        initialFrame: initialFrame ?? undefined, resculpt: paid, faceSculpts,
+        bodySliders: Object.keys(bodyEdits).length ? bodyEdits : null });
       const clothing = options.clothing;
       if (clothing) {
         const slots = { ...clothing.slots };
@@ -202,6 +231,7 @@
       options = { ...options, state: 0, backgroundID, framing, skinToneID, hairID, hairColor: { primaryID, secondaryID },
         hairDarkness, beardID, beardStyle: beardStyle ?? null, morphs: savedMorphs };
       faceEdits = {};
+      bodyEdits = {};
       saveStatus = paid ? "Resculpt saved. You can now publish your portrait." :
         initialFrame ? "Appearance saved. You can now publish your portrait." : "Portrait settings saved.";
     } catch (error) {
@@ -254,7 +284,7 @@
           {/each}
         </select>
       </label>
-      {#if pilotHead && outfit && !initial}
+      {#if pilotHead && outfit}
         <button class="appearance-choice" type="button" disabled={busy} onclick={() => { showOutfit = !showOutfit; }}>
           {showOutfit ? "Show portrait" : "Show outfit"}
         </button>
@@ -277,7 +307,7 @@
       </div>
       {#if canSave}
         {#if (initial || resculpt) && faceRegion}
-          <fieldset class="face-sculpt">
+          <fieldset class="sculpt-controls face-sculpt">
             <legend>Face sculpt</legend>
             <label>Face region
               <select bind:value={faceRegionID} disabled={busy}>
@@ -292,6 +322,19 @@
                 <input type="range" min={axis.min} max={axis.max} step="any" disabled={busy}
                   data-face-axis={axis.axis} value={faceEdits[faceEditKey(regionID, axis.axis)]?.value ?? axis.value}
                   onchange={event => editFace(regionID, axis.axis, event.currentTarget.valueAsNumber, axis.value)} />
+              </label>
+            {/each}
+          </fieldset>
+        {/if}
+        {#if (initial || resculpt) && options.bodySculpt && outfit}
+          {@const body = options.bodySculpt}
+          <fieldset class="sculpt-controls body-sculpt">
+            <legend>Body shape</legend>
+            {#each (["muscularity", "weight"] as const) as slider (slider)}
+              <label>{plainText($words.templates[bodyLabels[slider]] ?? "") || (slider === "weight" ? "Weight" : "Muscularity")}
+                <input type="range" min="0" max="1" step="any" disabled={busy} data-body-slider={slider}
+                  value={bodyEdits[slider] ?? body[slider]}
+                  onchange={event => editBody(slider, event.currentTarget.valueAsNumber, body[slider])} />
               </label>
             {/each}
           </fieldset>
@@ -418,7 +461,7 @@
   .portrait-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .zoom, .skin-tone, .appearance-choice { margin-top: 10px; }
   .hair-color-sample { width: 16px; height: 16px; border: 1px solid var(--border); }
-  .face-sculpt { min-width: 0; margin: 10px 0; padding: 8px 10px 0; border: 1px solid var(--border); }
+  .sculpt-controls { min-width: 0; margin: 10px 0; padding: 8px 10px 0; border: 1px solid var(--border); }
   label input[type="range"] { flex: 1; min-width: 0; }
   @media (max-width: 520px) { .recustomization { gap: 12px; padding: 10px; } }
 </style>

@@ -5,6 +5,8 @@ const { readColors, colorRowValues } = require("./portraitSkinTones");
 const { portraitHairDarkness } = require("./portraitHairColors");
 const sculptingRowType = "eve.common.script.paperDoll.paperDollDefinitions.SculptingRow";
 const sculptAxes = [["down", "up"], ["right", "left"], ["back", "forward"]];
+// The installed sculpting-limit files use these maxima for the three body sliders' morphs.
+const bodySliderShapes = { thin: [0, 0.75], fat: [1, 1], muscular: [2, 0.75] };
 const faceLayerOrder = ["eyeshadow", "eyebrows", "blush", "eyeliner", "lipstick"];
 
 function previewSculptRows(appearance) {
@@ -38,13 +40,16 @@ function faceSculptControls(appearance, locations) {
 
 function appearanceWithFaceSculpts(appearance, edits, locations) {
   const controls = new Set(faceSculptControls(appearance, locations).map(control => control.id));
+  return edits.every(edit => controls.has(edit.locationID)) ? appearanceWithSculptEdits(appearance, edits) : null;
+}
+
+function appearanceWithSculptEdits(appearance, edits) {
   const entries = appearance?.type === "object" && appearance.args?.type === "dict" ? appearance.args.entries : null;
   const sculptEntry = Array.isArray(entries) ? entries.find(([key]) => (key?.value ?? key) === "sculpts") : null;
   if (!Array.isArray(sculptEntry?.[1]?.items) || sculptEntry[1].type !== "list") return null;
   const originals = new Map(sculptEntry[1].items.map(sculptFields).filter(Boolean).map(fields => [fields[1], fields]));
   const byLocation = new Map();
   for (const { locationID, axis, value } of edits) {
-    if (!controls.has(locationID)) return null;
     const fields = byLocation.get(locationID) ?? [...(originals.get(locationID)
       ?? [{ type: "token", value: sculptingRowType }, locationID, null, null, null])];
     fields[axis + 2] = value === 0 ? null : { type: "real", value };
@@ -60,6 +65,44 @@ function appearanceWithFaceSculpts(appearance, edits, locations) {
     entry === sculptEntry ? [entry[0], { ...entry[1], items: rows }] : entry) } };
 }
 
+function bodySliderLocations(locations) {
+  return new Map(Object.entries(locations ?? {}).flatMap(([id, row]) =>
+    row?.weightKeyCategory === "bodyShapes" && Object.hasOwn(bodySliderShapes, row.weightKeyPrefix)
+      ? [[row.weightKeyPrefix, Number(id)]] : []));
+}
+
+function specialBodyWeight(fields, shape) {
+  const [axis] = bodySliderShapes[shape];
+  // Older companion payloads can have populated another column for these one-axis shapes.
+  return Math.max(0, sculptWeight(fields?.[axis + 2]) || fields?.slice(2, 5).map(sculptWeight).find(value => value > 0) || 0);
+}
+
+function portraitBodySliders(appearance, locations) {
+  const ids = bodySliderLocations(locations);
+  if (ids.size !== 3) return null;
+  const rows = new Map(previewSculptRows(appearance).map(sculptFields).filter(Boolean).map(fields => [fields[1], fields]));
+  const fraction = shape => Math.min(1, specialBodyWeight(rows.get(ids.get(shape)), shape) / bodySliderShapes[shape][1]);
+  const fat = fraction("fat");
+  return { weight: fat > 0 ? 0.5 + fat / 2 : (1 - fraction("thin")) / 2, muscularity: fraction("muscular"),
+    limits: Object.fromEntries(Object.entries(bodySliderShapes).map(([shape, [, limit]]) => [shape, limit])) };
+}
+
+function appearanceWithBodySliders(appearance, sliders, locations) {
+  const ids = bodySliderLocations(locations);
+  if (ids.size !== 3) return null;
+  const strengths = {};
+  if (sliders.weight !== undefined) {
+    strengths.thin = Math.max(0, 1 - 2 * sliders.weight);
+    strengths.fat = Math.max(0, 2 * sliders.weight - 1);
+  }
+  if (sliders.muscularity !== undefined) strengths.muscular = sliders.muscularity;
+  const edits = Object.entries(strengths).flatMap(([shape, strength]) => {
+    const [bodyAxis, limit] = bodySliderShapes[shape];
+    return [0, 1, 2].map(axis => ({ locationID: ids.get(shape), axis, value: axis === bodyAxis ? strength * limit : 0 }));
+  });
+  return appearanceWithSculptEdits(appearance, edits);
+}
+
 function portraitPreviewMorphs(rows, locations) {
   const morphs = new Map();
   for (const row of rows) {
@@ -68,11 +111,16 @@ function portraitPreviewMorphs(rows, locations) {
     const location = locations?.[fields[1]];
     const prefix = location?.weightKeyPrefix?.toLowerCase();
     if (!prefix || !/^[a-z0-9_]+$/.test(prefix)) continue;
+    if (location.weightKeyCategory === "bodyShapes" && Object.hasOwn(bodySliderShapes, prefix)) {
+      const weight = specialBodyWeight(fields, prefix);
+      const name = `${prefix}shape`;
+      if (weight) morphs.set(name, { name, weight, body: true });
+      continue;
+    }
     sculptAxes.forEach(([negative, positive], index) => {
       const weight = sculptWeight(fields[index + 2]);
       if (!weight) return;
-      const name = /^(thin|fat|muscular)$/.test(prefix) ? `${prefix}shape`
-        : `${prefix}_${weight < 0 ? negative : positive}shape`;
+      const name = `${prefix}_${weight < 0 ? negative : positive}shape`;
       morphs.set(name, { name, weight: Math.min(Math.abs(weight), 1),
         ...(location.weightKeyCategory === "bodyShapes" ? { body: true } : {}) });
     });
@@ -175,4 +223,4 @@ function portraitPreviewMakeup(appearance, gender, styles, locations, names) {
 }
 
 module.exports = { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewMakeup,
-  faceSculptControls, appearanceWithFaceSculpts };
+  faceSculptControls, appearanceWithFaceSculpts, portraitBodySliders, appearanceWithBodySliders };
