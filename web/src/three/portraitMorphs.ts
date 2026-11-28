@@ -7,6 +7,24 @@ interface MorphMesh {
   deltas: number[];
 }
 
+const outfitCatalogs = new Map<string, readonly string[]>();
+
+export async function loadOutfitMorphNames(model: string): Promise<readonly string[]> {
+  const cached = outfitCatalogs.get(model);
+  if (cached) return cached;
+  try {
+    const response = await fetch(model.replace(/\.glb$/, ".morphs.json"));
+    if (!response.ok) return [];
+    const { names } = await response.json() as { names?: string[] };
+    if (!Array.isArray(names)) return [];
+    const valid = names.filter(name => typeof name === "string" && /^[a-z0-9_]+shape$/.test(name));
+    outfitCatalogs.set(model, valid);
+    return valid;
+  } catch {
+    return [];
+  }
+}
+
 export async function applyPortraitMorphs(model: THREE.Object3D, stem: string, morphs: readonly PortraitMorph[],
   retired: () => boolean): Promise<void> {
   if (!morphs.length) return;

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { dockedApparelSlots, readCapturePortrait, type BodySculptSliders, type FaceSculptEdit,
+  import { dockedApparelSlots, readCapturePortrait, supportedSculptRegions, type BodySculptSliders, type PortraitSculptEdit,
     type PortraitHairTints, type PortraitMakeup } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
@@ -36,7 +36,10 @@
   let hairDarkness = $state<number | null>(null);
   let beardID = $state(0);
   let faceRegionID = $state(0);
-  let faceEdits = $state.raw<Record<string, FaceSculptEdit>>({});
+  let faceEdits = $state.raw<Record<string, PortraitSculptEdit>>({});
+  let bodyRegionEdits = $state.raw<Record<string, PortraitSculptEdit>>({});
+  let bodyRegionID = $state(0);
+  let outfitCatalog = $state.raw<{ key: string; names: ReadonlySet<string> } | null>(null);
   let bodyEdits = $state.raw<Partial<BodySculptSliders>>({});
   let selection = $state({ outer: 0, topouter: 0, topmiddle: 0, bottomouter: 0, feet: 0 });
   let robeHood = $state(0);
@@ -55,18 +58,21 @@
   const resculpt = $derived(options?.state === 1);
   const faceRegion = $derived(options?.faceSculpts.find(region => region.id === faceRegionID));
   const faceSculpts = $derived(Object.values(faceEdits));
+  const bodySculpts = $derived(Object.values(bodyRegionEdits));
   const morphs = $derived.by(() => {
     if (!options) return [];
-    if (!faceSculpts.length && !Object.keys(bodyEdits).length) return options.morphs;
+    if (!faceSculpts.length && !bodySculpts.length && !Object.keys(bodyEdits).length) return options.morphs;
     const result = new Map(options.morphs.map(morph => [morph.name, morph]));
-    for (const edit of faceSculpts) {
-      const axis = options.faceSculpts.find(region => region.id === edit.locationID)?.axes.find(axis => axis.axis === edit.axis);
+    for (const edit of [...faceSculpts, ...bodySculpts]) {
+      const region = options.faceSculpts.find(region => region.id === edit.locationID);
+      const body = !region;
+      const axis = (region ?? options.bodyRegions.find(region => region.id === edit.locationID))?.axes.find(axis => axis.axis === edit.axis);
       if (!axis) continue;
       result.delete(axis.negative);
       result.delete(axis.positive);
       if (edit.value !== 0) {
         const name = edit.value < 0 ? axis.negative : axis.positive;
-        result.set(name, { name, weight: Math.abs(edit.value) });
+        result.set(name, { name, weight: Math.abs(edit.value), ...(body ? { body: true } : {}) });
       }
     }
     const limits = options.bodySculpt?.limits;
@@ -86,12 +92,13 @@
   const faceAxisLabels = ["Vertical", "Horizontal", "Depth"];
   const faceRegionLabel = (prefix: string) => prefix.replace(/_/g, " ").replace(/^./, letter => letter.toUpperCase());
   const faceEditKey = (locationID: number, axis: number) => `${locationID}:${axis}`;
-  function editFace(locationID: number, axis: number, value: number, saved: number): void {
+  function editRegion(body: boolean, locationID: number, axis: number, value: number, saved: number): void {
     const key = faceEditKey(locationID, axis);
-    const next = { ...faceEdits };
+    const next = { ...(body ? bodyRegionEdits : faceEdits) };
     if (value === saved) delete next[key];
     else next[key] = { locationID, axis, value };
-    faceEdits = next;
+    if (body) bodyRegionEdits = next;
+    else faceEdits = next;
     saveStatus = "";
   }
   function editBody(slider: keyof BodySculptSliders, value: number, saved: number): void {
@@ -169,9 +176,16 @@
   const adjustableHood = $derived(Boolean(jacket?.startsWith("/client-assets/portrait-outfit/male/robeam01/")));
   const hoodChanged = $derived(adjustableHood && robeHood !== (options?.clothing?.robeHood ?? 0));
   const outfit = $derived(jacket ?? apparel.topouter ?? apparel.topmiddle);
+  const outfitCatalogKey = $derived(JSON.stringify([outfit, apparel, robeHood]));
+  const bodyRegions = $derived(outfitCatalog?.key === outfitCatalogKey && options
+    ? supportedSculptRegions(options.bodyRegions, outfitCatalog.names) : []);
+  const bodyRegion = $derived(bodyRegions.find(region => region.id === bodyRegionID) ?? bodyRegions[0]);
+  function receiveOutfitMorphs(names: ReadonlySet<string>): void {
+    outfitCatalog = { key: outfitCatalogKey, names };
+  }
   const hasChanges = $derived(initial || selected !== options?.backgroundID || zoomChanged || skinChanged || hairChanged ||
     hairColorChanged || hairDarknessChanged || beardChanged || hoodChanged || faceSculpts.length > 0 ||
-    Object.keys(bodyEdits).length > 0 || Object.keys(apparelIDs).length > 0);
+    bodySculpts.length > 0 || Object.keys(bodyEdits).length > 0 || Object.keys(apparelIDs).length > 0);
   const busy = $derived(saving || publishing);
 
   onMount(() => {
@@ -219,7 +233,7 @@
         hairColor: hairColorChanged ? { primaryID, secondaryID } : null,
         hairDarkness: hairDarknessChanged ? hairDarkness : null, beardID: beardChanged ? beardID : null, apparelIDs,
         robeHood: adjustableHood && (hoodChanged || apparelIDs.outer) ? robeHood : null,
-        initialFrame: initialFrame ?? undefined, resculpt: paid, faceSculpts,
+        initialFrame: initialFrame ?? undefined, resculpt: paid, faceSculpts, bodySculpts,
         bodySliders: Object.keys(bodyEdits).length ? bodyEdits : null });
       const clothing = options.clothing;
       if (clothing) {
@@ -232,6 +246,7 @@
         hairDarkness, beardID, beardStyle: beardStyle ?? null, morphs: savedMorphs };
       faceEdits = {};
       bodyEdits = {};
+      bodyRegionEdits = {};
       saveStatus = paid ? "Resculpt saved. You can now publish your portrait." :
         initialFrame ? "Appearance saved. You can now publish your portrait." : "Portrait settings saved.";
     } catch (error) {
@@ -293,7 +308,8 @@
         {#if showOutfit && pilotHead && outfit}
           <PortraitBaseHead model={pilotHead} bloodlineID={options.bloodlineID} {outfit} {apparel} robeHood={adjustableHood ? robeHood : 0}
             hairstyle={chosenHair?.style} {hairTints} {hasSkinTones} skinColors={skinTone?.colors}
-            makeup={facialHair} {facialHairScale} {morphs} />
+            makeup={facialHair} {facialHairScale} {morphs}
+            onOutfitMorphs={(initial || resculpt) ? receiveOutfitMorphs : undefined} />
         {:else if pilotHead && backdrop}
           <PortraitBaseHead bind:this={portraitView} model={pilotHead} backdropUrl={url} backdropIsDds={backdrop.isDds}
             bloodlineID={options.bloodlineID} framing={options.framing} {fieldOfView}
@@ -321,7 +337,7 @@
               <label>{faceAxisLabels[axis.axis]}
                 <input type="range" min={axis.min} max={axis.max} step="any" disabled={busy}
                   data-face-axis={axis.axis} value={faceEdits[faceEditKey(regionID, axis.axis)]?.value ?? axis.value}
-                  onchange={event => editFace(regionID, axis.axis, event.currentTarget.valueAsNumber, axis.value)} />
+                  onchange={event => editRegion(false, regionID, axis.axis, event.currentTarget.valueAsNumber, axis.value)} />
               </label>
             {/each}
           </fieldset>
@@ -335,6 +351,26 @@
                 <input type="range" min="0" max="1" step="any" disabled={busy} data-body-slider={slider}
                   value={bodyEdits[slider] ?? body[slider]}
                   onchange={event => editBody(slider, event.currentTarget.valueAsNumber, body[slider])} />
+              </label>
+            {/each}
+          </fieldset>
+        {/if}
+        {#if (initial || resculpt) && showOutfit && bodyRegion}
+          <fieldset class="sculpt-controls body-regions">
+            <legend>Body sculpt</legend>
+            <label>Body region
+              <select value={bodyRegion.id} disabled={busy} onchange={event => { bodyRegionID = Number(event.currentTarget.value); }}>
+                {#each bodyRegions as region (region.id)}
+                  <option value={region.id}>{faceRegionLabel(region.prefix)}</option>
+                {/each}
+              </select>
+            </label>
+            {#each bodyRegion.axes as axis (axis.axis)}
+              {@const regionID = bodyRegion.id}
+              <label>{faceAxisLabels[axis.axis]}
+                <input type="range" min={axis.min} max={axis.max} step="any" disabled={busy}
+                  data-body-axis={axis.axis} value={bodyRegionEdits[faceEditKey(regionID, axis.axis)]?.value ?? axis.value}
+                  onchange={event => editRegion(true, regionID, axis.axis, event.currentTarget.valueAsNumber, axis.value)} />
               </label>
             {/each}
           </fieldset>

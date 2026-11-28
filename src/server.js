@@ -26,7 +26,8 @@ const { apparelSlots, optionalApparelSlots, portraitApparelChoices } = require("
 const { appearanceWithHairColors, appearanceWithHairDarkness, hairColorCatalog, hairColorLocation, hairColorSelection,
   portraitHairDarkness, portraitHairTints } = require("./clientData/portraitHairColors");
 const { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewMakeup,
-  faceSculptControls, appearanceWithFaceSculpts, portraitBodySliders, appearanceWithBodySliders } = require("./clientData/portraitPreview");
+  faceSculptControls, appearanceWithFaceSculpts, portraitBodySliders, appearanceWithBodySliders,
+  bodySculptControls, appearanceWithBodySculpts } = require("./clientData/portraitPreview");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
 const { createSkillplanImport } = require("./clientData/importSkillplan");
 const { createClientBuiltData } = require("./clientData/clientBuiltData");
@@ -19867,7 +19868,8 @@ app.get("/api/bridge/character/face-sculpts", requireAuth, async (req, res, next
       call("paperDollServer", "GetMyPaperDollData", [held.characterID]),
       clientBuiltData.table("paperDollSculptingLocations"),
     ]);
-    res.json({ ok: true, controls: faceSculptControls(appearance, locations), body: portraitBodySliders(appearance, locations) });
+    res.json({ ok: true, controls: faceSculptControls(appearance, locations), body: portraitBodySliders(appearance, locations),
+      bodyRegions: bodySculptControls(appearance, locations) });
   } catch (error) { next(error); }
 });
 
@@ -19896,19 +19898,20 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
   if (!held || !requireWriteConfirmation(req, res, "Use Save portrait to confirm your changes.")) return;
   const { backgroundID, fieldOfView = null, dockedLocationID, skinTone = null, hairID = null, hairColor = null,
     hairDarkness = null, beardID = null, shirtID = null, apparelIDs = null, robeHood = null,
-    initialFrame = null, resculpt = false, faceSculpts = [], bodySliders = null } = req.body;
+    initialFrame = null, resculpt = false, faceSculpts = [], bodySliders = null, bodySculpts = [] } = req.body;
   if (typeof resculpt !== "boolean") {
     return res.status(400).json({ ok: false, error: "INVALID_RESCULPT_MODE", message: "Reopen Character Recustomization." });
   }
-  if (!Array.isArray(faceSculpts) || faceSculpts.length > 96 ||
-      faceSculpts.some(edit => !Number.isSafeInteger(edit?.locationID) || edit.locationID <= 0 ||
-        ![0, 1, 2].includes(edit.axis) || !Number.isFinite(edit.value) || Math.abs(edit.value) > 1) ||
-      new Set(faceSculpts.map(edit => `${edit.locationID}:${edit.axis}`)).size !== faceSculpts.length) {
+  const validSculpts = edits => Array.isArray(edits) && edits.length <= 96 &&
+    edits.every(edit => Number.isSafeInteger(edit?.locationID) && edit.locationID > 0 &&
+      [0, 1, 2].includes(edit.axis) && Number.isFinite(edit.value) && Math.abs(edit.value) <= 1) &&
+    new Set(edits.map(edit => `${edit.locationID}:${edit.axis}`)).size === edits.length;
+  if (!validSculpts(faceSculpts)) {
     return res.status(400).json({ ok: false, error: "INVALID_FACE_SCULPT", message: "Choose a valid face sculpt adjustment." });
   }
   const bodyEdits = bodySliders === null ? [] : Object.entries(bodySliders);
-  if (bodySliders !== null && (!bodyEdits.length || bodyEdits.some(([key, value]) =>
-    !["weight", "muscularity"].includes(key) || !Number.isFinite(value) || value < 0 || value > 1))) {
+  if (!validSculpts(bodySculpts) || (bodySliders !== null && (!bodyEdits.length || bodyEdits.some(([key, value]) =>
+    !["weight", "muscularity"].includes(key) || !Number.isFinite(value) || value < 0 || value > 1)))) {
     return res.status(400).json({ ok: false, error: "INVALID_BODY_SCULPT", message: "Choose a valid body sculpt adjustment." });
   }
   if (!Number.isSafeInteger(backgroundID) || backgroundID <= 0 ||
@@ -19978,7 +19981,7 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
     if (!validMode) {
       return res.status(409).json({ ok: false, error: "PORTRAIT_REQUIRED", message: "Reopen Character Recustomization to read your current appearance." });
     }
-    if (!full && (faceSculpts.length || bodyEdits.length)) {
+    if (!full && (faceSculpts.length || bodyEdits.length || bodySculpts.length)) {
       return res.status(409).json({ ok: false, error: "RESCULPT_REQUIRED", message: "Sculpting requires a full resculpt." });
     }
     let appearance = null;
@@ -20006,7 +20009,7 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
         appearance = appearanceWithSkinTone(current ?? null, skinLocations, wantedTone);
         if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
       }
-      if (faceSculpts.length || bodyEdits.length) {
+      if (faceSculpts.length || bodyEdits.length || bodySculpts.length) {
         sculptLocations = await clientBuiltData.table("paperDollSculptingLocations");
       }
       if (faceSculpts.length) {
@@ -20015,6 +20018,10 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
       }
       if (bodyEdits.length) {
         appearance = appearanceWithBodySliders(appearance, bodySliders, sculptLocations);
+        if (!appearance) return res.status(400).json({ ok: false, error: "INVALID_BODY_SCULPT", message: "Choose an available body sculpt adjustment." });
+      }
+      if (bodySculpts.length) {
+        appearance = appearanceWithBodySculpts(appearance, bodySculpts, sculptLocations);
         if (!appearance) return res.status(400).json({ ok: false, error: "INVALID_BODY_SCULPT", message: "Choose an available body sculpt adjustment." });
       }
       const hair = hairID !== null || hairColor !== null || beardID !== null ? await dockedHairChoices(call, held.characterID) : null;
@@ -20108,12 +20115,15 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
         const savedSculpts = faceSculpts.length ? new Map(faceSculptControls(result, sculptLocations)
           .map(control => [control.id, control.axes])) : null;
         const savedBody = bodyEdits.length ? portraitBodySliders(result, sculptLocations) : null;
+        const savedRegions = bodySculpts.length ? new Map(bodySculptControls(result, sculptLocations)
+          .map(control => [control.id, control.axes])) : null;
         if (result == null || (skinTone && skinToneID(result, skinLocations) !== skinTone.id) ||
             (hairID !== null && portraitHairID(result, hairLocation) !== hairID) ||
             (hairDarkness !== null && portraitHairDarkness(result) !== hairDarkness) ||
             (beardID !== null && portraitModifierID(result, beardLocation) !== beardID) ||
             faceSculpts.some(edit => savedSculpts?.get(edit.locationID)?.[edit.axis]?.value !== edit.value) ||
             bodyEdits.some(([key, value]) => !savedBody || Math.abs(savedBody[key] - value) > 1e-9) ||
+            bodySculpts.some(edit => savedRegions?.get(edit.locationID)?.[edit.axis]?.value !== edit.value) ||
             apparelToConfirm.some(([location, id]) => portraitModifierID(result, location) !== id) ||
             (robeHood !== null && (portraitModifier(result, hoodLocation)?.[3] ?? 0) !== robeHood) ||
             (hairColor && (savedColor.primaryID !== hairColor.primaryID || savedColor.secondaryID !== hairColor.secondaryID))) {

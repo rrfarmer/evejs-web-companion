@@ -2289,7 +2289,8 @@ export interface DockedPortraitOptions {
   readonly backgrounds: readonly api.PortraitBackground[];
   readonly framing: PortraitFraming | null;
   readonly morphs: readonly api.PortraitMorph[];
-  readonly faceSculpts: readonly api.FaceSculptRegion[];
+  readonly faceSculpts: readonly api.PortraitSculptRegion[];
+  readonly bodyRegions: readonly api.PortraitSculptRegion[];
   readonly bodySculpt: api.BodySculptControls | null;
   readonly skinToneID: number;
   readonly skinTones: readonly api.PortraitSkinTone[];
@@ -2321,7 +2322,8 @@ interface DockedPortraitDraft {
   readonly robeHood?: number | null;
   readonly initialFrame?: api.PortraitFrame;
   readonly resculpt?: boolean;
-  readonly faceSculpts?: readonly api.FaceSculptEdit[];
+  readonly faceSculpts?: readonly api.PortraitSculptEdit[];
+  readonly bodySculpts?: readonly api.PortraitSculptEdit[];
   readonly bodySliders?: Partial<api.BodySculptSliders> | null;
 }
 
@@ -10660,6 +10662,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       morphs: savedAppearance?.morphs ?? [],
       faceSculpts: sculpts?.face ?? [],
       bodySculpt: sculpts?.body ?? null,
+      bodyRegions: sculpts?.bodyRegions ?? [],
       backgroundID: typeof backgroundID === "number" && Number.isSafeInteger(backgroundID) ? backgroundID : null,
       backgrounds,
       skinToneID: skin?.skinToneID ?? 0,

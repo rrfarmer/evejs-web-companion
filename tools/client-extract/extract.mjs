@@ -873,8 +873,7 @@ async function extractPortraitMorph(rf, source, name, file) {
   writeExtracted(file, JSON.stringify({ name, source, meshes }));
 }
 
-async function extractPortraitMorphCatalog(rf, gender, outRoot) {
-  const source = `res:/graphics/character/${gender}/paperdoll/head/head_generic/head_generic.gr2`;
+async function extractPortraitMorphCatalog(rf, source, file) {
   const { root } = await readGranny(rf.read(source), source);
   const model = root.Models.find(entry => entry.Skeleton?.Bones?.length && entry.MeshBindings?.length);
   const names = new Set();
@@ -887,9 +886,8 @@ async function extractPortraitMorphCatalog(rf, gender, outRoot) {
       }
     }
   }
-  const dir = path.join(outRoot, "portrait-head");
-  fs.mkdirSync(dir, { recursive: true });
-  writeExtracted(path.join(dir, `${gender}.morphs.json`), JSON.stringify({ names: [...names].sort() }));
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  writeExtracted(file, JSON.stringify({ names: [...names].sort() }));
 }
 
 // paperDollBloodLineAssets.bloodlineAssets in 3698585. The head metadata names its archetype dependency.
@@ -1250,7 +1248,7 @@ function parseArgs(argv) {
     }
     else if (a === "--portrait-body") {
       out.portraitBody = argv[++i];
-      if (!/^(?:female|male)(?:\/[a-z0-9_]+){1,4}$/.test(out.portraitBody ?? "")) {
+      if (!/^(?:female|male)(?:\/[a-z0-9_-]+){1,4}$/.test(out.portraitBody ?? "")) {
         throw new Error("--portrait-body needs an outfit model stem");
       }
     }
@@ -1547,20 +1545,23 @@ async function main() {
       path.join(outRoot, "portrait-outfit", args.portraitHands, "hands.glb"), "hands");
   }
   if (args.portraitBody) {
-    if (!args.portraitMorph) throw new Error("--portrait-body needs --portrait-morph");
+    if (!args.portraitMorph && !args.portraitMorphCatalog) throw new Error("--portrait-body needs a morph or catalog");
     const stem = path.join(outRoot, "portrait-outfit", args.portraitBody);
     const model = readGlbDocument(fs.readFileSync(stem + ".glb"));
     const source = model.nodes?.[0]?.extras?.source;
     const gender = args.portraitBody.split("/")[0];
     if (typeof source !== "string" || !source.toLowerCase().startsWith(`res:/graphics/character/${gender}/paperdoll/`) ||
       !source.toLowerCase().endsWith(".gr2") || !rf.has(source)) throw new Error("Unknown portrait model source");
-    await extractPortraitMorph(rf, source, args.portraitMorph, path.join(stem, "morphs", args.portraitMorph + ".json"));
+    if (args.portraitMorphCatalog) await extractPortraitMorphCatalog(rf, source, stem + ".morphs.json");
+    else await extractPortraitMorph(rf, source, args.portraitMorph, path.join(stem, "morphs", args.portraitMorph + ".json"));
   }
   if (args.portraitHead) {
     if (args.portraitBrows) {
       if (args.portraitBloodline === undefined) throw new Error("--portrait-brows needs --portrait-bloodline");
       await extractPortraitBrows(rf, args.portraitHead, args.portraitBloodline, outRoot, args.portraitMorph);
-    } else if (args.portraitMorphCatalog) await extractPortraitMorphCatalog(rf, args.portraitHead, outRoot);
+    } else if (args.portraitMorphCatalog) await extractPortraitMorphCatalog(rf,
+      `res:/graphics/character/${args.portraitHead}/paperdoll/head/head_generic/head_generic.gr2`,
+      path.join(outRoot, "portrait-head", args.portraitHead + ".morphs.json"));
     else if (args.portraitMorph) await extractPortraitMorph(rf,
       `res:/graphics/character/${args.portraitHead}/paperdoll/head/head_generic/head_generic.gr2`, args.portraitMorph,
       path.join(outRoot, "portrait-head", args.portraitHead, "morphs", args.portraitMorph + ".json"));

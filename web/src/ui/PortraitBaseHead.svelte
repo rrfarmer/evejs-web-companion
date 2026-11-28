@@ -8,12 +8,12 @@
   import { compositePortraitImplant, compositePortraitScalpFinish, type PortraitCroppedTexture, type PortraitImplantMaps,
     type PortraitSurfaceFinish } from "../three/portraitImplant.ts";
   import { applyPortraitHairFinish } from "../three/portraitHairFinish.ts";
-  import { applyPortraitMorphs } from "../three/portraitMorphs.ts";
+  import { applyPortraitMorphs, loadOutfitMorphNames } from "../three/portraitMorphs.ts";
   import { compressedSupport, loadDds } from "../three/ddsTexture";
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
   import { capturePointer } from "./pointerCapture.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, hairTints, outfit, robeHood = 0, apparel, morphs, piercings, iris, makeup, facialHairScale }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, hairTints, outfit, robeHood = 0, apparel, morphs, piercings, iris, makeup, facialHairScale, onOutfitMorphs }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
@@ -32,6 +32,7 @@
     iris?: string;
     makeup?: readonly PortraitMakeup[];
     facialHairScale?: number;
+    onOutfitMorphs?: (names: ReadonlySet<string>) => void;
   } = $props();
   const visibleHairstyle = $derived(outfit && robeHood > 0 ? undefined : hairstyle);
   let canvas: HTMLCanvasElement;
@@ -295,9 +296,11 @@
     const extra = apparel;
     const gender = model;
     const bodyMorphs = morphs?.filter(morph => morph.body) ?? [];
+    const publishMorphs = onOutfitMorphs;
     if (!active || !source) return;
     let retired = false;
     let body: THREE.Group | null = null;
+    const bodyModels = new Set<string>();
     const maps: { texture: THREE.Texture; bitmap?: ImageBitmap }[] = [];
     const texture = async (url: string | null, color: boolean): Promise<THREE.Texture | null> => {
       if (!url) return null;
@@ -327,6 +330,7 @@
     let skin: THREE.MeshStandardMaterial | undefined;
     const loadBodyModel = async (path: string): Promise<THREE.Group | null> => {
       const { scene: mesh } = await loader.loadAsync(path);
+      bodyModels.add(path);
       if (!retired && bodyMorphs.length) {
         await applyPortraitMorphs(mesh, path.replace(/\.glb$/, ""), bodyMorphs, () => retired);
       }
@@ -462,6 +466,10 @@
       outfitBounds = new THREE.Box3().setFromObject(body, true);
       scene.add(body);
       outfitDisplay = "ready";
+      if (publishMorphs) {
+        const catalogs = await Promise.all([...bodyModels].map(loadOutfitMorphNames));
+        if (!retired) publishMorphs(new Set(catalogs.flat()));
+      }
     })().catch(() => { if (!retired) outfitDisplay = "unavailable"; });
     return () => {
       retired = true;
