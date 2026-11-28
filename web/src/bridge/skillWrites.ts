@@ -127,8 +127,9 @@ export type SkillLevel = readonly [number, number];
 const levelsArgument = (levels: readonly SkillLevel[]): JsonValue => ({ type: "list", items: levels.map(([skill, level]) => [skill, level]) });
 
 /** What free points would come to, spread over these levels: points by skill. Fails as the call fails. */
-export async function freePointsAppliedToSkills(ask: Ask, levels: readonly SkillLevel[]): Promise<ReadonlyMap<number, number>> {
-  const answered = await ask("skillHandler", "GetFreeSkillPointsAppliedToSkills", [levelsArgument(levels)]);
+export async function freePointsAppliedToSkills(ask: Ask, levels: readonly SkillLevel[] | null): Promise<ReadonlyMap<number, number>> {
+  const answered = levels === null ? await ask("skillHandler", "GetFreeSkillPointsAppliedToQueue", [])
+    : await ask("skillHandler", "GetFreeSkillPointsAppliedToSkills", [levelsArgument(levels)]);
   const entries = answered !== null && typeof answered === "object" && (answered as { type?: unknown }).type === "dict"
     ? ((answered as { entries?: unknown }).entries as unknown[] | undefined) ?? []
     : [];
@@ -143,8 +144,9 @@ export async function freePointsAppliedToSkills(ask: Ask, levels: readonly Skill
 }
 
 /** Free points spread over these levels. Answers what the handler answers, the free points left. Fails as the call fails. */
-export async function applyFreePointsToSkills(act: Ask, levels: readonly SkillLevel[]): Promise<JsonValue> {
-  return act("skillHandler", "ApplyFreeSkillPointsToSkills", [levelsArgument(levels)]);
+export async function applyFreePointsToSkills(act: Ask, levels: readonly SkillLevel[] | null): Promise<JsonValue> {
+  return levels === null ? act("skillHandler", "ApplyFreeSkillPointsToQueue", [])
+    : act("skillHandler", "ApplyFreeSkillPointsToSkills", [levelsArgument(levels)]);
 }
 
 /** One place of a queue: a skill, and the level it is to be trained to. */

@@ -962,6 +962,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // would come to, and the spreading (skillQueueSvc.py 608 to 613). The page makes them by name. The gateway's list
   // has neither.
   "skillHandler.GetFreeSkillPointsAppliedToSkills", "skillHandler.ApplyFreeSkillPointsToSkills",
+  "skillHandler.GetFreeSkillPointsAppliedToQueue", "skillHandler.ApplyFreeSkillPointsToQueue",
   // The account's extra training slots, which the client's queue service asks for to tell whether a change of
   // the queue may start it (skillQueueSvc.py 851). The gateway's list has nothing of the user service's.
   "userSvc.GetMultiCharactersTrainingSlots",
@@ -3074,6 +3075,10 @@ const RETAIL_CALLS = Object.freeze({
     levelsListed,
     "GetSkillHandler().GetFreeSkillPointsAppliedToSkills(skillTypeIDsAndLevels): the levels as one list of (typeID, level). It answers the points each skill would take. Asked by the Apply Skill Points window as it opens (applySkillPointsWindow.py 123) and before the spreading. In no recording.",
   ),
+  "skillHandler.GetFreeSkillPointsAppliedToQueue": same("eve/client/script/ui/skilltrading/applySkillPointsWindow.py:121",
+    "The training queue dialog previews free points for the current saved queue without passing skill levels."),
+  "skillHandler.ApplyFreeSkillPointsToQueue": same("eve/client/script/ui/skilltrading/applySkillPointsWindow.py:162",
+    "The training queue dialog confirms applying free points to the current saved queue without passing skill levels."),
   "skillHandler.ApplyFreeSkillPointsToSkills": reshaped(
     "eve/client/script/ui/services/skillQueueSvc.py:612",
     levelsListed,

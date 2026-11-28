@@ -398,7 +398,7 @@
 {:else if tab === "equipment"}
   <EquipmentPanel {store} {flow} />
 {:else if tab === "skills"}
-  <Skills {store} {flow} />
+  <Skills {store} {flow} {onShowStoreProduct} />
 {:else if tab === "planets"}
   <Planets {store} {flow} {onViewPlanet} {onAccessCustoms} {viewingPlanetID} />
 {:else if tab === "travel"}

@@ -5532,6 +5532,7 @@ export interface AppFlow {
   trainSkillsFor(record: SkillTrainingRecord): Promise<void>;
   buySkillsFor(record: SkillTrainingRecord): Promise<void>;
   applySkillPointsFor(record: SkillTrainingRecord): Promise<void>;
+  applySkillPointsToQueue(): Promise<void>;
   /**
    * Each skill group's certificates claimed (SkillGroupController GetAccumulatedCertificateLevelsTrained: each of its
    * certificates' levels, Certificate.GetLevel, summed) of all (GetAccumulatedCertificateLevelsTotal: five each). Null
@@ -15084,7 +15085,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
   // The client's Apply Skill Points window, one at a time, and its levels.
   const applyPointsAskedSignal = createSignal<ApplyPointsAsk | null>(null);
-  let applyPointsLevels: readonly SkillLevel[] = [];
+  let applyPointsLevels: readonly SkillLevel[] | null = [];
   /** What the requirement window last read of the pilot's skills, which its apply-points button's window goes by. */
   let skillWindowFacts: {
     readonly rank: (skill: number) => number | null;
@@ -15186,11 +15187,11 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
    * for an alpha clone (GetCharacterAttribute), less what the pilot's skill accelerators (GetBoosters) add to it, halved
    * too for an alpha; with an alpha clone's ceilings, and each skill's points now (the one in training counted).
    */
-  async function pilotTrainingFacts(skillTypes: readonly number[], skillsAnswer: JsonValue, allSkillsAnswer: JsonValue) {
+  async function pilotTrainingFacts(skillTypes: readonly number[], skillsAnswer: JsonValue, allSkillsAnswer: JsonValue, knownQueue?: JsonValue) {
     const mine = skillLevelsOf(skillsAnswer);
     const lapsed = skillLevelsOf(allSkillsAnswer);
     const [queueAnswer, attributesAnswer, boostersAnswer, typeAttributes] = await Promise.all([
-      bridgeAsk("skillHandler", "GetSkillQueueAndFreePoints", []),
+      knownQueue === undefined ? bridgeAsk("skillHandler", "GetSkillQueueAndFreePoints", []) : knownQueue,
       bridgeAsk("skillHandler", "GetAttributes", []),
       bridgeAsk("skillHandler", "GetBoosters", []),
       // (The route takes 500 types at a time; the skill catalogue holds more.)
@@ -15449,13 +15450,30 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   async function applySkillPointsOf(open: SkillTrainingRecord): Promise<void> {
     const facts = skillWindowFacts;
     if (facts === null || !open.offerInjection || open.applyLevels.length === 0) return;
-    const levels = open.applyLevels;
-    const pointsBySkill = await freePointsAppliedToSkills(bridgeAsk, levels);
+    await openApplyPoints(facts, open.applyLevels, false);
+  }
+
+  async function applySkillPointsToQueue(): Promise<void> {
+    const [queue, skills, allSkills] = await Promise.all([
+      bridgeAsk("skillHandler", "GetSkillQueueAndFreePoints", []),
+      bridgeAsk("skillHandler", "GetSkills", []),
+      bridgeAsk("skillHandler", "GetAllSkills", []),
+    ]);
+    const levels = queuedLevels(Array.isArray(queue) ? queue[0] : null)
+      .map(({ typeID, toLevel }): SkillLevel => [typeID, toLevel]);
+    if (levels.length === 0 || !Array.isArray(queue) || Number(queue[1]) <= 0) return;
+    const facts = await pilotTrainingFacts([...new Set(levels.map(([skill]) => skill))], skills, allSkills, queue);
+    await openApplyPoints({ ...facts, trainingRate: facts.rateWithBoosters }, levels, true);
+  }
+
+  async function openApplyPoints(facts: NonNullable<typeof skillWindowFacts>, levels: readonly SkillLevel[], fromQueue: boolean): Promise<void> {
+    const requested = fromQueue ? null : levels;
+    const pointsBySkill = await freePointsAppliedToSkills(bridgeAsk, requested);
     const reached = new Map<number, readonly [number, number]>();
     for (const [skill, points] of pointsBySkill) {
       const rank = facts.rank(skill);
       if (rank === null) continue;
-      const total = (facts.mine.get(skill)?.trainedSkillPoints ?? 0) + points;
+      const total = facts.pointsNow(skill) + points;
       reached.set(skill, [skillLevelRaw(total, rank), levelProgress(total, rank)]);
     }
     // Each skill's group, for its row's icon (ApplySkillPointsListEntry.SetSkillGroupIcon).
@@ -15464,21 +15482,22 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const entries: ApplyPointsEntry[] = [];
     for (const [skill, level] of levels) {
       if (entries.some((entry) => entry.skill === skill && entry.level === level)) continue;
-      const [levelReached, withPoints] = reached.get(skill) ?? [0, 0];
-      // AdjustProgressWithFreePoints: the level reached is whole; one below it, the progress made toward it.
-      const progressWithFreePoints = levelReached >= level ? 1.0 : levelReached + 1 < level ? 0.0 : withPoints;
       const rank = facts.rank(skill);
       // GetProgress: the level in training (one above the level trained, first in the queue), how far it is.
       const inTraining = (facts.mine.get(skill)?.trainedSkillLevel ?? 0) === level - 1
         && facts.queued[0]?.typeID === skill && facts.queued[0]?.toLevel === level;
       const progress = inTraining && rank !== null ? levelProgress(facts.pointsNow(skill), rank) : 0;
+      // AdjustProgressWithFreePoints: the level reached is whole; one below it, the progress made toward it.
+      const projected = reached.get(skill);
+      const progressWithFreePoints = !projected ? progress
+        : projected[0] >= level ? 1.0 : projected[0] + 1 < level ? 0.0 : projected[1];
       const rate = facts.trainingRate(skill);
       const levelTicks = rank === null || rate === null || !(rate > 0)
         ? null
         : ((skillPointsForLevel(rank, level) - skillPointsForLevel(rank, level - 1)) / rate) * 600_000_000;
       entries.push({ skill, level, groupID: groups[skill] ?? null, progress, progressWithFreePoints, timeSavedTicks: levelTicks === null ? null : (progressWithFreePoints - progress) * levelTicks });
     }
-    applyPointsLevels = levels;
+    applyPointsLevels = requested;
     dialogsSaidCount += 1;
     const points = [...pointsBySkill.values()].reduce((sum, each) => sum + each, 0);
     applyPointsAskedSignal.set({ n: dialogsSaidCount, entries, points, canConfirm: pointsBySkill.size > 0, finished: false });
@@ -18538,15 +18557,21 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       return;
     }
     if (asked.finished || !asked.canConfirm) return;
+    const levels = applyPointsLevels;
+    applyPointsAskedSignal.set({ ...asked, canConfirm: false });
     try {
-      const pointsBySkill = await freePointsAppliedToSkills(bridgeAsk, applyPointsLevels);
-      if (pointsBySkill.size > 0) await applyFreePointsToSkills(bridgeDo, applyPointsLevels);
+      const pointsBySkill = await freePointsAppliedToSkills(bridgeAsk, levels);
+      if (applyPointsAskedSignal.get()?.n !== n) return;
+      if (pointsBySkill.size > 0) await applyFreePointsToSkills(bridgeDo, levels);
     } catch (error) {
+      if (applyPointsAskedSignal.get()?.n === n) applyPointsAskedSignal.set(asked);
       if (isSessionLost(error)) throw error;
       sayRefusalDialog(error, `Those points could not be applied: ${errorWords(error)}`);
       return;
     }
-    applyPointsAskedSignal.set({ ...asked, finished: true, entries: asked.entries.map((entry) => ({ ...entry, progress: entry.progressWithFreePoints })) });
+    if (applyPointsAskedSignal.get()?.n === n) {
+      applyPointsAskedSignal.set({ ...asked, finished: true, entries: asked.entries.map((entry) => ({ ...entry, progress: entry.progressWithFreePoints })) });
+    }
     await loadSkills().catch(() => {});
   }
 
@@ -40472,6 +40497,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     trainSkillsFor: trainSkillsOf,
     buySkillsFor: buySkillsOf,
     applySkillPointsFor: applySkillPointsOf,
+    applySkillPointsToQueue,
     skillGroupCertificates,
     expertSystemsHome,
     removeExpertSystem,

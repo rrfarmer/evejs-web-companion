@@ -52,8 +52,10 @@
   import { plainText } from "../bridge/clientWords.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import { SKILLS_POINTERS } from "../play/uiPointer.ts";
+  import { CLONE_GRADE_ALPHA } from "../bridge/cloneGrade.ts";
+  import { TYPE_ALPHA_TRAINING_INJECTOR, TYPE_SKILL_INJECTOR } from "./skillAction.ts";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  let { store, flow, onShowStoreProduct }: { store: ClientStore; flow: AppFlow; onShowStoreProduct?: (typeID: number) => void } = $props();
 
   const topPanelKey = "evejs.skillsTopPanel";
   let topPanel = $state<"plans" | "catalogue">("plans");
@@ -69,6 +71,8 @@
 
   // svelte-ignore state_referenced_locally
   const skills = store.skills;
+  // svelte-ignore state_referenced_locally
+  const station = store.station;
   // svelte-ignore state_referenced_locally
   const words = store.words;
   // svelte-ignore state_referenced_locally
@@ -196,6 +200,18 @@
 
   /** Unallocated skill points the sheet says the character is holding. */
   const freeSkillPoints = $derived(sheet.freeSkillPoints ?? 0);
+  const canApplyQueuePoints = $derived((queue?.entries.length ?? 0) > 0 && freeSkillPoints > 0);
+  const alphaClone = $derived($station.cloneGrade === CLONE_GRADE_ALPHA);
+  const queuePointsLabel = $derived(canApplyQueuePoints ? "Apply skill points" : alphaClone ? "Daily Alpha Injector" : "Large Skill Injector");
+  const queuePointsIcon = $derived(clientTexture(canApplyQueuePoints ? "res:/UI/Texture/classes/SkillPlan/buttonIcons/plusIcon.png"
+    : alphaClone ? "res:/UI/Texture/classes/skilltrading/alphaSkillInjector.png"
+    : "res:/UI/Texture/classes/skilltrading/marketSkillinjector.png"));
+
+  function useQueuePoints(): void {
+    if (canApplyQueuePoints) void run(() => flow.applySkillPointsToQueue());
+    else if (alphaClone) onShowStoreProduct?.(TYPE_ALPHA_TRAINING_INJECTOR);
+    else showMarketDetails(TYPE_SKILL_INJECTOR);
+  }
 
   async function applyFreePoints(skill: SkillRow, points: number): Promise<void> {
     if (points <= 0) {
@@ -642,6 +658,10 @@
   <header class="panel-head">
     <h2>Up next</h2>
     <span class="controls">
+      <button type="button" class="queue-skill-points" data-ui-pointer={SKILLS_POINTERS.applyPoints}
+        title={queuePointsLabel} aria-label={queuePointsLabel}
+        disabled={!sheet.loaded || busy || (!canApplyQueuePoints && ($station.cloneGrade === null || (alphaClone && !onShowStoreProduct)))}
+        onclick={useQueuePoints}><img src={queuePointsIcon} alt="" /></button>
       {#if paused}
         <button type="button" disabled={busy} onclick={startTraining}>Start training</button>
       {:else if (queue?.entries.length ?? 0) > 0}
@@ -887,4 +907,6 @@
 <style>
   .skill-top-tabs { display: flex; padding-block: 0.5rem; gap: 0.25rem; }
   .skill-top-tabs [aria-selected="true"] { border-color: var(--accent, #6ab6db); }
+  .queue-skill-points { padding: 4px; }
+  .queue-skill-points img { display: block; width: 20px; height: 20px; }
 </style>
