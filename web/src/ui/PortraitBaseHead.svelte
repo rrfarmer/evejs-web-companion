@@ -13,7 +13,7 @@
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
   import { capturePointer } from "./pointerCapture.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, hairTints, outfit, robeHood = 0, apparel, morphs, piercings, iris, makeup, facialHairScale, onOutfitMorphs }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, hairTints, outfit, robeHood = 0, waistTuck = 0, apparel, morphs, piercings, iris, makeup, facialHairScale, onOutfitMorphs }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
@@ -26,6 +26,7 @@
     hairTints?: PortraitHairTints;
     outfit?: string;
     robeHood?: number;
+    waistTuck?: number;
     apparel?: PortraitApparel;
     morphs?: readonly PortraitMorph[];
     piercings?: readonly string[];
@@ -321,6 +322,7 @@
     const active = renderer;
     const source = outfit;
     const hood = robeHood;
+    const tucked = waistTuck === 1;
     const extra = apparel;
     const gender = model;
     const bodyMorphs = morphs?.filter(morph => morph.body) ?? [];
@@ -344,12 +346,14 @@
     };
     outfitDisplay = "loading";
     outfitBounds = null;
+    type WaistTuck = { source: string; occludes: string[]; model?: string; mask?: CroppedMapAsset };
     type Garment = {
       model: string; diffuse: string | null; zones: string | null; normal: string | null;
       colors: [number, number, number, number][]; occludes: string[]; skinMeshes: string[];
       skinBase?: string; bodyParts?: string[]; bodyPartWeights?: Record<string, number>; hoods?: string[];
       trouserFit?: readonly PortraitMorph[]; outfitFit?: readonly PortraitMorph[];
       fitOcclusions?: Record<string, readonly PortraitMorph[]>;
+      waistTuck?: WaistTuck;
       bootMask?: CroppedMapAsset; bodyCutout?: CroppedMapAsset; innerSleeve?: string;
       diffuseRect?: number[]; zonesRect?: number[]; normalRect?: number[];
     };
@@ -374,21 +378,21 @@
       return null;
     };
     const applyGarmentCutout = (shader: Parameters<THREE.MeshStandardMaterial["onBeforeCompile"]>[0], mask: PortraitCroppedTexture,
-      uv: "vMapUv" | "vUv" = "vMapUv") => {
-      shader.uniforms.outfitBootMask = { value: mask.texture };
-      shader.uniforms.outfitBootMaskRect = { value: mask.rect };
+      uv: "vMapUv" | "vUv" = "vMapUv", name: "outfitBootMask" | "outfitWaistMask" = "outfitBootMask") => {
+      shader.uniforms[name] = { value: mask.texture };
+      shader.uniforms[`${name}Rect`] = { value: mask.rect };
       shader.fragmentShader = shader.fragmentShader.replace("#include <map_pars_fragment>", `
         #include <map_pars_fragment>
-        uniform sampler2D outfitBootMask;
-        uniform vec4 outfitBootMaskRect;
+        uniform sampler2D ${name};
+        uniform vec4 ${name}Rect;
       `).replace("#include <alphatest_fragment>", `
         #include <alphatest_fragment>
-        vec2 bootMaskUV = (${uv} - outfitBootMaskRect.xy) / outfitBootMaskRect.zw;
-        if (all(greaterThanEqual(bootMaskUV, vec2(0.0))) && all(lessThanEqual(bootMaskUV, vec2(1.0))) &&
-            texture2D(outfitBootMask, bootMaskUV).a >= 0.5) discard;
+        vec2 ${name}UV = (${uv} - ${name}Rect.xy) / ${name}Rect.zw;
+        if (all(greaterThanEqual(${name}UV, vec2(0.0))) && all(lessThanEqual(${name}UV, vec2(1.0))) &&
+            texture2D(${name}, ${name}UV).a >= 0.5) discard;
       `);
     };
-    const loadGarmentMaterial = async (data: Garment, cutout: PortraitCroppedTexture | null) => {
+    const loadGarmentMaterial = async (data: Garment, cutout: PortraitCroppedTexture | null, waistMask?: PortraitCroppedTexture) => {
       const diffuse = await texture(data.diffuse, true);
       const zones = data.colors.length === 3 ? await texture(data.zones, false) : null;
       const normal = await texture(data.normal, false);
@@ -445,6 +449,7 @@
           `);
         }
         if (cutout && diffuse) applyGarmentCutout(shader, cutout);
+        if (waistMask && diffuse) applyGarmentCutout(shader, waistMask, "vMapUv", "outfitWaistMask");
         if (normal) shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_maps>",
           THREE.ShaderChunk.normal_fragment_maps.replace(
             "vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;",
@@ -454,12 +459,14 @@
             ` : "vec2 xy = texture2D(normalMap, vNormalMapUv).ag * 2.0 - 1.0;"}
             vec3 mapN = vec3(xy, sqrt(max(0.0, 1.0 - dot(xy, xy))));`));
       };
-      garment.customProgramCacheKey = () => `outfit:${Boolean(zones && diffuse)}:${Boolean(normal)}:${Boolean(skinBase)}:${cropped}:${Boolean(cutout)}`;
+      garment.customProgramCacheKey = () => `outfit:${Boolean(zones && diffuse)}:${Boolean(normal)}:${Boolean(skinBase)}:${cropped}:${Boolean(cutout)}:${Boolean(waistMask)}`;
       return garment;
     };
-    const loadGarment = async (data: Garment, group: THREE.Group, mask?: CroppedMapAsset, tights?: Garment, innerSleeve?: string) => {
+    const loadGarment = async (data: Garment, group: THREE.Group, mask?: CroppedMapAsset, tights?: Garment, innerSleeve?: string,
+      waist?: WaistTuck) => {
       const embeddedLegs = data.skinMeshes?.includes("LegsShape");
       const cutout = mask ? await loadCroppedTexture(mask, maps, () => retired) : null;
+      const waistMask = waist?.mask ? await loadCroppedTexture(waist.mask, maps, () => retired) : undefined;
       const object = await loadBodyModel(data.model);
       if (!object) return;
       group.add(object);
@@ -479,7 +486,7 @@
         if (!part) return;
         object.add(part);
       }
-      const garment = await loadGarmentMaterial(data, embeddedLegs ? null : cutout);
+      const garment = await loadGarmentMaterial(data, embeddedLegs ? null : cutout, waistMask);
       if (!garment) return;
       const legSurface = embeddedLegs && tights ? await loadGarmentMaterial(tights, cutout).catch(error => {
         garment.dispose();
@@ -508,6 +515,13 @@
         } else node.material = garment;
       });
       original.forEach(material => material.dispose());
+      if (waist?.model) {
+        const piece = await loadBodyModel(waist.model);
+        if (!piece) return;
+        group.add(piece);
+        const underlay = await loadGarmentMaterial(data, null);
+        if (underlay) applySurface(piece, underlay, new Set(), new Set(), null, underlay);
+      }
     };
     void (async () => {
       const outer = await manifest(source);
@@ -546,11 +560,13 @@
         fitWeights.set(name, Math.max(weight, fitWeights.get(name) ?? weight));
       }
       const occlusionRules: Record<string, readonly PortraitMorph[]> = Object.assign({}, ...worn.map(layer => layer.fitOcclusions));
+      const tuck = tucked ? legwear?.waistTuck : undefined;
+      if (tuck) delete occlusionRules[tuck.source];
       const occludedFit = new Map<string, number>();
       for (const rules of Object.values(occlusionRules)) for (const { name, weight } of rules) {
         occludedFit.set(name, (occludedFit.get(name) ?? 0) + weight);
       }
-      const legacyRules = worn.filter(layer => !layer.fitOcclusions).flatMap(layer => layer.occludes);
+      const legacyRules = [...worn.filter(layer => !layer.fitOcclusions).flatMap(layer => layer.occludes), ...(tuck?.occludes ?? [])];
       for (const rule of legacyRules) {
         const match = /^utilityshapes\/([a-z0-9_]+shape)(?:#(-?\d+(?:\.\d+)?))?$/i.exec(rule);
         if (!match) continue;
@@ -560,7 +576,7 @@
       const resolvedFit = [...fitWeights].map(([name, weight]) => ({ name, weight: Math.min(1, weight - (occludedFit.get(name) ?? 0)) }));
       outfitHairFit = { source, weight: resolvedFit.find(morph => morph.name === "pushhairupshape")?.weight ?? 0 };
       garmentFit = resolvedFit.filter(morph => morph.name !== "pushhairupshape" && morph.weight !== 0);
-      for (const layer of worn) for (const rule of layer.occludes) {
+      for (const rule of [...worn.flatMap(layer => layer.occludes), ...(tuck?.occludes ?? [])]) {
         const [path, rawWeight = "1"] = rule.toLowerCase().split("#");
         const weight = Number(rawWeight);
         if (path.startsWith("dependants/") && Number.isFinite(weight)) {
@@ -575,7 +591,8 @@
         const isLegwear = layer === legwear;
         const isUnderlayer = upperUnderlayers?.has(layer);
         const cutout = isLegwear ? footwear?.bootMask : isUnderlayer ? outer.bodyCutout : undefined;
-        await loadGarment(layer, body, cutout, isLegwear ? tights : undefined, isUnderlayer && layer.skinBase ? outer.innerSleeve : undefined);
+        await loadGarment(layer, body, cutout, isLegwear ? tights : undefined, isUnderlayer && layer.skinBase ? outer.innerSleeve : undefined,
+          layer.skinBase && layer.model.endsWith("/torso.glb") ? tuck : undefined);
       }
       if (retired) return;
       if (!occludes.has("hands") && !occludes.has("hand")) {

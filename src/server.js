@@ -19818,7 +19818,7 @@ app.get("/api/bridge/character/apparel", requireAuth, async (req, res, next) => 
       return [slot, { id, choices: editable ? choices : [] }];
     }));
     res.json({ ok: true, shirtID: slots.topmiddle.id, choices: slots.topmiddle.choices, slots,
-      outfit: preview?.outfit ?? null, robeHood: preview?.robeHood ?? null, apparel: preview?.apparel ?? {} });
+      outfit: preview?.outfit ?? null, robeHood: preview?.robeHood ?? null, waistTuck: preview?.waistTuck ?? 0, apparel: preview?.apparel ?? {} });
   } catch (error) { next(error); }
 });
 

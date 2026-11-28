@@ -6417,6 +6417,7 @@ export interface CharacterPreviewAppearance {
   readonly bloodlineID: number | null;
   readonly outfit: string | null;
   readonly robeHood: number | null;
+  readonly waistTuck: number;
   readonly apparel: PortraitApparel;
   readonly morphs: readonly PortraitMorph[];
   readonly piercings: readonly string[];
@@ -6487,6 +6488,7 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
     model, bloodlineID: asNumberOrNull(appearance?.bloodlineID),
     outfit: portraitOutfit(outfit, model),
     robeHood: portraitRobeHood(appearance?.robeHood),
+    waistTuck: appearance?.waistTuck === 1 ? 1 : 0,
     apparel: portraitApparel(appearance?.apparel, model),
     morphs,
     piercings,
@@ -6505,6 +6507,7 @@ export interface DockedApparel {
   readonly slots: Record<DockedApparelSlot, { id: number; choices: readonly { id: number; name: string; asset: string }[] }>;
   readonly outfit: string | null;
   readonly robeHood: number | null;
+  readonly waistTuck: number;
   readonly apparel: PortraitApparel;
 }
 
@@ -6524,7 +6527,7 @@ export async function loadDockedApparel(gender: PortraitHead, options: ApiOption
   const slots = { outer: readSlot("outer"), topouter: readSlot("topouter"), topmiddle: readSlot("topmiddle"),
     bottomouter: readSlot("bottomouter"), bottommiddle: readSlot("bottommiddle"), feet: readSlot("feet"), "accessories/glasses": readSlot("accessories/glasses"),
     "accessories/masks": readSlot("accessories/masks") };
-  return { slots, outfit: portraitOutfit(data.outfit, gender), robeHood: portraitRobeHood(data.robeHood),
+  return { slots, outfit: portraitOutfit(data.outfit, gender), robeHood: portraitRobeHood(data.robeHood), waistTuck: data.waistTuck === 1 ? 1 : 0,
     apparel: portraitApparel(data.apparel, gender) };
 }
 

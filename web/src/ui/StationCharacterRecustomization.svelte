@@ -181,7 +181,8 @@
   const adjustableHood = $derived(Boolean(jacket?.startsWith("/client-assets/portrait-outfit/male/robeam01/")));
   const hoodChanged = $derived(adjustableHood && robeHood !== (options?.clothing?.robeHood ?? 0));
   const outfit = $derived(jacket ?? apparel.topouter ?? apparel.topmiddle);
-  const outfitCatalogKey = $derived(JSON.stringify([outfit, apparel, robeHood]));
+  const waistTuck = $derived(selection.bottomouter === options?.clothing?.slots.bottomouter.id ? options?.clothing?.waistTuck ?? 0 : 0);
+  const outfitCatalogKey = $derived(JSON.stringify([outfit, apparel, robeHood, waistTuck]));
   const bodyRegions = $derived(outfitCatalog?.key === outfitCatalogKey && options
     ? supportedSculptRegions(options.bodyRegions, outfitCatalog.names) : []);
   const bodyRegion = $derived(bodyRegions.find(region => region.id === bodyRegionID) ?? bodyRegions[0]);
@@ -248,7 +249,7 @@
         const slots = { ...clothing.slots };
         for (const slot of dockedApparelSlots) slots[slot] = { ...slots[slot], id: apparelIDs[slot] ?? slots[slot].id };
         options = { ...options, clothing: { ...clothing, slots, apparel, outfit: jacket ?? null,
-          robeHood: adjustableHood ? robeHood : null } };
+          robeHood: adjustableHood ? robeHood : null, waistTuck: apparelIDs.bottomouter ? 0 : waistTuck } };
       }
       options = { ...options, state: 0, backgroundID, framing, skinToneID, hairID, hairColor: { primaryID, secondaryID },
         hairDarkness, beardID, beardStyle: beardStyle ?? null, morphs: savedMorphs };
@@ -314,7 +315,7 @@
       {/if}
       <div class="image" class:outfit-preview={showOutfit}>
         {#if showOutfit && pilotHead && outfit}
-          <PortraitBaseHead model={pilotHead} bloodlineID={options.bloodlineID} {outfit} {apparel} robeHood={adjustableHood ? robeHood : 0}
+          <PortraitBaseHead model={pilotHead} bloodlineID={options.bloodlineID} {outfit} {apparel} {waistTuck} robeHood={adjustableHood ? robeHood : 0}
             hairstyle={chosenHair?.style} {hairTints} {hasSkinTones} skinColors={skinTone?.colors}
             makeup={facialHair} {facialHairScale} {morphs}
             onOutfitMorphs={(initial || resculpt) ? receiveOutfitMorphs : undefined} />

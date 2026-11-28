@@ -1119,6 +1119,9 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const metadataPath = sharedFit ? metadataAt(folder, variation)
     : fittedEyewear ? layers.map(layer => `${layer}/metadata.yaml`).find(resource => rf.has(resource)) : `${folder}/metadata.yaml`;
   const metadata = metadataPath && rf.has(metadataPath) ? readYaml(metadataPath) : null;
+  const waistSource = "dependants/waisttucking/standard";
+  const tuckedMetadata = `${paperDoll}/${waistSource}/v1/metadata.yaml`;
+  const dependencies = metadata?.dependantModifiers ?? [];
   const occlusions = metadata?.occludesModifiers;
   const occludes = Array.isArray(occlusions) ? occlusions.filter(value => typeof value === "string") : [];
   const skinMeshes = spacesuit ? [] : meshes.filter(mesh => mesh.geometryResPath?.toLowerCase() === source &&
@@ -1131,9 +1134,9 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   let skinBase = null;
   const bodyParts = [];
   const bodyPartWeights = {};
-  const extractBodyPart = async (part, name) => {
+  const extractBodyPart = async (part, name, filename = name) => {
     const relative = `${gender}/body-parts/${part}/${name}.glb`;
-    await extractPortraitMesh(rf, `${paperDoll}/dependants/${part}/${name}/${name}.gr2`,
+    await extractPortraitMesh(rf, `${paperDoll}/dependants/${part}/${name}/${filename}.gr2`,
       path.join(outRoot, "portrait-outfit", relative), part);
     return `/client-assets/portrait-outfit/${relative}`;
   };
@@ -1228,9 +1231,19 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const bootMask = bootMaskName ? `res:/graphics/character/${gender}/paperdoll/${bootMaskName.toLowerCase()}/comp_body_m.png` : null;
   if (skinBase && !diffuse) throw new Error(`${typePath}: no authored garment texture`);
   const rect = filename => filename?.endsWith(".png") ? portraitPngRect(rf.read(filename)) : [0, 0, 1, 1];
+  let waistTuck = null;
+  if (trousers && dependencies.some(path => /^dependants\/waisttucking\//i.test(path)) && rf.has(tuckedMetadata)) {
+    const tuck = dependencies.map(path => /^dependants\/tuck\/([a-z0-9_]+)(?:#|$)/i.exec(path)).find(Boolean);
+    const mask = dependencies.map(path => /^dependants\/masktuck\/([a-z0-9_]+)(?:#|$)/i.exec(path)).find(Boolean);
+    const maskSource = mask && `${paperDoll}/dependants/masktuck/${mask[1].toLowerCase()}/comp_body_m.png`;
+    waistTuck = { source: waistSource, occludes: readYaml(tuckedMetadata).occludesModifiers ?? [],
+      ...(tuck ? { model: await extractBodyPart("tuck", tuck[1].toLowerCase(), "tuck") } : {}),
+      ...(maskSource && rf.has(maskSource) ? { mask: { url: copyRes(rf, maskSource, outRoot), rect: rect(maskSource) } } : {}),
+    };
+  }
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
-    outfitBuild: slot === "topmiddle" ? 22 : bodyCutout ? 20 : sharedFit ? 19 : fittedEyewear ? 12 : masks ? 10 : glasses ? 8 : 4,
+    outfitBuild: trousers ? 24 : slot === "topmiddle" ? 22 : bodyCutout ? 20 : sharedFit ? 19 : fittedEyewear ? 12 : masks ? 10 : glasses ? 8 : 4,
     model: `/client-assets/portrait-outfit/${model}`, source, type: typePath, variation, palette, colors, occludes, skinMeshes,
     diffuse: diffuse ? copyRes(rf, diffuse, outRoot) : null,
     zones: zones ? copyRes(rf, zones, outRoot) : null,
@@ -1241,6 +1254,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     ...(trouserFit.length ? { trouserFit } : {}),
     ...(outfitFit.length ? { outfitFit } : {}),
     ...(Object.keys(fitOcclusions).length ? { fitOcclusions } : {}),
+    ...(waistTuck ? { waistTuck } : {}),
     ...(bootMask ? { bootMask: { url: copyRes(rf, bootMask, outRoot), rect: rect(bootMask) } } : {}),
     ...(monocle ? { opaqueLensAreas: meshes.flatMap(mesh => mesh.opaqueAreas ?? [])
       .filter(area => /^C_Custom_Glass/i.test(area.effect?.name ?? "")).map(area => area.index ?? 0) } : {}),

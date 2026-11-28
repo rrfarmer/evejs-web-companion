@@ -156,6 +156,7 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
   const nativeGender = gender === "female" ? 0 : 1;
   let outfit = null;
   let robeHood = null;
+  let waistTuck = 0;
   let hairstyle = null;
   const faceStyles = {};
   const apparel = {};
@@ -176,6 +177,7 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
     const garment = /^(outer|topouter|topmiddle|bottommiddle|bottomouter|feet|accessories\/(?:glasses|masks))\/([a-z0-9_]+)\/types\/([a-z0-9_]+)\.type$/.exec(resourcePath);
     if (garment && garment[1] === location.modifierKey) {
       const [, slot, style, variant] = garment;
+      if (slot === "bottomouter" && location.variationKey === "dependants/waisttucking" && fields[3] === 1) waistTuck = 1;
       const root = `/client-assets/portrait-outfit/${gender}`;
       if (slot === "outer") {
         outfit = `${root}/${style}/${variant}.json`;
@@ -195,7 +197,7 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
       }
     }
   }
-  return { outfit, robeHood, apparel, hairstyle, piercings: Object.values(piercings), faceStyles };
+  return { outfit, robeHood, waistTuck, apparel, hairstyle, piercings: Object.values(piercings), faceStyles };
 }
 
 function unitValue(field, fallback) {
