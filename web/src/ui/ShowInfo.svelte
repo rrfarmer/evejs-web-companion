@@ -1558,8 +1558,8 @@
         {/each}
       </div>
     {:else if $subject.kind === "spaceObject"}
-      {#if celestialKind && celestialRead}
-        <InfoCelestialAttributes {store} {flow} statistics={celestialRead.statistics} kind={celestialKind} />
+      {#if celestialKind && celestialRead && $subject.kind === "spaceObject"}
+        <InfoCelestialAttributes {store} {flow} statistics={celestialRead.statistics} kind={celestialKind} itemID={$subject.itemID} />
       {:else if celestialKind && !celestialReadDone}
         <p class="note">Reading…</p>
       {:else if entity}

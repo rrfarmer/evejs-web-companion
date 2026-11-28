@@ -3322,6 +3322,12 @@ export interface AppFlow {
    * workforce (GetMaxPowerAndWorkforce: the planets' and the star's resource definitions). A part is null where its
    * read failed (DATA_NOT_AVAILABLE). */
   sovHubDetails(hubID: number, solarSystemID: number): Promise<SovHubDetails>;
+  planetSovereigntyAttributes(planetID: number): Promise<{
+    readonly reagentType: number | null;
+    readonly reagentAmountPerMinute: number | null;
+    readonly power: number | null;
+    readonly workforce: number | null;
+  } | null>;
   /** The expanded row's extras: the hub's workforce configuration (GetConfigurationRequest - the mode, the import
    * sources, the export destination and amount), the upgrade type lists each installed upgrade is in (620-622,
    * 828-830; evetypes.GetTypeIDsByListID) and the corporation's skyhooks in the system (GetMyCorporationSkyhooks). */
@@ -23399,6 +23405,20 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     })();
     return sovStatic;
   }
+  async function planetSovereigntyAttributes(planetID: number): ReturnType<AppFlow["planetSovereigntyAttributes"]> {
+    const { planets } = await sovResourceStatic();
+    const definition = planets.get(planetID);
+    if (!definition) return null;
+    const { reagent, power, workforce } = definition;
+    const perMinute = reagent?.amountPerPeriod && reagent.periodSeconds > 0
+      ? Number((reagent.amountPerPeriod / (reagent.periodSeconds / 60)).toFixed(1)) : null;
+    return {
+      reagentType: reagent?.typeID || null,
+      reagentAmountPerMinute: perMinute,
+      power: power || null,
+      workforce: workforce || null,
+    };
+  }
   let colonySystemsHeld: Awaited<ReturnType<typeof api.loadColonySystems>> = null;
   async function loadSovereigntyColonySystems() {
     if (colonySystemsHeld) return colonySystemsHeld;
@@ -42272,6 +42292,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     allianceCapital,
     mySovHubs,
     sovHubDetails,
+    planetSovereigntyAttributes,
     sovHubExtras,
     saveSovHubUpgrades,
     uninstallSovHubUpgrade,
