@@ -31,7 +31,19 @@
   let renderer = $state.raw<THREE.WebGLRenderer | null>(null);
   let display = $state<"loading" | "ready" | "unavailable">("loading");
   let backdropDisplay = $state<"loading" | "ready" | "unavailable">("loading");
-  let hairDisplay = $state<"loading" | "ready" | "unavailable">("loading");
+  type LoadState = "loading" | "ready" | "unavailable";
+  type ColorLayerAsset = {
+    diffuse: string;
+    zones: string;
+    colors: [number, number, number][];
+    diffuseRect: number[];
+    zonesRect: number[];
+  };
+  let meshHairDisplay = $state<LoadState>("loading");
+  let scalpDisplay = $state<LoadState>("ready");
+  let scalpAsset = $state.raw<ColorLayerAsset | null>(null);
+  const hairDisplay = $derived(meshHairDisplay === "unavailable" || scalpDisplay === "unavailable" ? "unavailable"
+    : meshHairDisplay === "loading" || scalpDisplay === "loading" ? "loading" : "ready");
   let outfitDisplay = $state<"loading" | "ready" | "unavailable">("loading");
   let headBounds = $state.raw<THREE.Box3 | null>(null);
   let outfitBounds = $state.raw<THREE.Box3 | null>(null);
@@ -168,12 +180,26 @@
     let hair: THREE.Group | null = null;
     let texture: THREE.Texture | null = null;
     let bitmap: ImageBitmap | null = null;
-    hairDisplay = "loading";
+    meshHairDisplay = "loading";
     void (async () => {
       const stem = `/client-assets/portrait-hair/${gender}/${style}`;
       const response = await fetch(stem + ".json");
       if (!response.ok) throw new Error("Portrait hairstyle unavailable");
-      const { diffuse, rgb } = await response.json() as { diffuse: string; rgb: [number, number, number] };
+      const { diffuse, rgb, scalp } = await response.json() as {
+        diffuse?: string;
+        rgb: [number, number, number];
+        scalp?: Omit<ColorLayerAsset, "colors">;
+      };
+      if (retired) return;
+      if (scalp) {
+        scalpDisplay = "loading";
+        scalpAsset = { ...scalp, colors: [rgb, rgb, rgb] };
+      }
+      if (!diffuse) {
+        if (!scalp) throw new Error("Portrait hairstyle has no materials");
+        meshHairDisplay = "ready";
+        return;
+      }
       const dds = diffuse.endsWith(".dds");
       if (dds && !compressedSupport(active).s3tc) throw new Error("Unsupported hair detail format");
       const loaded = dds ? { texture: await loadDds(diffuse), bitmap: null } : await loadMap(diffuse, true);
@@ -197,8 +223,8 @@
         hairBounds = new THREE.Box3().setFromObject(hair, true);
       }
       active.render(scene, camera);
-      hairDisplay = "ready";
-    })().catch(() => { if (!retired) hairDisplay = "unavailable"; });
+      meshHairDisplay = "ready";
+    })().catch(() => { if (!retired) meshHairDisplay = "unavailable"; });
     return () => {
       retired = true;
       if (hair) {
@@ -206,6 +232,8 @@
         release(hair);
       }
       hairBounds = null;
+      scalpAsset = null;
+      scalpDisplay = "ready";
       texture?.dispose();
       bitmap?.close();
     };
@@ -507,6 +535,7 @@
     const jewelry = piercings;
     const irisAsset = iris;
     const makeupAssets = makeup;
+    const scalp = scalpAsset;
     if (!active) return;
     let retired = false;
     let head: THREE.Group | null = null;
@@ -579,33 +608,40 @@
           };
         }
       }
+      const loadColorLayer = async (layer: ColorLayerAsset, weight: number, gloss: number | null,
+        primaryScale = 1): Promise<PortraitColorLayer | null> => {
+        const detail = await loadMap(layer.diffuse, true);
+        if (retired) { detail.texture.dispose(); detail.bitmap.close(); return null; }
+        maps.push(detail);
+        const zones = await loadMap(layer.zones, false);
+        if (retired) { zones.texture.dispose(); zones.bitmap.close(); return null; }
+        maps.push(zones);
+        return { diffuse: detail.texture, zones: zones.texture,
+          colors: layer.colors.map(([r, g, b], index) => {
+            const scale = index === 0 ? primaryScale : 1;
+            return new THREE.Color().setRGB(r * scale, g * scale, b * scale, THREE.SRGBColorSpace);
+          }),
+          diffuseRect: new THREE.Vector4().fromArray(layer.diffuseRect), zonesRect: new THREE.Vector4().fromArray(layer.zonesRect),
+          weight, gloss };
+      };
       const readColorLayer = async (selection: PortraitMakeup): Promise<PortraitColorLayer | null> => {
         try {
           const response = await fetch(selection.asset);
           if (!response.ok) return null;
-          const layer = await response.json() as {
-            diffuse: string; zones: string; colors: [number, number, number][];
-            diffuseRect: number[]; zonesRect: number[];
-          };
-          const detail = await loadMap(layer.diffuse, true);
-          if (retired) { detail.texture.dispose(); detail.bitmap.close(); return null; }
-          maps.push(detail);
-          const zones = await loadMap(layer.zones, false);
-          if (retired) { zones.texture.dispose(); zones.bitmap.close(); return null; }
-          maps.push(zones);
-          return { diffuse: detail.texture, zones: zones.texture,
-            colors: layer.colors.map(([r, g, b], index) => {
-              const scale = index === 0 ? selection.primaryScale ?? 1 : 1;
-              return new THREE.Color().setRGB(r * scale, g * scale, b * scale, THREE.SRGBColorSpace);
-            }),
-            diffuseRect: new THREE.Vector4().fromArray(layer.diffuseRect), zonesRect: new THREE.Vector4().fromArray(layer.zonesRect),
-            weight: selection.weight, gloss: selection.gloss };
+          return await loadColorLayer(await response.json() as ColorLayerAsset, selection.weight, selection.gloss,
+            selection.primaryScale);
         } catch {
           return null;
         }
       };
       const irisLayer = irisAsset ? await readColorLayer({ asset: irisAsset, weight: 1, gloss: null }) : null;
       const faceLayers: [string, PortraitColorLayer][] = [];
+      if (scalp && !retired) {
+        const layer = await loadColorLayer(scalp, 1, null).catch(() => null);
+        if (retired) return;
+        if (layer) faceLayers.push(["portraitScalpHair", layer]);
+        scalpDisplay = layer ? "ready" : "unavailable";
+      }
       let brows: [string, PortraitColorLayer] | null = null;
       for (const [index, selection] of (makeupAssets ?? []).entries()) {
         if (retired) return;

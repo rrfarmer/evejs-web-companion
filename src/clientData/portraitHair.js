@@ -2,7 +2,7 @@
 
 const { appearanceWithSkinTone } = require("./portraitSkinTones");
 
-// Free styles with an installed skinned mesh and hair atlas.
+// Free styles with installed hair geometry or scalp textures.
 const portraitHairStyles = Object.freeze({
   female: Object.freeze({
     hair_bob_02: "Bob",
@@ -27,8 +27,10 @@ const portraitHairStyles = Object.freeze({
     hair_short_02: "Short layered",
     hair_shortpixietop_01: "Pixie cut",
     hair_shortstyled_01: "Short styled",
+    hair_shortcut_03: "Close crop",
     hair_shorttop_01: "Short top",
     hair_sideparted_01: "Side part",
+    hair_stubble_01: "Shaved stubble",
   }),
   male: Object.freeze({
     hair_armycut_03: "Buzz cut",
@@ -41,13 +43,30 @@ const portraitHairStyles = Object.freeze({
     hair_mediumparted_02: "Medium part",
     hair_mediumparted_03: "Medium swept part",
     hair_mohawkshort_01: "Short mohawk",
+    hair_mohawkcut_01: "Shaved mohawk",
+    hair_receding_01: "Receding crop",
+    hair_receding_02: "Receding hairline",
+    hair_shortafro_03: "Close afro",
+    hair_shortcut_01: "Close crop",
+    hair_shortcut_02: "Short crop",
     hair_shortunruly_01: "Short tousled",
     hair_slick_01: "Slicked back",
     hair_slick_02: "Short slicked back",
     hair_stylecombed_01: "Combed and styled",
+    hair_stubble_02: "Shaved stubble",
   }),
 });
+const scalpOnly = new Set([
+  "hair_mohawkcut_01", "hair_receding_01", "hair_receding_02", "hair_shortafro_03", "hair_shortcut_01",
+  "hair_shortcut_02", "hair_shortcut_03", "hair_stubble_01", "hair_stubble_02",
+]);
+const scalpAndMesh = new Set(["hair_bun_01", "hair_ponytail_02", "hair_ponytailshort_01"]);
 const modifierRowType = "eve.common.script.paperDoll.paperDollDefinitions.ModifierRow";
+
+function portraitScalpMode(style) {
+  if (scalpOnly.has(style)) return "only";
+  return scalpAndMesh.has(style) ? "withMesh" : null;
+}
 
 function portraitHairStyle(gender, style) {
   return Object.hasOwn(portraitHairStyles, gender) && Object.hasOwn(portraitHairStyles[gender], style)
@@ -94,4 +113,4 @@ function appearanceWithHair(payload, location, id) {
     [key, key === "modifiers" ? { type: "list", items: rows } : value]) } };
 }
 
-module.exports = { appearanceWithHair, readModifiers, modifierValues, portraitHairChoices, portraitHairID, portraitHairStyle };
+module.exports = { appearanceWithHair, readModifiers, modifierValues, portraitHairChoices, portraitHairID, portraitHairStyle, portraitScalpMode };

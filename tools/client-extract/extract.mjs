@@ -919,23 +919,28 @@ async function extractPortraitHair(rf, gender, style, outRoot) {
   if (!portraitHair.portraitHairStyle(gender, style)) throw new Error("Unknown portrait hairstyle");
   const paperDoll = `res:/graphics/character/${gender}/paperdoll`;
   const folder = `${paperDoll}/hair/${style}`;
-  const pngMesh = pngPortraitHairMeshes.get(style);
-  const source = `${folder}/${pngMesh ?? style}.gr2`;
-  const diffuse = `${folder}/${pngMesh ? "colorize_hair_l.png" : "colorize_hair_l_256.dds"}`;
-  const { root } = await readGranny(rf.read(source), source);
-  const model = root.Models.find(entry => entry.Skeleton?.Bones?.length && entry.MeshBindings?.length);
-  if (!model) throw new Error(`${source}: no skinned hair model`);
-  const bones = model.Skeleton.Bones;
-  const lods = model.MeshBindings.map(({ Mesh }) => ({ ...meshArrays(Mesh), skin: meshSkinArrays(Mesh, bones) }));
+  const scalpMode = portraitHair.portraitScalpMode(style);
   const dir = path.join(outRoot, "portrait-hair", gender);
   const base = rf.read(`${paperDoll}/hair/colors/basecolor.base`).toString("utf8");
   const rgb = /\[([^\]]+)\]/.exec(base)?.[1]?.split(",").slice(0, 3).map(Number);
   if (!rgb || rgb.length !== 3 || !rgb.every(value => Number.isFinite(value))) throw new Error("Invalid base hair color");
   fs.mkdirSync(dir, { recursive: true });
-  writeExtracted(path.join(dir, `${style}.glb`), writeGlb({ name: style, lods, bones, extras: { source } }));
-  writeExtracted(path.join(dir, `${style}.json`), JSON.stringify({
-    diffuse: copyRes(rf, diffuse, outRoot), rgb,
-  }));
+  const material = { rgb };
+  if (scalpMode) {
+    const suffix = ["l", "z"].every(channel => rf.has(`${folder}/colorize_head_${channel}_512.png`)) ? "_512" : "";
+    const diffuse = `${folder}/colorize_head_l${suffix}.png`, zones = `${folder}/colorize_head_z${suffix}.png`;
+    material.scalp = {
+      diffuse: copyRes(rf, diffuse, outRoot), zones: copyRes(rf, zones, outRoot),
+      diffuseRect: portraitPngRect(rf.read(diffuse)), zonesRect: portraitPngRect(rf.read(zones)),
+    };
+  }
+  if (scalpMode !== "only") {
+    const pngMesh = pngPortraitHairMeshes.get(style);
+    const source = `${folder}/${pngMesh ?? style}.gr2`;
+    await extractPortraitMesh(rf, source, path.join(dir, `${style}.glb`), style);
+    material.diffuse = copyRes(rf, `${folder}/${pngMesh ? "colorize_hair_l.png" : "colorize_hair_l_256.dds"}`, outRoot);
+  }
+  writeExtracted(path.join(dir, `${style}.json`), JSON.stringify(material));
 }
 
 const paperDollYaml = { customTags: [

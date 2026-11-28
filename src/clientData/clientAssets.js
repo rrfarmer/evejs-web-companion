@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
-const { portraitHairStyle } = require("./portraitHair");
+const { portraitHairStyle, portraitScalpMode } = require("./portraitHair");
 const { clientBuild } = require("../../tools/client-extract/lib/resfiles.mjs");
 const { droneTurret } = require("../../tools/client-extract/lib/droneTurrets.mjs");
 const { SOF_BUILD, GRAPHIC_SOF_DEFAULTS, sofVariant } = require("../../tools/client-extract/lib/sof.mjs");
@@ -177,7 +177,10 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   if (makeup) return { file: await ensure(rel.slice(1), ["--portrait-head", makeup[1], "--portrait-makeup", makeup[2]]) };
   const hair = /^\/portrait-hair\/(female|male)\/(hair_[a-z0-9_]+)\.(glb|json)$/.exec(rel);
   if (hair && portraitHairStyle(hair[1], hair[2])) {
-    return { file: await ensure(rel.slice(1), ["--portrait-head", hair[1], "--portrait-hair", hair[2]]) };
+    const scalpMode = portraitScalpMode(hair[2]);
+    if (hair[3] === "glb" && scalpMode === "only") return { file: path.join(dir, rel.slice(1)) };
+    const marker = hair[3] === "json" && scalpMode && canExtract() ? '"scalp":' : undefined;
+    return { file: await ensure(rel.slice(1), ["--portrait-head", hair[1], "--portrait-hair", hair[2]], marker) };
   }
   const outfit = /^\/portrait-outfit\/((?:female|male)\/(?:(?:topmiddle|bottomouter|feet|accessories\/(?:nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+)\.json$/.exec(rel);
   if (outfit) return { file: await ensure(rel.slice(1), ["--portrait-outfit", outfit[1]], '"outfitBuild":4') };
