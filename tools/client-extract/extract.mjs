@@ -1088,7 +1088,8 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     model = `${gender}/torso.glb`;
     await extractPortraitMesh(rf, `${paperDoll}/topinner/torso_nude/torso_nude.gr2`,
       path.join(outRoot, "portrait-outfit", model), "torso");
-    skinBase = copyRes(rf, `${paperDoll}/basenude/caucasianbody_d_512.png`, outRoot);
+    const bodyDiffuse = gender === "male" ? "head/head_generic/genericmalebody_d_512.png" : "basenude/caucasianbody_d_512.png";
+    skinBase = copyRes(rf, `${paperDoll}/${bodyDiffuse}`, outRoot);
     const parts = new Map([["sleevesupper", "standard"], ["sleeveslower", "standard"]]);
     for (const dependency of metadata?.dependantModifiers ?? []) {
       const match = /^dependants\/(sleevesupper|sleeveslower|drape)\/([a-z0-9_]+)(?:#|$)/i.exec(dependency);
@@ -1111,7 +1112,8 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const rect = filename => filename?.endsWith(".png") ? portraitPngRect(rf.read(filename)) : [0, 0, 1, 1];
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
-    outfitBuild: 4, model: `/client-assets/portrait-outfit/${model}`, source, type: typePath, variation, palette, colors, occludes, skinMeshes,
+    outfitBuild: slot === "topmiddle" ? 5 : 4,
+    model: `/client-assets/portrait-outfit/${model}`, source, type: typePath, variation, palette, colors, occludes, skinMeshes,
     diffuse: diffuse ? copyRes(rf, diffuse, outRoot) : null,
     zones: zones ? copyRes(rf, zones, outRoot) : null,
     normal: normal ? copyRes(rf, normal, outRoot) : null,

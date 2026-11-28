@@ -184,7 +184,10 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
     return { file: await ensure(rel.slice(1), ["--portrait-head", hair[1], "--portrait-hair", hair[2]], marker) };
   }
   const outfit = /^\/portrait-outfit\/((?:female|male)\/(?:(?:topmiddle|bottomouter|feet|accessories\/(?:nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+)\.json$/.exec(rel);
-  if (outfit) return { file: await ensure(rel.slice(1), ["--portrait-outfit", outfit[1]], '"outfitBuild":4') };
+  if (outfit) {
+    const marker = outfit[1].includes("/topmiddle/") ? (canExtract() ? '"outfitBuild":5' : undefined) : '"outfitBuild":4';
+    return { file: await ensure(rel.slice(1), ["--portrait-outfit", outfit[1]], marker) };
+  }
   const hands = /^\/portrait-outfit\/(female|male)\/hands\.glb$/.exec(rel);
   if (hands) return { file: await ensure(rel.slice(1), ["--portrait-hands", hands[1]]) };
   const bodyMorph = /^\/portrait-outfit\/((?:female|male)(?:\/[a-z0-9_]+){1,4})\/morphs\/([a-z0-9_]+shape)\.json$/.exec(rel);

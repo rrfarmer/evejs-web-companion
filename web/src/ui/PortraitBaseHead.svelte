@@ -413,9 +413,14 @@
     };
     void (async () => {
       const outer = await manifest(source);
-      if (!outer.skinBase && !outer.occludes.includes("topouter")) throw new Error("This outfit requires an additional top layer");
       const worn = [outer];
       const occludes = new Set(outer.occludes);
+      if (!outer.skinBase && !occludes.has("topouter") && !occludes.has("topmiddle") && source !== extra?.topmiddle) {
+        if (!extra?.topmiddle) throw new Error("This outfit requires an additional top layer");
+        const top = await manifest(extra.topmiddle);
+        worn.unshift(top);
+        for (const name of top.occludes) occludes.add(name);
+      }
       for (const slot of ["bottomouter", "feet"] as const) {
         if (occludes.has(slot)) continue;
         const url = extra?.[slot];
