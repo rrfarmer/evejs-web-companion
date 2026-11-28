@@ -593,6 +593,18 @@ function createClientBuiltData({
     }
   }
 
+  function stargateInfo(itemID) {
+    if (!available()) return null;
+    const { DatabaseSync } = require("node:sqlite");
+    const database = new DatabaseSync(path.join(clientRoot, ...MAP_OBJECTS), { readOnly: true });
+    try {
+      return database.prepare("SELECT typeID, celestialNameID AS destinationSystemID FROM celestials WHERE celestialID = ? AND groupID = 10")
+        .get(itemID) ?? null;
+    } finally {
+      database.close();
+    }
+  }
+
   let solarSystemContent = null;
   async function celestialInfo(itemID, groupID) {
     if (!available()) return null;
@@ -630,6 +642,7 @@ function createClientBuiltData({
     rows,
     systemObjects,
     celestialInfo,
+    stargateInfo,
     infoBubbleGroups,
     infoBubbleTypeBonuses,
     infoBubbleTypeElements,

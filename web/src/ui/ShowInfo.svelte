@@ -19,7 +19,7 @@
   import InfoShipRequirements from "./InfoShipRequirements.svelte";
   import InfoJumpBridgeMechanics from "./InfoJumpBridgeMechanics.svelte";
   import InfoAttributeHint from "./InfoAttributeHint.svelte";
-  import { getCelestialInfo, loadTypeListsHolding, type CelestialInfo } from "../app/api.ts";
+  import { getCelestialInfo, getStargateInfo, loadTypeListsHolding, type CelestialInfo, type StargateInfo } from "../app/api.ts";
   import InfoCelestialAttributes from "./InfoCelestialAttributes.svelte";
   import InfoPlanetProduction from "./InfoPlanetProduction.svelte";
   import { AGENCY_SCREEN_GROUPS } from "./agencyContentGroups.ts";
@@ -309,6 +309,10 @@
       return mapLocationRead?.name || mapTypeName(current.typeID);
     }
     if (celestialKind && celestialRead) return celestialTitle;
+    if (stargateRead) {
+      const destination = resolvedName($names.resolved, "system", stargateRead.destinationSystemID, "");
+      if (destination) return destination;
+    }
     // A faction's name (cfg.eveowners).
     if (current.kind === "faction") {
       return factionRead?.name || resolvedName($names.resolved, "faction", current.factionID, "Unknown faction");
@@ -410,6 +414,32 @@
     solarSystemID: celestialRead.solarSystemID, romanCelestialIndex: intToRoman(celestialRead.celestialIndex),
     orbitIndex: celestialRead.orbitIndex, typeID: typeID ?? 0,
   }, namedAs) : "");
+  const stargateID = $derived($subject?.kind === "spaceObject" && $subject.itemID >= 50_000_000 &&
+    $subject.itemID < 60_000_000 ? $subject.itemID : null);
+  let stargateRead = $state.raw<StargateInfo | null>(null);
+  let stargateDone = $state(false);
+  let stargateAttributes = $state(false);
+  const stargateDescription = $derived(stargateRead &&
+    (stargateRead.descriptionID === null ? typeName : word(`#${stargateRead.descriptionID}`)));
+  const descriptionLabel = "UI/InfoWindow/TabNames/Description";
+  const attributesLabel = "UI/InfoWindow/TabNames/Attributes";
+  $effect(() => {
+    const id = stargateID;
+    const requestedType = typeID;
+    stargateRead = null;
+    stargateDone = false;
+    stargateAttributes = false;
+    if (id === null) return;
+    let active = true;
+    void getStargateInfo(id, flow.requestOptions()).then(read => {
+      if (!active || !read || (requestedType !== null && read.typeID !== requestedType)) return;
+      stargateRead = read;
+      flow.requestNames([{ kind: "system", id: read.destinationSystemID }]);
+      flow.requestWords([descriptionLabel, attributesLabel, "#233026", "#233287",
+        ...(read.descriptionID === null ? [] : [`#${read.descriptionID}`])]);
+    }).catch(() => {}).finally(() => { if (active) stargateDone = true; });
+    return () => { active = false; };
+  });
   /** A faction's read (infosvc.UpdateDataFaction). */
   let factionRead = $state<FactionInfo | null>(null);
   let allianceRead = $state<AllianceInfoExtra | null>(null);
@@ -1432,7 +1462,7 @@
       {/if}
       <div class="info-identity">
         <h2>{title}</h2>
-        <p class="info-kind">{subjectKindLabel($subject)}</p>
+        {#if !stargateRead || entity}<p class="info-kind">{subjectKindLabel($subject)}</p>{/if}
         {#if typeName && typeName !== title}
           <p class="info-type">{typeName}</p>
         {/if}
@@ -1572,6 +1602,28 @@
       {#if celestialKind && celestialRead && $subject.kind === "spaceObject"}
         <InfoCelestialAttributes {store} {flow} statistics={celestialRead.statistics} kind={celestialKind} itemID={$subject.itemID} />
       {:else if celestialKind && !celestialReadDone}
+        <p class="note">Reading…</p>
+      {:else if !entity && stargateRead}
+        {@const hasAttributes = stargateRead.volume !== null || stargateRead.mass !== null}
+        {#if hasAttributes}
+          <nav class="character-info-tabs" aria-label="Stargate information">
+            <button type="button" aria-pressed={!stargateAttributes} onclick={() => stargateAttributes = false}>{word(descriptionLabel) || "Description"}</button>
+            <button type="button" aria-pressed={stargateAttributes} onclick={() => stargateAttributes = true}>{word(attributesLabel) || "Attributes"}</button>
+          </nav>
+        {/if}
+        {#if hasAttributes && stargateAttributes}
+          <dl class="kv" aria-label={word(attributesLabel) || "Attributes"}>
+            {#if stargateRead.volume !== null}
+              <dt>{word("#233026") || "Volume"}</dt><dd>{stargateRead.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })} m3</dd>
+            {/if}
+            {#if stargateRead.mass !== null}
+              <dt>{word("#233287") || "Mass"}</dt><dd>{stargateRead.mass.toLocaleString(undefined, { maximumFractionDigits: 0 })} kg</dd>
+            {/if}
+          </dl>
+        {:else}
+          <div class="info-description">{@render markupLines(stargateDescription ?? "")}</div>
+        {/if}
+      {:else if !entity && stargateID !== null && !stargateDone}
         <p class="note">Reading…</p>
       {:else if entity}
         <h3>Where it is</h3>

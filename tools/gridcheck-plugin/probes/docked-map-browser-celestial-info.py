@@ -1,7 +1,8 @@
 import blue
 import evetypes
+import sys
 from eve.client.script.ui.shared.info.infoConst import (
-    DATA_BUTTONS, TAB_ATTIBUTES, TAB_JUMPS, TAB_LOCATION, TAB_ORBITALBODIES, TAB_SERVICES
+    DATA_BUTTONS, TAB_ATTIBUTES, TAB_DESCRIPTION, TAB_JUMPS, TAB_LOCATION, TAB_ORBITALBODIES, TAB_SERVICES
 )
 
 
@@ -24,6 +25,8 @@ def observe_window(info, item_id, type_id):
 
         return dict(itemID=item_id, typeID=type_id, groupID=evetypes.GetGroupID(type_id),
                     name=cfg.evelocations.Get(item_id).locationName, caption=window.GetCaption(),
+                    header=content.captionText, description=content.data[TAB_DESCRIPTION].get('text', ''),
+                    dynamicTabs=list(content.dynamicTabs),
                     attributes=entries(TAB_ATTIBUTES), jumps=entries(TAB_JUMPS),
                     orbitals=entries(TAB_ORBITALBODIES), location=entries(TAB_LOCATION),
                     services=entries(TAB_SERVICES), actions=[entry[0] for entry in content.data.get(DATA_BUTTONS, []) or []])
@@ -35,11 +38,12 @@ def observe():
     info = sm.GetService('info')
     samples = [observe_window(info, item_id, 15) for item_id in (40009232, 40009245)]
     other = []
-    for item_id, type_id in ((50002183, 3873), (60003754, 1529)):
+    for item_id, type_id in ((50002183, 3873), (50002184, 16), (50002185, 93250), (60003754, 1529)):
         try:
             other.append(observe_window(info, item_id, type_id))
         except Exception as error:
             other.append(dict(itemID=item_id, typeID=type_id, error=str(error)))
+            sys.exc_clear()
     return dict(build=3698585, station=session.stationid, system=session.solarsystemid2, samples=samples, other=other)
 
 

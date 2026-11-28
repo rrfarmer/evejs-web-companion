@@ -14576,6 +14576,24 @@ for (const [kind, groupID] of [["moon", 8], ["planet", 7], ["belt", 9]]) {
   });
 }
 
+app.get("/api/client-data/stargates/:id", requireAuth, async (req, res, next) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 50_000_000 || id >= 60_000_000) {
+    res.status(400).json({ ok: false, error: "INVALID_STARGATE", message: "A stargate's item number is required." });
+    return;
+  }
+  try {
+    const gate = clientBuiltData.stargateInfo?.(id);
+    if (!gate) return res.json({ ok: true, stargate: null });
+    const types = await clientBuiltData.rows("types", [gate.typeID]);
+    const type = types?.[gate.typeID];
+    res.json({ ok: true, stargate: { ...gate, descriptionID: type?.descriptionID ?? null,
+      volume: type?.volume ?? null, mass: type?.mass ?? null } });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // A solar system's items as the client lists them (mapSvc.GetSolarsystemItems: eveCfg.GetLocationsLocalBySystem, from
 // the client's own map database): each celestial and NPC station by its number, type, group, the item it orbits and
 // its celestial and orbit index; a stargate with the system it leads to, and a celestial with a name of its own (its

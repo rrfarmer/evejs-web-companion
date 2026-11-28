@@ -4548,6 +4548,23 @@ export async function getCelestialInfo(itemID: number, kind: "moon" | "planet" |
     orbitIndex: typeof celestial.orbitIndex === "number" ? celestial.orbitIndex : 0, statistics };
 }
 
+export interface StargateInfo {
+  readonly typeID: number;
+  readonly destinationSystemID: number;
+  readonly descriptionID: number | null;
+  readonly volume: number | null;
+  readonly mass: number | null;
+}
+
+export async function getStargateInfo(itemID: number, options: ApiOptions = {}): Promise<StargateInfo | null> {
+  const data = await getJson(`/api/client-data/stargates/${itemID}`, options);
+  const gate = asObject(data.stargate);
+  if (!gate || typeof gate.typeID !== "number" || typeof gate.destinationSystemID !== "number") return null;
+  const numeric = (value: JsonValue | undefined) => typeof value === "number" && Number.isFinite(value) ? value : null;
+  return { typeID: gate.typeID, destinationSystemID: gate.destinationSystemID,
+    descriptionID: numeric(gate.descriptionID), volume: numeric(gate.volume), mass: numeric(gate.mass) };
+}
+
 export interface SystemObjectRow {
   readonly itemID: number;
   readonly typeID: number;
