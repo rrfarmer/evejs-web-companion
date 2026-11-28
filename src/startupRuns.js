@@ -4,24 +4,9 @@ const { createOperationJournal } = require("./operationJournal");
 const object = value => value && typeof value === "object" && !Array.isArray(value);
 const positive = value => Number.isSafeInteger(value) && value > 0;
 const natural = value => Number.isSafeInteger(value) && value >= 0;
-const preparationReady = value => ["VERIFIED", "DEGRADED"].includes(value?.state);
 // Landed actions one Startup step may take before it must be finished (a refit
 // needs two: board, then apply).
 const MAX_LANDED_ACTIONS = 4;
-function credentialFree(value) {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
-  if (typeof value === "number") return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(credentialFree);
-  return object(value) && [Object.prototype, null].includes(Object.getPrototypeOf(value)) && Object.entries(value).every(([key, entry]) =>
-    !/password|secret|token|authorization|cookie|credential|bridgeSessionID|webSessionID/i.test(key) && credentialFree(entry));
-}
-function validatePreparation(value) {
-  if (!object(value) || typeof value.operationID !== "string" || !value.operationID ||
-      typeof value.operationRunID !== "string" || !value.operationRunID || !object(value.intent) || !credentialFree(value) ||
-      !["PENDING", "PREPARING", "VERIFIED", "DEGRADED", "BLOCKED", "RECOVERY_REQUIRED"].includes(value.state) ||
-      !natural(value.invocation) || typeof value.mainEntered !== "boolean" ||
-      (value.mainEntered && !preparationReady(value)) || (preparationReady(value) && !object(value.evidence))) invalid();
-}
 function invalid() { throw new Error("Startup checkpoint is invalid; preserve its evidence and review the run."); }
 function validateBase(row) {
   if (!positive(row.accountID) || !positive(row.characterID) || typeof row.scriptHash !== "string" || !row.scriptHash ||
@@ -30,7 +15,6 @@ function validateBase(row) {
       (row.branchChoices !== undefined && !object(row.branchChoices)) ||
       (row.startingLocation !== null && !positive(row.startingLocation)) ||
       (row.startingShipID !== undefined && !positive(row.startingShipID))) invalid();
-  if (row.preparation !== undefined) validatePreparation(row.preparation);
   for (const block of Object.values(row.blocks)) {
     if (!object(block) || !["NEEDED", "PENDING", "COMPLETE", "BLOCKED"].includes(block.state)) invalid();
     if (block.deadline !== undefined && !natural(block.deadline)) invalid();
@@ -62,7 +46,6 @@ function validateCursor(row, program, prefixLength) {
   }
   const entered = p.kind === "done" || p.node >= prefixLength;
   if (!!row.mainEntered !== entered) invalid();
-  if (entered && row.preparation && !preparationReady(row.preparation)) invalid();
   const complete = step => row.blocks[step.id]?.state === "COMPLETE";
   for (let i = 0; i < Math.min(p.kind === "done" ? prefixLength : p.node, prefixLength); i++) {
     const prior = program[i];
@@ -97,10 +80,7 @@ function createStartupRuns({ filePath = null, now = Date.now } = {}) {
     validateCursor(row, program, prefixLength);
     const restored = new Set(Object.entries(row.blocks).filter(([, b]) => b.state === "PENDING" || b.state === "BLOCKED").map(([key]) => key));
     const pendingReads = new Map();
-    function save() {
-      const preparation = journal.get(id)?.preparation;
-      row = journal.put(id, { ...row, ...(preparation ? { preparation } : {}) });
-    }
+    function save() { row = journal.put(id, row); }
     const blockAt = key => Object.hasOwn(row.blocks, key) ? row.blocks[key] : undefined;
     const setBlock = (key, value) => { row.blocks = { ...row.blocks, [key]: value }; };
     const currentStep = step => {
@@ -112,8 +92,6 @@ function createStartupRuns({ filePath = null, now = Date.now } = {}) {
       restoreMemory: () => row.runnerMemory ? { ...row.runnerMemory, macroMem: {} } : null,
       async checkpoint(memory) {
         if (row.mainEntered) return;
-        const preparation = journal.get(id)?.preparation;
-        if (preparation && !preparationReady(preparation)) throw new Error("Operation preparation must complete before MAIN.");
         const p = memory.position;
         row.branchChoices ||= {};
         if (p.kind === "branch") row.branchChoices = { ...row.branchChoices, [program[p.node].id]: p.side };
@@ -186,8 +164,6 @@ function createStartupRuns({ filePath = null, now = Date.now } = {}) {
         return proven === false ? "NEEDED" : "BLOCKED";
       },
       async beforeIssue(step, action, invocation) {
-        const preparation = journal.get(id)?.preparation;
-        if (preparation && !preparationReady(preparation)) throw new Error("Operation preparation is not ready.");
         const block = currentStep(step);
         if (block && ["PENDING", "BLOCKED", "COMPLETE"].includes(block.state)) throw new Error("Startup dispatch is already fenced.");
         // Repeatable travel (a refit flying home) needs no fence; completion is
@@ -201,87 +177,6 @@ function createStartupRuns({ filePath = null, now = Date.now } = {}) {
       snapshot: () => journal.get(id),
     };
   }
-  function openPreparation({ logicalRunID, accountID, characterID, scriptHash, scriptRev,
-    operationID, operationRunID, intent, resumed = false, assertCurrent = () => {} }) {
-    if (typeof logicalRunID !== "string" || !logicalRunID || typeof operationID !== "string" || !operationID ||
-        typeof operationRunID !== "string" || !operationRunID || !object(intent) || !credentialFree(intent)) invalid();
-    let row = journal.get(logicalRunID);
-    if (resumed && !row?.preparation) throw new Error("Operation preparation checkpoint is missing; preserve the original run.");
-    if (row && (row.accountID !== accountID || row.characterID !== characterID || row.scriptHash !== scriptHash ||
-        row.scriptRev !== scriptRev || row.ended)) throw new Error("Startup run identity changed.");
-    if (!row) {
-      if (journal.list().some(run => run.characterID === characterID && !run.ended && run.preparation &&
-          ["PREPARING", "RECOVERY_REQUIRED"].includes(run.preparation.state)))
-        throw new Error("An earlier operation preparation still owns mutation custody.");
-      row = { accountID, characterID, scriptHash, scriptRev, ended: false, startingLocation: null,
-        blocks: {}, branchChoices: {}, createdAt: now() };
-    }
-    const prior = row.preparation;
-    if (prior && (prior.operationID !== operationID || prior.operationRunID !== operationRunID ||
-        JSON.stringify(prior.intent) !== JSON.stringify(intent))) throw new Error("Operation preparation intent changed.");
-    row.preparation ||= { operationID, operationRunID, intent: structuredClone(intent), state: "PENDING",
-      invocation: 0, mainEntered: false };
-    validateBase(row); journal.put(logicalRunID, row);
-    function current() {
-      assertCurrent();
-      const fresh = journal.get(logicalRunID);
-      if (!fresh || fresh.ended || fresh.preparation.operationRunID !== operationRunID) throw new Error("Operation preparation run ended.");
-      return fresh;
-    }
-    function save(preparation) {
-      const fresh = current(); validatePreparation(preparation);
-      journal.put(logicalRunID, { ...fresh, preparation });
-      return structuredClone(preparation);
-    }
-    return {
-      logicalRunID,
-      snapshot: () => structuredClone(journal.get(logicalRunID)?.preparation),
-      begin(evidence = {}) {
-        const prior = current().preparation;
-        if (preparationReady(prior)) throw new Error("Completed preparation cannot be issued again in this run.");
-        if (["PREPARING", "RECOVERY_REQUIRED"].includes(prior.state)) throw new Error("Pending preparation requires reconciliation before another issue.");
-        const next = save({ ...prior, state: "PREPARING", invocation: prior.invocation + 1,
-          evidence: { ...prior.evidence, ...evidence }, issuedAt: now() });
-        return next.invocation;
-      },
-      recover(evidence = {}) {
-        const prior = current().preparation;
-        if (prior.mainEntered || preparationReady(prior) || !prior.invocation ||
-            !["BLOCKED", "PREPARING", "RECOVERY_REQUIRED"].includes(prior.state) || !object(evidence))
-          throw new Error("Only an issued preparation may enter read-only recovery before MAIN.");
-        return save({ ...prior, state: "RECOVERY_REQUIRED", evidence: { ...prior.evidence, ...evidence } });
-      },
-      update(evidence) {
-        const prior = current().preparation;
-        if (!["PREPARING", "RECOVERY_REQUIRED"].includes(prior.state) || !object(evidence))
-          throw new Error("Only pending preparation custody may receive additional evidence.");
-        return save({ ...prior, evidence: { ...prior.evidence, ...evidence } });
-      },
-      complete(result) {
-        if (!preparationReady(result)) throw new Error("Preparation requires verified readiness evidence.");
-        const prior = current().preparation;
-        return save({ ...prior, ...result, operationID, operationRunID, intent: prior.intent,
-          invocation: prior.invocation, mainEntered: prior.mainEntered,
-          evidence: { ...prior.evidence, ...result.evidence }, completedAt: now() });
-      },
-      block(result = {}) {
-        const prior = current().preparation;
-        if (prior.mainEntered) throw new Error("Completed preparation cannot be blocked by a stale startup response.");
-        return save({ ...prior, ...result, operationID, operationRunID, intent: prior.intent,
-          invocation: prior.invocation, mainEntered: false,
-          state: result.state === "RECOVERY_REQUIRED" ? "RECOVERY_REQUIRED" : "BLOCKED" });
-      },
-      enterMain() {
-        const prior = current().preparation;
-        if (!preparationReady(prior)) throw new Error("Operation preparation must complete before MAIN.");
-        return save({ ...prior, mainEntered: true });
-      },
-      end() {
-        const fresh = journal.get(logicalRunID);
-        if (fresh) journal.put(logicalRunID, { ...fresh, ended: true });
-      },
-    };
-  }
-  return { open, openPreparation, get: id => journal.get(id) };
+  return { open, get: id => journal.get(id) };
 }
-module.exports = { createStartupRuns, credentialFree, preparationReady };
+module.exports = { createStartupRuns };

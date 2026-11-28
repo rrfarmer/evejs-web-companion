@@ -2,7 +2,6 @@
 const { createOperationJournal } = require("./operationJournal");
 const { hash, fail, inspectContract, matchFittings } = require("./provisioningContracts");
 const { validShipRecord, createShipOperations } = require("./shipProvisioning");
-const { AsyncLocalStorage } = require("node:async_hooks");
 const sum = (rows, typeID) => rows.filter(row => row.typeID === typeID).reduce((n, row) => n + row.quantity, 0);
 const positive = value => Number.isSafeInteger(value) && value > 0;
 const digest = value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
@@ -39,7 +38,6 @@ function createReplenishment({ filePath = null, operations, data, now = Date.now
       fail("CUSTODY_JOURNAL_INVALID");
   }
   const reviews = new Map();
-  const temporaryControl = new AsyncLocalStorage();
   const unresolved = pilot => journal.list().filter(row => row.characterID === pilot &&
     (row.kind === "SHIP_PROVISION" ? !["COMPLETE", "REFUSED"].includes(row.state) : ["PENDING", "BLOCKED"].includes(row.state)));
   function assertWritable(pilot, lease = null) {
@@ -48,14 +46,11 @@ function createReplenishment({ filePath = null, operations, data, now = Date.now
     if ((active?.kind === "replenishment" && active !== lease) || unresolved(pilot).some(row => row.key !== lease?.id))
       fail("REPLENISHMENT_CUSTODY", "This pilot has active or unresolved replenishment custody. Reconcile it first.");
     if (active?.kind === "bridge-write" && active !== lease) fail("CHARACTER_IN_USE");
-    if (["temporary-provisioning", "temporary-provisioning-recovery"].includes(active?.kind) && active !== lease)
-      fail("CHARACTER_IN_USE");
   }
   function enterWrite(pilot, lease = null) {
     // A pilot's write while another of its writes is under way shares that one's reservation, and the last of them
     // done lets it go: the client makes writes at once (fittingSvc.DeleteManyFittings asks each owner's fitting
-    // manager together, uthread.parallel), and the page makes them as it does. What assertWritable keeps out of a
-    // write (a replenishment's custody, a provisioning's control) it still keeps out.
+    // manager together, uthread.parallel). Replenishment still excludes unrelated writes.
     const active = operations.get(pilot);
     if (!lease && active?.kind === "bridge-write") {
       assertWritable(pilot, active);
@@ -66,7 +61,7 @@ function createReplenishment({ filePath = null, operations, data, now = Date.now
       };
     }
     assertWritable(pilot, lease);
-    // Existing Factory/session lifecycle reservations already cover their
+    // Existing session lifecycle reservations already cover their
     // writes. The replenishment capability owns its entire Apply sequence.
     if (operations.has(pilot)) return () => {};
     const reservation = { kind: "bridge-write", writes: 1 };
@@ -80,25 +75,15 @@ function createReplenishment({ filePath = null, operations, data, now = Date.now
     const active = operations.get(pilot);
     if (active?.kind === "replenishment") fail("REPLENISHMENT_CUSTODY");
     if (active?.kind === "bridge-write") fail("CHARACTER_IN_USE");
-    if (["temporary-provisioning", "temporary-provisioning-recovery"].includes(active?.kind)) fail("CHARACTER_IN_USE");
   }
   function reserve(pilot, id, reconciling = false) {
-    const parent = temporaryControl.getStore();
-    if (parent && parent.characterID !== pilot) fail("PROVISIONING_CONTROL_CHANGED");
-    if (operations.has(pilot) && !(parent?.kind === "temporary-provisioning" && parent.characterID === pilot && operations.get(pilot) === parent))
-      fail("CHARACTER_IN_USE");
+    if (operations.has(pilot)) fail("CHARACTER_IN_USE");
     if (!reconciling && unresolved(pilot).length) fail("REPLENISHMENT_CUSTODY");
-    const lease = { kind: "replenishment", id, ...(parent ? { parent } : {}) };
+    const lease = { kind: "replenishment", id };
     operations.set(pilot, lease); return lease;
   }
   function release(pilot, lease) {
-    if (operations.get(pilot) !== lease) return;
-    if (lease.parent) operations.set(pilot, lease.parent); else operations.delete(pilot);
-  }
-  function withTemporaryControl(reservation, action) {
-    if (reservation?.kind !== "temporary-provisioning" || operations.get(reservation.characterID) !== reservation)
-      fail("PROVISIONING_CONTROL_CHANGED");
-    return temporaryControl.run(reservation, action);
+    if (operations.get(pilot) === lease) operations.delete(pilot);
   }
   async function review(adapter, input) {
     const read = await adapter.read(input);
@@ -212,6 +197,6 @@ function createReplenishment({ filePath = null, operations, data, now = Date.now
     } finally { release(context.characterID, lease); }
   }
   const shipOperations = createShipOperations({ journal, reviews, reserve, release, assertWritable, unresolved, data, now, verifyMovement });
-  return { review, apply, reconcile, ...shipOperations, withTemporaryControl, assertWritable, assertSelectable, enterWrite, unresolved, journal };
+  return { review, apply, reconcile, ...shipOperations, assertWritable, assertSelectable, enterWrite, unresolved, journal };
 }
 module.exports = { createReplenishment, verifyMovement };

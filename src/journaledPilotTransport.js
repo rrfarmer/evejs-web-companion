@@ -1,6 +1,6 @@
 "use strict";
 
-/** Journal exact handles at the transport seam, including temporary Factory owners. */
+/** Journal selected session handles even when they never enter the browser session map. */
 function journaledPilotTransport(transport, journal) {
   return new Proxy(transport, { get(target, name) {
     const fn = target[name];

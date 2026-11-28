@@ -503,7 +503,7 @@ test("encode then decode round-trips EVERY arg kind losslessly", () => {
 });
 
 test("retired web-companion constructs are refused rather than stripped", () => {
-  for (const macro of ["attack-player", "hunt-player", "send-chat"]) {
+  for (const macro of ["attack-player", "hunt-player", "send-chat", "fleet-mine", "mining-support"]) {
     const legacy = clone();
     legacy.program = [{ id: `legacy-${macro}`, kind: "macro", macro, args: {} }];
     assert.equal(

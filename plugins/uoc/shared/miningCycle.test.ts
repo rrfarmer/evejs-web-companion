@@ -1,0 +1,10 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {observeMiningCycle} from "./miningCycle.ts";
+const observation=(targetID:number|null)=>({moduleID:10,typeID:20,ownerID:1,shipID:11,flagID:27,timeFiletime:"1",wallclockFiletime:"1",online:true,effects:[],activeTargets:targetID===null?[]:[{effectID:2,targetID,startFiletime:"1",durationMs:1000,repeat:0}],attributes:{54:10000,73:1000}});
+test("an exact active target and later positive yield and inactive state settle one cycle",async()=>{let clock=0,reads=0,proof=0;const result=await observeMiningCycle({targetID:99,cycleMs:1000,before:5,current(){},module:async()=>observation(reads++===0?99:null),quantity:async()=>reads===1?5:15,onActive(){proof++},onProgress(){},wait:async()=>{clock+=2000},now:()=>clock});assert.deepEqual(result,{gain:10,observedAt:2000});assert.equal(proof,1);});
+test("yield or another target alone cannot settle an unobserved effect",async()=>{let clock=0;await assert.rejects(observeMiningCycle({targetID:99,cycleMs:1000,before:5,current(){},module:async()=>observation(98),quantity:async()=>15,onActive(){throw Error("wrong target")},onProgress(){},wait:async()=>{clock+=10000},now:()=>clock}),/unresolved/);});
+
+
+test('slow native simulation progress extends observation beyond the original wall deadline',async()=>{let wall=0,n=0;const result=await observeMiningCycle({targetID:99,cycleMs:1000,before:5,current(){},module:async()=>{const r=observation(n<2?99:null);r.timeFiletime=String(1+n++*5000000);return r;},quantity:async()=>n<3?5:15,onActive(){},onProgress(){},wait:async()=>{wall+=100000;},now:()=>wall});assert.equal(result.gain,10);assert.equal(wall,200000);});
+test('a fresh terminal read at an old wall deadline wins over timeout, with no invented yield',async()=>{let wall=0,n=0;const r=await observeMiningCycle({targetID:99,cycleMs:1000,before:5,current(){},module:async()=>observation(n++===0?99:null),quantity:async()=>5,onActive(){},onProgress(){},wait:async()=>{wall=999999;},now:()=>wall});assert.equal(r.gain,0);assert.equal(r.observedAt,999999);});

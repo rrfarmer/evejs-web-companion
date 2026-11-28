@@ -19,7 +19,7 @@
 //
 // requiredSkillsForTypes is the client's own table, made here from the types'
 // dogma: each required skill attribute with a skill, and its level attribute,
-// in the order the six pairs go (src/pilotTraining.js REQUIREMENT_ATTRIBUTES).
+// in the order of the six attribute pairs.
 //
 // Checked 2026-10-28 against the install of the same build, every row of every
 // table here on what the route reads (52,590 types, 3,411 effects, 2,855

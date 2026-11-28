@@ -27,7 +27,6 @@ function fixture(hull = null) {
     fitData: wireList(fitItems.map(items => ({ type: "tuple", items }))) })];
     return { type: "dict", entries: [fit(4), ...(state.duplicateFit ? [fit(5)] : [])] }; };
   const engine = createReplenishment({ operations, data });
-  engine.withTemporaryControl = () => { throw new Error("Held provisioning must not acquire temporary Factory control."); };
   const mutationFence = createPilotMutationFence({ heldSessions: new Map([["tab", held]]), assertWritable: engine.assertWritable });
   const row = (itemID, typeID, quantity, locationID, flagID, ownerID = 10, singleton = 0) =>
     ({ itemID, typeID, quantity, locationID, flagID, ownerID, singleton });
@@ -238,25 +237,6 @@ test("route consumer separates provider from physical authority and routes defic
   assert.deepEqual(f.state.writes, [[100, 60, 1800]]);
   await f.invoke("replenish", request); assert.equal(f.state.writes.length, 1);
   assert.ok(f.state.providerCalls.every(fields => fields.characterID === 11 && fields.corpid === 20));
-});
-
-test("final selected MCC adapter resolves a unique exact fit but refuses ambiguous or incomplete equipment", async () => {
-  const f = fixture(), input = { ...f.input, fittingID: 0 };
-  const unique = await f.adapter().readPreparation(input);
-  assert.equal(unique.contract.definition.fittingID, 4);
-  assert.equal(unique.observation.complete, true);
-  assert.equal(unique.context.characterID, 10);
-  assert.equal(unique.source.pin.locationID, 60);
-  f.state.duplicateFit = true;
-  await assert.rejects(f.adapter().readPreparation(input), { code: "EQUIPMENT_NOT_READY" });
-  assert.equal((await f.adapter().readPreparation(f.input)).contract.definition.fittingID, 4,
-    "an explicit exact fitting remains usable when definitions share equipment");
-  f.state.incomplete = true;
-  await assert.rejects(f.adapter().readPreparation(input), { code: "EQUIPMENT_NOT_READY" });
-  assert.equal((await f.adapter().readPreparation(f.input)).observation.complete, false,
-    "explicit selection never manufactures complete inventory evidence");
-  assert.deepEqual(f.state.writes, []);
-  assert.equal(f.engine.journal.list().length, 0);
 });
 
 test("held Ship Review no-ops exact equipment, then shared Replenish fills its LOW supplies without acquiring another hull", async () => {

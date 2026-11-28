@@ -3,9 +3,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
-  fittingFingerprint, decodeCorpFittingsStrict, resolveStageFittings, readAccountCorpFittings,
+  fittingFingerprint, decodeCorpFittingsStrict, readAccountCorpFittings,
 } = require("../src/pilotTrainingFittings");
-const { STAGES, buildMinerReport } = require("../src/pilotTraining");
 
 const CORP = 98000001;
 const ACCOUNT = 4;
@@ -29,11 +28,6 @@ function library(value = row()) {
   return { type: "object", name: { type: "rawstr", value: "carbon.common.script.net.objectCaching.CachedMethodCallResult" },
     args: [{}, { type: "substream", value: { type: "dict", entries: [[7, value]] } }] };
 }
-function selection(fit) {
-  return { VENTURE: { scope: "CORPORATION", ownerID: CORP, fittingID: fit.fittingID,
-    acceptedSavedDate: fit.savedDate, acceptedFingerprint: fit.fingerprint } };
-}
-
 test("strict read preserves hull, slot/rig/charge/drone flags and quantities", () => {
   const [fit] = decodeCorpFittingsStrict(library(), CORP, data);
   assert.equal(fit.shipTypeID, 32880);
@@ -60,66 +54,22 @@ test("malformed tuple, unknown type, invalid flag and quantity never yield a par
     const [fit] = decodeCorpFittingsStrict(library(row({ items })), CORP, data);
     assert.equal(fit.invalid, true);
     assert.equal(fit.items, undefined);
-    assert.equal(resolveStageFittings(STAGES, [fit], { VENTURE: { scope: "CORPORATION", ownerID: CORP, fittingID: 7 } }, CORP).VENTURE.status, "INVALID_FIT");
   }
 });
 
-test("wrong owner denies library; wrong hull cannot qualify a stage", () => {
+test("wrong owner denies access to the corporation fitting library", () => {
   assert.throws(() => decodeCorpFittingsStrict(library(row({ owner: 99 })), CORP, data), /owner differs/);
-  const [fit] = decodeCorpFittingsStrict(library(row({ hull: 89240 })), CORP, data);
-  assert.equal(resolveStageFittings(STAGES, [fit], selection(fit), CORP).VENTURE.status, "INVALID_FIT");
 });
 
-test("fitting ID is identity and tuple order does not change content fingerprint", () => {
+test("tuple order does not change the fitting fingerprint", () => {
   const [fit] = decodeCorpFittingsStrict(library(), CORP, data);
   assert.equal(fittingFingerprint(32880, [...fit.items].reverse()), fit.fingerprint);
-  assert.equal(resolveStageFittings(STAGES, [{ ...fit, name: "Renamed" }], selection(fit), CORP).VENTURE.status, "READY");
-  assert.equal(resolveStageFittings(STAGES, [{ ...fit, fittingID: 8, name: fit.name }], selection(fit), CORP).VENTURE.status, "UNKNOWN");
 });
 
-test("same ID with changed content or saved date requires explicit review", () => {
+test("changing cargo changes the fitting fingerprint", () => {
   const [fit] = decodeCorpFittingsStrict(library(), CORP, data);
-  const altered = { ...fit, fingerprint: fittingFingerprint(fit.shipTypeID, fit.items.slice(1)) };
-  const outcome = resolveStageFittings(STAGES, [altered], selection(fit), CORP).VENTURE;
-  assert.equal(outcome.status, "REVIEW_REQUIRED");
-  assert.equal(outcome.acceptedFingerprint, fit.fingerprint);
-  assert.equal(outcome.currentSavedDate, fit.savedDate);
-  assert.equal(resolveStageFittings(STAGES, [{ ...fit, savedDate: "134285151537020001" }], selection(fit), CORP).VENTURE.status, "REVIEW_REQUIRED");
-});
-
-test("accepted fitting drives hard closure; support remains independent; missing fit is UNKNOWN", () => {
-  const [fit] = decodeCorpFittingsStrict(library(), CORP, data);
-  const resolved = resolveStageFittings(STAGES, [fit], selection(fit), CORP);
-  const skills = { characterName: "Miner", serverNowMs: 1_800_000_000_000,
-    skills: [11, 12, 13].map((typeID) => ({ typeID, level: 5, skillPoints: 0 })),
-    queue: { active: false, entries: [] } };
-  const report = buildMinerReport(data, skills, {}, resolved);
-  assert.equal(report.stages[0].skillQualification, "READY");
-  assert.deepEqual(report.stages[0].hard.map((entry) => entry.typeID), [11, 12, 13]);
-  assert.ok(report.stages[0].support.length > 0);
-  assert.equal(report.stages[0].equipmentReadiness, "UNKNOWN");
-  const absent = buildMinerReport(data, skills, {}, resolveStageFittings(STAGES, [], selection(fit), CORP));
-  assert.equal(absent.stages[0].skillQualification, "UNKNOWN");
-  assert.equal(absent.previews.FAST.eta.kind, "UNKNOWN");
-});
-
-test("cargo remains fingerprinted but never creates a hard fitted-skill requirement", () => {
-  const skillfulCargo = 7777;
-  const cargoData = { ...data, getTypeDogma(typeID) {
-    return typeID === skillfulCargo ? { attributes: { 182: 99, 277: 5 } } : data.getTypeDogma(typeID);
-  } };
-  const [fit] = decodeCorpFittingsStrict(library(row({ items: [...ITEMS, [skillfulCargo, 5, 1]] })), CORP, cargoData);
-  const accepted = resolveStageFittings(STAGES, [fit], selection(fit), CORP).VENTURE;
-  assert.equal(accepted.status, "READY");
-  assert.ok(fit.items.some((item) => item.typeID === skillfulCargo && item.flagID === 5));
-  assert.ok(!accepted.typeIDs.includes(skillfulCargo));
-  const skills = { characterName: "Miner", serverNowMs: 1_800_000_000_000,
-    skills: [11, 12, 13].map((typeID) => ({ typeID, level: 5, skillPoints: 0 })),
-    queue: { active: false, entries: [] } };
-  const report = buildMinerReport(cargoData, skills, {}, { VENTURE: accepted });
-  assert.ok(!report.stages[0].hard.some((entry) => entry.typeID === 99));
-  const changed = { ...fit, fingerprint: fittingFingerprint(fit.shipTypeID, fit.items.filter((item) => item.typeID !== skillfulCargo)) };
-  assert.equal(resolveStageFittings(STAGES, [changed], selection(fit), CORP).VENTURE.status, "REVIEW_REQUIRED");
+  const withoutCargo = fit.items.filter(item => item.flagID !== 5);
+  assert.notEqual(fittingFingerprint(fit.shipTypeID, withoutCargo), fit.fingerprint);
 });
 
 test("session-free corporation read verifies ownership and never selects pilot", async () => {

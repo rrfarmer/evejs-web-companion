@@ -261,14 +261,12 @@ test("a stored id that is no longer global is dropped rather than drawn", () => 
   assert.deepEqual(loadGlobalWindows(), []);
 });
 
-test("standalone MCC does not reopen its old floating window or discard other global windows", () => {
+test("the retired mining window is ignored when restoring other global windows", () => {
   installStorage();
   localStorage.setItem(
     "evejs-web-global-windows:v2",
     JSON.stringify([win("miningOperations"), win("botManager"), win("industryManager")]),
   );
-  assert.equal(isGlobalTab("miningOperations"), false);
-  assert.deepEqual(openGlobal([], "miningOperations"), []);
   assert.deepEqual(loadGlobalWindows().map(w => w.id), ["botManager", "industryManager"]);
 });
 

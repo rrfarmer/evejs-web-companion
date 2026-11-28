@@ -1,0 +1,168 @@
+{
+  "source": "Synthetic runtime records for the five-wave client-dungeon:2226 template",
+  "typeGroups": {
+    "16981": 615,
+    "16996": 615,
+    "17006": 615
+  },
+  "entries": [
+    {
+      "instanceID": 501,
+      "systemID": 30000021,
+      "scannerKey": 5380000021001,
+      "templateID": "client-dungeon:2226",
+      "sourceDungeonID": 2226,
+      "siteFamily": "combat",
+      "siteKind": "anomaly",
+      "siteOrigin": "universe_dungeon",
+      "lifecycleState": "active",
+      "instanceScope": "shared",
+      "visibilityScope": "public",
+      "entryRoom": {
+        "roomKey": "room:entry",
+        "state": "active",
+        "stage": "entry",
+        "pocketID": null,
+        "nodeGraphID": null,
+        "activatedAtMs": 1735689600000,
+        "completedAtMs": 0,
+        "lastUpdatedAtMs": 1735689600000,
+        "spawnedEntityIDs": [],
+        "counters": {},
+        "metadata": {
+          "lightweight": true
+        }
+      },
+      "completion": {
+        "objectiveMode": "destroy_all_encounters",
+        "completeObjectiveOnEncounterClear": true
+      },
+      "waves": [
+        {
+          "key": "initial",
+          "trigger": "on_load",
+          "roomKey": "room:19122",
+          "amount": 4,
+          "typeIDs": [
+            16981
+          ]
+        },
+        {
+          "key": "wave_1",
+          "trigger": "wave_cleared",
+          "roomKey": "room:19122",
+          "amount": 2,
+          "typeIDs": [
+            16996
+          ]
+        },
+        {
+          "key": "wave_2",
+          "trigger": "wave_cleared",
+          "roomKey": "room:19122",
+          "amount": 4,
+          "typeIDs": [
+            16981
+          ]
+        },
+        {
+          "key": "wave_3",
+          "trigger": "wave_cleared",
+          "roomKey": "room:19122",
+          "amount": 2,
+          "typeIDs": [
+            16981
+          ]
+        },
+        {
+          "key": "wave_4",
+          "trigger": "wave_cleared",
+          "roomKey": "room:19122",
+          "amount": 2,
+          "typeIDs": [
+            17006
+          ]
+        }
+      ]
+    },
+    {
+      "instanceID": 502,
+      "systemID": 30000021,
+      "scannerKey": 5380000021002,
+      "templateID": "client-dungeon:2226",
+      "sourceDungeonID": 2226,
+      "siteFamily": "combat",
+      "siteKind": "anomaly",
+      "siteOrigin": "universe_dungeon",
+      "lifecycleState": "active",
+      "instanceScope": "shared",
+      "visibilityScope": "public",
+      "entryRoom": {
+        "roomKey": "room:entry",
+        "state": "active",
+        "stage": "entry",
+        "pocketID": null,
+        "nodeGraphID": null,
+        "activatedAtMs": 1735689600000,
+        "completedAtMs": 0,
+        "lastUpdatedAtMs": 1735689600000,
+        "spawnedEntityIDs": [],
+        "counters": {},
+        "metadata": {
+          "lightweight": true
+        }
+      },
+      "completion": {
+        "objectiveMode": "destroy_all_encounters",
+        "completeObjectiveOnEncounterClear": true
+      },
+      "waves": [
+        {
+          "key": "initial",
+          "trigger": "on_load",
+          "roomKey": "room:19122",
+          "amount": 4,
+          "typeIDs": [
+            16981
+          ]
+        },
+        {
+          "key": "wave_1",
+          "trigger": "wave_cleared",
+          "roomKey": "room:19122",
+          "amount": 2,
+          "typeIDs": [
+            16996
+          ]
+        },
+        {
+          "key": "wave_2",
+          "trigger": "wave_cleared",
+          "roomKey": "room:19122",
+          "amount": 4,
+          "typeIDs": [
+            16981
+          ]
+        },
+        {
+          "key": "wave_3",
+          "trigger": "wave_cleared",
+          "roomKey": "room:19122",
+          "amount": 2,
+          "typeIDs": [
+            16981
+          ]
+        },
+        {
+          "key": "wave_4",
+          "trigger": "wave_cleared",
+          "roomKey": "room:19122",
+          "amount": 2,
+          "typeIDs": [
+            17006
+          ]
+        }
+      ]
+    }
+  ]
+}

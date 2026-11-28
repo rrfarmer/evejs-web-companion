@@ -60,40 +60,35 @@ test("a failed release while switching pilots retains both exact recovery handle
     [["bridge-7", 4, 7], ["bridge-8", 4, 8]]);
 });
 
-test("a crashed factory acquisition is recovered even though it never entered the browser map", async (t) => {
+test("a selected session outside the browser map can be released after its process exits", async (t) => {
   const filePath = tempJournal(t);
   const sourceRoot = path.resolve(__dirname, "..");
   // A real child PID exits with a selected session, exactly as a process crash
   // would. Only its synthetic gateway and private journal are involved.
   const program = `
-    const {createFactorySessions}=require(process.argv[1]+'/src/factorySessions');
     const {createBridgeSessionJournal}=require(process.argv[1]+'/src/bridgeSessionJournal');
     const {journaledPilotTransport}=require(process.argv[1]+'/src/journaledPilotTransport');
     const filePath=process.argv[2];
-    const store={async listCharactersForAccount(){return [{characterID:9}];}};
-    const gateway={async getCharacterStatus(_account,characterID){return {characterID,online:false,controlState:'offline'};},
-      async selectCharacter([characterID]){return {bridgeSessionID:'factory-9',session:{characterID}};}};
-    const held=new Map();
-    const tracked=journaledPilotTransport(gateway,createBridgeSessionJournal({filePath}));
-    const factory=createFactorySessions({store,gateway:tracked,
-      operations:new Map(),heldSessions:held,botHost:{claimedBy:()=>null}});
-    factory.withSessions([{account:{accountID:4},characterID:9}],async()=>{
-      if(held.size!==0)throw new Error('Factory borrowed browser map');
-      require('node:fs').writeSync(1,'factory-acquired');
+    const gateway = { async selectCharacter([characterID]) {
+      return { bridgeSessionID: 'selected-9', session: { characterID } };
+    } };
+    const tracked = journaledPilotTransport(gateway, createBridgeSessionJournal({ filePath }));
+    tracked.selectCharacter([9, null, true], null, { userid: 4 }).then(() => {
+      require('node:fs').writeSync(1, 'session-acquired');
       process.exit(0);
     }).catch(error=>{console.error(error);process.exit(1);});
   `;
   const result = execFileSync(process.execPath, ["-e", program, sourceRoot, filePath], {
     encoding: "utf8", env: { ...process.env }, timeout: 10000,
   });
-  assert.match(result, /factory-acquired/);
-  assert.deepEqual(records(filePath).map((row) => row.bridgeSessionID), ["factory-9"]);
+  assert.match(result, /session-acquired/);
+  assert.deepEqual(records(filePath).map((row) => row.bridgeSessionID), ["selected-9"]);
   const calls = [];
   const restarted = createBridgeSessionJournal({ filePath });
   const outcome = await restarted.releaseOrphans(async (handle, fields) => {
     calls.push([handle, fields.userid]); return { released: true };
   });
-  assert.deepEqual(calls, [["factory-9", 4]]);
+  assert.deepEqual(calls, [["selected-9", 4]]);
   assert.equal(outcome.released, 1);
   assert.deepEqual(records(filePath), []);
 });

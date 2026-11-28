@@ -35,7 +35,6 @@ export type CoreTabID =
   | "skills"
   | "planets"
   | "industryManager"
-  | "miningOperations"
   | "activity"
   | "fleet"
   | "watchlist"
@@ -196,7 +195,6 @@ export const TABS: readonly CoreTabDef[] = [
   // R109 — a GLOBAL window: a blueprint expanded into its whole build tree,
   // across every signed-in pilot's blueprints. Out of the rail, like the Bot Manager.
   { id: "industryManager", label: "Industry Manager", where: "both", launchable: false },
-  { id: "miningOperations", label: "Mining Command Center", where: "both", launchable: false },
   { id: "activity", label: "Activity", where: "both" },
   { id: "fleet", label: "Fleet", where: "both" },
   // The fleet's watch list (fleetWatchList.py WatchListPanel): opened where it is wanted, as the client opens it on an

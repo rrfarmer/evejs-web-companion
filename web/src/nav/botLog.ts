@@ -128,8 +128,6 @@ export type BotLogDraft = Omit<BotLogEntry, "characterID">;
  */
 export function describeAction(action: ScriptAction): string {
   switch (action.kind) {
-    case "maintainMiningSupport": return action.relocating ? "settle mining support for relocation" : "maintain mining support";
-    case "stopMiningSupportOperation": return "request operation Stop after support loss";
     case "wait":
       return "wait";
     case "undock":
@@ -245,18 +243,6 @@ export function describeAction(action: ScriptAction): string {
       return `repair ${action.itemIDs.join(",")}`;
     case "rememberBeltDry":
       return `note ${action.beltName} in ${action.systemName} dry${action.groupID === null ? "" : ` of group ${action.groupID}`}`;
-    case "reserveMiningTarget":
-      return `reserve operation target ${action.targetName} in ${action.systemName}`;
-    case "bookmarkMiningSite":
-      return `save logistics return point for ${action.targetKey}`;
-    case "activateMiningTarget":
-      return `activate operation target ${action.targetKey}`;
-    case "depleteMiningTarget":
-      return `mark operation target ${action.targetKey} depleted`;
-    case "miningMemberReady":
-      return "mark operation member ready";
-    case "miningDrainComplete":
-      return `finish logistics tail at ${action.targetKey}`;
     case "callPrimary":
       return action.targetID === null ? "clear the fleet's called primary" : `call ${action.targetID} as the fleet's primary`;
     case "moveItems":

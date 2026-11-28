@@ -34,15 +34,9 @@ const stubPlugins = {
 };
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 
-async function harness(t, { factory = "forbidden", mcc = false, reach = null } = {}) {
-  const botScript=mcc?{...script,doc:{program:[
-    {kind:"macro",macro:"mine-at-belt",args:{belt:{kind:"belt",belt:{mode:"nearest"}}}},
-    {kind:"macro",macro:"deliver-ore",args:{}}]}}:script;
-  const object=fields=>({type:"object",args:{type:"dict",entries:Object.entries(fields)}});
-  const stockRow=(itemID,typeID,quantity,locationID,flagID,singleton=0)=>({type:"packedrow",fields:{itemID,typeID,quantity,locationID,flagID,singleton,ownerID:characterID}});
+async function harness(t, { factory = "forbidden", reach = null } = {}) {
   const calls = [], sessions = new Map(), probes = [], starts = [];
   const hosted = { token: null, secret: null };
-  const startupRuns = require("../src/startupRuns").createStartupRuns();
   let baseUrl, serial = 0, ownershipProbe, probeHook = null;
   const behavior = { selectFailure: false, releaseUncertain: false, startFailure: false, retailBusy: false, loginTakeoverEnabled: true };
   const gateway = {
@@ -64,8 +58,7 @@ async function harness(t, { factory = "forbidden", mcc = false, reach = null } =
         calls.push(["retail-takeover"]); behavior.retailBusy = false;
       }
       const bridgeSessionID = `test-bridge-${++serial}`;
-      const outcome = { bridgeSessionID, session: { characterID: args[0], shipID: 9001, stationID: 60000004, solarSystemID: 30000001,
-        ...(mcc?{corporationID:900}: {}) }, notifications: [] };
+      const outcome = { bridgeSessionID, session: { characterID: args[0], shipID: 9001, stationID: 60000004, solarSystemID: 30000001 }, notifications: [] };
       sessions.set(bridgeSessionID, outcome);
       if (behavior.selectOutcomeHook) await behavior.selectOutcomeHook(outcome);
       return outcome;
@@ -82,16 +75,7 @@ async function harness(t, { factory = "forbidden", mcc = false, reach = null } =
       sessions.delete(id); return { released: true, offline: sessions.size === 0 };
     },
     async callMethod(service,method) {
-      if(mcc && service==="corpFittingMgr" && method==="GetFittings") return {result:{type:"dict",entries:[[1,object({
-        fittingID:1,ownerID:900,shipTypeID:100,name:"Stock exact miner",savedDate:{type:"long",value:"123"},
-        fitData:{type:"list",items:[{type:"tuple",items:[200,27,1]}]} })]]}};
       return { result: {}, notifications: [] };
-    },
-    async bindObject() { return {boundHandle:"stock-inventory"}; },
-    async callBoundMethod(_service,method) {
-      if(method==="ListByFlags") {calls.push(["selected-equipment"]);return {result:{type:"list",items:[stockRow(500,200,1,9001,27,1)]}};}
-      if(method==="List") return {result:{type:"list",items:[]}};
-      throw new Error(`Unexpected stock preparation call ${method}`);
     },
     openSessionEventStream() { return { close() {} }; },
   };
@@ -136,15 +120,13 @@ async function harness(t, { factory = "forbidden", mcc = false, reach = null } =
         async logout() { await request("/api/logout"); store.set("station", { online: null }); },
         async loadFlightStatus() { store.set("flight", { status: { docked: true } }); },
         async loadSpaceSnapshot() {}, async loadMiningHolds() {},
-        async suspendHostedSession() {},
       };
     },
   });
   const makeHost = hostModule.createBotHost;
   hostModule.createBotHost = options => {
     ownershipProbe = options.isCharacterHeld;
-    return makeHost({ ...options, persistPath: null, loadStack, startupRuns, pluginProcess: () => stubPlugins,
-      prepareOperation: record => behavior.prepareOperation ? behavior.prepareOperation(record) : options.prepareOperation(record),
+    return makeHost({ ...options, persistPath: null, loadStack, pluginProcess: () => stubPlugins,
       isCharacterHeld: async (...args) => { probes.push(args); if (probeHook) await probeHook(args); return ownershipProbe(...args); } });
   };
   // The server first, so that the BFF can be told its own address before it is made: a hosted bot's requests are
@@ -166,9 +148,7 @@ async function harness(t, { factory = "forbidden", mcc = false, reach = null } =
           return id === account.accountID && pilot === characterID ? { characterID, characterName: "Test Pilot" } : null;
         },
         listCharactersForAccount: async () => [{ characterID, characterName: "Test Pilot",accountID:account.accountID,corporationID:900 }] },
-      ...(mcc?{staticData:{...require("../src/staticData"),getType:id=>({100:{categoryID:6,groupID:25},200:{categoryID:7,groupID:54}})[id],getTypeName:id=>`Type ${id}`,
-        getSolarSystem:id=>({solarSystemID:id,solarSystemName:"Stock system"})}}:{}),
-      botScriptStore: { get: id => id === script.scriptID ? botScript : null, list: () => [botScript] } });
+      botScriptStore: { get: id => id === script.scriptID ? script : null, list: () => [script] } });
   } catch (error) {
     server.close();
     throw error;
@@ -191,7 +171,7 @@ async function harness(t, { factory = "forbidden", mcc = false, reach = null } =
     behavior.releaseUncertain = false; behavior.retailBusy = false; probeHook = null;
     await app.locals.botHost.stopAll(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
   });
-  return { app, calls, sessions, probes, starts, behavior, hosted, startupRuns, reservations: reservationMap, caller, token, hostedOverHttp,
+  return { app, calls, sessions, probes, starts, behavior, hosted, reservations: reservationMap, caller, token, hostedOverHttp,
     async browser(credential = token) {
       const selected = await post("/api/bridge/select", { characterID }, credential);
       assert.equal(selected.status, 200);
@@ -203,27 +183,6 @@ async function harness(t, { factory = "forbidden", mcc = false, reach = null } =
     start: credential => post("/api/bots/start", { characterID, scriptID: script.scriptID, grant }, credential),
     stop: botID => post(`/api/bots/${botID}/stop`) };
 }
-
-test("public MCC Start uses stock definitions and final selected equipment before real hosted MAIN without private endpoints",async t=>{
-  const h=await harness(t,{mcc:true,factory:"absent"});
-  const saved=await h.post("/api/mining-operations",{name:"Stock operation",unloadPolicy:"SELF_UNLOAD",
-    area:{anchorSystemID:30000001,anchorSystemName:"Stock system",reach:"CURRENT_SYSTEM",targetClasses:["BELT"]},
-    members:[{characterID,characterName:"Test Pilot",accountName:account.username,role:"MINER",routineMode:"CUSTOM",automationID:script.scriptID}]});
-  assert.equal(saved.status,200,JSON.stringify(saved.body));const id=saved.body.definition.operationID;
-  const plan=await h.get(`/api/mining-operations/${id}/launch-plan`);assert.equal(plan.status,200,JSON.stringify(plan.body));
-  assert.equal(plan.body.preparation.members[0].equipment,"UNKNOWN");assert.equal(h.calls.some(([name])=>name==="selected-equipment"),false);
-  const started=await h.post(`/api/mining-operations/${id}/start`,{planHash:plan.body.planHash,grants:{[characterID]:grant}});
-  assert.equal(started.status,200,JSON.stringify(started.body));
-  let bot;const deadline=Date.now()+2000;
-  do { bot=h.app.locals.botHost.listAll().find(b=>b.operationID===id&&!b.endedAt);
-    if(["VERIFIED","BLOCKED","RECOVERY_REQUIRED"].includes(bot?.preparation?.state))break;
-    await new Promise(resolve=>setTimeout(resolve,5));
-  } while(Date.now()<deadline);
-  assert.equal(bot.preparation.state,"VERIFIED",JSON.stringify({started:started.body,bot,calls:h.calls}));assert.equal(bot.preparation.equipment,"VERIFIED");
-  assert.equal(h.calls.some(([name])=>name==="run"),true);assert.equal(h.calls.findIndex(([name])=>name==="selected-equipment")<h.calls.findIndex(([name])=>name==="run"),true);
-  assert.equal((await h.post(`/api/mining-operations/${id}/stop`)).status,200);
-  assert.equal(h.app.locals.botHost.claimedBy(characterID),null);assert.equal(h.sessions.size,0);assert.equal(h.reservations.size,0);
-});
 
 for (const factory of ["absent", "forbidden"])
   test(`stock compatibility: public hosted Start and Stop with Factory ${factory}`, async t => {
@@ -264,16 +223,16 @@ for (const delayed of [false, true]) test(`publication fence: retired hosted hea
 
 for (const cleanup of ["released", "uncertain", "gone"]) test(`publication fence: retired acquired outcome keeps exact cleanup=${cleanup}`, async t => {
   const uncertain = cleanup === "uncertain";
-  const h = await harness(t, { factory: "absent" }), original = h.app.locals.botHost.start;
-  h.app.locals.botHost.start = input => original({ ...input, operationID: "publication-run", operationRunID: "run-1", operationRole: "MINER" });
+  const h = await harness(t, { factory: "absent" });
   const running = await h.start(); assert.equal(running.status, 200);
   const oldSecret = h.hosted.secret, entered = deferred(), proceed = deferred();
   let acquired;
   h.behavior.selectOutcomeHook = async outcome => { acquired = outcome; entered.resolve(); await proceed.promise; };
   const pending = h.post("/api/bridge/select", { characterID }, h.hosted.token, { [hostModule.BOT_HEADER]: oldSecret });
   await entered.promise;
-  assert.equal(h.app.locals.botHost.reconnect(running.body.bot.botID, account.accountID).ok, true,
-    "the production host rotates its private generation");
+  // Retire the claim while the select is still awaiting its gateway answer.
+  const authorize = h.app.locals.botHost.authorizesClaim;
+  h.app.locals.botHost.authorizesClaim = (id, secret) => secret !== oldSecret && authorize(id, secret);
   assert.equal(h.app.locals.botHost.authorizesClaim(characterID, oldSecret), false);
   h.behavior.releaseUncertain = uncertain; h.behavior.releaseGone = cleanup === "gone"; proceed.resolve();
   const result = await pending;
@@ -292,6 +251,7 @@ for (const cleanup of ["released", "uncertain", "gone"]) test(`publication fence
   }
   assert.ok(h.calls.some(([name, id, userid]) => name === "release" && id === acquired.bridgeSessionID && userid === account.accountID));
   h.behavior.releaseUncertain = false; h.behavior.releaseGone = false; h.behavior.selectOutcomeHook = null;
+  h.app.locals.botHost.authorizesClaim = authorize;
   assert.equal((await h.stop(running.body.bot.botID)).status, 200);
   assert.equal(h.sessions.size, 0); assert.equal(h.app.locals.bridgeSessions.size, 0);
 });
@@ -360,48 +320,6 @@ test("set to loopback, a hosted bot asks the BFF over HTTP as it did", async t =
   assert.ok(h.hostedOverHttp.includes("/api/logout"), JSON.stringify(h.hostedOverHttp));
 });
 
-for (const changed of [false, true]) test(`stock custody boundary: same-run reacquisition refuses, custody changed after probe=${changed}`, async t => {
-  const h = await harness(t), operationID = "custody-operation", operationRunID = "custody-run", logicalRunID = "custody-logical";
-  const operationPreparation = { version: 1, operationID, accountID: account.accountID, characterID, input: { source: { kind: "hangar" } } };
-  const scriptHash = require("node:crypto").createHash("sha256")
-    .update(JSON.stringify({ format: doc.format, program: doc.program, version: doc.version })).digest("hex");
-  const cp = h.startupRuns.openPreparation({ logicalRunID, operationID, operationRunID, intent: operationPreparation,
-    accountID: account.accountID, characterID, scriptHash, scriptRev: 1 });
-  cp.begin({ custodyOperationID: "owned-custody" });
-  let pending = [{ key: "owned-custody", accountID: account.accountID }], prepared = 0;
-  h.app.locals.replenishment.unresolved = () => pending;
-  h.behavior.prepareOperation = record => {
-    prepared++; record.preparationCheckpoint.recover(); pending = [];
-    return { state: "VERIFIED", evidence: { reconciled: true } };
-  };
-  const result = await h.app.locals.botHost.start({ account, characterID, kind: "script", scriptID: script.scriptID,
-    scriptName: script.name, scriptRev: 1, doc, grant, resumed: true, logicalRunID, operationID, operationRunID,
-    operationRole: "MINER", operationPreparation, deferMain: true,
-    beforeStart: () => { if (changed) pending = [{ key: "foreign-custody", accountID: account.accountID }]; } });
-  assert.equal(result.ok, false); assert.equal(prepared, 0);
-  assert.equal(h.calls.some(([name]) => ["free-select", "select", "forbidden-factory", "run"].includes(name)), false);
-  assert.equal(pending[0].key, changed ? "foreign-custody" : "owned-custody");
-  assert.equal(result.code, changed ? "CHARACTER_IN_USE" : "BOT_START_FAILED");
-  assert.match(result.message, /issued write needs reconciliation/);
-  assert.notEqual(h.app.locals.botHost.claimedBy(characterID), null, "unresolved custody retains its owner fence");
-  pending = []; await h.app.locals.botHost.stopAll();
-  assert.equal(h.sessions.size, 0); assert.equal(h.app.locals.bridgeSessions.size, 0);
-  assert.equal(h.app.locals.botHost.claimedBy(characterID), null);
-});
-
-test("hosted Defender retains exact MCC role/run metadata through public ownership and release", async t => {
-  const h = await harness(t), start = h.app.locals.botHost.start;
-  h.app.locals.botHost.start = input => start({ ...input, operationID: "operation", operationRole: "DEFENDER", operationRunID: "run-1" });
-  const result = await h.start();
-  assert.equal(result.status, 200, JSON.stringify(result.body));
-  assert.equal(result.body.bot.operationRole, "DEFENDER");
-  assert.equal(result.body.bot.operationID, "operation");
-  assert.equal(h.probes[0][2].operationRunID, "run-1");
-  assert.equal((await h.stop(result.body.bot.botID)).status, 200);
-  assert.equal(h.sessions.size, 0);
-  assert.equal(h.app.locals.botHost.claimedBy(characterID), null);
-});
-
 test("exact identity in both maps is required, never a name, character or session alone", async t => {
   const h = await harness(t), entered = deferred(), release = deferred();
   h.hook(async args => { entered.resolve(args); await release.promise; });
@@ -434,7 +352,7 @@ test("fresh restart uses a new reservation, bot and logical generation; stale ca
   assert.equal(h.sessions.size, 1);
 });
 
-for (const kind of ["factory", "temporary-provisioning", "hosted-other", "mining-operation-handoff"])
+for (const kind of ["factory", "replenishment", "hosted-other"])
   test(`public Start cannot replace or clean another ${kind} reservation`, async t => {
     const h = await harness(t), foreign = { kind, operationID: "other", operationRunID: "other-generation" };
     h.reservations.set(characterID, foreign);
@@ -617,18 +535,6 @@ test("unresolved custody still blocks an exact self-reservation", async t => {
   const h = await harness(t); h.app.locals.replenishment.unresolved = () => [{ key: "unresolved-write" }];
   const result = await h.start(); assert.equal(result.status, 409);
   assert.equal(h.calls.length, 0); assert.equal(h.app.locals.botHost.claimedBy(characterID), null);
-});
-
-test("existing MCC same-run handoff exception is unchanged and excludes other generations", async t => {
-  const h = await harness(t), own = { kind: "mining-operation-handoff", operationID: "operation", operationRunID: "generation-1" };
-  h.reservations.set(characterID, own);
-  try {
-    const intent = { operationRunID: "generation-1", operationPreparation: { operationID: "operation" } };
-    assert.equal(await h.probe(characterID, null, intent), false);
-    assert.equal(await h.probe(characterID, null, { ...intent, operationRunID: "generation-2" }), true);
-    assert.equal(await h.probe(characterID, null, { ...intent, operationPreparation: { operationID: "other" } }), true);
-    assert.equal((await h.start()).status, 409);
-  } finally { h.reservations.delete(characterID); }
 });
 
 for (const failure of ["selectFailure", "startFailure"])

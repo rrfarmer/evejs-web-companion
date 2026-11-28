@@ -95,9 +95,7 @@ export const MACRO_RUN_POLICY: Readonly<Record<CoreMacroID, MacroRunPolicy>> = O
   "travel-to-system": SAFE,
   "travel-to-belt": SAFE,
   "mine-at-belt": SAFE,
-  "fleet-mine": policy(["fleet", "combat"]),
   "join-support-fleet": policy(["fleet"]),
-  "mining-support": policy(["fleet", "inventory", "combat"]),
   "deliver-ore": policy(["inventory"]),
   "defend-with-drones": policy(["combat"]),
   "find-distribution-agent": SAFE,
@@ -393,12 +391,4 @@ export function analyzeBotRunPolicy(script: BotScript): BotRunPolicy {
     restartBlockers: Object.freeze([...restartBlockers]),
     containsSubBots,
   });
-}
-
-/** Same-process MCC transport reacquisition only; never a process replay grant. */
-export function supportsHostedOreJettisonRecovery(script: BotScript): boolean {
-  const derived = analyzeBotRunPolicy(script);
-  return !derived.containsSubBots && derived.restartBlockers.length === 1 &&
-    derived.restartBlockers[0] === "jettison-ore" &&
-    script.interrupts.every(row => INTERRUPT_RUN_POLICY[row.respond].restartSafe);
 }

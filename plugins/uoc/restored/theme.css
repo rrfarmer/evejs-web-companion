@@ -1,0 +1,2392 @@
+/* Shared WC74 styles scoped to UOC pages. */
+/*
+ * ============================================================================
+ * THE EVE DESIGN SYSTEM (goal R19)
+ * ============================================================================
+ *
+ * Tailwind CSS v4, CSS-first. `@import "tailwindcss"` pulls in Tailwind's
+ * theme + preflight (base) + components + utilities layers; everything below
+ * appends to the base/components layers (so it wins over preflight on equal
+ * specificity).
+ *
+ * This is the app's ONE styling system — there is no second approach and no
+ * per-panel one-off. Panels are written in bare semantic elements plus the
+ * handful of component classes defined here, so a panel gets the whole look by
+ * being ordinary HTML. That is deliberate: it keeps restyles low-churn and
+ * behavior-preserving, and it is why R21's fitting window can be built in this
+ * language without inventing anything new.
+ *
+ * The look: EVE-style dark industrial. Near-black backgrounds with a blue
+ * cast, cool desaturated blue-grey text, one restrained accent, condensed
+ * uppercase letter-spaced headers, tight scannable data rows, and tabular
+ * numerals everywhere a number can line up under another number.
+ *
+ * ---------------------------------------------------------------------------
+ * CONTENTS
+ *   1. tokens      — palette (surfaces, lines, text, accent, state, the ship
+ *                    resource triad), radii, and the app's type scale
+ *   2. base        — element defaults: page, headings, buttons, fields
+ *   3. components  — panels + chrome, controls, tabs, data tables, meters,
+ *                    key/value grids, lists, badges, empty states
+ *   4. reflow      — the R8 responsive contract: record tables become stacked
+ *                    labelled cards at <=640px
+ *
+ * ---------------------------------------------------------------------------
+ * INVARIANTS THIS FILE MUST NOT BREAK
+ *   R8  — no horizontal page scroll at 360px; record tables keep `reflow` +
+ *         `data-label` and still become labelled cards at <=640px; every
+ *         interactive target stays >=40px (2.5rem) tall.
+ *   A11y — body text aims for WCAG AA (>=4.5:1). Nothing critical is conveyed
+ *         by colour alone: every coloured state also carries text or weight
+ *         (see `.badge`, `tr.unread`, `.hud-value`).
+ * ==========================================================================*/
+
+/* ------------------------------------------------------- the display face --
+ * R73: a condensed technical face for the header/label scale.
+ *
+ * WHY. The whole "EVE" signal in this system is condensed, uppercase,
+ * letter-spaced headers — and until now they were rendered in Segoe UI, which is
+ * neither condensed nor technical. Setting a normal-width UI face in caps with
+ * 0.12em tracking is doing an impression of the thing rather than the thing.
+ *
+ * SELF-HOSTED, NOT A CDN. These `@import`s resolve through node_modules at BUILD
+ * time and Vite emits the woff2 into `public/dist` alongside everything else, so
+ * the running app fetches the font from its own origin. Nothing here reaches a
+ * third party at runtime — which matters because this client is normally served
+ * beside a game server on a LAN with no outbound path at all, and a webfont from
+ * fonts.gstatic.com would simply never arrive.
+ *
+ * ONLY THE WEIGHTS THAT ARE USED, and only latin. 500 for labels, 600 for the
+ * headers and badges. Adding a weight here adds a file to the bundle, so add one
+ * only when a rule actually asks for it.
+ *
+ * BODY COPY IS DELIBERATELY UNCHANGED. A condensed face is harder to read at
+ * length and this theme is not allowed to cost readability (see the invariants
+ * at the top of this file). The display face is for short, shouty, spaced-out
+ * strings; sentences stay in the system UI face. */
+@import "@fontsource/barlow-condensed/latin-500.css";
+@import "@fontsource/barlow-condensed/latin-600.css";
+
+@import "./preflight.css";
+
+/* ------------------------------------------------------------------ tokens */
+.uoc-wc74 {
+  /* The display face, with a condensed-first fallback chain so a build that
+   * somehow ships without the webfont still gets SOMETHING narrow rather than
+   * silently widening every header back to a normal-width UI face. The last two
+   * are stock on Windows and macOS respectively. */
+  --font-display:
+    "Barlow Condensed", "Segoe UI Semibold Condensed", "Arial Narrow", "Avenir Next Condensed",
+    ui-sans-serif, system-ui, sans-serif;
+
+  /* --- surfaces: near-black, cool, layered ------------------------------
+   * Four depths, darkest first. `bg` is the page, `panel` is a frame, `panel-2`
+   * is a raised control (buttons), `panel-3` is an inset well (meter tracks,
+   * zebra rows, reflow cards). `field` is an input well — deliberately darker
+   * than the panel so a form field reads as a hole, not a bump. */
+  --color-bg: #05080d;
+  --color-panel: #0d131c;
+  --color-panel-2: #16273a;
+  --color-panel-3: #0a1017;
+  --color-field: #070b11;
+
+  /* --- lines --- */
+  --color-line: #1b2836;
+  --color-line-strong: #2f4a66;
+  --color-row-line: #151f2b;
+
+  /* --- text: cool desaturated blue-greys --------------------------------
+   * `text` is body copy, `text-bright` is emphasis / values you read off,
+   * `cell` is table data, `muted` is labels and secondary copy. All four clear
+   * 4.5:1 on both --color-bg and --color-panel (see docs/design-system.md). */
+  --color-text: #c8d4e2;
+  --color-text-bright: #e6f0fa;
+  --color-cell: #a9bccd;
+  --color-muted: #8fa3b8;
+
+  /* --- accent: one restrained cool blue --- */
+  --color-accent: #7fb4d9;
+  --color-accent-bright: #a9d3f0;
+  --color-accent-dim: #3d6f96;
+  --color-on-accent: #06131f;
+
+  /* --- semantic state --- */
+  --color-good: #6cc79a;
+  --color-warn: #d9a441;
+  --color-danger: #e08a8a;
+  --color-on-danger: #170608;
+
+  /* --- ship resources -----------------------------------------------------
+   * The shield / armor / hull triad is a first-class part of the palette: EVE
+   * players read those three colours as fast as they read the numbers, and
+   * R21's fitting window leans on them heavily. Capacitor, CPU, powergrid and
+   * calibration round out the fitting resources. Each is paired with a text
+   * label everywhere it is used — never colour alone. */
+  --color-shield: #4a9fd8;
+  --color-armor: #c8a24a;
+  --color-hull: #c46a5a;
+  --color-capacitor: #5ab98c;
+  --color-cpu: #7fb4d9;
+  --color-powergrid: #b58ad0;
+  --color-calibration: #9aa8bb;
+
+  /* --- shape --------------------------------------------------------------
+   * R53: squared off to read like the EVE client. Both radii are 0, so every
+   * control/frame/card that references a token is a hard rectangle; the
+   * hardcoded radii below were swept to 0 in the same pass. The one deliberate
+   * survivor is `.fit-ring-guide` (border-radius: 50%) — a geometric guide
+   * CIRCLE for the radial fitting ring, not a rounded corner; see the note
+   * there. Flip these back to reintroduce rounding everywhere at once. */
+  --radius-frame: 0;
+  --radius-control: 0;
+}
+
+/* ==========================================================================
+ * 2. BASE — element defaults
+ * ------------------------------------------------------------------------
+ * The panels use bare element selectors (section/h2/button/input/table), so
+ * their look lives here rather than in per-component utility soup.
+ * ========================================================================*/
+@layer base {
+  :where(.uoc-wc74) {
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  :where(.uoc-wc74) {
+    margin: 0;
+    /* A very slight cool vignette lifts the centre of the page off pure black
+     * without touching effective text contrast (both stops are near-black). */
+    background: radial-gradient(120rem 60rem at 50% -10%, #0a111a 0%, var(--color-bg) 60%) no-repeat
+      fixed var(--color-bg);
+    color: var(--color-text);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  /* Fluid page container: full-width on phones, centred + capped for readable
+   * line lengths on desktop. #app is the Svelte mount point. */
+  :where(.uoc-wc74) {
+    display: block;
+    width: 100%;
+    max-width: 72rem;
+    margin-inline: auto;
+    /* R53: condensed page gutter — the UI reads denser, closer to the EVE
+     * client, and a tighter gutter can only reduce horizontal overflow risk. */
+    padding: 0.75rem;
+  }
+  @media (min-width: 640px) {
+    :where(.uoc-wc74) {
+      padding: 1rem;
+    }
+  }
+  @media (min-width: 1024px) {
+    :where(.uoc-wc74) {
+      padding: 1.25rem;
+    }
+  }
+
+  /* --- type scale ---------------------------------------------------------
+   * Condensed, uppercase, letter-spaced headers are the single strongest
+   * "EVE" signal in the whole system. Body copy stays comfortable and mixed
+   * case — the theme is not allowed to cost readability. */
+  /* R73: the header scale is the display face's home ground. Sizes are nudged up
+   * ~7% against the previous Segoe UI values because a condensed face sets
+   * OPTICALLY SMALLER at the same nominal size — matching the numbers would have
+   * shrunk every header on screen. Tracking is unchanged: condensed + wide
+   * tracking is the look, and it is what the whole system was already built to. */
+  :where(.uoc-wc74) h1 {
+    font-family: var(--font-display);
+    font-size: 1.12rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-accent-bright);
+    margin: 0 0 1rem;
+  }
+  :where(.uoc-wc74) h2 {
+    font-family: var(--font-display);
+    font-size: 0.86rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    margin: 0 0 0.6rem;
+  }
+  :where(.uoc-wc74) h3 {
+    font-family: var(--font-display);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0.75rem 0 0.3rem;
+    color: var(--color-muted);
+  }
+
+  /* Touch-sized controls: >=40px hit area (R8), comfortable padding. */
+  :where(.uoc-wc74) button {
+    background: linear-gradient(180deg, #1a2c42 0%, var(--color-panel-2) 100%);
+    color: var(--color-text-bright);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-control);
+    /* R53: condensed horizontal padding for a tighter, more technical control.
+     * min-height 2.5rem (40px, R8) is unchanged — a square button can be dense
+     * and still a full touch target. */
+    padding: 0.5rem 0.7rem;
+    min-height: 2.5rem;
+    cursor: pointer;
+    font: inherit;
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+    transition:
+      background 120ms linear,
+      border-color 120ms linear;
+  }
+  :where(.uoc-wc74) button:hover:not(:disabled) {
+    background: linear-gradient(180deg, #24405f 0%, #1d334f 100%);
+    border-color: var(--color-accent-dim);
+  }
+  :where(.uoc-wc74) button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  :where(.uoc-wc74) input,
+  :where(.uoc-wc74) select,
+  :where(.uoc-wc74) textarea {
+    background: var(--color-field);
+    color: var(--color-text-bright);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-control);
+    /* R53: condensed padding; min-height 2.5rem (40px, R8) unchanged. */
+    padding: 0.45rem 0.55rem;
+    min-height: 2.5rem;
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+    max-width: 100%;
+  }
+  /* Checkboxes are not text fields — no min-height / full padding. */
+  :where(.uoc-wc74) input[type="checkbox"],
+  :where(.uoc-wc74) input[type="radio"] {
+    min-height: 0;
+    width: auto;
+    accent-color: var(--color-accent);
+  }
+
+  /* One focus treatment for every interactive thing, and it is always
+   * visible — keyboard players must never lose their place. */
+  :where(.uoc-wc74) :focus-visible {
+    outline: 2px solid var(--color-accent-bright);
+    outline-offset: 2px;
+  }
+}
+
+/* ==========================================================================
+ * 3. COMPONENTS
+ * ========================================================================*/
+@layer components {
+  /* ------------------------------------------------------------- panels --
+   * The frame every panel sits in. A thin cool border, a slightly lifted
+   * surface, and a hairline accent along the top edge — the "console frame"
+   * read — plus a clipped top-right corner for the industrial feel.
+   * `section` and `.panel` are the same component; `.panel` exists so a
+   * non-section element can be one. */
+  :where(.uoc-wc74) section,
+  :where(.uoc-wc74) .panel {
+    position: relative;
+    border: 1px solid var(--color-line);
+    background: linear-gradient(180deg, #101825 0%, var(--color-panel) 3rem) var(--color-panel);
+    border-radius: var(--radius-frame);
+    /* R53: condensed card padding + vertical rhythm between panels. */
+    padding: 0.55rem 0.8rem;
+    margin-bottom: 0.7rem;
+  }
+  /* The accent hairline. A pseudo-element (not a border) so it can inset from
+   * the rounded corners and fade out to the right. */
+  :where(.uoc-wc74) section::before,
+  :where(.uoc-wc74) .panel::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0.75rem;
+    top: -1px;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      var(--color-accent) 0%,
+      var(--color-accent-dim) 45%,
+      transparent 100%
+    );
+    pointer-events: none;
+  }
+  @media (min-width: 640px) {
+    :where(.uoc-wc74) section,
+    :where(.uoc-wc74) .panel {
+      padding: 0.75rem 1rem;
+    }
+  }
+
+  /* A panel header: title on the left, its actions on the right, divided from
+   * the body. It bleeds to the panel edges, so it needs to cancel the panel's
+   * own padding. */
+  :where(.uoc-wc74) .panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: center;
+    justify-content: space-between;
+    /* R53: the negative inline margin must stay equal to the panel's own
+     * (condensed) inline padding so the head still bleeds to the panel edge. */
+    margin: -0.55rem -0.8rem 0.7rem;
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--color-line);
+    background: linear-gradient(180deg, rgb(127 180 217 / 0.06), transparent);
+    border-radius: var(--radius-frame) var(--radius-frame) 0 0;
+  }
+  @media (min-width: 640px) {
+    :where(.uoc-wc74) .panel-head {
+      margin: -0.75rem -1rem 0.8rem;
+      padding: 0.6rem 1rem;
+    }
+  }
+  :where(.uoc-wc74) .panel-head > h1,
+  :where(.uoc-wc74) .panel-head > h2,
+  :where(.uoc-wc74) .panel-head > h3 {
+    margin: 0;
+  }
+  :where(.uoc-wc74) .panel-head > .controls {
+    margin: 0;
+  }
+  /* ⚠ THE ACTIONS HUG THE RIGHT EDGE EVEN WHEN THE TITLE IS GONE.
+   *
+   * `justify-content: space-between` only pushes them there while something
+   * else is in the row — and inside a window the title is clipped out of flow
+   * (see `.panel-title`), which left every window's Refresh sitting at the far
+   * LEFT of its strip, under the title bar's own text. The strip then read as a
+   * second toolbar rather than as this panel's one row of actions. */
+  :where(.uoc-wc74) .panel-head > .controls {
+    margin-left: auto;
+  }
+  /* The one line that CHANGES, in the strip beside the actions: how many are
+   * flying, what the balance is, how many are unread. A panel has at most one,
+   * and it belongs here rather than below the divider — the strip is the band a
+   * player's eye already goes to, and a fact on its own line below it is a fact
+   * that has to be hunted for. */
+  :where(.uoc-wc74) .panel-head > .stat-line {
+    margin: 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-muted);
+  }
+  :where(.uoc-wc74) .panel-head > .stat-line strong {
+    color: var(--color-text-bright);
+  }
+  /* The panel title. `h1` is the app title in App.svelte, so a panel titles
+   * itself with an `h2` — sized up here so it still reads as the page heading,
+   * distinct from the smaller in-panel section headers below it. */
+  :where(.uoc-wc74) .panel-head > h2 {
+    font-size: 0.95rem;
+    color: var(--color-accent-bright);
+  }
+
+  /* ⚠ A STRIP IS ONE LINE HIGH, because the frame around it is 30px and a
+   * 60px band under a 30px title bar reads as the heavier of the two.
+   *
+   * Measured before this rule: every window with a head spent 60px on it — a
+   * 40px button (R8's touch minimum) inside 0.6rem of padding — to carry, in
+   * most cases, the single word "Refresh". Six windows spent none at all,
+   * because they have no head; so the same app drew the same zone three
+   * different heights, and the one thing it was never proportional to was how
+   * much it had to say.
+   *
+   * ⚠ THE 40px MINIMUM IS KEPT FOR FINGERS AND RELAXED FOR MICE, which is the
+   * `.hud-stop` trade and scoped the same way: on `pointer: coarse` the button
+   * goes back to full size and the strip grows with it. A pointer query, not a
+   * width — a desktop-width tablet is still a finger. */
+  @media (pointer: fine) {
+    /* ⚠ NOT AS TIGHT AS IT WILL GO. The first cut of this was `0.15rem`, which
+     * put a 30px button inside a 36px band: the controls touched the title bar
+     * above them and the divider below, and the strip read as buttons glued to
+     * the title rather than as a row of its own. A strip needs to be thin AND
+     * to have air in it; these two are not the same instruction. */
+    :where(.uoc-wc74) .panel-head {
+      padding-block: 0.3rem;
+    }
+    /* ⚠ ANY CONTROL IN THE STRIP, not just a button inside `.controls`. The
+     * first cut of this rule read `.panel-head > .controls > button` and missed
+     * three of the busiest windows: Fleet puts its button straight in the head,
+     * Fitting nests its view switch one span deeper, and Market's strip is a
+     * search FIELD. Each of those stayed 40px and left its window's strip
+     * standing 10px taller than the rest — the exact raggedness the floor
+     * below exists to remove. */
+    :where(.uoc-wc74) .panel-head :is(button, input, select) {
+      min-height: 1.9rem;
+    }
+    :where(.uoc-wc74) .panel-head :is(button, select) {
+      padding-block: 0.25rem;
+    }
+    /* ⚠ ONE BAND, NOT A BAND PER PANEL. Measured across the thirty windows:
+     * a head holding a button came out 36px, one holding only a count 26px, one
+     * with two rows of controls 46px. Nothing was wrong with any of them on its
+     * own — but the strip is the same zone in the same frame on every window,
+     * and a zone that changes height with its contents stops reading as part of
+     * the frame. A floor, not a fixed height: Scanner genuinely has two rows of
+     * controls and is allowed to be taller.
+     *
+     * A head with nothing visible in it still collapses to nothing — that rule
+     * lives with the title-clipping it belongs to, and comes later in the file
+     * so it wins over this floor. */
+    :where(.uoc-wc74) .panel-head {
+      min-height: 2.5rem;
+    }
+  }
+
+  /* A section header inside a panel body gets a small accent tick, so the eye
+   * finds the start of each block without needing a heavy rule. */
+  :where(.uoc-wc74) section > h2::before,
+  :where(.uoc-wc74) .panel > h2::before {
+    content: "";
+    display: inline-block;
+    width: 0.2rem;
+    height: 0.72em;
+    margin-right: 0.5rem;
+    vertical-align: -0.02em;
+    background: var(--color-accent);
+    border-radius: 0;
+  }
+  /* ...but not when the h2 IS the panel header — that already has a divider. */
+  :where(.uoc-wc74) .panel-head > h2::before {
+    display: none;
+  }
+
+  /* ------------------------------------------------- the display face (R73) --
+   * Every SHORT, UPPERCASE, LETTER-SPACED string in the system, in one place.
+   *
+   * The test for membership is not "is it a label" — it is "is it set in caps
+   * with tracking". Those are the strings a condensed face improves: they are
+   * read as shapes, not sentences, and the extra width of a UI face is wasted on
+   * them. Anything a player reads as PROSE stays in the body face, however small
+   * it is, which is why `.note`, `.empty`, table CELLS and every message are
+   * absent from this list. */
+  :where(.uoc-wc74) .badge,
+  :where(.uoc-wc74) .threat-badge,
+  :where(.uoc-wc74) .state-badge,
+  :where(.uoc-wc74) nav.tabs button,
+  :where(.uoc-wc74) .win-title,
+  :where(.uoc-wc74) .neocom-item-label,
+  :where(.uoc-wc74) .neocom-readout-label,
+  :where(.uoc-wc74) .neocom-portrait,
+  :where(.uoc-wc74) .hud-label,
+  :where(.uoc-wc74) .hud-readout dt,
+  :where(.uoc-wc74) .wheel-cap-label,
+  :where(.uoc-wc74) .rack-row-label,
+  :where(.uoc-wc74) .rack-damage-head,
+  :where(.uoc-wc74) .panel-head > h2,
+  :where(.uoc-wc74) table.guests thead th,
+  :where(.uoc-wc74) table.guests tbody th,
+  :where(.uoc-wc74) dl.kv dt,
+  :where(.uoc-wc74) .controls > label,
+  :where(.uoc-wc74) .agent-filter label,
+  :where(.uoc-wc74) .fit-hull .fit-hull-class,
+  :where(.uoc-wc74) .fit-detail .fit-detail-slot,
+  :where(.uoc-wc74) .tactical-empty,
+  :where(.uoc-wc74) .item-tile-pick {
+    font-family: var(--font-display);
+  }
+  /* Tabular figures are a body-face job: Barlow Condensed's digits are narrow
+   * enough that a column of them stops lining up against the letters beside it,
+   * and a number you read OFF the screen is data, not a label. */
+  :where(.uoc-wc74) .hud-value,
+  :where(.uoc-wc74) .hud-readout dd,
+  :where(.uoc-wc74) table.guests td.num,
+  :where(.uoc-wc74) dl.kv dd {
+    font-family: inherit;
+  }
+
+  /* A horizontal divider between blocks inside one panel. */
+  :where(.uoc-wc74) .divider {
+    border: 0;
+    border-top: 1px solid var(--color-line);
+    margin: 0.7rem 0;
+  }
+
+  /* ------------------------------------------------------------ copy --- */
+  :where(.uoc-wc74) .note {
+    color: var(--color-muted);
+    max-width: 68ch;
+  }
+  :where(.uoc-wc74) small.note {
+    font-size: 12px;
+  }
+  :where(.uoc-wc74) .error {
+    color: var(--color-danger);
+    /* An error is never colour alone: it carries a leading marker. */
+    font-weight: 600;
+  }
+  :where(.uoc-wc74) .error::before {
+    content: "! ";
+    font-weight: 700;
+  }
+
+  /* The consistent "there is nothing here" treatment. An empty state is a
+   * fact, not a fault — it reads calm, inset, and centred, and it is visibly
+   * different from an `.error`. */
+  :where(.uoc-wc74) .empty {
+    display: block;
+    margin: 0;
+    padding: 1.1rem 1rem;
+    text-align: center;
+    color: var(--color-muted);
+    background: var(--color-panel-3);
+    border: 1px dashed var(--color-line);
+    border-radius: var(--radius-frame);
+  }
+
+  /* ------------------------------------------------------- controls ----- */
+  /* The default <button> is the SECONDARY control. Primary is the one action
+   * the panel most expects you to take; minor is tertiary; danger is the
+   * armed half of a two-step destroy. */
+  :where(.uoc-wc74) button.primary {
+    background: linear-gradient(180deg, var(--color-accent-bright) 0%, var(--color-accent) 100%);
+    border-color: var(--color-accent-bright);
+    color: var(--color-on-accent);
+    font-weight: 600;
+  }
+  :where(.uoc-wc74) button.primary:hover:not(:disabled) {
+    background: linear-gradient(180deg, #c4e4ff 0%, var(--color-accent-bright) 100%);
+    border-color: #c4e4ff;
+  }
+  :where(.uoc-wc74) button.minor {
+    background: transparent;
+    border-color: var(--color-line);
+    color: var(--color-muted);
+  }
+  :where(.uoc-wc74) button.minor:hover:not(:disabled) {
+    background: rgb(127 180 217 / 0.08);
+    border-color: var(--color-line-strong);
+    color: var(--color-text);
+  }
+  /* Active/selected state (nav tabs, chat sub-tabs, selected agent chip). */
+  :where(.uoc-wc74) button.active {
+    background: linear-gradient(180deg, var(--color-accent-bright) 0%, var(--color-accent) 100%);
+    border-color: var(--color-accent-bright);
+    color: var(--color-on-accent);
+    font-weight: 600;
+  }
+  /* An irreversible action (the armed half of a two-step destroy). Deliberately
+   * loud, and only ever rendered AFTER the player has already asked for it. */
+  :where(.uoc-wc74) button.danger {
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+    color: var(--color-on-danger);
+    font-weight: 600;
+  }
+  :where(.uoc-wc74) button.danger:hover:not(:disabled) {
+    background: #ff6b7a;
+    border-color: #ff6b7a;
+  }
+
+  /* The bulk-action bar that appears once rows are ticked. It sits between the
+   * page controls and the tables it acts on, so it is marked out from them. */
+  :where(.uoc-wc74) section.bulk {
+    border-color: var(--color-accent-dim);
+    background: linear-gradient(180deg, rgb(127 180 217 / 0.09), var(--color-panel) 4rem);
+  }
+
+  /* Tab bar: an EVE-style strip. Tabs sit on a shared rule; the active one is
+   * filled and lifted. Wraps to multiple rows on a phone so every tab stays
+   * visible and touch-sized; no horizontal body scroll (R8). */
+  :where(.uoc-wc74) nav.tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-bottom: 0.7rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--color-line);
+  }
+  :where(.uoc-wc74) nav.tabs button {
+    flex: 0 0 auto;
+    background: transparent;
+    border-color: transparent;
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.5rem 0.75rem;
+  }
+  :where(.uoc-wc74) nav.tabs button:hover:not(:disabled) {
+    background: rgb(127 180 217 / 0.08);
+    border-color: transparent;
+    color: var(--color-text-bright);
+  }
+  :where(.uoc-wc74) nav.tabs button.active {
+    background: linear-gradient(180deg, var(--color-accent-bright) 0%, var(--color-accent) 100%);
+    border-color: var(--color-accent-bright);
+    color: var(--color-on-accent);
+  }
+
+  /* Login / character-select forms: labels stack, inputs go full-width on
+   * mobile and cap on desktop. */
+  :where(.uoc-wc74) form label {
+    display: block;
+    margin-bottom: 0.6rem;
+    color: var(--color-muted);
+  }
+  :where(.uoc-wc74) form input {
+    display: block;
+    margin-top: 0.25rem;
+    width: 100%;
+    max-width: 22rem;
+  }
+
+  /* Control rows (Flight/Travel/Inventory action groups): each labelled field
+   * is a stacked block; on a phone the whole row and its buttons go full-width
+   * and stack cleanly. */
+  :where(.uoc-wc74) .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.6rem;
+    align-items: flex-end;
+    margin: 0;
+  }
+  :where(.uoc-wc74) .controls > label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    flex: 1 1 12rem;
+    min-width: 0;
+  }
+  :where(.uoc-wc74) .controls > label input,
+  :where(.uoc-wc74) .controls > label select {
+    width: 100%;
+  }
+  @media (max-width: 640px) {
+    :where(.uoc-wc74) .controls {
+      align-items: stretch;
+    }
+    :where(.uoc-wc74) .controls > button {
+      width: 100%;
+    }
+  }
+
+  /* Filter bars (Agents & Missions, Agent Finder) — same stacking idea. */
+  :where(.uoc-wc74) .agent-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.6rem;
+    align-items: flex-end;
+    margin-bottom: 0.6rem;
+  }
+  :where(.uoc-wc74) .agent-filter label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    flex: 1 1 10rem;
+    min-width: 0;
+  }
+  /* A checkbox label reads inline, not stacked. */
+  :where(.uoc-wc74) .agent-filter label:has(input[type="checkbox"]) {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 0 0 auto;
+    text-transform: none;
+    font-size: 14px;
+    letter-spacing: 0;
+  }
+  :where(.uoc-wc74) .agent-filter input,
+  :where(.uoc-wc74) .agent-filter select {
+    width: 100%;
+  }
+  @media (max-width: 640px) {
+    :where(.uoc-wc74) .agent-filter > button {
+      width: 100%;
+    }
+  }
+
+  /* --------------------------------------------------------- badges ----- */
+  /* A small status pill. Always carries its own text, so the colour is
+   * reinforcement and never the only signal. */
+  :where(.uoc-wc74) .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.15rem 0.5rem;
+    border-radius: 0;
+    border: 1px solid var(--color-line-strong);
+    color: var(--color-text-bright);
+    background: var(--color-panel-3);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  :where(.uoc-wc74) .badge.good {
+    border-color: var(--color-good);
+    color: var(--color-good);
+  }
+  :where(.uoc-wc74) .badge.warn {
+    border-color: var(--color-warn);
+    color: var(--color-warn);
+  }
+  :where(.uoc-wc74) .badge.bad {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+  }
+  :where(.uoc-wc74) .badge.accent {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+
+  /* ---------------------------------------------------------- lists ----- */
+  :where(.uoc-wc74) ul.character-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  :where(.uoc-wc74) ul.character-list li {
+    margin-bottom: 0.5rem;
+  }
+  :where(.uoc-wc74) button.character {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.6rem 0.9rem;
+  }
+  :where(.uoc-wc74) button.character .name {
+    display: block;
+    color: var(--color-text-bright);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  :where(.uoc-wc74) button.character .detail {
+    display: block;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Key/value grid (station identity, services). */
+  :where(.uoc-wc74) dl.kv {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.2rem 1rem;
+    margin: 0;
+  }
+  :where(.uoc-wc74) dl.kv dt {
+    color: var(--color-muted);
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  :where(.uoc-wc74) dl.kv dd {
+    margin: 0;
+    color: var(--color-text-bright);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Agent chips (roster select buttons). */
+  :where(.uoc-wc74) ul.agent-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  :where(.uoc-wc74) ul.agent-list li {
+    margin: 0;
+  }
+  :where(.uoc-wc74) .agent-says {
+    color: var(--color-text-bright);
+    margin: 0.25rem 0 0.75rem;
+    padding-left: 0.7rem;
+    border-left: 2px solid var(--color-accent-dim);
+  }
+
+  /* Journal / route lists. */
+  :where(.uoc-wc74) ul.journal {
+    list-style: none;
+    margin: 0.25rem 0 0;
+    padding: 0;
+    color: var(--color-cell);
+  }
+  :where(.uoc-wc74) ul.journal li {
+    padding: 0.2rem 0;
+    border-bottom: 1px solid var(--color-row-line);
+  }
+  :where(.uoc-wc74) ul.journal li:last-child {
+    border-bottom: 0;
+  }
+  :where(.uoc-wc74) ol.route {
+    margin: 0.25rem 0 0;
+    padding-left: 1.4rem;
+    color: var(--color-cell);
+    font-variant-numeric: tabular-nums;
+  }
+  :where(.uoc-wc74) ol.route li {
+    padding: 0.12rem 0;
+  }
+
+  /* ================================================================ data --
+   * Base data-table look. Two shapes use table.guests:
+   *  - record tables (thead + many columns) — these get `.reflow` and become
+   *    stacked labelled cards on phones.
+   *  - key/value tables (a <th> row-label + <td> value, no thead) — already
+   *    narrow, they stay as-is at every width.
+   */
+  :where(.uoc-wc74) table.guests {
+    border-collapse: collapse;
+    width: 100%;
+    /* Numbers must line up under numbers, in every column, always. */
+    font-variant-numeric: tabular-nums;
+  }
+  :where(.uoc-wc74) table.guests th,
+  :where(.uoc-wc74) table.guests td {
+    text-align: left;
+    padding: 0.35rem 0.7rem 0.35rem 0;
+    border-bottom: 1px solid var(--color-row-line);
+    color: var(--color-cell);
+    vertical-align: top;
+  }
+  /* Column headers: condensed uppercase, on a stronger rule than the rows. */
+  :where(.uoc-wc74) table.guests thead th {
+    color: var(--color-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-weight: 600;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--color-line-strong);
+    padding-bottom: 0.4rem;
+  }
+  /* A key/value table's row-label <th> (no thead). */
+  :where(.uoc-wc74) table.guests tbody th {
+    color: var(--color-muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    white-space: nowrap;
+    padding-right: 1rem;
+  }
+  /* The row you are: brighter and bolder — never colour alone. */
+  :where(.uoc-wc74) table.guests tr.self td {
+    color: var(--color-text-bright);
+    font-weight: 600;
+  }
+
+  /* A numeric cell: right-aligned so magnitudes line up, tabular so digits
+   * do. Applied to the <th> and every <td> of a numeric column — ISK,
+   * quantities, distances, jumps, percentages. */
+  :where(.uoc-wc74) table.guests th.num,
+  :where(.uoc-wc74) table.guests td.num {
+    text-align: right;
+    padding-right: 0.9rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  /* Numbers you read off the screen deserve the bright ink. */
+  :where(.uoc-wc74) table.guests td.num {
+    color: var(--color-text-bright);
+  }
+
+  /* Density + scannability: zebra rows and a hover highlight. Only above the
+   * reflow breakpoint — below it every row is its own card (see section 4),
+   * and striping cards would fight the card background. */
+  @media (min-width: 641px) {
+    :where(.uoc-wc74) table.guests tbody tr:nth-child(even) {
+      background: rgb(255 255 255 / 0.018);
+    }
+    :where(.uoc-wc74) table.guests tbody tr:hover {
+      background: rgb(127 180 217 / 0.07);
+    }
+  }
+
+  /* Any table that must stay wider than the viewport scrolls inside its own
+   * box, so the page itself never scrolls sideways (R8).
+   *
+   * ⚠ IT IS ALSO THE REFLOW'S CONTAINER (R85). The card reflow used to be a
+   * MEDIA query — it asked how wide the VIEWPORT was, which is the wrong
+   * question in an app made of floating windows and a resizable dock column. A
+   * four-column table in a 320px panel on a 1440px screen kept the wide layout
+   * and crushed its cells to ~50px; the reflow only fired if the whole browser
+   * was phone-sized. Making the wrapper a container lets the query ask how wide
+   * THE PANEL is, which is what actually decides whether a row fits.
+   *
+   * Safe to contain: this is already `width: 100%`, so its inline size comes
+   * from its parent and never from its contents — which is exactly the
+   * condition `inline-size` containment requires. */
+  :where(.uoc-wc74) .table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    container-type: inline-size;
+  }
+  /* A long list (the space overview) scrolls inside its own box rather than
+     growing the whole page — so the ship HUD and controls above it stay put. */
+  :where(.uoc-wc74) .overview-scroll {
+    max-height: 65vh;
+    overflow-y: auto;
+  }
+
+  /* ===================================================== meters / gauges --
+   * Labelled percentage bars for used-vs-total resources: shield, armor, hull,
+   * capacitor, CPU, powergrid, calibration, cargo. Every gauge renders its
+   * label AND its value as text next to the bar, so the bar is a fast visual
+   * summary and never the only way to read the state.
+   *
+   * R21 builds its fitting readouts on exactly this component. */
+  :where(.uoc-wc74) .hud {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 0.7rem 1.1rem;
+  }
+  :where(.uoc-wc74) .hud-gauge {
+    display: flex;
+    flex-direction: column;
+    gap: 0.28rem;
+  }
+  :where(.uoc-wc74) .hud-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  :where(.uoc-wc74) .hud-label {
+    color: var(--color-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    font-weight: 600;
+  }
+  :where(.uoc-wc74) .hud-value {
+    color: var(--color-text-bright);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  :where(.uoc-wc74) .hud-track {
+    height: 0.55rem;
+    border-radius: 0;
+    background: var(--color-panel-3);
+    border: 1px solid var(--color-line);
+    overflow: hidden;
+  }
+  :where(.uoc-wc74) .hud-fill {
+    display: block;
+    height: 100%;
+    border-radius: 0;
+    background: var(--color-accent);
+    transition: width 200ms linear;
+  }
+  /* The ship resource triad, plus the fitting resources. */
+  :where(.uoc-wc74) .hud-gauge.shield .hud-fill {
+    background: var(--color-shield);
+  }
+  :where(.uoc-wc74) .hud-gauge.armor .hud-fill {
+    background: var(--color-armor);
+  }
+  :where(.uoc-wc74) .hud-gauge.hull .hud-fill {
+    background: var(--color-hull);
+  }
+  :where(.uoc-wc74) .hud-gauge.capacitor .hud-fill {
+    background: var(--color-capacitor);
+  }
+  :where(.uoc-wc74) .hud-gauge.cpu .hud-fill {
+    background: var(--color-cpu);
+  }
+  :where(.uoc-wc74) .hud-gauge.powergrid .hud-fill {
+    background: var(--color-powergrid);
+  }
+  :where(.uoc-wc74) .hud-gauge.calibration .hud-fill {
+    background: var(--color-calibration);
+  }
+  /* The label takes the gauge's colour too, so the pairing is learnable. */
+  :where(.uoc-wc74) .hud-gauge.shield .hud-label {
+    color: var(--color-shield);
+  }
+  :where(.uoc-wc74) .hud-gauge.armor .hud-label {
+    color: var(--color-armor);
+  }
+  :where(.uoc-wc74) .hud-gauge.hull .hud-label {
+    color: var(--color-hull);
+  }
+  :where(.uoc-wc74) .hud-gauge.capacitor .hud-label {
+    color: var(--color-capacitor);
+  }
+  :where(.uoc-wc74) .hud-gauge.cpu .hud-label {
+    color: var(--color-cpu);
+  }
+  :where(.uoc-wc74) .hud-gauge.powergrid .hud-label {
+    color: var(--color-powergrid);
+  }
+
+  /* ================================================= workspace desktop --
+   * The always-open desktop (windowing refactor). A fixed, full-viewport frame:
+   * the Neocom launcher down the left, then a work column — a context header,
+   * the desktop of floating panel windows beside the collapsible top-right dock
+   * panel, and (in space) a persistent HUD bar along the bottom. Fixed so the
+   * desktop owns the whole screen and window coordinates stay stable; the
+   * login/character-select screens still render in the normal centered #app
+   * flow (this frame only mounts once a character is online). */
+  /* R107 — the fixed character bar owns the very top strip; both workspaces
+   * (desktop + mobile) start just below it. `--char-bar-h` keeps the bar height
+   * and the offset in lockstep. */
+  :where(.uoc-wc74) {
+    --char-bar-h: 2.75rem;
+  }
+  :where(.uoc-wc74) .workspace {
+    position: fixed;
+    inset: var(--char-bar-h) 0 0 0;
+    display: grid;
+    grid-template-columns: minmax(8.5rem, 12rem) minmax(0, 1fr);
+    background: radial-gradient(120rem 60rem at 50% -10%, #0a111a 0%, var(--color-bg) 60%) no-repeat
+      var(--color-bg);
+  }
+  :where(.uoc-wc74) .work {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 0.6rem;
+  }
+  /* THE WORK AREA IS A GRID, and it is the same grid in both states.
+   *
+   * Docked there is one row: the window surface on the left, the Station panel
+   * on the right. In space the left side splits — the radar keeps the top and
+   * the ship HUD takes a fixed strip beneath it — while the dock column spans
+   * both rows, so the overview stays full height.
+   *
+   * ⚠ THE HUD IS A CELL, NOT A FOOTER. It used to sit under the whole work area,
+   * which meant the dock column stopped short of the bottom of the screen for
+   * no reason. Moving it inside costs nothing docked, where the row does not
+   * exist at all.
+   *
+   * ⚠ AND THE WINDOW SURFACE IS THE RADAR'S CELL. That is what gives the
+   * handoff's "floating windows live only inside the radar rect" for free: the
+   * windows are children of `.desktop`, and every clamp in DesktopWindow and
+   * Desktop already measures `.desktop`. Nothing about the clamping changed. */
+  :where(.uoc-wc74) .work-main {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    display: grid;
+    gap: 0.6rem;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-areas: "surface panel";
+  }
+  :where(.uoc-wc74) .workspace.in-space .work-main {
+    /* ⚠ THE HUD ROW SIZES TO ITS CONTENT, AND 21rem IS NOW ONLY A CEILING.
+     *
+     * It used to be a fixed 21rem, measured: at 17rem the low rack was cut four
+     * pixels short of its own row and at 19rem the weapon-banking strip under
+     * it was, and a rack you cannot see the bottom of is the one thing this
+     * cell exists to prevent. But a measured height is only right for the
+     * content it was measured against -- the footer came off the cell and the
+     * number stayed, leaving a band of empty panel below the racks.
+     *
+     * `auto` cannot be wrong in either direction: it cannot cut the rack short
+     * and it cannot leave a gap. The 21rem survives as a `max-height` on the
+     * cell itself, which is the half of the old number that was actually doing
+     * work -- a hull with a great many slots must not squeeze the radar to
+     * nothing, and `.hud-body` already scrolls. */
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "surface panel"
+      "hud     panel";
+  }
+  /* ⚠ 24rem, RAISED FROM 21. The ceiling exists so a hull with a great many
+   * slots cannot squeeze the radar to nothing, and 21rem was measured when the
+   * cell held ONE line of clusters. Three of them wrap to two lines on a 1280px
+   * window with the dock panel open, which is 340px of content against a 336px
+   * ceiling — the cell scrolled to hide four pixels. The radar still keeps the
+   * clear majority of the surface, and `.hud-body` still scrolls beyond this
+   * rather than pushing the radar off the screen. */
+  :where(.uoc-wc74) .workspace.in-space .work-main > .hud-bar {
+    max-height: 24rem;
+  }
+  :where(.uoc-wc74) .work-main > .desktop {
+    grid-area: surface;
+  }
+  :where(.uoc-wc74) .work-main > .dock-panel {
+    grid-area: panel;
+  }
+  :where(.uoc-wc74) .work-main > .hud-bar {
+    grid-area: hud;
+  }
+  /* Align HUD to Top (shipUI.UpdatePosition: the HUD CENTERTOP): its row above the view, and its header, the action
+   * indication, under the instruments, toward the view's middle (_update_indicator_cont_top). */
+  :where(.uoc-wc74) .workspace.in-space.hud-top .work-main {
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas:
+      "hud     panel"
+      "surface panel";
+  }
+  :where(.uoc-wc74) .work-main > .hud-bar > .hud-head {
+    grid-row: 1;
+  }
+  :where(.uoc-wc74) .work-main > .hud-bar > .buff-bar {
+    grid-row: 2;
+  }
+  :where(.uoc-wc74) .work-main > .hud-bar > .hud-body {
+    grid-row: 3;
+  }
+  :where(.uoc-wc74) .workspace.hud-top .hud-bar {
+    grid-template-rows: 1fr auto auto;
+  }
+  :where(.uoc-wc74) .workspace.hud-top .hud-bar > .hud-head {
+    grid-row: 3;
+  }
+  :where(.uoc-wc74) .workspace.hud-top .hud-bar > .buff-bar {
+    grid-row: 2;
+  }
+  :where(.uoc-wc74) .workspace.hud-top .hud-bar > .hud-body {
+    grid-row: 1;
+  }
+
+  /* The buff bar (buffButtons.py): 48-pixel slots of 40-pixel icons in a row, centred over the instruments. Each slot
+   * is drawn as the client draws its button: its underlay's two textures in the button class's colour, added
+   * (SLOT_COLOR, slot_gradient at 0.25 and slot_base at 0.2), the icon tinted (ICON_COLOR, brighter under the
+   * pointer), and its timer's gauge in TIMER_COLOR at 0.65. */
+  :where(.uoc-wc74) .buff-bar {
+    display: flex;
+    justify-content: center;
+    gap: 0;
+    padding: 2px 0;
+  }
+  :where(.uoc-wc74) .buff-slot {
+    --slot-color: rgb(255 255 255);
+    --icon-tint: none;
+    --timer-color: rgb(255 255 255);
+    position: relative;
+    width: 48px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    outline-offset: -2px;
+  }
+  :where(.uoc-wc74) .buff-slot.offensive {
+    --slot-color: rgb(179 0 0);
+    --icon-tint: sepia(1) saturate(2) hue-rotate(-30deg) brightness(1.1);
+    --timer-color: rgb(255 77 0);
+  }
+  :where(.uoc-wc74) .buff-slot.defensive {
+    --slot-color: rgb(0 153 153);
+    --icon-tint: sepia(1) saturate(2) hue-rotate(130deg) brightness(1.1);
+    --timer-color: rgb(0 204 204);
+  }
+  :where(.uoc-wc74) .buff-slot-underlay,
+  :where(.uoc-wc74) .buff-slot-underlay::after {
+    position: absolute;
+    inset: 0 4px;
+    background: var(--slot-color);
+    mix-blend-mode: plus-lighter;
+    mask-size: 100% 100%;
+    pointer-events: none;
+  }
+  :where(.uoc-wc74) .buff-slot-underlay {
+    mask-image: var(--underlay-grad);
+    opacity: 0.25;
+  }
+  :where(.uoc-wc74) .buff-slot-underlay::after {
+    content: "";
+    inset: 0;
+    mask-image: var(--underlay-clean);
+    opacity: 0.8;
+  }
+  :where(.uoc-wc74) .buff-slot-icon {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    filter: var(--icon-tint);
+  }
+  :where(.uoc-wc74) .buff-slot:hover .buff-slot-icon,
+  :where(.uoc-wc74) .buff-slot:focus-visible .buff-slot-icon {
+    filter: var(--icon-tint) brightness(1.5);
+  }
+  :where(.uoc-wc74) .buff-slot-timer {
+    position: absolute;
+    inset: 0 4px;
+    border-radius: 50%;
+    opacity: 0.65;
+    background: conic-gradient(var(--timer-color) var(--left), transparent 0);
+    mask: radial-gradient(circle, transparent 15px, black 16px, black 18px, transparent 19px);
+    pointer-events: none;
+  }
+  :where(.uoc-wc74) .buff-slot-name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  /* The hint (LoadGeneric3ColumnTemplate, cellSpacing 10 by 4): the caption across the three columns, then a row a
+   * buff: its value to the right, its name, its time left. */
+  :where(.uoc-wc74) .buff-tip {
+    position: fixed;
+    z-index: 60;
+    transform: translate(-50%, -100%);
+    display: grid;
+    grid-template-columns: auto auto auto;
+    column-gap: 10px;
+    row-gap: 4px;
+    padding: 8px 10px;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    color: var(--color-text);
+    font-size: 0.8rem;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  :where(.uoc-wc74) .buff-tip.below {
+    transform: translate(-50%, 0);
+  }
+  :where(.uoc-wc74) .buff-tip-caption {
+    grid-column: 1 / -1;
+    font-size: 0.9rem;
+  }
+  :where(.uoc-wc74) .buff-tip-value {
+    text-align: right;
+  }
+  /* A row with no third column fills the row (FillRow); a text across the three, grey (the failed attempts' line). */
+  :where(.uoc-wc74) .buff-tip-name.wide {
+    grid-column: span 2;
+  }
+  :where(.uoc-wc74) .buff-tip-full {
+    grid-column: 1 / -1;
+    color: var(--color-text-muted, #888);
+  }
+  /* A slot's menu (GetButtonMenu): its sources, each opening its own menu beneath it. */
+  :where(.uoc-wc74) .buff-menu-shade {
+    position: fixed;
+    inset: 0;
+    z-index: 61;
+  }
+  :where(.uoc-wc74) .buff-menu {
+    position: fixed;
+    z-index: 62;
+    display: flex;
+    flex-direction: column;
+    min-width: 12rem;
+    padding: 4px 0;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    font-size: 0.85rem;
+  }
+  :where(.uoc-wc74) .buff-menu-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 4px 12px;
+    background: none;
+    border: 0;
+    color: var(--color-text);
+    text-align: left;
+    cursor: pointer;
+  }
+  :where(.uoc-wc74) .buff-menu-item:hover:not(:disabled),
+  :where(.uoc-wc74) .buff-menu-item:focus-visible {
+    background: var(--color-line);
+  }
+  :where(.uoc-wc74) .buff-menu-item:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  :where(.uoc-wc74) .buff-menu-sub {
+    display: flex;
+    flex-direction: column;
+    padding-left: 12px;
+    border-left: 2px solid var(--color-line);
+    margin-left: 8px;
+  }
+
+  /* The Neocom inside the workspace: full-height, its own scroll, no sticky. */
+  :where(.uoc-wc74) .workspace .neocom {
+    position: static;
+    top: auto;
+    height: 100%;
+    overflow-y: auto;
+    border: 0;
+    border-right: 1px solid var(--color-line);
+  }
+  /* R74 removed the "EVEJS" brand block that used to sit at the top of the rail:
+   * the pilot's own plate is there now, which is both more useful and what the
+   * retail Neocom puts in that corner. The app is already named by the browser
+   * tab and the login screen. */
+
+  /* Open windows stay lit in the rail; the front-most one gets the accent spine.
+   * These sharpen the base rules above rather than restating them — the spine is
+   * the workspace's own signature and only makes sense where windows exist. */
+  :where(.uoc-wc74) .workspace .neocom-item.open {
+    background: var(--color-panel-2);
+    border-color: var(--color-line-strong);
+    color: var(--color-text-bright);
+  }
+  :where(.uoc-wc74) .workspace .neocom-item.active {
+    border-color: var(--color-accent);
+    color: var(--color-accent-bright);
+    box-shadow: inset 2px 0 0 var(--color-accent);
+  }
+
+  /* The context header (where you are + the one movement action). */
+  :where(.uoc-wc74) .ws-head {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0.75rem;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+  }
+  :where(.uoc-wc74) .ws-head-where {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+    min-width: 0;
+  }
+  :where(.uoc-wc74) .ws-head-where strong {
+    color: var(--color-text-bright);
+  }
+  :where(.uoc-wc74) .ws-head-where .muted {
+    color: var(--color-muted);
+    font-size: 0.85rem;
+  }
+  :where(.uoc-wc74) .ws-head-pilot {
+    margin-left: auto;
+    color: var(--color-text);
+  }
+  :where(.uoc-wc74) .ws-head-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  :where(.uoc-wc74) .ws-head-error {
+    color: var(--color-danger);
+    font-size: 0.85rem;
+  }
+  :where(.uoc-wc74) .ws-head .undock-btn,
+  :where(.uoc-wc74) .ws-head .dock-btn {
+    min-height: 36px;
+  }
+
+  /* ============================================== notices: flash + log (R80) --
+   * The transient half and the permanent half of one list. A flash is a recent
+   * notice that has not been dismissed; the log keeps every one.
+   *
+   * ⚠ IT IS CENTRED, AND IT IS NOT IN THE MIDDLE. Horizontally centred, parked
+   * in the upper band at 16vh — in the line of sight without being in the line
+   * of fire, because dead centre is where the ship is and where a pilot clicks.
+   * The column is centred by `margin-inline: auto` inside a full-width fixed
+   * strip rather than by `translateX(-50%)`, so a flash that grows a second line
+   * does not have to be re-centred and nothing is ever composited on a half
+   * pixel.
+   *
+   * ⚠ THE STACK NEVER EATS A CLICK. `pointer-events: none` on the container and
+   * `auto` on the flashes themselves, so the gaps between them — and everything
+   * underneath — stay live. A pilot is usually mid-action when one of these
+   * fires, and a notification that swallowed the click they were making would be
+   * worse than no notification. Over the middle of the screen that stops being
+   * politeness and starts being the difference between a warning and a misfire.
+   *
+   * Severity is a WORD on every flash and every log row; the colour repeats it
+   * and never carries it alone. */
+  :where(.uoc-wc74) .toasts {
+    position: fixed;
+    top: max(calc(var(--char-bar-h) + 0.6rem), 16vh);
+    left: 0;
+    right: 0;
+    z-index: 450;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    padding-inline: 0.7rem;
+    pointer-events: none;
+  }
+  :where(.uoc-wc74) .toast {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    width: min(26rem, 100%);
+    padding: 0.5rem 0.55rem;
+    background: color-mix(in srgb, var(--color-panel) 94%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--color-line-strong);
+    border-left-width: 3px;
+    box-shadow: 0 0.4rem 1rem rgba(0, 0, 0, 0.45);
+    pointer-events: auto;
+  }
+  :where(.uoc-wc74) .toast.good {
+    border-left-color: var(--color-good);
+  }
+  :where(.uoc-wc74) .toast.warn {
+    border-left-color: var(--color-warn);
+  }
+  :where(.uoc-wc74) .toast.danger {
+    border-left-color: var(--color-danger);
+  }
+  :where(.uoc-wc74) .toast.info {
+    border-left-color: var(--color-accent);
+  }
+  :where(.uoc-wc74) .toast-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+    flex: 1;
+    /* ⚠ CENTRED TEXT, WHICH A LIST WOULD NEVER GET. These are one or two
+       lines read at a glance and gone; a ragged left edge under a centred
+       column reads as misalignment rather than as text. The LOG, where the
+       same notices pile up and are scanned down, stays left-aligned. */
+    text-align: center;
+  }
+  :where(.uoc-wc74) .toast-kind {
+    font-family: var(--font-display);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+  :where(.uoc-wc74) .toast.danger .toast-kind {
+    color: var(--color-danger);
+  }
+  :where(.uoc-wc74) .toast.warn .toast-kind {
+    color: var(--color-warn);
+  }
+  :where(.uoc-wc74) .toast.good .toast-kind {
+    color: var(--color-good);
+  }
+  :where(.uoc-wc74) .toast-title {
+    color: var(--color-text-bright);
+    font-weight: 600;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+  /* A flash that takes a click (a notification's popup): its title is the button, plain until pointed at. */
+  :where(.uoc-wc74) .toast-action {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+    text-align: inherit;
+  }
+  :where(.uoc-wc74) .toast-action:hover,
+  :where(.uoc-wc74) .toast-action:focus-visible {
+    text-decoration: underline;
+  }
+  :where(.uoc-wc74) .toast-detail {
+    color: var(--color-muted);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  :where(.uoc-wc74) .toast-close {
+    flex: 0 0 auto;
+    min-height: 1.6rem;
+    min-width: 1.6rem;
+    padding: 0 0.3rem;
+    line-height: 1;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--color-muted);
+  }
+  :where(.uoc-wc74) .toast-close:hover {
+    color: var(--color-text-bright);
+    border-color: var(--color-line);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :where(.uoc-wc74) .toast {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      background: var(--color-panel);
+    }
+  }
+
+  /* --- the log --- */
+  :where(.uoc-wc74) .notice-log {
+    min-width: 0;
+  }
+  :where(.uoc-wc74) .notice-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  :where(.uoc-wc74) .notice {
+    display: grid;
+    /* Time and severity in fixed columns so a long list scans down its left
+     * edge rather than zig-zagging with each message's length. */
+    grid-template-columns: max-content max-content minmax(0, 1fr);
+    gap: 0.5rem;
+    align-items: baseline;
+    padding: 0.3rem 0;
+    border-bottom: 1px solid var(--color-row-line);
+  }
+  :where(.uoc-wc74) .notice:last-child {
+    border-bottom: 0;
+  }
+  :where(.uoc-wc74) .notice-time {
+    color: var(--color-muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  :where(.uoc-wc74) .notice-kind {
+    font-family: var(--font-display);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+  :where(.uoc-wc74) .notice.danger .notice-kind {
+    color: var(--color-danger);
+  }
+  :where(.uoc-wc74) .notice.warn .notice-kind {
+    color: var(--color-warn);
+  }
+  :where(.uoc-wc74) .notice.good .notice-kind {
+    color: var(--color-good);
+  }
+  :where(.uoc-wc74) .notice-text {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  :where(.uoc-wc74) .notice-title {
+    color: var(--color-text);
+    overflow-wrap: anywhere;
+  }
+  :where(.uoc-wc74) .notice-detail {
+    color: var(--color-muted);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  /* ======================================================================
+   * ROW ACTIONS AS ICONS
+   * ----------------------------------------------------------------------
+   * The six settled verbs — run, pause, stop, edit, export, delete — drawn as
+   * glyphs so a table of rows stops repeating the same six words in every row.
+   * See `actionIcons.ts` for the shapes and for why an icon is never the only
+   * label.
+   *
+   * ⚠ THE WORD IS NOT DELETED, ONLY FOLDED AWAY. `.icon-btn-label` is a real
+   * element that comes back wherever the row has room — and it MUST come back
+   * in the reflow layout, because `title` produces no tooltip on a touch
+   * screen and an unlabelled bin icon is not a thing to guess at.
+   * ====================================================================*/
+  :where(.uoc-wc74) .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    /* Square at icon-only size, and still a full touch target (R8). */
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+    padding: 0.4rem;
+  }
+  :where(.uoc-wc74) .icon-btn-glyph {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex: 0 0 auto;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  /* Hidden, not removed: the button's accessible name comes from its
+   * `aria-label`, so a screen reader is unaffected either way. */
+  :where(.uoc-wc74) .icon-btn-label {
+    display: none;
+  }
+
+  /* The pilot row's launch controls: a bot to pick, and two different ways to
+   * start it. NOT `.row-actions` — that lays out a flat row of buttons, and
+   * these are a small form, which is why they used to run off the end of the
+   * cell and collide with the row beneath. */
+  :where(.uoc-wc74) .pilot-launch {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    min-width: 0;
+  }
+  :where(.uoc-wc74) .pilot-launch > label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    color: var(--color-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 11px;
+  }
+  :where(.uoc-wc74) .pilot-launch select {
+    min-width: 10rem;
+    max-width: 100%;
+  }
+  :where(.uoc-wc74) .pilot-launch-run {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  /* Where the bot will fly, beside the button that sends it there. This is the
+   * whole difference between the two buttons, so it is text and not a tooltip. */
+  :where(.uoc-wc74) .pilot-launch-where {
+    color: var(--color-muted);
+    font-size: 12px;
+  }
+  :where(.uoc-wc74) .pilot-launch-limit {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--color-muted);
+    font-size: 12px;
+  }
+  :where(.uoc-wc74) .pilot-launch-limit select {
+    min-width: 7rem;
+  }
+
+  /* ======================================================================
+   * THE BOT BUILDER — a plan of numbered sentences, plus an inspector
+   * ----------------------------------------------------------------------
+   * docs/bot-builder-interface.md §2. Three stacked regions: the watches, the
+   * numbered plan, and an inspector for the selected row. No canvas, no drag,
+   * and no widget inside a row — a row prints ONE sentence and every edit
+   * happens in the inspector, which is what keeps a 64-step plan readable and
+   * what keeps this stylesheet free of per-row layout special cases.
+   *
+   * ⚠ R85: the width question is `@container`, not `@media`. The builder can
+   * sit in a floating window or a dock column on a wide screen, so "is there
+   * room for a second pane" is a question about THIS panel and not about the
+   * browser window. `.botbuilder` is the container.
+   * ====================================================================*/
+  :where(.uoc-wc74) .botbuilder {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    min-width: 0;
+    container-type: inline-size;
+    container-name: botbuilder;
+  }
+
+  /* The plan and the watch list are the same row idiom, so they look the same
+   * and a player learns one thing, not two. */
+  :where(.uoc-wc74) .plan-list {
+    list-style: none;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  :where(.uoc-wc74) .plan-row {
+    /* `--depth` is set inline from the row's own nesting (0 at top level, 1
+     * inside a loop body or a branch side). The stylesheet owns the look; the
+     * component owns the number — the same split as the fitting ring. */
+    margin-left: calc(var(--depth, 0) * 1.1rem);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 2.5rem;
+    padding: 0.2rem 0.4rem;
+    border: 1px solid var(--color-row-line);
+    border-left: 3px solid transparent;
+    background: var(--color-panel-3);
+  }
+  :where(.uoc-wc74) .plan-row.selected {
+    border-color: var(--color-accent-dim);
+    border-left-color: var(--color-accent);
+    background: var(--color-panel-2);
+  }
+  /* A blocking problem is marked by the ⚠ in the number column AND by this
+   * rim — never by the rim alone, because colour is never the only signal. */
+  :where(.uoc-wc74) .plan-row.blocking {
+    border-left-color: var(--color-warn);
+  }
+  :where(.uoc-wc74) .plan-number,
+  :where(.uoc-wc74) .plan-mark {
+    flex: 0 0 auto;
+    min-width: 1.6rem;
+    text-align: right;
+    color: var(--color-accent-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  :where(.uoc-wc74) .plan-mark {
+    color: var(--color-shield);
+  }
+  :where(.uoc-wc74) .plan-warn {
+    color: var(--color-warn);
+  }
+  /* The sentence is the row's own control: clicking it opens the inspector.
+   * A full-height transparent button rather than a link, because it changes
+   * what is selected here and navigates nowhere. */
+  :where(.uoc-wc74) .plan-sentence {
+    flex: 1 1 14rem;
+    min-width: 0;
+    min-height: 2.5rem;
+    text-align: left;
+    overflow-wrap: anywhere;
+    background: none;
+    border: 0;
+    padding: 0.3rem 0.2rem;
+    color: var(--color-text-bright);
+    font: inherit;
+    cursor: pointer;
+  }
+  :where(.uoc-wc74) .plan-sentence:hover {
+    color: var(--color-accent-bright);
+  }
+  /* A row that cannot be selected — a loop header, or any row of a preserved
+   * program the flat list cannot edit — reads as text, not as a control. */
+  :where(.uoc-wc74) .plan-sentence-static {
+    flex: 1 1 14rem;
+    min-width: 0;
+    padding: 0.3rem 0.2rem;
+    color: var(--color-text);
+    overflow-wrap: anywhere;
+  }
+  :where(.uoc-wc74) .plan-side-label {
+    margin-left: calc(var(--depth, 0) * 1.1rem);
+    padding-left: 0.4rem;
+    color: var(--color-accent-bright);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 11px;
+  }
+  /* Startup and Main: two sibling lists, so their headings match. */
+  :where(.uoc-wc74) .plan-section-label {
+    margin: 0.9rem 0 0.3rem;
+    color: var(--color-accent-bright);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  :where(.uoc-wc74) .plan-startup-add {
+    list-style: none;
+    margin-bottom: 0.4rem;
+  }
+  :where(.uoc-wc74) .plan-ops {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 0.2rem;
+  }
+  /* Stacked control rows need air between them. `.controls` carries an internal
+   * gap but deliberately NO outer margin (the panel head depends on that), so
+   * two rows in a panel body sit flush — and the second row's uppercase label
+   * then reads as a caption belonging to the field above it rather than as the
+   * start of its own field. Only rows in a panel BODY: the header's own
+   * `.controls` must stay at zero. */
+  :where(.uoc-wc74) .botbuilder section > .controls {
+    margin-top: 0.9rem;
+  }
+
+  /* Name beside Notes. The house `.controls` row bottom-aligns its fields,
+   * which is right when they are all one-line inputs and wrong here: the notes
+   * box is two rows tall, so bottom-aligning pushed its LABEL a line above the
+   * name's and the two fields read as though they belonged to different rows.
+   * Top-align this one row instead, and let the taller box grow downwards. */
+  :where(.uoc-wc74) .botbuilder .identity-row {
+    align-items: flex-start;
+  }
+
+  /* The repeat control lives in the plan's HEADER, because it wraps everything
+   * under it. The house `.controls > label` is a 12rem column, which stacks two
+   * of them and makes the header taller than the title it holds — so in this
+   * one header they size to their content and the count stays a number field. */
+  :where(.uoc-wc74) .builder-plan > .panel-head > .controls {
+    flex: 1 1 22rem;
+    justify-content: flex-end;
+  }
+  :where(.uoc-wc74) .builder-plan > .panel-head > .controls > label {
+    flex: 0 1 auto;
+  }
+  :where(.uoc-wc74) .builder-plan > .panel-head > .controls > label select {
+    min-width: 12rem;
+  }
+  :where(.uoc-wc74) .builder-plan > .panel-head > .controls > label input.num-in {
+    width: 6rem;
+  }
+
+  /* The floating builder's "Data from" picker shares the strip with Save. The
+   * house label is a caption-over-field column, which doubled the strip's
+   * height; here caption, field and Save sit on one line. */
+  :where(.uoc-wc74) .panel-head > .controls:has(> label.data-source) {
+    align-items: center;
+  }
+  :where(.uoc-wc74) .panel-head > .controls > label.data-source {
+    flex: 0 1 auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  :where(.uoc-wc74) .panel-head > .controls > label.data-source select {
+    width: auto;
+    min-width: 10rem;
+  }
+  :where(.uoc-wc74) .plan-add {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.6rem;
+  }
+
+  /* The per-row action menu. Plain buttons in a bordered stack: the tested
+   * pattern for long-distance moves, and every item stays a 40px target. */
+  :where(.uoc-wc74) .row-menu {
+    position: relative;
+  }
+  :where(.uoc-wc74) .row-menu-toggle {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+    line-height: 1;
+  }
+  :where(.uoc-wc74) .row-menu-items {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.2rem);
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    min-width: 11rem;
+    padding: 0.25rem;
+    gap: 0.15rem;
+    border: 1px solid var(--color-line-strong);
+    background: var(--color-panel);
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+  }
+  :where(.uoc-wc74) .row-menu-items button {
+    justify-content: flex-start;
+    text-align: left;
+    width: 100%;
+  }
+
+  /* The step / watch picker: a search field, then category chips, then results
+   * as sentences. Browse AND search — both narrow the same list. */
+  :where(.uoc-wc74) .picker {
+    flex: 1 1 100%;
+    margin-top: 0.5rem;
+    padding: 0.6rem;
+    border: 1px solid var(--color-line);
+    background: var(--color-panel-3);
+  }
+  :where(.uoc-wc74) .picker-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin: 0.4rem 0;
+  }
+  :where(.uoc-wc74) .picker-chips button {
+    min-height: 2.5rem;
+    padding: 0.2rem 0.8rem;
+  }
+  :where(.uoc-wc74) .picker-results {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+    gap: 0.4rem;
+    margin-top: 0.4rem;
+  }
+  :where(.uoc-wc74) .picker-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    align-items: flex-start;
+    text-align: left;
+    min-height: 2.5rem;
+    padding: 0.5rem;
+  }
+  :where(.uoc-wc74) .picker-item-name {
+    color: var(--color-text-bright);
+    font-weight: 600;
+  }
+  :where(.uoc-wc74) .picker-item-does {
+    color: var(--color-text);
+    font-size: 0.85rem;
+  }
+  :where(.uoc-wc74) .picker-item-needs {
+    color: var(--color-muted);
+    font-size: 0.8rem;
+  }
+
+  /* The inspector. One labelled control per line, required arguments first and
+   * the rest behind "More options" — Apple's action-summary rule. */
+  :where(.uoc-wc74) .builder-inspector .inspector-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-top: 0.7rem;
+    max-width: 34rem;
+  }
+  :where(.uoc-wc74) .inspector-label {
+    color: var(--color-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 11px;
+  }
+  :where(.uoc-wc74) .inspector-optional {
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  :where(.uoc-wc74) .inspector-unit {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  /* A bound a player cannot see is a rule they can only find by breaking it,
+   * so every numeric field prints its own range beside itself. */
+  :where(.uoc-wc74) .inspector-suffix {
+    color: var(--color-muted);
+    font-size: 0.8rem;
+  }
+  :where(.uoc-wc74) input.num-in {
+    width: 5rem;
+    font-variant-numeric: tabular-nums;
+  }
+  :where(.uoc-wc74) input.num-in.wide {
+    width: 10rem;
+  }
+  /* The mine block's ore priority list — a numbered row per chosen family,
+   * with the reorder/remove controls it takes to build the ordering by hand. */
+  :where(.uoc-wc74) .ore-priority-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+  }
+  :where(.uoc-wc74) .ore-priority-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+  :where(.uoc-wc74) .ore-priority-rank {
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  :where(.uoc-wc74) .ore-priority-name {
+    flex: 1 1 auto;
+  }
+  :where(.uoc-wc74) .more-options {
+    margin-top: 0.8rem;
+    border-top: 1px solid var(--color-line);
+    padding-top: 0.4rem;
+  }
+  :where(.uoc-wc74) .more-options > summary {
+    cursor: pointer;
+    min-height: 2.5rem;
+    display: flex;
+    align-items: center;
+    color: var(--color-accent);
+  }
+  /* Only the narrow layout turns the inspector into a sheet, so the control
+   * that closes that sheet only exists there. */
+  :where(.uoc-wc74) .inspector-back {
+    display: none;
+  }
+
+  :where(.uoc-wc74) .save-conflict {
+    margin-top: 0.6rem;
+    border-left: 3px solid var(--color-warn);
+    padding-left: 0.6rem;
+  }
+  :where(.uoc-wc74) .example-label {
+    color: var(--color-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 11px;
+    align-self: center;
+  }
+  :where(.uoc-wc74) .io-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    color: var(--color-muted);
+  }
+  :where(.uoc-wc74) textarea.io {
+    width: 100%;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.8rem;
+  }
+
+  /* Narrow: the inspector becomes a SHEET over the plan. A real two-pane
+   * layout cannot honour "no sideways scrolling at 360px" (R8), so below the
+   * breakpoint the inspector takes the whole width and the plan steps aside
+   * while a row is selected — with a Back control, which is the only place
+   * that control exists. */
+  @container botbuilder (max-width: 640px) {
+    :where(.uoc-wc74) .botbuilder.sheet-open .builder-plan,
+    :where(.uoc-wc74) .botbuilder.sheet-open .builder-watches {
+      display: none;
+    }
+    :where(.uoc-wc74) .inspector-back {
+      display: inline-flex;
+    }
+    :where(.uoc-wc74) .row-menu-items {
+      right: auto;
+      left: 0;
+    }
+  }
+
+  /* ======================================================================
+   * 4. REFLOW — the R8 responsive contract
+   * ----------------------------------------------------------------------
+   * Record-table -> card reflow in any NARROW CONTAINER (<=640px). Each row
+   * becomes a bordered card and each cell a labelled block (label from
+   * data-label). DO NOT REMOVE: this, plus `data-label` on every <td>, is what
+   * keeps the app usable at 360px with no horizontal page scroll.
+   *
+   * ⚠ R85: `@container`, NOT `@media`. This asked how wide the VIEWPORT was for
+   * as long as the app was a single column, and that stopped being the right
+   * question once panels became floating windows and a resizable dock column: a
+   * table in a 320px panel on a 1440px screen kept its wide layout and squeezed
+   * every cell to about 50px, because the browser window was not phone-sized.
+   * The container is `.table-wrap`, which every reflow table already sits in
+   * (`overviewActions.test.ts` checks that), so the question is now "does this
+   * row fit HERE" — which is the one that was always meant.
+   *
+   * This SUBSUMES the old media query rather than sitting beside it: on a phone
+   * the wrapper is itself narrow, so the same rules fire for the same reason.
+   * ====================================================================*/
+  @container (max-width: 640px) {
+    :where(.uoc-wc74) table.reflow thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    :where(.uoc-wc74) table.reflow,
+    :where(.uoc-wc74) table.reflow tbody,
+    :where(.uoc-wc74) table.reflow tr,
+    :where(.uoc-wc74) table.reflow td {
+      display: block;
+      width: 100%;
+    }
+    :where(.uoc-wc74) table.reflow tr {
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-frame);
+      background: var(--color-panel-3);
+      padding: 0.5rem 0.75rem;
+      margin-bottom: 0.6rem;
+    }
+    :where(.uoc-wc74) table.reflow tr.self {
+      border-color: var(--color-accent-dim);
+    }
+    :where(.uoc-wc74) table.reflow td {
+      border: none;
+      padding: 0.3rem 0;
+      display: flex;
+      gap: 1rem;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    :where(.uoc-wc74) table.reflow td::before {
+      content: attr(data-label);
+      color: var(--color-muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      flex: 0 0 auto;
+    }
+    :where(.uoc-wc74) table.reflow td[data-label=""]::before {
+      display: none;
+    }
+    /* A numeric cell is already pushed right by the card's space-between; it
+     * must not also carry the desktop right padding. */
+    :where(.uoc-wc74) table.reflow td.num {
+      padding-right: 0;
+      text-align: right;
+    }
+    /* Cells whose content is an action button: stack the (optional) label over
+     * a full-width, touch-sized button. */
+    :where(.uoc-wc74) table.reflow td:has(button) {
+      display: block;
+    }
+    :where(.uoc-wc74) table.reflow td:has(button)::before {
+      display: block;
+      margin-bottom: 0.3rem;
+    }
+    :where(.uoc-wc74) table.reflow td[data-label=""]:has(button)::before {
+      display: none;
+    }
+    :where(.uoc-wc74) table.reflow td:has(button) button {
+      width: 100%;
+    }
+    /* Row actions stack full-width on a phone rather than squeezing. */
+    :where(.uoc-wc74) table.reflow td .row-actions {
+      flex-direction: column;
+    }
+    /* R28's queue controls do the same: three buttons side by side at 360px
+     * would each be under the 40px touch target. */
+    :where(.uoc-wc74) table.reflow td .queue-controls {
+      flex-direction: column;
+    }
+    :where(.uoc-wc74) table.reflow td .queue-controls button {
+      width: 100%;
+    }
+    :where(.uoc-wc74) .row-actions button {
+      padding: 0.5rem 0.9rem;
+      font-size: 14px;
+    }
+    /* A phone has no hover, so `title` never fires: the word comes back, and
+     * the icon becomes what it should have been all along — reinforcement. */
+    :where(.uoc-wc74) .icon-btn-label {
+      display: inline;
+    }
+    :where(.uoc-wc74) .icon-btn {
+      justify-content: flex-start;
+    }
+  }
+}
+
+/* A hull's menu in the fitting browser, at its right click (ui/Fitting.svelte, HullTypeListGroup.GetMenu). */
+/* A link followed as the client's link registry follows it (ui/linkFollowers.ts), in a chat message or a mail's body.
+   evelink/client/color.py: default_link_color_info (#d98d00, hovered #ffb732) for skill plans and fittings
+   (registered with no colour of their own) and Show Info; external_link_color_info (#ffe400, hovered
+   TextColor.HIGHLIGHT) for the web.
+   The registry's links are bold (register: bold=True). */
+/* A link in a line of text, as tall as the text (the buttons' 40px minimum would open the line up). */
+:where(.uoc-wc74) .evelink {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  color: #d98d00;
+  cursor: pointer;
+  min-height: 0;
+  vertical-align: baseline;
+}
+:where(.uoc-wc74) .evelink:hover {
+  color: #ffb732;
+}
+:where(.uoc-wc74) .evelink.web {
+  color: #ffe400;
+}
+:where(.uoc-wc74) .evelink.web:hover {
+  color: #ffffff;
+}
+
+:where(.uoc-wc74) .hull-menu {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  white-space: nowrap;
+  background: var(--panel, #1b2230);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 0.2rem;
+}
+/* Standalone UOC centers share the Distribution workspace controls and surfaces. */
+.uoc-center {
+  --center-text: #e8f0f5;
+  --center-muted: #afc1cf;
+  --center-panel: #111e28;
+  --center-border: #2a3e4b;
+  --center-accent: #9ae4de;
+  box-sizing: border-box;
+  max-width: 82rem;
+  margin-inline: auto;
+  padding: 1.65rem clamp(1rem, 3vw, 2.8rem) 3rem;
+  color: var(--center-text);
+  font:
+    15px/1.45 system-ui,
+    sans-serif;
+}
+.uoc-center :is(h1, h2, h3, h4) {
+  font-family: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.uoc-center h1 {
+  font-size: clamp(1.8rem, 3.2vw, 2.4rem);
+  font-weight: 720;
+}
+.uoc-center a {
+  color: #9bd4e9;
+}
+.uoc-center .center-heading {
+  display: block;
+  margin: 0 0 1.25rem;
+}
+.center-heading .center-back {
+  display: inline-block;
+  padding-block: 0.35rem;
+  text-decoration: none;
+}
+.center-heading .center-back:hover {
+  text-decoration: underline;
+}
+.center-heading :is(h1, p) {
+  margin: 0;
+}
+.center-heading p {
+  color: var(--center-muted);
+  margin-top: 0.25rem;
+}
+.center-title-row,
+.center-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+.center-title-row {
+  justify-content: space-between;
+  margin-top: 0.75rem;
+}
+.uoc-center .center-panel {
+  padding: 1rem;
+  border: 1px solid var(--center-border);
+  border-radius: 0.7rem;
+  background: var(--center-panel);
+}
+.uoc-center section.center-panel::before {
+  content: none;
+}
+.uoc-center .center-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  border-bottom: 1px solid #2a3c49;
+  margin-bottom: 1.15rem;
+}
+.uoc-center .center-tabs :is(a, button) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  padding: 0.42rem 0.8rem;
+  text-decoration: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0.35rem 0.35rem 0 0;
+  background: transparent;
+  color: #b4c8d6;
+}
+.uoc-center .center-tabs :is([aria-current="page"], [aria-pressed="true"]) {
+  color: #bbf5ee;
+  background: #142935;
+  border-bottom-color: #88dcd8;
+}
+.uoc-center :is(button, select, input):where(:not(.evelink, [type="checkbox"], [type="radio"])) {
+  box-sizing: border-box;
+  min-height: 2.5rem;
+  border: 1px solid #395362;
+  border-radius: 0.4rem;
+  background: #182a35;
+  color: var(--center-text);
+  font: inherit;
+  padding: 0.42rem 0.65rem;
+}
+.uoc-center button:not(.evelink) {
+  cursor: pointer;
+}
+.uoc-center button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.uoc-center :is(button:not(:disabled), input, select):focus-visible {
+  outline: 2px solid #79cdd5;
+  outline-offset: 2px;
+}
+.uoc-center button:not(:disabled):hover {
+  border-color: #79cdd5;
+}
+.uoc-center button.primary {
+  background: var(--center-accent);
+  border-color: var(--center-accent);
+  color: #092723;
+  font-weight: 700;
+}
+.uoc-center button.primary:not(:disabled):hover {
+  background: #c2f4ee;
+}
+.uoc-center button.quiet {
+  background: transparent;
+}
+.uoc-center button:is(.danger, .stop) {
+  border-color: #825e53;
+  background: #302321;
+  color: #ffd2bb;
+}
+.uoc-center fieldset {
+  min-width: 0;
+  border: 1px solid var(--center-border);
+  border-radius: 0.5rem;
+}
+.uoc-center legend {
+  padding-inline: 0.35rem;
+  font-weight: 650;
+}
+.uoc-center :is(p, div).center-message {
+  border: 1px solid #885d4b;
+  border-radius: 0.35rem;
+  background: #2e2320;
+  color: #ffd2bb;
+  padding: 0.65rem 0.8rem;
+}
+.uoc-center [role="alert"] {
+  color: #ffc3a3;
+}
+.uoc-center details > summary {
+  color: var(--center-text);
+  font-weight: 650;
+  cursor: pointer;
+}
+.center-status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.12rem 0.55rem;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  color: #c1d1dd;
+  background: #202f3a;
+}
+.center-status[data-tone="active"] {
+  color: #a8efce;
+  background: #16392d;
+}
+.center-status[data-tone="ready"] {
+  color: #b0ece8;
+  background: #15373d;
+}
+.center-status[data-tone="paused"] {
+  color: #ffdcac;
+  background: #382c21;
+}
+.center-status[data-tone="stopped"] {
+  color: #c2cad0;
+  background: #292f35;
+}
+.center-status[data-tone="attention"] {
+  color: #ffc7ba;
+  background: #402924;
+}

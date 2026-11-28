@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {validateFleetSelection} from './fleetSelection.ts';
+const rows=[{characterID:1,accountName:'Test1'},{characterID:2,accountName:'Test2'}];
+test('fleet review requires distinct verified accounts, a selected owner and supported count',()=>{assert.doesNotThrow(()=>validateFleetSelection(rows,[1,2],1,301,2));assert.throws(()=>validateFleetSelection(rows,[1],1,301,1));assert.throws(()=>validateFleetSelection([rows[0]!,{characterID:2,accountName:'test1'}],[1,2],1,301,1));assert.throws(()=>validateFleetSelection(rows,[1,2],3,301,1));assert.throws(()=>validateFleetSelection(rows,[1,2],1,301,3));assert.throws(()=>validateFleetSelection(rows,[2,1],1,301,1));});

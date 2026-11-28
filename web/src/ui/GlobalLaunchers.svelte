@@ -17,7 +17,7 @@
   // ⚠ THE GLYPH IS NEVER THE ONLY LABEL (neocomIcons.ts states the rule). The
   // word rides with it wherever there is room, and `aria-label` carries it —
   // and a plugin's pilot count in words — when a narrow bar drops the text.
-  import { NEOCOM_GLYPHS, neocomGlyph } from "./neocomIcons.ts";
+  import { neocomGlyph } from "./neocomIcons.ts";
   import { coreStripLaunchers, pluginWindowGroups } from "./globalWindow.ts";
   import { pluginLaunchers } from "./pluginPins.ts";
   import { pinStore } from "./pluginPinStore.ts";
@@ -42,16 +42,6 @@
 </script>
 
 <div class="global-launchers" role="group" aria-label="Every pilot">
-  <a class="global-launch" href="/ship-provisioning" target="_blank" rel="noopener" aria-label="Provisioning Center" title="Open the separate Provisioning Center for owned pilots">
-    <!-- Ready Fit's glyph (the `provisioning` tab), as the MCC door carries its tab's: without one, a narrow bar
-         that drops the words left this door an empty box. -->
-    <svg class="global-launch-glyph" viewBox="0 0 24 24" aria-hidden="true">
-      {#each NEOCOM_GLYPHS.provisioning as d (d)}
-        <path {d} />
-      {/each}
-    </svg>
-    <span class="global-launch-text">Provisioning Center</span>
-  </a>
   {#each coreStripLaunchers() as launcher (launcher.id)}
     {@const open = openIds.has(launcher.id)}
     <button
@@ -72,20 +62,6 @@
       <span class="global-launch-text">{launcher.label}</span>
     </button>
   {/each}
-  <a
-    class="global-launch"
-    data-launch="miningOperations"
-    href="/mining-command-center"
-    aria-label="Mining Command Center"
-    title="Create and supervise multi-pilot mining operations"
-  >
-    <svg class="global-launch-glyph" viewBox="0 0 24 24" aria-hidden="true">
-      {#each NEOCOM_GLYPHS.miningOperations as d (d)}
-        <path {d} />
-      {/each}
-    </svg>
-    <span class="global-launch-text">MCC</span>
-  </a>
   <span class="global-launch-divider" aria-hidden="true"></span>
   {#each pinnedLaunchers as launcher (launcher.key)}
     <PluginLauncher {launcher} {openIds} {onOpen} />

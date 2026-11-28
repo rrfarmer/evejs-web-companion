@@ -88,7 +88,8 @@ test("authenticated HTTP Review/Replenish uses real parsers, bindings and pilot 
   held.transition = { phase: "requested", kind: "dock" };
   assert.equal((await request("/api/bridge/provisioning/replenish", applyBody)).body.error, "SESSION_CHANGE_IN_PROGRESS");
   assert.equal(state.writes, 0); delete held.transition;
-  const earlierWrite = request("/api/bridge/inventory/stack", { target: "hangar" });
+  const earlierWrite = request("/api/bridge/call", { service: "invbroker", method: "StackAll",
+    args: [4], kwargs: null, of: "hangar", pilot: true, confirm: true });
   await Promise.race([stacking, earlierWrite.then(result => { throw new Error(`Stack returned before dispatch: ${JSON.stringify(result)}`); })]);
   const busy = await request("/api/bridge/provisioning/replenish", applyBody);
   assert.equal(busy.status, 409); assert.equal(busy.body.error, "CHARACTER_IN_USE"); assert.equal(state.writes, 0);

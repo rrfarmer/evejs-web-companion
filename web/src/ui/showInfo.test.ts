@@ -43,11 +43,8 @@ test("no subject, no typeID", () => {
  */
 // The Bot Manager, Planetary Industry and the Industry Manager are out because
 // they are global windows that open from the brand strip (GlobalLaunchers.svelte).
-// The Mining Command Center is out too, and is not a window at all: its door is a
-// link from that strip to the standalone '/mining-command-center' page,
-// pinned by miningOperationsPanel.test.ts.
 // CorpDecorations.CreateDecorationForm50 opens the contextual picker window.
-const NOT_IN_THE_RAIL = new Set(["botBuilder", "bots", "botManager", "pluginManager", "industryManager", "miningOperations", "medalDesigner"]);
+const NOT_IN_THE_RAIL = new Set(["botBuilder", "bots", "botManager", "pluginManager", "industryManager", "medalDesigner"]);
 
 test("every OTHER tab is still launchable", () => {
   // ⚠ `launchable` is absent on every pre-existing tab and absent means yes. A

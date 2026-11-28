@@ -4,8 +4,7 @@
 // pilot's write the page means, and never the route it went by until 2026-10-10. What the route checked of the
 // ship and the system, the page checks of its own read of the pilot's flight.
 //
-// Its askers are a mining support ship's positioning and the fleet-mine block of a script bot. Neither is reached
-// here: each hands the flow's flyToPoint the point and the ship and system it was measured in.
+// The salvage block passes flyToPoint the point and the ship and system where it was measured.
 
 import test from "node:test";
 import assert from "node:assert/strict";

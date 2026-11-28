@@ -14,4 +14,5 @@ import type { PluginEntry } from "../web/src/plugin-api/index.ts";
 export const PLUGINS: readonly PluginEntry[] = [
   { id: "pi-manager", load: () => import("./pi-manager/plugin.ts") },
   { id: "fleet-companion", load: () => import("./fleet-companion/plugin.ts") },
+  { id: "uoc", load: () => import("./uoc/plugin.ts") },
 ];

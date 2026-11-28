@@ -13,7 +13,7 @@ const mine = (id: string, mode: "site" | "ice-site"): MacroStep =>
 const script = (program: BotScript["program"]): BotScript =>
   ({ format: "evejs-bot-script", version: 1, name: "Scanner tour", notes: "", home: HOME, interrupts: [], program });
 
-function fixture(module: "none" | "gas" | "ice" = "none", miningOperationID?: string, structureID?: number) {
+function fixture(module: "none" | "gas" | "ice" = "none", structureID?: number) {
   // Synthetic high-slot additions leave the shared captured fit untouched.
   const extraModules = module === "none" ? [] : [{ itemID: 7002, typeID: module === "ice" ? 16278 : 25266,
     flagID: 29, groupID: module === "ice" ? 464 : 737,
@@ -23,7 +23,7 @@ function fixture(module: "none" | "gas" | "ice" = "none", miningOperationID?: st
   const unloads: Record<string, unknown>[] = [];
   const store = createClientStore();
   const keyVal = (entries: unknown[][]) => ({ type: "object", args: { type: "dict", entries } });
-  const flow = createAppFlow(store, { livePush: false, miningOperationID, fetch: async (input, init) => {
+  const flow = createAppFlow(store, { livePush: false, fetch: async (input, init) => {
     const path = String(input); paths.push(path);
     const body: Record<string, unknown> = init?.body ? JSON.parse(String(init.body)) : {};
     // A call of the page's own is noted by its pair too: the undock is one (bridge/placeChanges.ts).
@@ -65,7 +65,7 @@ function fixture(module: "none" | "gas" | "ice" = "none", miningOperationID?: st
 
 test("an ice script started inside an Upwell unloads at its starting structure rather than its configured home", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout"] });
-  const f = fixture("ice", undefined, 1030000000000);
+  const f = fixture("ice", 1030000000000);
   await f.flow.selectCharacter(42);
   try {
     await f.flow.startCustomBot(script([{ id: "haul", kind: "macro", macro: "deliver-ore", args: {
@@ -79,6 +79,7 @@ test("an ice script started inside an Upwell unloads at its starting structure r
     assert.deepEqual(f.unloads, [{ itemIDs: [8001], division: 1, strictCorp: true,
       expectedDestination: { kind: "structure", id: 1030000000000 } }]);
     assert.equal(f.paths.some(path => path.includes("/route")), false);
+    assert.equal(f.paths.includes("/api/mining-operations/assignment/current"), false);
   } finally { f.flow.stopCustomBot(); }
 });
 
@@ -111,34 +112,19 @@ test("plain ore Start preserves its existing capability policy", async () => {
   } finally { f.flow.stopCustomBot(); }
 });
 
-test("custom mining and support bots start on HTTP pages without crypto.randomUUID", async () => {
+test("custom mining bots start on HTTP pages without crypto.randomUUID", async () => {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto")!;
   // A LAN HTTP browser still exposes getRandomValues, but not randomUUID.
   Object.defineProperty(globalThis, "crypto", { configurable: true,
     value: { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) } });
   try {
-    for (const support of [false, true]) {
-      const f = fixture("none", support ? "operation" : undefined);
-      await f.flow.selectCharacter(42);
-      try {
-        const work: MacroStep = support
-          ? { id: "support", kind: "macro", macro: "mining-support", args: {} }
-          : mine("ore", "site");
-        await f.flow.startCustomBot(script([wait, work]));
-        assert.equal(f.store.customBot.get().status, "running");
-      } finally { f.flow.stopCustomBot(); }
-    }
+    const f = fixture();
+    await f.flow.selectCharacter(42);
+    try {
+      await f.flow.startCustomBot(script([wait, mine("ore", "site")]));
+      assert.equal(f.store.customBot.get().status, "running");
+    } finally { f.flow.stopCustomBot(); }
   } finally { Object.defineProperty(globalThis, "crypto", descriptor); }
-});
-
-test("an operation still refuses missing ore capability before its program undocks", async () => {
-  const f = fixture("gas", "operation"); await f.flow.selectCharacter(42);
-  try {
-    await assert.rejects(f.flow.startCustomBot(script([undock, mine("ore", "site"), mine("ice", "ice-site")])),
-      /ORE_MINING_CAPABILITY_REQUIRED/);
-    assert.equal(f.paths.includes("call:ship.Undock"), false);
-    assert.equal(f.store.customBot.get().status, "idle");
-  } finally { f.flow.stopCustomBot(); }
 });
 
 test("mixed plain ore/ice Start succeeds with an online Ice Harvester", async () => {

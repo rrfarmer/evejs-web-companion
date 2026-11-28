@@ -27,6 +27,12 @@ test("every macro has a catalog entry, in menu order", () => {
   );
 });
 
+test("the Bot Builder offers standalone mining and fleet membership after Core MCC retirement", () => {
+  const offered = new Set<string>(MACRO_CATALOG_LIST.map(entry => entry.id));
+  for (const retired of ["fleet-mine", "mining-support"]) assert.equal(offered.has(retired), false);
+  for (const active of ["mine-at-belt", "join-support-fleet", "jettison-ore", "deliver-ore"]) assert.ok(offered.has(active));
+});
+
 test("each entry's name matches the sentence register", () => {
   for (const id of MACRO_IDS) {
     assert.equal(macroEntry(id).name, macroName(id));

@@ -1050,7 +1050,7 @@
         >
           <option value="nearest">the nearest belt</option>
           <option value="site">the scanner's ore sites</option>
-          {#if step.macro !== "fleet-mine"}<option value="ice-site">the scanner's ice sites</option>{/if}
+          <option value="ice-site">the scanner's ice sites</option>
           <option value="named">a belt I name</option>
         </select>
         {#if beltMode(step, arg.key) === "named"}
