@@ -1,4 +1,5 @@
 import { preparationEvidenceKey, retainPreparation } from "./miningEvidence.ts";
+import { prepareMiningDroneSupplies } from "./miningDroneSupplies.ts";
 import { uocStore } from "../backendStores.ts";
 import type {
   BackendRun,
@@ -43,6 +44,8 @@ type Documents = {
 const positive = (v: unknown): v is number => Number.isSafeInteger(v) && Number(v) > 0;
 const object = (v: unknown): v is Record<string, any> =>
   !!v && typeof v === "object" && !Array.isArray(v);
+const conflict = (error: unknown, code: string) =>
+  object(error) && error.status === 409 && error.code === code;
 export function decodeMiningPreparation(value: unknown): Setup | null {
   if (
     !object(value) ||
@@ -234,18 +237,8 @@ async function miningPreparationTask(
       return { result: null, reason: error instanceof Error ? error.message : String(error), code };
     }
   };
-  const work = (async () => {
-    if (pending?.phase === "PENDING") {
-      const receipt = await json("/api/bridge/provisioning/reconcile", {
-        operationID: pending.reviewID,
-      });
-      if (!["COMPLETE", "RECONCILED"].includes(receipt.state))
-        throw Error(
-          `PREPARATION_UNRESOLVED: ${String(receipt.state)}; the original inventory action was not repeated.`,
-        );
-      save({ ...pending, phase: "COMPLETE", receipt, reconciledAt: Date.now() });
-    }
-    if (held?.stopRequested())
+  const prepare = async (refreshAfterRefusal: boolean): Promise<PluginRunReport> => {
+    if (stopping || held?.stopRequested())
       return { status: "stopped", phase: "Mining preparation settled" } as const;
     const p = setup.preparation,
       fittingID = p.fittingID,
@@ -362,6 +355,59 @@ async function miningPreparationTask(
       else if (r.source.access.take !== true)
         sourceWarning = sourceLabel + ": Take access is unavailable at the preparation station.";
     }
+    let droneTargets: Awaited<ReturnType<typeof prepareMiningDroneSupplies>>["targets"] = [];
+    const droneNotes: string[] = [];
+    if (!strict && p.replenishSupplies === true) {
+      let droneTransferIssued = false;
+      const beforeDroneTransfer = !setup.reviewOnly && sourceWarning === null
+        ? () => {
+            current();
+            if (stopping || held?.stopRequested())
+              throw Error("Preparation stopped before inventory dispatch.");
+            droneTransferIssued = true;
+          }
+        : undefined;
+      try {
+        const drones = await prepareMiningDroneSupplies(json, r, source, beforeDroneTransfer);
+        droneTargets = drones.targets;
+        droneNotes.push(...drones.issues, ...droneTargets.filter((target) => target.deficit > 0).map(
+          (target) => `${target.name}: ${target.deficit} still needed (${target.current}/${target.target} aboard, ${target.available} available in ${sourceLabel}).`,
+        ));
+      } catch (error) {
+        current();
+        if (droneTransferIssued) throw error;
+        droneNotes.push(error instanceof Error ? error.message : String(error));
+      }
+      if (droneTransferIssued) {
+        if (stopping || held?.stopRequested())
+          return { status: "stopped", phase: "Mining preparation settled" };
+        const post = await optionalRead("/api/bridge/provisioning/review", input);
+        if (!post.result)
+          return warn("The fitting review after drone preparation is unavailable: " + post.reason, {
+            shipID: originalShipID,
+            targets: droneTargets,
+          });
+        const next = post.result;
+        if (
+          next.context?.characterID !== run.characterID ||
+          next.context?.shipID !== originalShipID ||
+          next.context?.locationID !== r.context.locationID ||
+          next.contract?.definitionFingerprint !== definitionFingerprint ||
+          next.source?.pin?.ownerID !== r.source.pin.ownerID ||
+          next.source?.pin?.flag !== r.source.pin.flag ||
+          next.source?.pin?.office !== r.source.pin.office ||
+          !Array.isArray(next.status?.targets)
+        )
+          throw Error("The reviewed ship, fitting or supply source changed after drone replenishment.");
+        if (next.pending?.length) throw Error("The current inventory custody is unresolved.");
+        r = next;
+      }
+    }
+    const reportedTargets = () => [...r.status.targets, ...droneTargets];
+    const reportedSupplies = () =>
+      r.status.supplies === "FULL" && droneTargets.some((target) => target.deficit > 0)
+        ? "LOW"
+        : (r.status.supplies ?? "UNKNOWN");
     if (r.status.equipment !== "VERIFIED") {
       const mismatch = r.status.equipment === "MODIFIED";
       return warn(
@@ -370,6 +416,7 @@ async function miningPreparationTask(
             ? "Current equipment differs from the selected fitting."
             : "The native equipment read did not verify the selected fitting.",
           sourceWarning,
+          ...droneNotes,
         ]
           .filter(Boolean)
           .join(" "),
@@ -377,8 +424,8 @@ async function miningPreparationTask(
           shipID: originalShipID,
           equipment: mismatch ? "MODIFIED" : "UNKNOWN",
           fittingName: r.contract.name ?? null,
-          supplies: r.status.supplies ?? "UNKNOWN",
-          targets: r.status.targets,
+          supplies: reportedSupplies(),
+          targets: reportedTargets(),
         },
       );
     }
@@ -421,18 +468,44 @@ async function miningPreparationTask(
         shipID: originalShipID,
         issuedAt: Date.now(),
       });
-      let receipt: any;
+      let receipt: any, applyError: unknown;
       try {
         receipt = await json("/api/bridge/provisioning/replenish", {
           reviewID: r.reviewID,
           reviewHash: r.reviewHash,
           confirm: true,
         });
-      } catch {
-        /* A lost response is reconciled, never repeated. */
+      } catch (error) {
+        applyError = error;
       }
-      if (!receipt || !["COMPLETE", "RECONCILED"].includes(receipt.state))
-        receipt = await json("/api/bridge/provisioning/reconcile", { operationID: r.reviewID });
+      if (!receipt || !["COMPLETE", "RECONCILED"].includes(receipt.state)) {
+        try {
+          receipt = await json("/api/bridge/provisioning/reconcile", { operationID: r.reviewID });
+        } catch (error) {
+          // Apply may reject a stale Review before Core writes a receipt. Core
+          // journals every move before dispatch, so these two responses on the
+          // same held pilot allow one fresh Review, with its own review ID.
+          if (conflict(applyError, "REVIEW_REQUIRED") && conflict(error, "OPERATION_NOT_OWNED")) {
+            save(null);
+            if (stopping || held?.stopRequested())
+              return { status: "stopped", phase: "Mining preparation settled" };
+            if (refreshAfterRefusal) return prepare(false);
+            return warn("Replenishment review went stale again before any transfer was dispatched.", {
+              shipID: originalShipID,
+              fittingName: r.contract.name ?? null,
+              equipment: r.status.equipment,
+              supplies: reportedSupplies(),
+              targets: reportedTargets(),
+            });
+          }
+          if (applyError instanceof Error)
+            throw new Error(
+              `${applyError.message}. Replenishment reconciliation failed: ${error instanceof Error ? error.message : String(error)}`,
+              { cause: error },
+            );
+          throw error;
+        }
+      }
       if (!["COMPLETE", "RECONCILED"].includes(receipt.state))
         throw Error(`PREPARATION_UNRESOLVED: ${String(receipt.state)}; no replenishment replay.`);
       save({
@@ -468,6 +541,7 @@ async function miningPreparationTask(
       ["LOW", "MISSING"].includes(r.status.supplies);
     const notes = [
       sourceWarning,
+      ...droneNotes,
       p.replenishSupplies === true ? stockShortages(r, sourceLabel) : null,
       !strict && r.status.equipmentMatch
         ? "The fitting requirements are present with additional modules or rigs."
@@ -485,14 +559,27 @@ async function miningPreparationTask(
       providerCharacterID: provider,
       state: notes.length ? "DEGRADED" : "VERIFIED",
       equipment: r.status.equipment,
-      supplies: r.status.supplies,
-      targets: r.status.targets,
+      supplies: reportedSupplies(),
+      targets: reportedTargets(),
       fittingName: r.contract?.name ?? null,
       source: r.source ?? null,
       sourceLabel,
       context: r.context,
       reason: notes.join(" ") || null,
     });
+  };
+  const work = (async () => {
+    if (pending?.phase === "PENDING") {
+      const receipt = await json("/api/bridge/provisioning/reconcile", {
+        operationID: pending.reviewID,
+      });
+      if (!["COMPLETE", "RECONCILED"].includes(receipt.state))
+        throw Error(
+          `PREPARATION_UNRESOLVED: ${String(receipt.state)}; the original inventory action was not repeated.`,
+        );
+      save({ ...pending, phase: "COMPLETE", receipt, reconciledAt: Date.now() });
+    }
+    return prepare(true);
   })().catch((error): PluginRunReport => {
     const pending = document.read()?.phase === "PENDING";
     return {

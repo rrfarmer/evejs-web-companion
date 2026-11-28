@@ -123,7 +123,7 @@ function stockRows(review: any): Stock[] {
   return rows;
 }
 
-function stockSource(review: any): Source {
+export function stockSource(review: any): Source {
   const pin = review.source.pin,
     { kind, division } = pin.descriptor,
     scope: Scope = review.context;

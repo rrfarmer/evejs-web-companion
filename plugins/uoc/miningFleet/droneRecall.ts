@@ -27,7 +27,7 @@ function droneID(value: JsonValue | undefined): number | null {
   return Number.isFinite(id) && id > 0 ? id : null;
 }
 
-function fleetDronesInSpace(raw: JsonValue) {
+export function fleetDronesInSpace(raw: JsonValue) {
   if (!Array.isArray(raw)) return null;
   const out = [],
     seen = new Set<number>();
