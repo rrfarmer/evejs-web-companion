@@ -2288,6 +2288,7 @@ export interface DockedPortraitOptions {
   readonly backgroundID: number | null;
   readonly backgrounds: readonly api.PortraitBackground[];
   readonly framing: PortraitFraming | null;
+  readonly morphs: readonly api.PortraitMorph[];
   readonly skinToneID: number;
   readonly skinTones: readonly api.PortraitSkinTone[];
   readonly hairID: number;
@@ -2317,6 +2318,7 @@ interface DockedPortraitDraft {
   readonly apparelIDs?: Partial<Record<api.DockedApparelSlot, number>>;
   readonly robeHood?: number | null;
   readonly initialFrame?: api.PortraitFrame;
+  readonly resculpt?: boolean;
 }
 
 interface WalletBlink {
@@ -10633,6 +10635,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       head ? api.loadPortraitHairstyles(callOptions).catch(() => null) : null,
       head ? api.loadDockedApparel(head, callOptions).catch(() => null) : null,
     ]);
+    const paidAppearance = state === 1 ? await api.loadCharacterPreviewAppearance(characterID, callOptions) : null;
     current();
     if (dockedNow() !== place) throw new Error("The docked location changed.");
     const rows = Array.isArray(portrait) && isListValue(portrait[0]) ? portrait[0].items : [];
@@ -10647,6 +10650,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return {
       state: typeof state === "number" && Number.isInteger(state) && state >= 0 && state <= 4 ? state : null,
       bloodlineID,
+      morphs: paidAppearance?.morphs ?? [],
       backgroundID: typeof backgroundID === "number" && Number.isSafeInteger(backgroundID) ? backgroundID : null,
       backgrounds,
       skinToneID: skin?.skinToneID ?? 0,

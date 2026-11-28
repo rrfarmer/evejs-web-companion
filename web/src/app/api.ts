@@ -6576,7 +6576,7 @@ export async function savePortrait(draft: { backgroundID: number; fieldOfView: n
     skinTone: { id: number; gender: PortraitHead } | null; hairID: number | null;
     hairColor?: PortraitHairColor | null; hairDarkness?: number | null; beardID?: number | null;
     apparelIDs?: Partial<Record<DockedApparelSlot, number>>; robeHood?: number | null;
-    dockedLocationID: number; initialFrame?: PortraitFrame }, options: ApiOptions = {}): Promise<void> {
+    dockedLocationID: number; initialFrame?: PortraitFrame; resculpt?: boolean }, options: ApiOptions = {}): Promise<void> {
   await postJson("/api/bridge/character/portrait", { ...draft, confirm: true }, options);
 }
 

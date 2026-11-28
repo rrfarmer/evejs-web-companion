@@ -19877,7 +19877,11 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
   const held = requireHeldBridgeSession(req, res);
   if (!held || !requireWriteConfirmation(req, res, "Use Save portrait to confirm your changes.")) return;
   const { backgroundID, fieldOfView = null, dockedLocationID, skinTone = null, hairID = null, hairColor = null,
-    hairDarkness = null, beardID = null, shirtID = null, apparelIDs = null, robeHood = null, initialFrame = null } = req.body;
+    hairDarkness = null, beardID = null, shirtID = null, apparelIDs = null, robeHood = null,
+    initialFrame = null, resculpt = false } = req.body;
+  if (typeof resculpt !== "boolean") {
+    return res.status(400).json({ ok: false, error: "INVALID_RESCULPT_MODE", message: "Reopen Character Recustomization." });
+  }
   if (!Number.isSafeInteger(backgroundID) || backgroundID <= 0 ||
       !Number.isSafeInteger(dockedLocationID) || dockedLocationID <= 0) {
     return res.status(400).json({ ok: false, error: "INVALID_BACKDROP", message: "Choose an available portrait backdrop." });
@@ -19937,8 +19941,12 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
     }
     const { result: state } = await call("charMgr", "GetPaperdollState", []);
     const portrait = await readPortrait();
-    const initial = initialFrame !== null && state === 2;
-    if (!initial && (initialFrame !== null || state !== 0 || !Number.isSafeInteger(portrait?.backgroundID))) {
+    const initial = !resculpt && initialFrame !== null && state === 2;
+    const full = initial || resculpt;
+    const hasPortrait = Number.isSafeInteger(portrait?.backgroundID);
+    const validMode = resculpt ? state === 1 && (hasPortrait || initialFrame !== null)
+      : initial || (state === 0 && initialFrame === null && hasPortrait);
+    if (!validMode) {
       return res.status(409).json({ ok: false, error: "PORTRAIT_REQUIRED", message: "Reopen Character Recustomization to read your current appearance." });
     }
     let appearance = null;
@@ -19948,7 +19956,7 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
     let beardLocation;
     let hoodLocation;
     const apparelToConfirm = [];
-    if (initial || skinTone || hairID !== null || hairColor !== null || hairDarkness !== null || beardID !== null || requestedApparel.length || robeHood !== null) {
+    if (full || skinTone || hairID !== null || hairColor !== null || hairDarkness !== null || beardID !== null || requestedApparel.length || robeHood !== null) {
       const [{ skinLocations: locations, choices }, { result: current }] = await Promise.all([
         skinTone ? dockedSkinTones(call, held.characterID, skinTone.gender) : { skinLocations: [], choices: [] },
         call("paperDollServer", "GetMyPaperDollData", [held.characterID]),
@@ -19959,7 +19967,9 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
         return res.status(400).json({ ok: false, error: "INVALID_SKIN_TONE", message: "Choose an available skin tone." });
       }
       if (initial && current != null) return res.status(409).json({ ok: false, error: "APPEARANCE_ALREADY_EXISTS", message: "Reopen Character Recustomization to read your saved appearance." });
-      if (initial || skinToneID(current, skinLocations) !== wantedTone) {
+      if (resculpt && current == null) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "Your saved appearance could not be read." });
+      if (resculpt) appearance = current;
+      if (initial || (skinTone && skinToneID(current, skinLocations) !== wantedTone)) {
         appearance = appearanceWithSkinTone(current ?? null, skinLocations, wantedTone);
         if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
       }
@@ -20038,12 +20048,12 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
     }
     const cameraFieldOfView = fieldOfView ?? portrait?.cameraFieldOfView;
     if (appearance || portrait?.backgroundID !== backgroundID || portrait?.cameraFieldOfView !== cameraFieldOfView) {
-      const camera = initial ? { cameraPosition: initialFrame.position, cameraPoi: initialFrame.target } : {};
+      const camera = initialFrame ? { cameraPosition: initialFrame.position, cameraPoi: initialFrame.target } : {};
       const updated = { type: "dict", entries: Object.entries({ ...portrait, ...camera, backgroundID, cameraFieldOfView }) };
-      await call("paperDollServer", initial ? "UpdateExistingCharacterFull" : "UpdateExistingCharacterLimited",
-        [held.characterID, appearance, updated, !initial], initial ? { flush: true } : null);
+      await call("paperDollServer", full ? "UpdateExistingCharacterFull" : "UpdateExistingCharacterLimited",
+        [held.characterID, appearance, updated, !initial], full ? { flush: true } : null);
       const saved = await readPortrait();
-      const initialFrameSaved = !initial || ["X", "Y", "Z"].every((axis, index) =>
+      const initialFrameSaved = !initialFrame || ["X", "Y", "Z"].every((axis, index) =>
         saved?.[`camera${axis}`] === initialFrame.position[index] && saved?.[`cameraPoi${axis}`] === initialFrame.target[index]);
       if (saved?.backgroundID !== backgroundID || saved.cameraFieldOfView !== cameraFieldOfView || !initialFrameSaved) {
         return res.status(409).json({ ok: false, error: "PORTRAIT_UNCONFIRMED", message: "The portrait changes could not be confirmed." });
@@ -20061,8 +20071,8 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
           return res.status(409).json({ ok: false, error: "APPEARANCE_UNCONFIRMED", message: "The appearance changes could not be confirmed." });
         }
       }
-      if (initial && (await call("charMgr", "GetPaperdollState", [])).result !== 0) {
-        return res.status(409).json({ ok: false, error: "APPEARANCE_UNCONFIRMED", message: "The initial appearance could not be confirmed." });
+      if (full && (await call("charMgr", "GetPaperdollState", [])).result !== 0) {
+        return res.status(409).json({ ok: false, error: "APPEARANCE_UNCONFIRMED", message: "The appearance could not be confirmed." });
       }
     }
     res.json({ ok: true, backgroundID });

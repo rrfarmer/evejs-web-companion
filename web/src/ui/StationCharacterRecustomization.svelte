@@ -48,8 +48,9 @@
   const backdrop = $derived(options?.backgrounds.find(entry => entry.id === selected));
   const url = $derived(backdrop ? `/client-res/portrait-background/${backdrop.id}` : "");
   const initial = $derived(options?.state === 2);
+  const resculpt = $derived(options?.state === 1);
   const canPublish = $derived(options?.state === 0 && options.backgroundID !== null);
-  const canSave = $derived(canPublish || (initial && pilotHead !== null));
+  const canSave = $derived(canPublish || ((initial || resculpt) && pilotHead !== null));
   const zoomChanged = $derived(Boolean(pilotHead && options?.framing && fieldOfView !== options.framing.fieldOfView));
   const skinTone = $derived(options?.skinTones.find(tone => tone.id === skinToneID));
   const hasSkinTones = $derived(Boolean(pilotHead && options?.skinTones.length));
@@ -138,10 +139,12 @@
   });
 
   async function savePortrait(): Promise<void> {
-    if (!options || !canSave || !backdrop || busy || !hasChanges) return;
+    if (!options || !canSave || !backdrop || busy || (!hasChanges && !resculpt)) return;
+    const paid = resculpt;
     const backgroundID = backdrop.id;
-    const initialFrame = initial ? portraitView?.readPortraitFrame() : undefined;
-    if (initial && !initialFrame) {
+    const needsFrame = initial || (paid && !options.framing);
+    const initialFrame = needsFrame ? portraitView?.readPortraitFrame() : undefined;
+    if (needsFrame && !initialFrame) {
       saveStatus = "Wait for the portrait preview to finish loading.";
       return;
     }
@@ -155,7 +158,7 @@
         hairColor: hairColorChanged ? { primaryID, secondaryID } : null,
         hairDarkness: hairDarknessChanged ? hairDarkness : null, beardID: beardChanged ? beardID : null, apparelIDs,
         robeHood: adjustableHood && (hoodChanged || apparelIDs.outer) ? robeHood : null,
-        initialFrame: initialFrame ?? undefined });
+        initialFrame: initialFrame ?? undefined, resculpt: paid });
       const clothing = options.clothing;
       if (clothing) {
         const slots = { ...clothing.slots };
@@ -165,7 +168,8 @@
       }
       options = { ...options, state: 0, backgroundID, framing, skinToneID, hairID, hairColor: { primaryID, secondaryID },
         hairDarkness, beardID, beardStyle: beardStyle ?? null };
-      saveStatus = initialFrame ? "Appearance saved. You can now publish your portrait." : "Portrait settings saved.";
+      saveStatus = paid ? "Resculpt saved. You can now publish your portrait." :
+        initialFrame ? "Appearance saved. You can now publish your portrait." : "Portrait settings saved.";
     } catch (error) {
       saveStatus = error instanceof Error ? error.message : "The portrait settings could not be saved.";
     } finally {
@@ -196,6 +200,7 @@
     <OwnerPicture name="Current pilot" {urls} size={152} />
     {#if options?.backgroundID != null}<p>Saved backdrop {options.backgroundID}</p>{/if}
     {#if initial}<p>Choose your appearance and save it before publishing a portrait.</p>{/if}
+    {#if resculpt}<p>Saving your resculpt completes the certificate. You can close the editor and resume later.</p>{/if}
   </div>
   <div class="preview">
     <label>Preview
@@ -224,12 +229,12 @@
         {#if showOutfit && pilotHead && outfit}
           <PortraitBaseHead model={pilotHead} bloodlineID={options.bloodlineID} {outfit} {apparel} robeHood={adjustableHood ? robeHood : 0}
             hairstyle={chosenHair?.style} {hairTints} {hasSkinTones} skinColors={skinTone?.colors}
-            makeup={facialHair} {facialHairScale} />
+            makeup={facialHair} {facialHairScale} morphs={options.morphs} />
         {:else if pilotHead && backdrop}
           <PortraitBaseHead bind:this={portraitView} model={pilotHead} backdropUrl={url} backdropIsDds={backdrop.isDds}
             bloodlineID={options.bloodlineID} framing={options.framing} {fieldOfView}
             {hasSkinTones} skinColors={skinTone?.colors} hairstyle={chosenHair?.style} {hairTints}
-            makeup={facialHair} {facialHairScale} />
+            makeup={facialHair} {facialHairScale} morphs={options.morphs} />
         {:else if backdrop?.isDds}
           <PortraitBackdrop {url} />
         {:else if url}
@@ -322,15 +327,15 @@
             </select>
           </label>
         {/if}
-        {#if pilotHead && (initial || options.framing)}
+        {#if pilotHead && (initial || resculpt || options.framing)}
           <label class="zoom">Zoom
             <input type="range" min="-1.5" max="-0.2" step="0.001" value={-fieldOfView} disabled={busy}
               oninput={event => { fieldOfView = -event.currentTarget.valueAsNumber; saveStatus = ""; }} />
           </label>
         {/if}
         <div class="portrait-actions">
-          <button type="button" disabled={busy || !backdrop || !hasChanges} onclick={savePortrait}>
-            {saving ? "Saving…" : initial ? "Save appearance" : "Save portrait"}
+          <button type="button" disabled={busy || !backdrop || (!hasChanges && !resculpt)} onclick={savePortrait}>
+            {saving ? "Saving…" : resculpt ? "Save resculpt" : initial ? "Save appearance" : "Save portrait"}
           </button>
           {#if pilotHead && canPublish}
             <button type="button" disabled={busy || hasChanges || !portraitView || (hairID !== 0 && !chosenHair)} onclick={publishPortrait}>
