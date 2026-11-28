@@ -24,7 +24,7 @@
   import { showMarketDetails } from "./marketDetails.ts";
   import EmploymentHistoryEntries from "./EmploymentHistoryEntries.svelte";
   import BookmarkWindow from "./BookmarkWindow.svelte";
-  import type { BookmarkPlace } from "../bridge/locationsList.ts";
+  import { intToRoman, type BookmarkPlace } from "../bridge/locationsList.ts";
   import type { MapRouteStep, TypeUsedWithGroup } from "../app/flow.ts";
   import type { ContactStandings, NpcNpcStanding } from "../bridge/standingsReads.ts";
   import { applyStandingBonus, standingBonusSkill } from "../bridge/effectiveStanding.ts";
@@ -912,19 +912,6 @@
 
   /** The page's names, by the formatters' kinds. */
   const namedAs: FormatContext["nameOf"] = (kind, id) => resolvedName($names.resolved, kind, id, "");
-  /** format.IntToRoman (1 to 39): the client's numerals for a celestial's index. */
-  function intToRoman(value: number | null): string {
-    let left = value ?? 0;
-    if (!(left > 0 && left < 40)) return "";
-    let out = "";
-    for (const [numeral, amount] of [["X", 10], ["IX", 9], ["V", 5], ["IV", 4], ["I", 1]] as const) {
-      while (left >= amount) {
-        out += numeral;
-        left -= amount;
-      }
-    }
-    return out;
-  }
   /** eveCfg._GetCelestialNameDataFromLocalRow: a celestial's own name where it has one, else its formatter's. */
   function celestialName(row: SystemObjectRow, solarSystemID: number): string {
     if (row.name != null && row.groupID !== 10) return row.name;

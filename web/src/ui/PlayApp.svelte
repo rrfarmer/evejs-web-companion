@@ -5163,6 +5163,7 @@
   {#if session && mapBrowserRequest}
     <MapBrowser store={session.store} flow={session.flow} request={mapBrowserRequest} onShowLocation={(id) => showLocationOnMap(id, true)}
       onShowSystemInBrowser={showSystemInMapBrowser}
+      viewingPlanetID={planetModeID} onViewPlanet={showPlanetInMode} onLeavePlanet={() => leavePlanetMode()}
       onClose={() => { mapBrowserRequest = null; }} />
   {/if}
   {#if planetInMode}

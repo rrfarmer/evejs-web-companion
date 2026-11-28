@@ -16,6 +16,20 @@
 
 import type { ActiveBookmarks, Bookmark, BookmarkFolder, Subfolder } from "./bookmarks.ts";
 
+/** The client's roman numerals for a celestial's index (format.IntToRoman, 1 through 39). */
+export function intToRoman(value: number | null): string {
+  let left = value ?? 0;
+  if (!(left > 0 && left < 40)) return "";
+  let out = "";
+  for (const [numeral, amount] of [["X", 10], ["IX", 9], ["V", 5], ["IV", 4], ["I", 1]] as const) {
+    while (left >= amount) {
+      out += numeral;
+      left -= amount;
+    }
+  }
+  return out;
+}
+
 /**
  * A place the bookmark window is opened for (addressbookService.py BookmarkLocationPopup, 405 to 421): its number;
  * the name of the type its popup is asked with (the "already saved" question's), and its default name

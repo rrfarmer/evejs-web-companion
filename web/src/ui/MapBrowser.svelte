@@ -3,21 +3,24 @@
   import type { StarMapData, SystemObjectRow } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import { formatTemplate, plainText } from "../bridge/clientWords.ts";
-  import type { BookmarkPlace } from "../bridge/locationsList.ts";
+  import { intToRoman, type BookmarkPlace } from "../bridge/locationsList.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { resolvedName } from "../store/names.ts";
   import { ContextMenu, type ContextEntry } from "../play/contextMenu.ts";
+  import { celestialRouteEntries, isDeprecatedStationType } from "../nav/waypoints.ts";
   import { showInfo } from "./showInfo.ts";
   import { mapBrowserConnections, type MapBrowserConnection } from "./mapBrowserConnections.ts";
   import { solarGeometry } from "./mapBrowserSolarGeometry.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
   import BookmarkWindow from "./BookmarkWindow.svelte";
+  import HomeStationPanel from "./HomeStationPanel.svelte";
   import { mapLocationMenu, mapLocationMenuWords } from "./mapLocationMenu.ts";
 
-  let { store, flow, request, onClose, onShowLocation, onShowSystemInBrowser }: {
+  let { store, flow, request, onClose, onShowLocation, onShowSystemInBrowser, viewingPlanetID, onViewPlanet, onLeavePlanet }: {
     store: ClientStore; flow: AppFlow; request: { systemID: number };
     onClose: () => void; onShowLocation: (locationID: number) => void;
     onShowSystemInBrowser: (systemID: number) => void;
+    viewingPlanetID: number | null; onViewPlanet: (planetID: number) => void; onLeavePlanet: () => void;
   } = $props();
   const names = $derived(store.names);
   const words = $derived(store.words);
@@ -27,6 +30,24 @@
   const showAbstractLabel = "UI/Map/Map2D/menuShowAbstract";
   const showPhysicalLabel = "UI/Map/Map2D/menuShowNonAbstract";
   const cannotShiftSelect = "UI/Map/MapBrowser/CannotShiftSelect";
+  const celestialWords = {
+    location: ["UI/Map/Map2D/menuLocationEntry", "{locationName} {groupName}"],
+    info: ["UI/Commands/ShowInfo", "Show Info"],
+    destination: ["UI/Inflight/SetDestination", "Set Destination"],
+    waypoint: ["UI/Inflight/AddWaypoint", "Add Waypoint"],
+    removeWaypoint: ["UI/Inflight/RemoveWaypoint", "Remove Waypoint"],
+    saveLocation: ["UI/Inflight/BookmarkLocation", "Save Location..."],
+    bookmarkLabel: ["UI/PeopleAndPlaces/NewBookmarkLocationLabel", "{loc} ({group})"],
+    home: ["UI/Menusvc/SetHomeStation", "Set Home Station"],
+    viewPlanet: ["UI/PI/Common/ViewInPlanetMode", "View in Planet Mode"],
+    leavePlanet: ["UI/PI/Common/ExitPlanetMode", "Exit Planet Mode"],
+  } as const;
+  const celestialGroupNames: Readonly<Record<number, string>> = { 7: "Planet", 8: "Moon", 9: "Asteroid Belt", 10: "Stargate", 15: "Station" };
+  const celestialNameWords: Readonly<Record<number, readonly [string, string]>> = {
+    7: ["UI/Locations/LocationPlanetFormatter", "{[location]solarSystemID.rawName} {romanCelestialIndex}"],
+    8: ["UI/Locations/LocationMoonFormatter", "{[location]solarSystemID.rawName} {romanCelestialIndex} - Moon {orbitIndex}"],
+    9: ["UI/Locations/LocationAsteroidBeltFormatter", "{[location]solarSystemID.rawName} {romanCelestialIndex} - Asteroid Belt {orbitIndex}"],
+  };
   const sectionLabels = ["ListRegions", "ListConstellations", "ListSolarSystems", "ListCelestials"] as const;
   type Point = { id: number; name: string; x: number; y?: number; z: number; typeID: number; station?: boolean;
     groupID?: number | null; orbitID?: number | null };
@@ -35,6 +56,7 @@
   let selection = $state<readonly number[]>([]);
   let shownList = $state<number | null>(null);
   let bookmark = $state.raw<BookmarkPlace | null>(null);
+  let homeStationID = $state<number | null>(null);
   let error = $state(false);
   let solarPlotWidth = $state(0);
   let alignment = $state<"left" | "right">("right");
@@ -63,7 +85,8 @@
     void flow.loadStarMap().then(result => {
       if (current) { data = result; error = result.systems.length === 0; }
     }).catch(() => { if (current) error = true; });
-    flow.requestWords([...mapLocationMenuWords, universeLabel, showAbstractLabel, showPhysicalLabel, cannotShiftSelect, ...["MapBrowser", "CloseMapBrowser", "ShowInWorldMap", "AlignLeft", "AlignRight",
+    flow.requestWords([...mapLocationMenuWords, ...Object.values(celestialWords).map(([path]) => path),
+      ...Object.values(celestialNameWords).map(([path]) => path), universeLabel, showAbstractLabel, showPhysicalLabel, cannotShiftSelect, ...["MapBrowser", "CloseMapBrowser", "ShowInWorldMap", "AlignLeft", "AlignRight",
       "NameRegion", "NameConstellation", "NameSolarSystem", ...sectionLabels].map(key => labelBase + key)]);
     return () => { current = false; };
   });
@@ -91,6 +114,7 @@
       objects = result.objects;
       flow.requestNames(result.objects.map(row => row.itemID >= 60_000_000 && row.itemID < 64_000_000
         ? { kind: "station", id: row.itemID } : { kind: "type", id: row.typeID }));
+      flow.requestNames([...new Set(result.objects.map(row => row.typeID))].map(id => ({ kind: "typeGroup", id })));
     }).catch(() => {});
     return () => { current = false; };
   });
@@ -128,18 +152,28 @@
       const points = objects.flatMap(row => {
         if (!row.position) return [];
         const station = row.itemID >= 60_000_000 && row.itemID < 64_000_000;
-        const objectName = row.name ?? (station ? resolvedName($names.resolved, "station", row.itemID, "")
-          : resolvedName($names.resolved, "type", row.typeID, ""));
-        const detail = row.groupID === 10 && row.destinationID
-          ? data?.systems.find(other => other[0] === row.destinationID)?.[7] : row.celestialIndex ?? null;
-        return [{ id: row.itemID, typeID: row.typeID, name: `${objectName || row.itemID}${!row.name && detail ? ` · ${detail}` : ""}`,
-          station, groupID: row.groupID, orbitID: row.orbitID, x: row.position[0], y: row.position[1], z: row.position[2] }];
+        return [{ id: row.itemID, typeID: row.typeID, name: celestialName(row, system[0], name, station),
+          station, groupID: row.groupID, orbitID: row.orbitID,
+          x: row.position[0], y: row.position[1], z: row.position[2] }];
       });
       result.push({ name: label(labelBase + "NameSolarSystem", "Solar System: {name}", name),
         title: label(labelBase + sectionLabels[3], "List Celestials", name), id: system[0], points });
     }
     return result;
   });
+
+  function celestialName(row: SystemObjectRow, solarSystemID: number, systemName: string, station: boolean): string {
+    if (row.name) return row.name;
+    if (station) return resolvedName($names.resolved, "station", row.itemID, String(row.itemID));
+    const typeName = resolvedName($names.resolved, "type", row.typeID, celestialGroupNames[row.groupID ?? 0] ?? String(row.itemID));
+    if (row.groupID === 10 && row.destinationID) return data?.systems.find(other => other[0] === row.destinationID)?.[7] ?? typeName;
+    const formatter = celestialNameWords[row.groupID ?? 0];
+    if (!formatter || !row.celestialIndex || row.celestialIndex >= 40) return typeName;
+    const [path, fallback] = formatter;
+    return plainText(formatTemplate($words.templates[path] ?? fallback, { solarSystemID, typeID: row.typeID,
+      romanCelestialIndex: intToRoman(row.celestialIndex), orbitIndex: row.orbitIndex ?? 0 },
+      { nameOf: (_, id) => id === solarSystemID ? systemName : typeName }));
+  }
 
   function project(points: readonly Point[], edges?: ReadonlyMap<string, MapBrowserConnection>, neighbors?: readonly Point[]) {
     if (points.length === 0) return { points: [], lines: [] };
@@ -189,6 +223,42 @@
     else showInfo({ kind: "spaceObject", itemID: point.id, typeID: point.typeID });
     shownList = null;
   }
+  function celestialEntry(key: keyof typeof celestialWords, args?: Record<string, string | number>, name = ""): ContextEntry {
+    const [path, fallback] = celestialWords[key];
+    return { path, label: plainText(formatTemplate($words.templates[path] ?? fallback, args ?? {}, { nameOf: () => name })) };
+  }
+  function celestialGroupName(point: Point): string {
+    return resolvedName($names.resolved, "typeGroup", point.typeID, celestialGroupNames[point.groupID ?? 0] ?? "");
+  }
+  function celestialMenu(point: Point, here: number | null): (ContextEntry | null)[] {
+    const entries: (ContextEntry | null)[] = [{ ...celestialEntry("info"), info: true, run: () => select(3, point, false) }];
+    const eligibleStation = point.station && !isDeprecatedStationType(point.typeID) && selection[0] !== 10_000_070;
+    if (eligibleStation) {
+      const route = celestialRouteEntries(point.id, true, here, flow.waypoints.get());
+      if (route.setDestination) entries.push({ ...celestialEntry("destination"), run: () => flow.setDestination(point.id) });
+      if (route.addWaypoint) entries.push({ ...celestialEntry("waypoint"), run: () => flow.addWaypoint(point.id) });
+      if (route.removeWaypoint) entries.push({ ...celestialEntry("removeWaypoint"), run: () => flow.clearWaypoints(point.id) });
+    }
+    if (!point.station || !isDeprecatedStationType(point.typeID)) entries.push(null, {
+      ...celestialEntry("saveLocation"), run: () => {
+        const typeName = () => celestialGroupName(point);
+        bookmark = { itemID: point.id, askIfKnown: true, typeName,
+          name: () => celestialEntry("bookmarkLabel", { loc: point.id, group: typeName() }, point.name).label };
+      },
+    });
+    if (eligibleStation) entries.push({ ...celestialEntry("home"), run: () => { homeStationID = point.id; } });
+    if (point.groupID === 7) entries.push(viewingPlanetID === point.id
+      ? { ...celestialEntry("leavePlanet"), run: onLeavePlanet }
+      : { ...celestialEntry("viewPlanet"), run: () => onViewPlanet(point.id) });
+    return entries;
+  }
+  function layoutEntry(): ContextEntry {
+    const path = abstract ? showPhysicalLabel : showAbstractLabel;
+    return { path, label: label(path, abstract ? "Show Physical Layout" : "Show Abstract Layout"), run: () => {
+      abstract = !abstract;
+      try { localStorage.setItem(abstractPreference, abstract ? "1" : "0"); } catch { /* The open map still changes. */ }
+    } };
+  }
   function openMapMenu(event: MouseEvent | KeyboardEvent): void {
     const target = event.target;
     if (!(target instanceof HTMLElement) || target.closest(".map-browser-choices")) return;
@@ -197,7 +267,32 @@
     const x = pointer ? event.clientX : bounds.left;
     const y = pointer ? event.clientY : bounds.bottom;
     const marker = target.closest<HTMLElement>(".map-browser-point");
-    if (marker) {
+    const plot = target.closest<HTMLElement>(".map-browser-plot.solar");
+    const flight = store.flight.get().status;
+    const online = store.station.get().online;
+    if (plot && (flight?.docked ?? ((online?.stationID ?? online?.structureID) != null))) {
+      const points = panels[3]?.points ?? [];
+      const picked = pointer ? [...plot.querySelectorAll<HTMLElement>("[data-map-item]")].filter(node => {
+        const box = node.getBoundingClientRect();
+        return Math.abs(box.left + box.width / 2 - x) <= 5 && Math.abs(box.top + box.height / 2 - y) <= 5;
+      }) : marker ? [marker] : [];
+      const hits = picked.flatMap(node => {
+        const point = points.find(point => point.id === Number(node.dataset.mapItem));
+        return point && point.groupID !== 6 ? [point] : [];
+      });
+      if (hits.length) {
+        const here = flight?.solarSystemID ?? online?.solarSystemID ?? null;
+        const entries = hits.length === 1 ? celestialMenu(hits[0]!, here) : hits.map(point => {
+          const group = celestialGroupName(point);
+          return { ...celestialEntry("location", { locationName: point.name,
+            groupName: point.name.toLowerCase().includes(group.toLowerCase()) ? "" : group }), sub: celestialMenu(point, here) };
+        }).sort((a, b) => a.label.localeCompare(b.label));
+        event.preventDefault();
+        mapMenu.open(x, y, [...entries, null, layoutEntry()]);
+        return;
+      }
+    }
+    if (marker && !plot) {
       const id = Number(marker.dataset.mapItem);
       const point = regionPoints.find(point => point.id === id)
         ?? constellationPoints.find(point => point.id === id) ?? systemPoints.find(point => point.id === id);
@@ -221,14 +316,7 @@
       },
     }];
     if (target.closest(".map-browser-panel")?.querySelector(".solar")) {
-      const mode = abstract ? showPhysicalLabel : showAbstractLabel;
-      entries.push(null, {
-        path: mode, label: label(mode, abstract ? "Show Physical Layout" : "Show Abstract Layout"),
-        run: () => {
-          abstract = !abstract;
-          try { localStorage.setItem(abstractPreference, abstract ? "1" : "0"); } catch { /* The open map still changes. */ }
-        },
-      });
+      entries.push(null, layoutEntry());
     }
     mapMenu.open(x, y, entries);
   }
@@ -297,6 +385,9 @@
 
 {#if bookmark}
   {#key bookmark.itemID}<BookmarkWindow {store} {flow} place={bookmark} onDone={() => { bookmark = null; }} />{/key}
+{/if}
+{#if homeStationID !== null}
+  {#key homeStationID}<HomeStationPanel {store} {flow} targetStationID={homeStationID} onClose={() => { homeStationID = null; }} />{/key}
 {/if}
 
 <style>
