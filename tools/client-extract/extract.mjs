@@ -926,23 +926,23 @@ async function extractPortraitHair(rf, gender, style, outRoot) {
   if (!rgb || rgb.length !== 3 || !rgb.every(value => Number.isFinite(value))) throw new Error("Invalid base hair color");
   fs.mkdirSync(dir, { recursive: true });
   const material = { rgb };
-  const scalpMap = filename => ({ url: copyRes(rf, filename, outRoot), rect: portraitPngRect(rf.read(filename)) });
+  const croppedMap = filename => ({ url: copyRes(rf, filename, outRoot), rect: portraitPngRect(rf.read(filename)) });
+  const finishMaps = part => Object.fromEntries(Object.entries({ normal: "n", specular: "s" }).flatMap(([role, channel]) => {
+    const stem = `${folder}/comp_${part}_${channel}`;
+    const filename = [stem + "_512.png", stem + ".png"].find(candidate => rf.has(candidate));
+    return filename ? [[role, croppedMap(filename)]] : [];
+  }));
   if (scalpMode === "implant") {
     const maps = Object.entries({ diffuse: "d", normal: "mn", specular: "s" }).map(([role, channel]) =>
-      [role, scalpMap(`${folder}/comp_head_${channel}_512.png`)]);
+      [role, croppedMap(`${folder}/comp_head_${channel}_512.png`)]);
     material.scalp = { implant: true, ...Object.fromEntries(maps) };
   } else if (scalpMode) {
     const suffix = ["l", "z"].every(channel => rf.has(`${folder}/colorize_head_${channel}_512.png`)) ? "_512" : "";
     const diffuse = `${folder}/colorize_head_l${suffix}.png`, zones = `${folder}/colorize_head_z${suffix}.png`;
-    const finish = Object.fromEntries(Object.entries({ normal: "n", specular: "s" }).flatMap(([role, channel]) => {
-      const stem = `${folder}/comp_head_${channel}`;
-      const filename = [stem + "_512.png", stem + ".png"].find(candidate => rf.has(candidate));
-      return filename ? [[role, scalpMap(filename)]] : [];
-    }));
     material.scalp = {
       diffuse: copyRes(rf, diffuse, outRoot), zones: copyRes(rf, zones, outRoot),
       diffuseRect: portraitPngRect(rf.read(diffuse)), zonesRect: portraitPngRect(rf.read(zones)),
-      finish,
+      finish: finishMaps("head"),
     };
   }
   if (!scalpMode || scalpMode === "withMesh") {
@@ -950,6 +950,7 @@ async function extractPortraitHair(rf, gender, style, outRoot) {
     const source = `${folder}/${pngMesh ?? style}.gr2`;
     await extractPortraitMesh(rf, source, path.join(dir, `${style}.glb`), style);
     material.diffuse = copyRes(rf, `${folder}/${pngMesh ? "colorize_hair_l.png" : "colorize_hair_l_256.dds"}`, outRoot);
+    material.meshFinish = finishMaps("hair");
   }
   writeExtracted(path.join(dir, `${style}.json`), JSON.stringify(material));
 }

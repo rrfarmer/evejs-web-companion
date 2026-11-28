@@ -5,8 +5,9 @@
   import type { PortraitFraming } from "../app/flow.ts";
   import type { PortraitApparel, PortraitFrame, PortraitMakeup, PortraitMorph, PortraitSkinTone } from "../app/api.ts";
   import { compositePortraitColorLayer, type PortraitColorLayer } from "../three/portraitMakeup.ts";
-  import { compositePortraitImplant, compositePortraitScalpFinish, type PortraitImplantMap, type PortraitImplantMaps,
-    type PortraitScalpFinish } from "../three/portraitImplant.ts";
+  import { compositePortraitImplant, compositePortraitScalpFinish, type PortraitCroppedTexture, type PortraitImplantMaps,
+    type PortraitSurfaceFinish } from "../three/portraitImplant.ts";
+  import { applyPortraitHairFinish } from "../three/portraitHairFinish.ts";
   import { applyPortraitMorphs } from "../three/portraitMorphs.ts";
   import { compressedSupport, loadDds } from "../three/ddsTexture";
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
@@ -42,7 +43,8 @@
     zonesRect: number[];
   };
   type CroppedMapAsset = { url: string; rect: number[] };
-  type ColorizedScalpAsset = ColorLayerAsset & { finish?: { normal?: CroppedMapAsset; specular?: CroppedMapAsset } };
+  type FinishAsset = { normal?: CroppedMapAsset; specular?: CroppedMapAsset };
+  type ColorizedScalpAsset = ColorLayerAsset & { finish?: FinishAsset };
   type ImplantAsset = { implant: true; diffuse: CroppedMapAsset; normal: CroppedMapAsset; specular: CroppedMapAsset };
   let meshHairDisplay = $state<LoadState>("loading");
   let scalpDisplay = $state<LoadState>("ready");
@@ -141,6 +143,29 @@
     return { bitmap, texture };
   }
 
+  async function loadCroppedTexture(asset: CroppedMapAsset, maps: Awaited<ReturnType<typeof loadMap>>[],
+    retired: () => boolean, color = false): Promise<PortraitCroppedTexture> {
+    if (retired()) throw new Error("Portrait load retired");
+    const map = await loadMap(asset.url, color);
+    if (retired()) {
+      map.texture.dispose();
+      map.bitmap.close();
+      throw new Error("Portrait load retired");
+    }
+    maps.push(map);
+    return { texture: map.texture, rect: new THREE.Vector4().fromArray(asset.rect) };
+  }
+
+  async function loadFinish(assets: FinishAsset | undefined, maps: Awaited<ReturnType<typeof loadMap>>[],
+    retired: () => boolean): Promise<PortraitSurfaceFinish> {
+    const finish: PortraitSurfaceFinish = {};
+    for (const [role, asset] of [["Normal", assets?.normal], ["Specular", assets?.specular]] as const) {
+      const map = asset && await loadCroppedTexture(asset, maps, retired).catch(() => null);
+      if (map) finish[role] = map;
+    }
+    return finish;
+  }
+
   onMount(() => {
     let viewport: ResizeObserver | undefined;
     try {
@@ -185,15 +210,17 @@
     let hair: THREE.Group | null = null;
     let texture: THREE.Texture | null = null;
     let bitmap: ImageBitmap | null = null;
+    const finishMaps: Awaited<ReturnType<typeof loadMap>>[] = [];
     meshHairDisplay = "loading";
     void (async () => {
       const stem = `/client-assets/portrait-hair/${gender}/${style}`;
       const response = await fetch(stem + ".json");
       if (!response.ok) throw new Error("Portrait hairstyle unavailable");
-      const { diffuse, rgb, scalp } = await response.json() as {
+      const { diffuse, rgb, scalp, meshFinish } = await response.json() as {
         diffuse?: string;
         rgb: [number, number, number];
         scalp?: Omit<ColorizedScalpAsset, "colors"> | ImplantAsset;
+        meshFinish?: FinishAsset;
       };
       if (retired) return;
       if (scalp) {
@@ -214,6 +241,8 @@
       bitmap = loaded.bitmap;
       detail.colorSpace = THREE.SRGBColorSpace;
       detail.wrapS = detail.wrapT = THREE.ClampToEdgeWrapping;
+      const finish = await loadFinish(meshFinish, finishMaps, () => retired);
+      if (retired) return;
       const { scene: object } = await loader.loadAsync(stem + ".glb");
       if (retired) { release(object); return; }
       hair = object;
@@ -221,6 +250,7 @@
         map: detail, color: new THREE.Color().setRGB(...rgb, THREE.SRGBColorSpace),
         side: THREE.DoubleSide, roughness: 0.8, alphaTest: 0.20, alphaToCoverage: true,
       });
+      if (finish.Normal || finish.Specular) applyPortraitHairFinish(surface, finish);
       applySurface(hair, surface, new Set(), new Set(), null, surface);
       scene.add(hair);
       if (fullBody) {
@@ -241,6 +271,10 @@
       scalpDisplay = "ready";
       texture?.dispose();
       bitmap?.close();
+      for (const map of finishMaps) {
+        map.texture.dispose();
+        map.bitmap.close();
+      }
     };
   });
 
@@ -642,24 +676,13 @@
       const irisLayer = irisAsset ? await readColorLayer({ asset: irisAsset, weight: 1, gloss: null }) : null;
       const faceLayers: [string, PortraitColorLayer][] = [];
       let implant: PortraitImplantMaps | null = null;
-      const scalpFinish: PortraitScalpFinish = {};
-      const loadScalpMap = async (asset: CroppedMapAsset, color = false): Promise<PortraitImplantMap> => {
-        if (retired) throw new Error("Portrait load retired");
-        const map = await loadMap(asset.url, color);
-        if (retired) {
-          map.texture.dispose();
-          map.bitmap.close();
-          throw new Error("Portrait load retired");
-        }
-        maps.push(map);
-        return { texture: map.texture, rect: new THREE.Vector4().fromArray(asset.rect) };
-      };
+      let scalpFinish: PortraitSurfaceFinish = {};
       if (scalp && "implant" in scalp && !retired) {
         try {
           implant = {
-            Diffuse: await loadScalpMap(scalp.diffuse, true),
-            Normal: await loadScalpMap(scalp.normal),
-            Specular: await loadScalpMap(scalp.specular),
+            Diffuse: await loadCroppedTexture(scalp.diffuse, maps, () => retired, true),
+            Normal: await loadCroppedTexture(scalp.normal, maps, () => retired),
+            Specular: await loadCroppedTexture(scalp.specular, maps, () => retired),
           };
         } catch {
           if (retired) return;
@@ -670,11 +693,8 @@
         if (retired) return;
         if (layer) {
           faceLayers.push(["portraitScalpHair", layer]);
-          for (const [role, asset] of [["Normal", scalp.finish?.normal], ["Specular", scalp.finish?.specular]] as const) {
-            const map = asset && await loadScalpMap(asset).catch(() => null);
-            if (map) scalpFinish[role] = map;
-            if (retired) return;
-          }
+          scalpFinish = await loadFinish(scalp.finish, maps, () => retired);
+          if (retired) return;
         }
         scalpDisplay = layer ? "ready" : "unavailable";
       }
@@ -700,7 +720,7 @@
       // Read the two linear channels without premultiplying the PNG.
       const configure = (material: THREE.MeshStandardMaterial, skinLayer: SkinUniforms | null,
         layers: readonly [string, PortraitColorLayer][] = [], implantMaps: PortraitImplantMaps | null = null,
-        finish: PortraitScalpFinish = {}) => {
+        finish: PortraitSurfaceFinish = {}) => {
         material.onBeforeCompile = shader => {
           const layeredNormal = archetype ? `headNormal = mix(headNormal,
             texture2D( archetypeNormal, vNormalMapUv ).ag * 2.0 - 1.0, archetypeCoverage);` : "";

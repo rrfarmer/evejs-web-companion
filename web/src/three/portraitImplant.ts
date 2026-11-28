@@ -1,19 +1,19 @@
 import type { Texture, Vector4, WebGLProgramParametersWithUniforms } from "three";
 
-export interface PortraitImplantMap {
+export interface PortraitCroppedTexture {
   texture: Texture;
   rect: Vector4;
 }
 
 export interface PortraitImplantMaps {
-  Diffuse: PortraitImplantMap;
-  Normal: PortraitImplantMap;
-  Specular: PortraitImplantMap;
+  Diffuse: PortraitCroppedTexture;
+  Normal: PortraitCroppedTexture;
+  Specular: PortraitCroppedTexture;
 }
 
-export type PortraitScalpFinish = Partial<Pick<PortraitImplantMaps, "Normal" | "Specular">>;
+export type PortraitSurfaceFinish = Partial<Pick<PortraitImplantMaps, "Normal" | "Specular">>;
 
-export function compositePortraitScalpFinish(shader: WebGLProgramParametersWithUniforms, maps: PortraitScalpFinish): void {
+export function compositePortraitScalpFinish(shader: WebGLProgramParametersWithUniforms, maps: PortraitSurfaceFinish): void {
   for (const [role, map] of Object.entries(maps)) {
     const name = "portraitScalp" + role;
     shader.uniforms[name] = { value: map.texture };
