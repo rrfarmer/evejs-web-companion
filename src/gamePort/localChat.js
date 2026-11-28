@@ -36,6 +36,7 @@ class NativeLocalChat {
     this.request = request;
     this.changed = changed;
     this.now = now;
+    this.reportedSpammers = new Set();
     this.room = null;
     this.earlyMembership = null;
     this.membershipTimer = null;
@@ -182,7 +183,7 @@ class NativeLocalChat {
       this.publish();
     } else if (type === "MessageBroadcastNotice") {
       const characterID = positive(payload.author?.sequential);
-      if (!characterID || typeof payload.message !== "string" || !payload.message) return;
+      if (!characterID || this.reportedSpammers.has(characterID) || typeof payload.message !== "string" || !payload.message) return;
       const entry = this.entry(characterID, payload.message);
       if (characterID > 1) {
         const member = room.roster.get(characterID) ?? this.member(room, characterID);

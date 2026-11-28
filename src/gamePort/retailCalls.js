@@ -930,6 +930,7 @@ const GAME_PORT_ONLY_CALLS = Object.freeze([
   // name; the gateway's list has nothing of the user service's.
   "userSvc.ClaimRedeemTokens",
   "userSvc.ActivateCharacterReSculpt",
+  "userSvc.ReportISKSpammer",
   // The account's daily login campaign, which the client's login campaign service asks for as its neocom button is
   // set up, and the day's claim of it. The page asks both by name; the gateway's list has nothing of the login
   // campaign manager's.
@@ -3452,6 +3453,12 @@ const RETAIL_CALLS = Object.freeze({
   "ProjectDiscovery.is_enabled": judged("projectdiscovery/client/baseservice.py:41", sentWithNothing, "self.remote_service.is_enabled(), nothing sent: whether Project Discovery is enabled, a bool, asked while none is kept and kept as long as the client runs (39 to 42). The neocom asks, of its button for Project Discovery (eve/client/script/ui/shared/neocom/neocom/btnData/btnDataNode.py 485). Tranquility's recordings of a login have it once, answered True."),
   "localizationServer.UpdateLocalizationQAWrap": judged("carbon/client/script/localization/localizationClient.py:27", oneBoolAlone, "sm.RemoteSvc('localizationServer').UpdateLocalizationQAWrap(LocWrapSettingsActive()), the one bool: whether any of the client's QA settings of its texts is on (localization/settings/qaSettings.py 53 to 65). Told as a first character comes onto a session whose role has ROLE_QA (24 to 27), and as those settings are saved (qaSettings.py 49). Tranquility's recordings, which are of players, have none."),
   "userSvc.GetRedeemTokens": judged("eve/client/script/ui/services/redeemsvc.py:64", sentWithNothing, "sm.RemoteSvc('userSvc').GetRedeemTokens(), nothing sent: what the account may redeem, a rowset of tokens (the token, its type and quantity, its label and description, when it came, runs out and is to be had, where, and whether it is bound). The redeem service fetches it as its neocom extension is set up (37 to 46), at the server's OnRedeemingQueueUpdated (162 to 169) and after a claim, and keeps it (51 to 54). Tranquility's recordings of a login have it once from the choosing on."),
+  "userSvc.ReportISKSpammer": judged("chat/client/chat_service.py:178-204",
+    (args, kwargs) => args.length === 3 && Number.isSafeInteger(args[0]) && args[0] > 1 &&
+      typeof args[1] === "string" && args[2]?.type === "list" && Array.isArray(args[2].items) &&
+      args[2].items.length <= 10 && args[2].items.every(line => typeof line === "string") &&
+      Object.keys(kwargs).length === 0 ? {} : { status: "differs", note: "A report sends a character, channel, and up to ten excerpts." },
+    "After confirmation, report the character and channel with up to ten of their recent chat lines, newest first."),
   "userSvc.ActivateCharacterReSculpt": judged("eve/client/script/ui/services/menuSvcExtras/menuFunctions.py:388",
     (args, kwargs) => args.length === 1 && Number.isSafeInteger(args[0]) && args[0] > 0 && Object.keys(kwargs).length === 0
       ? {} : { status: "differs", note: "The confirmed certificate activation sends one inventory item ID." },

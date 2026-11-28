@@ -417,6 +417,8 @@ class XmppChatSession {
     this.memberOrder = new Map();
     // roomName -> [{ characterID, characterName, message, createdAtMs }]
     this.messages = new Map();
+    this.reportedSpammers = new Set();
+    this.pendingSpamReports = new Map();
     this.invitations = new Map();
     this.declines = [];
     this.controlCounter = 0;
@@ -1192,6 +1194,7 @@ class XmppChatSession {
 
   /** Keep a line at the tail of its room's, and no more of them than the tail is long. */
   keepLine(roomName, entry) {
+    if (this.reportedSpammers.has(entry.characterID)) return;
     const local = this.channelOf(roomName) === "local";
     if (local && this.rooms.get("local")?.roomName !== roomName) return;
     if (!this.messages.has(roomName)) {

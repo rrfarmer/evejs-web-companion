@@ -193,7 +193,7 @@ const FEATURE_WRITE_METHODS = freezeMethodMap({
   expertSystemMgr: ["RemoveMyExpertSystem"],
   // The redeem window's claim of the account's tokens (redeemsvc.py 103): items into a hangar, or skill points and
   // ISK onto the character. The game port carries it; the web gateway's list has nothing of the user service's.
-  userSvc: ["ClaimRedeemTokens", "ActivateCharacterReSculpt"],
+  userSvc: ["ClaimRedeemTokens", "ActivateCharacterReSculpt", "ReportISKSpammer"],
   // The day's claim of the account's daily login campaign (loginCampaignService.py 199), which puts a redeem token in
   // the account's queue. The game port carries it; the web gateway's list has nothing of the login campaign's.
   loginCampaignManager: ["claim_reward"],

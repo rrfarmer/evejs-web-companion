@@ -10016,6 +10016,53 @@ for (const list of ["allowed", "blocked", "muted", "operators", "owners"]) app.a
   } catch (error) { next(error); }
 });
 
+app.post("/api/bridge/chat/:roomName/report-spam", requireAuth, async (req, res, next) => {
+  const held = requireHeldBridgeSession(req, res);
+  if (!held || !requireWriteConfirmation(req, res, "Confirm the spam report first.")) return;
+  const { target } = req.body;
+  if (!Number.isSafeInteger(target) || target <= 1 || target === held.characterID) {
+    return res.status(400).json({ ok: false, error: "CHAT_INVALID_TARGET", message: "Choose another pilot to report." });
+  }
+  const session = heldChatSession(held);
+  if (!session) return chatUnavailable(res);
+  try {
+    const { roomName } = req.params;
+    const channel = session.channelOf(roomName);
+    const nativeLocal = heldNativeLocal(held);
+    const state = channel === "local" && nativeLocal ? nativeLocal.snapshot(200) : session.snapshot(channel, 200);
+    const member = state.roster.find(row => row.characterID === target);
+    const lines = state.messages.filter(line => line.characterID === target).slice(-10).reverse();
+    if (state.roomName !== roomName || (!member && !lines.length)) {
+      return res.status(403).json({ ok: false, error: "CHAT_REPORT_REFUSED", message: "Choose a pilot from the current channel." });
+    }
+    chatContext(held, req).assertCurrent();
+    if (!session.reportedSpammers.has(target)) {
+      let pending = session.pendingSpamReports.get(target);
+      if (!pending) {
+        pending = (async () => {
+          let name = member?.name || lines[0]?.characterName || String(target);
+          if (lines.length && channel === "local" && nativeLocal && gamePortPilots?.ownersNamed) {
+            const owners = await gamePortPilots.ownersNamed([target], { userid: held.accountID }, held.bridgeSessionID).catch(() => null);
+            name = owners?.get(target)?.name || name;
+          }
+          assertHeldRequestGeneration(req, held);
+          const entries = lines.map(line => {
+            const time = new Date(line.createdAtMs).toISOString().slice(11, 19);
+            return `[${time}] ${name} > ${line.message}`;
+          });
+          await heldTopLevelCall(held, req.webSessionID, "userSvc", "ReportISKSpammer",
+            [target, roomName, { type: "list", items: entries }], null);
+          session.reportedSpammers.add(target);
+          nativeLocal?.reportedSpammers.add(target);
+        })().finally(() => session.pendingSpamReports.delete(target));
+        session.pendingSpamReports.set(target, pending);
+      }
+      await pending;
+    }
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
 app.post("/api/bridge/chat/:roomName/moderate", requireAuth, async (req, res, next) => {
   const held = requireHeldBridgeSession(req, res);
   if (!held) return;

@@ -2176,6 +2176,9 @@ export type ChatChannelAccess = "allowed" | "moderated" | "blocked";
 export type ChatAccessOwnerKind = "character" | "corporation" | "alliance";
 export type ChatAccessList = "allowed" | "blocked" | "muted" | "operators" | "owners";
 export type ChatModerationAction = "mute" | "unmute" | "kick";
+export async function reportChatSpammer(room: string, target: number, options: ApiOptions = {}): Promise<void> {
+  await postJson(`/api/bridge/chat/${encodeURIComponent(room)}/report-spam`, { target, confirm: true }, options);
+}
 export async function moderateChatMember(room: string, target: number, action: ChatModerationAction, minutes: number, reason: string, options: ApiOptions = {}): Promise<void> {
   await postJson(`/api/bridge/chat/${encodeURIComponent(room)}/moderate`, { target, action, minutes, reason }, options);
 }

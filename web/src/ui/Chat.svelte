@@ -201,24 +201,39 @@
     return !!activeRoom && /^(player|system)_/.test(activeRoom.channel) && member.characterID > 1 && member.characterID !== pilotID &&
       member.role !== "moderator" && activeRoom.state.roster.some(row => row.characterID === pilotID && row.role === "moderator");
   }
-  function openMemberMenu(event: MouseEvent | KeyboardEvent, member: ChatMember) {
-    const room = activeRoom?.channel;
-    if (!room || !canModerate(member)) return;
+  const REPORT_SPAM_LABEL = "UI/Chat/ReportIskSpammer";
+
+  function canReport(characterID: number): boolean {
+    return !!active.roomName && pilotID !== null && characterID > 1 && characterID !== pilotID;
+  }
+
+  function openMemberMenu(event: MouseEvent | KeyboardEvent, characterID: number, name: string) {
+    const room = active.roomName;
+    if (!room || !canReport(characterID)) return;
     event.preventDefault();
     const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const pointer = event instanceof MouseEvent && (event.clientX || event.clientY) ? event : null;
-    const muted = member.role === "visitor";
-    const muteLabel = muted ? "Unmute" : "Mute";
-    channelMenu.open(pointer?.clientX ?? bounds.left, pointer?.clientY ?? bounds.bottom, [{
-      label: linkWord("UI/Chat/Channel") || "Channel",
-      sub: [
-        { label: linkWord(`UI/Chat/${muteLabel}`) || muteLabel, run: () => {
-          if (muted) void run(() => flow.conversations.moderate(room, member.characterID, "unmute"));
-          else moderation = { room, action: "mute", member };
-        } },
-        { label: linkWord("UI/Chat/Kick") || "Kick", run: () => { moderation = { room, action: "kick", member }; } },
-      ],
-    }]);
+    const entries: ContextEntry[] = [{
+      label: linkWord(REPORT_SPAM_LABEL) || "Report ISK Spammer",
+      path: REPORT_SPAM_LABEL,
+      run: () => void run(() => flow.reportChatSpammer(room, characterID, name)),
+    }];
+    const member = active.roster.find(row => row.characterID === characterID);
+    if (member && canModerate(member)) {
+      const muted = member.role === "visitor";
+      const muteLabel = muted ? "Unmute" : "Mute";
+      entries.push({
+        label: linkWord("UI/Chat/Channel") || "Channel",
+        sub: [
+          { label: linkWord(`UI/Chat/${muteLabel}`) || muteLabel, run: () => {
+            if (muted) void run(() => flow.conversations.moderate(room, characterID, "unmute"));
+            else moderation = { room, action: "mute", member };
+          } },
+          { label: linkWord("UI/Chat/Kick") || "Kick", run: () => { moderation = { room, action: "kick", member }; } },
+        ],
+      });
+    }
+    channelMenu.open(pointer?.clientX ?? bounds.left, pointer?.clientY ?? bounds.bottom, entries);
   }
 
   function displayWords(text: string): readonly { text: string; highlighted?: boolean }[] {
@@ -400,7 +415,7 @@
   }
 
   onMount(() => {
-    flow.requestWords([...Object.keys(LINK_WORDS), BLINK_LABEL, FILTERS_LABEL, MOTD_LABEL, GEAR_MOTD_LABEL, SETTINGS_LABEL, CONFIGURATION_LABEL, OPEN_CONFIGURATION_LABEL, CHANNELS_LABEL,
+    flow.requestWords([...Object.keys(LINK_WORDS), BLINK_LABEL, FILTERS_LABEL, MOTD_LABEL, GEAR_MOTD_LABEL, SETTINGS_LABEL, CONFIGURATION_LABEL, OPEN_CONFIGURATION_LABEL, CHANNELS_LABEL, REPORT_SPAM_LABEL,
       ...["Channel", "Mute", "Unmute", "Kick"].map(label => `UI/Chat/${label}`)]);
     void refresh();
     poller.start();
@@ -520,7 +535,11 @@
           <ul class="message-list">
             {#each active.messages as message, index (index)}
               <li>
-                <span class="author">{speakerName(message)}</span>:
+                {#if canReport(message.characterID)}
+                  <button type="button" class="author" aria-haspopup="menu"
+                    onclick={event => openMemberMenu(event, message.characterID, speakerName(message))}
+                    oncontextmenu={event => openMemberMenu(event, message.characterID, speakerName(message))}
+                    onkeydown={event => { if (event.key === "ContextMenu" || event.shiftKey && event.key === "F10") openMemberMenu(event, message.characterID, speakerName(message)); }}>{speakerName(message)}</button>{:else}<span class="author">{speakerName(message)}</span>{/if}:
                 <span class="body">{#each mailBodyLines(message.message) as line, place (place)}{#if place > 0}<br />{/if}{#each line as run, at (at)}{@const follower = run.link === null ? null : followerOf(run.link, run.text)}{#if follower !== null}<button type="button" class="evelink {follower.kind}" title={follower.hint} onclick={follower.follow} draggable="true" ondragstart={(event) => startLinkDrag(event, run.link ?? "", run.text)}>{@render filteredWords(run.text)}</button>{:else}<span class:chat-bold={run.bold} class:chat-italic={run.italic} class:chat-underline={run.underline || run.link !== null} title={run.link ?? undefined}>{@render filteredWords(run.text)}</span>{/if}{/each}{/each}</span>
               </li>
             {/each}
@@ -535,9 +554,9 @@
           <ul class="roster-list">
             {#each active.roster as member (member.characterID)}
               <li draggable="true" ondragstart={event => dragCharacter(event, member.characterID, member.name)}
-                tabindex={canModerate(member) ? 0 : undefined}
-                oncontextmenu={(event) => openMemberMenu(event, member)}
-                onkeydown={(event) => { if (event.key === "ContextMenu" || event.shiftKey && event.key === "F10") openMemberMenu(event, member); }}
+                tabindex={canReport(member.characterID) ? 0 : undefined}
+                oncontextmenu={(event) => openMemberMenu(event, member.characterID, resolvedName($names.resolved, "owner", member.characterID, member.name))}
+                onkeydown={(event) => { if (event.key === "ContextMenu" || event.shiftKey && event.key === "F10") openMemberMenu(event, member.characterID, resolvedName($names.resolved, "owner", member.characterID, member.name)); }}
                 ondblclick={() => void run(() => doubleClickOwner(flow, member.characterID))}>{localMode ? resolvedName($names.resolved, "owner", member.characterID, member.name) : member.name}</li>
             {/each}
           </ul>
@@ -596,6 +615,15 @@
   }
   .message-list .author {
     font-weight: 600;
+  }
+  .message-list button.author {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
   }
   .roster-list li {
     padding: 0.1rem 0;

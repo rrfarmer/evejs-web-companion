@@ -5912,6 +5912,7 @@ export interface AppFlow {
    */
   readonly conversations: ChatConversations;
   loadChat(channel: ChatChannel): Promise<void>;
+  reportChatSpammer(room: string, target: number, name: string): Promise<void>;
   /** R7 — send a message to a chat channel, then refresh its backlog. */
   sendChatMessage(channel: ChatChannel, message: string): Promise<void>;
   /** R7 — switch the active chat tab (Local <-> Corp). */
@@ -43648,6 +43649,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       scope.current();
       if (typeof room !== "string" || !/^player_\d+$/.test(room)) throw new Error("The channel could not be created.");
       return room;
+    },
+    async reportChatSpammer(room, target, name) {
+      if (target === onlineCharacterID()) return;
+      const options = flyingReadOptions();
+      const values = { type: "dict", entries: [["name", name]] } satisfies JsonValue;
+      if (await askDialog("ConfirmReportISKSpammer", values, `Report ${name} as an ISK spammer?`, "yesno", { defaultAnswer: "no" })) {
+        await api.reportChatSpammer(room, target, options);
+      }
     },
     async chatDirectoryChannelSettings(room, change, open) {
       const scope = captureMemberOperation();
