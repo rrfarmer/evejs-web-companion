@@ -1076,7 +1076,8 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const masks = slot === "accessories/masks";
   const headwear = glasses || masks;
   const stem = slot === "outer" ? `${gender}/${style}` : `${gender}/${slot}/${style}`;
-  const folder = `res:/graphics/character/${gender}/paperdoll/${slot}/${style}`;
+  const paperDoll = `res:/graphics/character/${gender}/paperdoll`;
+  const folder = `${paperDoll}/${slot}/${style}`;
   const typePath = `${folder}/types/${variant}.type`;
   const readYaml = resource => parseYaml(rf.read(resource).toString("utf8"), paperDollYaml);
   const fields = readYaml(typePath);
@@ -1129,8 +1130,13 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   let model = `${stem}/${variantDefinitions.length ? variation + "/" : ""}model.glb`;
   let skinBase = null;
   const bodyParts = [];
+  const extractBodyPart = async (part, name) => {
+    const relative = `${gender}/body-parts/${part}/${name}.glb`;
+    await extractPortraitMesh(rf, `${paperDoll}/dependants/${part}/${name}/${name}.gr2`,
+      path.join(outRoot, "portrait-outfit", relative), part);
+    return `/client-assets/portrait-outfit/${relative}`;
+  };
   if (textureOnlyTop) {
-    const paperDoll = `res:/graphics/character/${gender}/paperdoll`;
     model = `${gender}/torso.glb`;
     await extractPortraitMesh(rf, `${paperDoll}/topinner/torso_nude/torso_nude.gr2`,
       path.join(outRoot, "portrait-outfit", model), "torso");
@@ -1141,14 +1147,8 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
       const match = /^dependants\/(sleevesupper|sleeveslower|drape)\/([a-z0-9_]+)(?:#|$)/i.exec(dependency);
       if (match) parts.set(match[1].toLowerCase(), match[2].toLowerCase());
     }
-    for (const [part, name] of parts) {
-      const relative = `${gender}/body-parts/${part}/${name}.glb`;
-      await extractPortraitMesh(rf, `${paperDoll}/dependants/${part}/${name}/${name}.gr2`,
-        path.join(outRoot, "portrait-outfit", relative), part);
-      bodyParts.push(`/client-assets/portrait-outfit/${relative}`);
-    }
+    for (const [part, name] of parts) bodyParts.push(await extractBodyPart(part, name));
   } else if (textureOnlyLegs) {
-    const paperDoll = `res:/graphics/character/${gender}/paperdoll`;
     model = `${gender}/legs.glb`;
     await extractPortraitMesh(rf, `${paperDoll}/bottominner/legs_nude/legs_nude.gr2`,
       path.join(outRoot, "portrait-outfit", model), "legs");
@@ -1174,6 +1174,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const normal = texture([/_n_512\.png$/i, /_n\.png$/i]);
   const skinCutout = masks ? layers.map(layer => `${layer}/comp_head_m.png`).find(file => rf.has(file)) : null;
   const bodyCutout = style === "spacesuit_top_01" ? `${folder}/comp_body_m.png` : null;
+  const innerSleeve = bodyCutout ? await extractBodyPart("sleeveslower", "standard") : null;
   const headDiffuse = eyeImplant ? texture([/\/colorize_head_l_512\.png$/i, /\/colorize_head_l\.png$/i])
     : monocle ? texture([/\/comp_head_d_512\.png$/i, /\/comp_head_d\.png$/i]) : null;
   const headZones = eyeImplant ? texture([/\/colorize_head_z_512\.png$/i, /\/colorize_head_z\.png$/i]) : null;
@@ -1189,7 +1190,6 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const outfitFit = [];
   const fitOcclusions = {};
   if (sharedFit && metadata) {
-    const paperDoll = `res:/graphics/character/${gender}/paperdoll`;
     const visited = new Set();
     const collectFit = (source, data) => {
       if (visited.has(source)) return;
@@ -1220,7 +1220,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const rect = filename => filename?.endsWith(".png") ? portraitPngRect(rf.read(filename)) : [0, 0, 1, 1];
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
-    outfitBuild: sharedFit ? 19 : fittedEyewear ? 12 : masks ? 10 : glasses ? 8 : 4,
+    outfitBuild: bodyCutout ? 20 : sharedFit ? 19 : fittedEyewear ? 12 : masks ? 10 : glasses ? 8 : 4,
     model: `/client-assets/portrait-outfit/${model}`, source, type: typePath, variation, palette, colors, occludes, skinMeshes,
     diffuse: diffuse ? copyRes(rf, diffuse, outRoot) : null,
     zones: zones ? copyRes(rf, zones, outRoot) : null,
@@ -1241,6 +1241,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
       masked: /\/comp_head_mn/i.test(headNormal) } } : {}),
     ...(skinCutout ? { skinCutout: { url: copyRes(rf, skinCutout, outRoot), rect: rect(skinCutout) } } : {}),
     ...(bodyCutout ? { bodyCutout: { url: copyRes(rf, bodyCutout, outRoot), rect: rect(bodyCutout) } } : {}),
+    ...(innerSleeve ? { innerSleeve } : {}),
     ...(bodyParts.length ? { bodyParts } : {}),
     ...(hoods.length ? { hoods } : {}),
     ...(skinBase ? { skinBase } : {}),

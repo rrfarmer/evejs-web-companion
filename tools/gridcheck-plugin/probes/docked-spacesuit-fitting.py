@@ -31,6 +31,11 @@ def observe():
             context.character.WaitForUpdate()
             manager = context.character.doll.buildDataManager
             active = manager.GetMorphTargets()
+            rendered = list(context.character.visualModel.meshes)
+            sleeves = [dict(path=modifier.respath, weight=modifier.weight,
+                            count=len(modifier.meshes), rendered=sum(mesh in rendered for mesh in modifier.meshes))
+                       for modifier in manager.GetModifiersAsList(showHidden=True)
+                       if modifier.respath.startswith(('dependants/sleevesupper/', 'dependants/sleeveslower/'))]
             meshes = []
             for modifier in manager.GetSortedModifiers():
                 if not modifier.respath.startswith(('hair/', 'topinner/', 'outer/', 'bottomouter/', 'hands/', 'dependants/')):
@@ -52,7 +57,7 @@ def observe():
                     if weights:
                         meshes.append(dict(path=modifier.respath, source=resource, index=mesh.meshIndex,
                                            weights=weights))
-            rows.append(dict(top=top, legs=legs, meshes=meshes,
+            rows.append(dict(top=top, legs=legs, meshes=meshes, sleeves=sleeves,
                              fittingRules=[(path, weight) for path, weight in sorted(manager.occludeRules.items())
                                            if path.startswith('utilityshapes/')],
                              fittingParents=[dict(path=modifier.respath, weight=modifier.weight,

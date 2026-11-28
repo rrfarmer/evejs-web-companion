@@ -350,7 +350,7 @@
       skinBase?: string; bodyParts?: string[]; hoods?: string[];
       trouserFit?: readonly PortraitMorph[]; outfitFit?: readonly PortraitMorph[];
       fitOcclusions?: Record<string, readonly PortraitMorph[]>;
-      bootMask?: CroppedMapAsset; bodyCutout?: CroppedMapAsset;
+      bootMask?: CroppedMapAsset; bodyCutout?: CroppedMapAsset; innerSleeve?: string;
       diffuseRect?: number[]; zonesRect?: number[]; normalRect?: number[];
     };
     const manifest = async (url: string): Promise<Garment> => {
@@ -457,16 +457,17 @@
       garment.customProgramCacheKey = () => `outfit:${Boolean(zones && diffuse)}:${Boolean(normal)}:${Boolean(skinBase)}:${cropped}:${Boolean(cutout)}`;
       return garment;
     };
-    const loadGarment = async (data: Garment, group: THREE.Group, mask?: CroppedMapAsset, tights?: Garment) => {
+    const loadGarment = async (data: Garment, group: THREE.Group, mask?: CroppedMapAsset, tights?: Garment, innerSleeve?: string) => {
       const embeddedLegs = data.skinMeshes?.includes("LegsShape");
       const cutout = mask ? await loadCroppedTexture(mask, maps, () => retired) : null;
       const object = await loadBodyModel(data.model);
       if (!object) return;
       group.add(object);
       const hoodMesh = data.hoods?.[hood];
-      for (const path of [...(data.bodyParts ?? []), ...(hoodMesh ? [hoodMesh] : [])]) {
-        const partName = path.split("/").at(-2);
-        if (partName && hiddenBodyParts.has(`dependants/${partName}`)) continue;
+      const parts = new Set([...(data.bodyParts ?? []), ...(hoodMesh ? [hoodMesh] : [])]
+        .filter(path => !hiddenBodyParts.has(`dependants/${path.split("/").at(-2)}`)));
+      if (innerSleeve) parts.add(innerSleeve);
+      for (const path of parts) {
         const part = await loadBodyModel(path);
         if (!part) return;
         object.add(part);
@@ -559,8 +560,9 @@
         ? await manifest(extra.bottommiddle) : undefined;
       for (const layer of worn) {
         const isLegwear = layer === legwear;
-        const cutout = isLegwear ? footwear?.bootMask : upperUnderlayers?.has(layer) ? outer.bodyCutout : undefined;
-        await loadGarment(layer, body, cutout, isLegwear ? tights : undefined);
+        const isUnderlayer = upperUnderlayers?.has(layer);
+        const cutout = isLegwear ? footwear?.bootMask : isUnderlayer ? outer.bodyCutout : undefined;
+        await loadGarment(layer, body, cutout, isLegwear ? tights : undefined, isUnderlayer && layer.skinBase ? outer.innerSleeve : undefined);
       }
       if (retired) return;
       if (!occludes.has("hands") && !occludes.has("hand")) {
