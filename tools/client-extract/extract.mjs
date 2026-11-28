@@ -873,6 +873,25 @@ async function extractPortraitMorph(rf, source, name, file) {
   writeExtracted(file, JSON.stringify({ name, source, meshes }));
 }
 
+async function extractPortraitMorphCatalog(rf, gender, outRoot) {
+  const source = `res:/graphics/character/${gender}/paperdoll/head/head_generic/head_generic.gr2`;
+  const { root } = await readGranny(rf.read(source), source);
+  const model = root.Models.find(entry => entry.Skeleton?.Bones?.length && entry.MeshBindings?.length);
+  const names = new Set();
+  for (const { Mesh } of model?.MeshBindings ?? []) {
+    for (const set of Mesh.PrimaryVertexData.VertexAnnotationSets ?? []) {
+      const name = set.Name?.toLowerCase().replace(/\d+$/, "");
+      if (/^[a-z0-9_]+shape$/.test(name ?? "") && !set.IndicesMapFromVertexToAnnotation &&
+          set.VertexAnnotationIndices?.columns?.Int32?.data?.length && set.VertexAnnotations?.columns?.Position?.width === 3) {
+        names.add(name);
+      }
+    }
+  }
+  const dir = path.join(outRoot, "portrait-head");
+  fs.mkdirSync(dir, { recursive: true });
+  writeExtracted(path.join(dir, `${gender}.morphs.json`), JSON.stringify({ names: [...names].sort() }));
+}
+
 // paperDollBloodLineAssets.bloodlineAssets in 3698585. The head metadata names its archetype dependency.
 const portraitBloodlineHead = new Map([
   [1, "caldari_deteis"], [2, "caldari_civire"], [3, "minmatar_sebiestor"], [4, "minmatar_brutor"],
@@ -1163,6 +1182,7 @@ function parseArgs(argv) {
     }
     else if (a === "--portrait-hair") out.portraitHair = argv[++i];
     else if (a === "--portrait-brows") out.portraitBrows = true;
+    else if (a === "--portrait-morph-catalog") out.portraitMorphCatalog = true;
     else if (a === "--sde") out.sde = argv[++i];
     else if (a === "--type-graphics") out.typeGraphics = true;
     else if (a === "--ship-emblems") out.shipEmblems = true;
@@ -1540,7 +1560,8 @@ async function main() {
     if (args.portraitBrows) {
       if (args.portraitBloodline === undefined) throw new Error("--portrait-brows needs --portrait-bloodline");
       await extractPortraitBrows(rf, args.portraitHead, args.portraitBloodline, outRoot, args.portraitMorph);
-    } else if (args.portraitMorph) await extractPortraitMorph(rf,
+    } else if (args.portraitMorphCatalog) await extractPortraitMorphCatalog(rf, args.portraitHead, outRoot);
+    else if (args.portraitMorph) await extractPortraitMorph(rf,
       `res:/graphics/character/${args.portraitHead}/paperdoll/head/head_generic/head_generic.gr2`, args.portraitMorph,
       path.join(outRoot, "portrait-head", args.portraitHead, "morphs", args.portraitMorph + ".json"));
     else if (args.portraitEyes) extractPortraitMakeup(rf, args.portraitHead, "eyes", args.portraitEyes, outRoot);

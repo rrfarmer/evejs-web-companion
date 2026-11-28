@@ -6370,6 +6370,25 @@ export interface PortraitMorph {
   readonly weight: number;
   readonly body?: true;
 }
+
+export interface FaceSculptEdit {
+  readonly locationID: number;
+  readonly axis: number;
+  readonly value: number;
+}
+
+export interface FaceSculptRegion {
+  readonly id: number;
+  readonly prefix: string;
+  readonly axes: readonly {
+    readonly axis: number;
+    readonly negative: string;
+    readonly positive: string;
+    readonly min: number;
+    readonly max: number;
+    readonly value: number;
+  }[];
+}
 export interface PortraitMakeup {
   readonly asset: string;
   readonly weight: number;
@@ -6572,11 +6591,34 @@ export async function activateResculptCertificate(itemID: number, dockedLocation
   await postJson("/api/bridge/character/resculpt-certificate", { itemID, dockedLocationID, confirm: true }, options);
 }
 
+export async function loadFaceSculptControls(model: PortraitHead, options: ApiOptions = {}): Promise<readonly FaceSculptRegion[]> {
+  const [data, catalog] = await Promise.all([
+    getJson("/api/bridge/character/face-sculpts", options),
+    fetch(`/client-assets/portrait-head/${model}.morphs.json`).then(async (response) => {
+      if (!response.ok) throw new Error("Face sculpt geometry is unavailable.");
+      return await response.json() as { names?: string[] };
+    }),
+  ]);
+  const supported = new Set(Array.isArray(catalog.names) ? catalog.names : []);
+  return (Array.isArray(data.controls) ? data.controls : []).flatMap(row => {
+    if (!row || !Number.isSafeInteger(row.id) || typeof row.prefix !== "string" ||
+        !/^[a-z0-9_]+$/.test(row.prefix) || !Array.isArray(row.axes) || row.axes.length !== 3) return [];
+    const axes = row.axes.flatMap((entry: { negative: string; positive: string; value: number }, axis: number) => {
+      const min = supported.has(entry.negative) ? -1 : 0;
+      const max = supported.has(entry.positive) ? 1 : 0;
+      return min !== max && Number.isFinite(entry.value) && entry.value >= min && entry.value <= max
+        ? [{ ...entry, axis, min, max }] : [];
+    });
+    return axes.length ? [{ id: row.id, prefix: row.prefix, axes }] : [];
+  });
+}
+
 export async function savePortrait(draft: { backgroundID: number; fieldOfView: number | null;
     skinTone: { id: number; gender: PortraitHead } | null; hairID: number | null;
     hairColor?: PortraitHairColor | null; hairDarkness?: number | null; beardID?: number | null;
     apparelIDs?: Partial<Record<DockedApparelSlot, number>>; robeHood?: number | null;
-    dockedLocationID: number; initialFrame?: PortraitFrame; resculpt?: boolean }, options: ApiOptions = {}): Promise<void> {
+    dockedLocationID: number; initialFrame?: PortraitFrame; resculpt?: boolean;
+    faceSculpts?: readonly FaceSculptEdit[] }, options: ApiOptions = {}): Promise<void> {
   await postJson("/api/bridge/character/portrait", { ...draft, confirm: true }, options);
 }
 

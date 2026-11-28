@@ -2289,6 +2289,7 @@ export interface DockedPortraitOptions {
   readonly backgrounds: readonly api.PortraitBackground[];
   readonly framing: PortraitFraming | null;
   readonly morphs: readonly api.PortraitMorph[];
+  readonly faceSculpts: readonly api.FaceSculptRegion[];
   readonly skinToneID: number;
   readonly skinTones: readonly api.PortraitSkinTone[];
   readonly hairID: number;
@@ -2319,6 +2320,7 @@ interface DockedPortraitDraft {
   readonly robeHood?: number | null;
   readonly initialFrame?: api.PortraitFrame;
   readonly resculpt?: boolean;
+  readonly faceSculpts?: readonly api.FaceSculptEdit[];
 }
 
 interface WalletBlink {
@@ -10635,7 +10637,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       head ? api.loadPortraitHairstyles(callOptions).catch(() => null) : null,
       head ? api.loadDockedApparel(head, callOptions).catch(() => null) : null,
     ]);
-    const paidAppearance = state === 1 ? await api.loadCharacterPreviewAppearance(characterID, callOptions) : null;
+    const [savedAppearance, faceSculpts] = await Promise.all([
+      state === 0 || state === 1 ? api.loadCharacterPreviewAppearance(characterID, callOptions).catch(() => null) : null,
+      (state === 1 || state === 2) && head ? api.loadFaceSculptControls(head, callOptions).catch(() => []) : [],
+    ]);
     current();
     if (dockedNow() !== place) throw new Error("The docked location changed.");
     const rows = Array.isArray(portrait) && isListValue(portrait[0]) ? portrait[0].items : [];
@@ -10650,7 +10655,8 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     return {
       state: typeof state === "number" && Number.isInteger(state) && state >= 0 && state <= 4 ? state : null,
       bloodlineID,
-      morphs: paidAppearance?.morphs ?? [],
+      morphs: savedAppearance?.morphs ?? [],
+      faceSculpts,
       backgroundID: typeof backgroundID === "number" && Number.isSafeInteger(backgroundID) ? backgroundID : null,
       backgrounds,
       skinToneID: skin?.skinToneID ?? 0,

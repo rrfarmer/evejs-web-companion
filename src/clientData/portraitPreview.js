@@ -13,18 +13,64 @@ function previewSculptRows(appearance) {
   return sculpts?.type === "list" && Array.isArray(sculpts.items) ? sculpts.items : [];
 }
 
+function sculptFields(row) {
+  const fields = row?.type === "objectex2" ? row.header?.[0] : null;
+  return fields?.[0]?.value === sculptingRowType && Number.isSafeInteger(fields[1]) ? fields : null;
+}
+
+function sculptWeight(field) {
+  const weight = field?.type === "real" ? field.value : field;
+  return Number.isFinite(weight) ? Math.max(-1, Math.min(1, weight)) : 0;
+}
+
+function faceSculptControls(appearance, locations) {
+  const rows = new Map(previewSculptRows(appearance).map(sculptFields).filter(Boolean).map(fields => [fields[1], fields]));
+  return Object.entries(locations ?? {}).flatMap(([key, location]) => {
+    const prefix = location?.weightKeyPrefix?.toLowerCase();
+    if (location?.weightKeyCategory !== "faceModifiers" || !/^[a-z0-9_]+$/.test(prefix ?? "")) return [];
+    const id = Number(key);
+    return [{ id, prefix, axes: sculptAxes.map(([negative, positive], axis) => ({
+      negative: `${prefix}_${negative}shape`, positive: `${prefix}_${positive}shape`,
+      value: sculptWeight(rows.get(id)?.[axis + 2]),
+    })) }];
+  });
+}
+
+function appearanceWithFaceSculpts(appearance, edits, locations) {
+  const controls = new Set(faceSculptControls(appearance, locations).map(control => control.id));
+  const entries = appearance?.type === "object" && appearance.args?.type === "dict" ? appearance.args.entries : null;
+  const sculptEntry = Array.isArray(entries) ? entries.find(([key]) => (key?.value ?? key) === "sculpts") : null;
+  if (!Array.isArray(sculptEntry?.[1]?.items) || sculptEntry[1].type !== "list") return null;
+  const originals = new Map(sculptEntry[1].items.map(sculptFields).filter(Boolean).map(fields => [fields[1], fields]));
+  const byLocation = new Map();
+  for (const { locationID, axis, value } of edits) {
+    if (!controls.has(locationID)) return null;
+    const fields = byLocation.get(locationID) ?? [...(originals.get(locationID)
+      ?? [{ type: "token", value: sculptingRowType }, locationID, null, null, null])];
+    fields[axis + 2] = value === 0 ? null : { type: "real", value };
+    byLocation.set(locationID, fields);
+  }
+  const rows = sculptEntry[1].items.filter(row => !byLocation.has(sculptFields(row)?.[1]));
+  for (const fields of byLocation.values()) {
+    if (fields.slice(2, 5).some(field => sculptWeight(field) !== 0)) {
+      rows.push({ type: "objectex2", header: [fields], list: [], dict: [] });
+    }
+  }
+  return { ...appearance, args: { ...appearance.args, entries: entries.map(entry =>
+    entry === sculptEntry ? [entry[0], { ...entry[1], items: rows }] : entry) } };
+}
+
 function portraitPreviewMorphs(rows, locations) {
   const morphs = new Map();
   for (const row of rows) {
-    const fields = row?.type === "objectex2" ? row.header?.[0] : null;
-    if (fields?.[0]?.value !== sculptingRowType || !Number.isSafeInteger(fields[1])) continue;
+    const fields = sculptFields(row);
+    if (!fields) continue;
     const location = locations?.[fields[1]];
     const prefix = location?.weightKeyPrefix?.toLowerCase();
     if (!prefix || !/^[a-z0-9_]+$/.test(prefix)) continue;
     sculptAxes.forEach(([negative, positive], index) => {
-      const field = fields[index + 2];
-      const weight = field?.type === "real" ? field.value : field;
-      if (!Number.isFinite(weight) || !weight) return;
+      const weight = sculptWeight(fields[index + 2]);
+      if (!weight) return;
       const name = /^(thin|fat|muscular)$/.test(prefix) ? `${prefix}shape`
         : `${prefix}_${weight < 0 ? negative : positive}shape`;
       morphs.set(name, { name, weight: Math.min(Math.abs(weight), 1),
@@ -128,4 +174,5 @@ function portraitPreviewMakeup(appearance, gender, styles, locations, names) {
   return { iris, makeup };
 }
 
-module.exports = { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewMakeup };
+module.exports = { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewMakeup,
+  faceSculptControls, appearanceWithFaceSculpts };
