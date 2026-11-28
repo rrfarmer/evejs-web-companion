@@ -6529,6 +6529,7 @@ export interface PortraitHairTints {
 export async function loadPortraitHairstyles(options: ApiOptions = {}):
     Promise<{ hairID: number; choices: readonly PortraitHairstyle[]; hairColor: PortraitHairColor;
       hairDarkness: number | null; browStyle: string | null;
+      beardID: number; beardStyle: string | null; beards: readonly PortraitHairstyle[];
       colors: { primary: readonly PortraitHairPalette[]; secondary: readonly PortraitHairPalette[] } }> {
   const data = await getJson("/api/bridge/character/hairstyles", options);
   const choices = (Array.isArray(data.choices) ? data.choices : []).flatMap(row =>
@@ -6542,9 +6543,15 @@ export async function loadPortraitHairstyles(options: ApiOptions = {}):
   const hairColor = asObject(data.hairColor);
   const colors = asObject(data.colors);
   const darkness = asNumberOrNull(data.hairDarkness);
+  const beardStyle = (style: unknown): style is string => typeof style === "string" &&
+    /^(beard_(0[1-9]|10)|fiveoc|stubble)$/.test(style);
+  const beards = (Array.isArray(data.beards) ? data.beards : []).flatMap(row =>
+    row && Number.isSafeInteger(row.id) && typeof row.name === "string" && beardStyle(row.style)
+      ? [{ id: row.id, name: row.name, style: row.style }] : []);
   return { hairID: asNumberOrNull(data.hairID) ?? 0, choices,
     hairDarkness: darkness !== null && darkness >= 0 && darkness <= 1 ? darkness : null,
     browStyle: typeof data.browStyle === "string" && /^eyebrows_[a-z0-9_]+$/.test(data.browStyle) ? data.browStyle : null,
+    beardID: asNumberOrNull(data.beardID) ?? 0, beardStyle: beardStyle(data.beardStyle) ? data.beardStyle : null, beards,
     hairColor: { primaryID: asNumberOrNull(hairColor?.primaryID) ?? 0, secondaryID: asNumberOrNull(hairColor?.secondaryID) ?? 0 },
     colors: { primary: palette(colors?.primary), secondary: palette(colors?.secondary) } };
 }
@@ -6563,7 +6570,7 @@ export async function loadPortraitSkinTones(gender: PortraitHead, options: ApiOp
 
 export async function savePortrait(draft: { backgroundID: number; fieldOfView: number | null;
     skinTone: { id: number; gender: PortraitHead } | null; hairID: number | null;
-    hairColor?: PortraitHairColor | null; hairDarkness?: number | null;
+    hairColor?: PortraitHairColor | null; hairDarkness?: number | null; beardID?: number | null;
     apparelIDs?: Partial<Record<DockedApparelSlot, number>>; robeHood?: number | null;
     dockedLocationID: number; initialFrame?: PortraitFrame }, options: ApiOptions = {}): Promise<void> {
   await postJson("/api/bridge/character/portrait", { ...draft, confirm: true }, options);

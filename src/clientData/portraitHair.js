@@ -94,6 +94,21 @@ function readModifiers(payload) {
   return modifiers?.type === "list" && Array.isArray(modifiers.items) ? { entries, rows: modifiers.items } : null;
 }
 
+function portraitBeardStyle(resource) {
+  if (resource?.resGender !== 1 || typeof resource.resPath !== "string") return null;
+  return /^beard\/(beard_(?:0[1-9]|10)|fiveoc|stubble)\/types\/\1\.type$/i.exec(resource.resPath)?.[1].toLowerCase() ?? null;
+}
+
+function portraitBeardChoices(resources, raceID) {
+  return Object.entries(resources ?? {}).flatMap(([key, resource]) => {
+    const style = portraitBeardStyle(resource);
+    if (!style || resource.typeID != null ||
+        (resource.empireRestrictions?.length && !resource.empireRestrictions.includes(raceID))) return [];
+    const name = style === "stubble" ? "Stubble" : style === "fiveoc" ? "Five o’clock shadow" : `Beard ${style.slice(-2)}`;
+    return [{ id: Number(key), style, name }];
+  }).sort((a, b) => a.style.localeCompare(b.style));
+}
+
 function modifierValues(row) {
   const fields = row?.header?.[0];
   return row?.type === "objectex2" && fields?.[0]?.value === modifierRowType ? fields : null;
@@ -122,4 +137,5 @@ function appearanceWithModifier(payload, location, id, variation = null) {
 }
 
 module.exports = { appearanceWithHair: appearanceWithModifier, appearanceWithModifier, readModifiers, modifierValues, portraitModifier,
-  portraitHairChoices, portraitHairID: portraitModifierID, portraitModifierID, portraitHairStyle, portraitScalpMode };
+  portraitHairChoices, portraitHairID: portraitModifierID, portraitModifierID, portraitHairStyle, portraitScalpMode,
+  portraitBeardChoices, portraitBeardStyle };

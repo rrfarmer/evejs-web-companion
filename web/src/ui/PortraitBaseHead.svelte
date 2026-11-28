@@ -13,7 +13,7 @@
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
   import { capturePointer } from "./pointerCapture.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, hairTints, outfit, robeHood = 0, apparel, morphs, piercings, iris, makeup, browPrimaryScale }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, hairTints, outfit, robeHood = 0, apparel, morphs, piercings, iris, makeup, facialHairScale }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
@@ -31,7 +31,7 @@
     piercings?: readonly string[];
     iris?: string;
     makeup?: readonly PortraitMakeup[];
-    browPrimaryScale?: number;
+    facialHairScale?: number;
   } = $props();
   const visibleHairstyle = $derived(outfit && robeHood > 0 ? undefined : hairstyle);
   let canvas: HTMLCanvasElement;
@@ -69,7 +69,7 @@
     portraitSkinStrength: { value: number };
   };
   let skinUniforms = $state.raw<SkinUniforms | null>(null);
-  let browTint = $state.raw<{ color: THREE.Color; baseline: THREE.Color } | null>(null);
+  let facialHairTints = $state.raw<{ color: THREE.Color; baseline: THREE.Color }[]>([]);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(32, 1, 0.01, 30);
   const cameraTarget = new THREE.Vector3();
@@ -508,9 +508,9 @@
     const tint = skinUniforms;
     const colors = skinColors;
     if (!active || !bounds) return;
-    if (browTint && browPrimaryScale !== undefined) {
-      browTint.color.copy(browTint.baseline).convertLinearToSRGB()
-        .multiplyScalar(browPrimaryScale).convertSRGBToLinear();
+    if (facialHairScale !== undefined) {
+      for (const { color, baseline } of facialHairTints) color.copy(baseline).convertLinearToSRGB()
+        .multiplyScalar(facialHairScale).convertSRGBToLinear();
     }
     if (tint) {
       tint.portraitSkinStrength.value = colors ? 1 : 0;
@@ -611,7 +611,7 @@
     const maps: Awaited<ReturnType<typeof loadMap>>[] = [];
     headBounds = null;
     skinUniforms = null;
-    browTint = null;
+    facialHairTints = [];
     display = "loading";
     const stem = `/client-assets/portrait-head/${name}`;
     void (async () => {
@@ -725,13 +725,20 @@
         scalpDisplay = layer ? "ready" : "unavailable";
       }
       let brows: [string, PortraitColorLayer] | null = null;
+      const beardTints: { color: THREE.Color; baseline: THREE.Color }[] = [];
       for (const [index, selection] of (makeupAssets ?? []).entries()) {
         if (retired) return;
         const layer = await readColorLayer(selection);
         if (layer) {
           const name = "portraitMakeup" + index;
           if (selection.asset.includes("/makeup/eyebrows/")) brows = [name, layer];
-          else faceLayers.push([name, layer]);
+          else {
+            faceLayers.push([name, layer]);
+            const primary = layer.colors[0];
+            if (primary && layer.zones && selection.asset.includes("/makeup/beard/")) {
+              beardTints.push({ color: primary, baseline: primary.clone() });
+            }
+          }
         }
       }
       if (retired) return;
@@ -832,7 +839,7 @@
           applySurface(overlay, finish, new Set(), new Set(), null, finish);
           avatar.add(overlay);
           const primary = layer.colors[0];
-          if (primary) browTint = { color: primary, baseline: primary.clone() };
+          if (primary) beardTints.push({ color: primary, baseline: primary.clone() });
         } catch {
           // Some bloodlines may not have a brow overlay in the client installation.
         }
@@ -856,6 +863,7 @@
       }
       scene.add(avatar);
       avatar.updateMatrixWorld(true);
+      facialHairTints = beardTints;
       headBounds = new THREE.Box3().setFromObject(avatar, true);
     })().catch(() => {
       if (!retired) display = "unavailable";

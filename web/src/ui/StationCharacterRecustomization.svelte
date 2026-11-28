@@ -33,6 +33,7 @@
   let primaryID = $state(0);
   let secondaryID = $state(0);
   let hairDarkness = $state<number | null>(null);
+  let beardID = $state(0);
   let selection = $state({ outer: 0, topouter: 0, topmiddle: 0, bottomouter: 0, feet: 0 });
   let robeHood = $state(0);
   const slotLabels = { outer: "Outerwear", topouter: "Overshirt", topmiddle: "Shirt", bottomouter: "Trousers", feet: "Footwear" };
@@ -62,14 +63,28 @@
     ? { primary: primary?.colors[0], secondary: secondary && [secondary.colors[1], secondary.colors[2]] } : undefined);
   const acceptsHairColor = $derived(Boolean(chosenHair && !chosenHair.style.startsWith("hair_implant_")));
   const hairDarknessChanged = $derived(hairDarkness !== null && hairDarkness !== options?.hairDarkness);
-  const browPrimaryScale = $derived(hairDarkness === null ? undefined : 0.2 + 0.8 * hairDarkness);
-  const brows = $derived.by<readonly PortraitMakeup[] | undefined>(() => {
-    if (!options?.browStyle || !acceptsHairColor || !pilotHead) return;
+  const beardStyle = $derived(beardID === 0 ? null
+    : options?.beards.find(style => style.id === beardID)?.style ?? options?.beardStyle);
+  const beardChanged = $derived(Boolean(options?.beards.length && beardID !== options.beardID));
+  const facialHairScale = $derived(hairDarkness === null ? undefined : 0.2 + 0.8 * hairDarkness);
+  const facialHair = $derived.by<readonly PortraitMakeup[] | undefined>(() => {
+    if (!pilotHead) return;
+    const root = `/client-assets/portrait-head/${pilotHead}/makeup`;
     const palette = `hair_${primary?.key ?? "default"}${secondary ? `~${secondary.key}` : ""}`;
-    return [{ asset: `/client-assets/portrait-head/${pilotHead}/makeup/eyebrows/${options.browStyle}/${palette}.json`, weight: 1, gloss: null }];
+    const layers: PortraitMakeup[] = [];
+    if (options?.browStyle && acceptsHairColor) {
+      layers.push({ asset: `${root}/eyebrows/${options.browStyle}/${palette}.json`, weight: 1, gloss: null });
+    }
+    if (pilotHead === "male" && beardStyle) {
+      const painted = beardStyle.startsWith("beard_");
+      layers.push({ asset: `${root}/beard/${painted ? "stubble" : beardStyle}/default.json`, weight: 1, gloss: null });
+      if (painted) layers.push({ asset: `${root}/beard/${beardStyle}/${palette}.json`, weight: 1, gloss: null });
+    }
+    return layers.length ? layers : undefined;
   });
   const eyebrowsLabel = "UI/Login/CharacterCreation/AssetMenu/EyebrowsColor";
   const facialHairLabel = "UI/Login/CharacterCreation/AssetMenu/FacialHairColor";
+  const beardLabel = "UI/Login/CharacterCreation/AssetMenu/ModifierNames/FacialHair";
   const darknessLabel = $derived(pilotHead === "female"
     ? plainText($words.templates[eyebrowsLabel] ?? "") || "Eyebrows Color"
     : plainText($words.templates[facialHairLabel] ?? "") || "Facial Hair Color");
@@ -97,11 +112,11 @@
   const hoodChanged = $derived(adjustableHood && robeHood !== (options?.clothing?.robeHood ?? 0));
   const outfit = $derived(jacket ?? apparel.topouter ?? apparel.topmiddle);
   const hasChanges = $derived(initial || selected !== options?.backgroundID || zoomChanged || skinChanged || hairChanged ||
-    hairColorChanged || hairDarknessChanged || hoodChanged || Object.keys(apparelIDs).length > 0);
+    hairColorChanged || hairDarknessChanged || beardChanged || hoodChanged || Object.keys(apparelIDs).length > 0);
   const busy = $derived(saving || publishing);
 
   onMount(() => {
-    flow.requestWords([eyebrowsLabel, facialHairLabel]);
+    flow.requestWords([eyebrowsLabel, facialHairLabel, beardLabel]);
     if (characterID !== null) {
       void readCapturePortrait(characterID, 256, null, flow.requestOptions()).then(({ image }) => {
         if (image && currentImage === null) currentImage = `data:${image.contentType};base64,${image.base64}`;
@@ -116,6 +131,7 @@
       primaryID = data.hairColor.primaryID;
       secondaryID = data.hairColor.secondaryID;
       hairDarkness = data.hairDarkness;
+      beardID = data.beardID;
       for (const slot of dockedApparelSlots) selection[slot] = data.clothing?.slots[slot].id ?? 0;
       robeHood = data.clothing?.robeHood ?? 0;
     }).catch(() => { failed = true; });
@@ -137,7 +153,7 @@
       await flow.saveDockedPortrait({ backgroundID, fieldOfView: initialFrame || zoomChanged ? fieldOfView : null,
         skinToneID: skinChanged ? skinToneID : null, hairID: hairChanged ? hairID : null,
         hairColor: hairColorChanged ? { primaryID, secondaryID } : null,
-        hairDarkness: hairDarknessChanged ? hairDarkness : null, apparelIDs,
+        hairDarkness: hairDarknessChanged ? hairDarkness : null, beardID: beardChanged ? beardID : null, apparelIDs,
         robeHood: adjustableHood && (hoodChanged || apparelIDs.outer) ? robeHood : null,
         initialFrame: initialFrame ?? undefined });
       const clothing = options.clothing;
@@ -147,7 +163,8 @@
         options = { ...options, clothing: { ...clothing, slots, apparel, outfit: jacket ?? null,
           robeHood: adjustableHood ? robeHood : null } };
       }
-      options = { ...options, state: 0, backgroundID, framing, skinToneID, hairID, hairColor: { primaryID, secondaryID }, hairDarkness };
+      options = { ...options, state: 0, backgroundID, framing, skinToneID, hairID, hairColor: { primaryID, secondaryID },
+        hairDarkness, beardID, beardStyle: beardStyle ?? null };
       saveStatus = initialFrame ? "Appearance saved. You can now publish your portrait." : "Portrait settings saved.";
     } catch (error) {
       saveStatus = error instanceof Error ? error.message : "The portrait settings could not be saved.";
@@ -207,12 +224,12 @@
         {#if showOutfit && pilotHead && outfit}
           <PortraitBaseHead model={pilotHead} bloodlineID={options.bloodlineID} {outfit} {apparel} robeHood={adjustableHood ? robeHood : 0}
             hairstyle={chosenHair?.style} {hairTints} {hasSkinTones} skinColors={skinTone?.colors}
-            makeup={brows} {browPrimaryScale} />
+            makeup={facialHair} {facialHairScale} />
         {:else if pilotHead && backdrop}
           <PortraitBaseHead bind:this={portraitView} model={pilotHead} backdropUrl={url} backdropIsDds={backdrop.isDds}
             bloodlineID={options.bloodlineID} framing={options.framing} {fieldOfView}
             {hasSkinTones} skinColors={skinTone?.colors} hairstyle={chosenHair?.style} {hairTints}
-            makeup={brows} {browPrimaryScale} />
+            makeup={facialHair} {facialHairScale} />
         {:else if backdrop?.isDds}
           <PortraitBackdrop {url} />
         {:else if url}
@@ -280,7 +297,18 @@
               style:background-color={`rgb(${secondary.colors[1].map(value => value * 255).join(" ")})`}></span>{/if}
           </label>
         {/if}
-        {#if acceptsHairColor && hairDarkness !== null}
+        {#if options.beards.length}
+          <label class="appearance-choice">{plainText($words.templates[beardLabel] ?? "") || "Facial Hair"}
+            <select bind:value={beardID} disabled={busy} onchange={() => { saveStatus = ""; }}>
+              <option value={0}>None</option>
+              {#if options.beardID && !options.beards.some(style => style.id === options?.beardID)}
+                <option value={options.beardID}>Saved facial hair</option>
+              {/if}
+              {#each options.beards as style (style.id)}<option value={style.id}>{style.name}</option>{/each}
+            </select>
+          </label>
+        {/if}
+        {#if (acceptsHairColor || beardStyle?.startsWith("beard_")) && hairDarkness !== null}
           <label class="appearance-choice">{darknessLabel}
             <input type="range" min="0" max="1" step="any" value={hairDarkness} disabled={busy}
               oninput={event => { hairDarkness = event.currentTarget.valueAsNumber; saveStatus = ""; }} />

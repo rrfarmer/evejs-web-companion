@@ -1,6 +1,6 @@
 "use strict";
 
-const { readModifiers, modifierValues, portraitHairStyle } = require("./portraitHair");
+const { readModifiers, modifierValues, portraitHairStyle, portraitBeardStyle } = require("./portraitHair");
 const { readColors, colorRowValues } = require("./portraitSkinTones");
 const { portraitHairDarkness } = require("./portraitHairColors");
 const sculptingRowType = "eve.common.script.paperDoll.paperDollDefinitions.SculptingRow";
@@ -67,6 +67,9 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
       const style = /^hair\/(hair_[a-z0-9_]+)\/types\/\1\.type$/.exec(resourcePath)?.[1];
       if (style) faceStyles.hair = style;
       if (style && portraitHairStyle(gender, style)) hairstyle = style;
+    } else if (location.modifierKey === "beard") {
+      const style = portraitBeardStyle(resource);
+      if (style && (!faceStyles.beard || style !== "stubble")) faceStyles.beard = style;
     } else {
       const face = /^makeup\/([a-z]+)\/(\1_[a-z0-9_]+)\/types\/\2\.type$/.exec(resourcePath);
       if (face && (face[1] === "eyes" || faceLayerOrder.includes(face[1])) && `makeup/${face[1]}` === location.modifierKey) {
@@ -90,7 +93,7 @@ function portraitPreviewMakeup(appearance, gender, styles, locations, names) {
     const fields = colorRowValues(row);
     if (!fields) continue;
     const location = locations?.[fields[1]];
-    const category = location?.colorKey === "hair" && styles.eyebrows ? "hair"
+    const category = location?.colorKey === "hair" && (styles.eyebrows || styles.beard) ? "hair"
       : /^(?:paperdoll\/)?makeup\/([a-z]+)$/.exec(location?.colorKey ?? "")?.[1];
     if (!category || !styles[category]) continue;
     const color = names?.[fields[2]]?.colorName;
@@ -115,6 +118,13 @@ function portraitPreviewMakeup(appearance, gender, styles, locations, names) {
     const { palette, ...layer } = selections.get(category) ?? { palette: "default", weight: 1, gloss: null };
     return style && layer.weight > 0 ? [{ asset: `${stem}/makeup/${category}/${style}/${palette}.json`, ...layer }] : [];
   });
+  if (styles.beard) {
+    const painted = styles.beard.startsWith("beard_");
+    const base = painted ? "stubble" : styles.beard;
+    makeup.push({ asset: `${stem}/makeup/beard/${base}/default.json`, weight: 1, gloss: null });
+    if (painted) makeup.push({ asset: `${stem}/makeup/beard/${styles.beard}/hair_${hair?.palette ?? "default"}.json`,
+      weight: 1, gloss: null, primaryScale: 0.2 + 0.8 * (portraitHairDarkness(appearance) ?? 0) });
+  }
   return { iris, makeup };
 }
 

@@ -999,14 +999,21 @@ function extractPortraitMakeup(rf, gender, category, key, outRoot) {
   const [style, palette] = key.split("/");
   const [primary, secondary] = palette.split("~");
   const paperdoll = `res:/graphics/character/${gender}/paperdoll`;
-  const root = `${paperdoll}/makeup/${category}`;
-  const linkedHair = category === "eyebrows" && primary.startsWith("hair_");
+  const beard = category === "beard";
+  const root = beard ? `${paperdoll}/beard` : `${paperdoll}/makeup/${category}`;
+  const linkedHair = (category === "eyebrows" || beard) && primary.startsWith("hair_");
   const typePath = `${root}/${style}/types/${style}.type`;
   const type = parseYaml(rf.read(typePath).toString("utf8"), paperDollYaml);
-  if (!Array.isArray(type) || typeof type[0] !== "string" || type[0].toLowerCase() !== `makeup/${category}/${style}`) {
+  const modifier = beard ? `beard/${style}` : `makeup/${category}/${style}`;
+  if (!Array.isArray(type) || typeof type[0] !== "string" || type[0].toLowerCase() !== modifier) {
     throw new Error("Unknown makeup style");
   }
-  const source = `${root}/${style}/colorize_head_l_512.png`, zone = `${root}/${style}/colorize_head_z_512.png`;
+  const folder = `${root}/${style}`;
+  const bakedBeard = beard && (style === "stubble" || style === "fiveoc");
+  const source = `${folder}/${bakedBeard ? "comp_head_d" : "colorize_head_l"}_512.png`;
+  const zone = beard
+    ? (bakedBeard ? null : [`${folder}/comp_head_z.png`, `${folder}/colorize_head_z.png`].find(file => rf.has(file)))
+    : `${folder}/colorize_head_z_512.png`;
   const readPalette = name => {
     const paths = linkedHair && name !== "default" ? [`${paperdoll}/hair/colors/${name}.color`]
       : [`${root}/${style}/${name}.color`, `${root}/colors/${name}.color`];
@@ -1026,8 +1033,8 @@ function extractPortraitMakeup(rf, gender, category, key, outRoot) {
   const dir = path.join(outRoot, "portrait-head", gender, slot, style);
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, palette + ".json"), JSON.stringify({
-    style, palette, colors, diffuse: copyRes(rf, source, outRoot), zones: copyRes(rf, zone, outRoot),
-    diffuseRect: portraitPngRect(rf.read(source)), zonesRect: portraitPngRect(rf.read(zone)),
+    style, palette, colors, diffuse: copyRes(rf, source, outRoot), diffuseRect: portraitPngRect(rf.read(source)),
+    ...(zone ? { zones: copyRes(rf, zone, outRoot), zonesRect: portraitPngRect(rf.read(zone)) } : {}),
   }));
 }
 
@@ -1217,7 +1224,7 @@ function parseArgs(argv) {
     }
     else if (a === "--portrait-makeup") {
       out.portraitMakeup = argv[++i];
-      if (!/^(blush|eyebrows|eyeshadow|eyeliner|lipstick)\/\1_[a-z0-9_]+\/[a-z0-9_]+(?:~[a-z0-9_]+)?$/.test(out.portraitMakeup ?? "")) {
+      if (!/^(?:(blush|eyebrows|eyeshadow|eyeliner|lipstick)\/\1_[a-z0-9_]+|beard\/(?:beard_(?:0[1-9]|10)|stubble|fiveoc))\/[a-z0-9_]+(?:~[a-z0-9_]+)?$/.test(out.portraitMakeup ?? "")) {
         throw new Error("--portrait-makeup needs category/style/palette[~secondary]");
       }
     }

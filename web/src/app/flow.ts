@@ -2295,6 +2295,9 @@ export interface DockedPortraitOptions {
   readonly hairColor: api.PortraitHairColor;
   readonly hairDarkness: number | null;
   readonly browStyle: string | null;
+  readonly beardID: number;
+  readonly beardStyle: string | null;
+  readonly beards: readonly api.PortraitHairstyle[];
   readonly hairColors: { primary: readonly api.PortraitHairPalette[]; secondary: readonly api.PortraitHairPalette[] };
   readonly clothing: api.DockedApparel | null;
 }
@@ -2310,6 +2313,7 @@ interface DockedPortraitDraft {
   readonly hairID: number | null;
   readonly hairColor?: api.PortraitHairColor | null;
   readonly hairDarkness?: number | null;
+  readonly beardID?: number | null;
   readonly apparelIDs?: Partial<Record<api.DockedApparelSlot, number>>;
   readonly robeHood?: number | null;
   readonly initialFrame?: api.PortraitFrame;
@@ -10651,6 +10655,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       hairColor: hair?.hairColor ?? { primaryID: 0, secondaryID: 0 },
       hairDarkness: hair?.hairDarkness ?? null,
       browStyle: hair?.browStyle ?? null,
+      beardID: hair?.beardID ?? 0,
+      beardStyle: hair?.beardStyle ?? null,
+      beards: hair?.beards ?? [],
       hairColors: hair?.colors ?? { primary: [], secondary: [] },
       clothing,
       framing: position && target && fieldOfView !== null && fieldOfView >= 0.2 && fieldOfView <= 1.5 ?
