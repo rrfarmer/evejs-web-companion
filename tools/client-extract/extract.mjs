@@ -1104,6 +1104,13 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   } else {
     await extractPortraitMesh(rf, source, path.join(dir, "model.glb"), style);
   }
+  const amarrRobe = gender === "male" && slot === "outer" && style === "robeam01";
+  if (amarrRobe && metadata?.dependantModifiers?.includes("dependants/hood/robeam1###1.0")) {
+    const hood = "male/body-parts/hood/robeam1.glb";
+    await extractPortraitMesh(rf, "res:/graphics/character/male/paperdoll/dependants/hood/robeam1/down.gr2",
+      path.join(outRoot, "portrait-outfit", hood), "hood");
+    bodyParts.push(`/client-assets/portrait-outfit/${hood}`);
+  }
   const diffuse = texture([/\/colorize_body_l_512\.png$/i, /\/colorize_body_l_256\.png$/i,
     /\/colorize_body_l_256\.dds$/i, /\/colorize_body_l\.png$/i]);
   const zones = texture([/\/colorize_body_z_512\.png$/i, /\/colorize_body_z_256\.dds$/i, /\/colorize_body_z\.png$/i]);
@@ -1112,13 +1119,14 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const rect = filename => filename?.endsWith(".png") ? portraitPngRect(rf.read(filename)) : [0, 0, 1, 1];
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
-    outfitBuild: slot === "topmiddle" ? 5 : 4,
+    outfitBuild: amarrRobe ? 6 : slot === "topmiddle" ? 5 : 4,
     model: `/client-assets/portrait-outfit/${model}`, source, type: typePath, variation, palette, colors, occludes, skinMeshes,
     diffuse: diffuse ? copyRes(rf, diffuse, outRoot) : null,
     zones: zones ? copyRes(rf, zones, outRoot) : null,
     normal: normal ? copyRes(rf, normal, outRoot) : null,
     ...(surface ? { surface } : {}),
-    ...(skinBase ? { skinBase, bodyParts, diffuseRect: rect(diffuse), zonesRect: rect(zones), normalRect: rect(normal) } : {}),
+    ...(bodyParts.length ? { bodyParts } : {}),
+    ...(skinBase ? { skinBase, diffuseRect: rect(diffuse), zonesRect: rect(zones), normalRect: rect(normal) } : {}),
   }));
 }
 

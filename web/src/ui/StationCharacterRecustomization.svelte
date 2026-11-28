@@ -31,7 +31,7 @@
   let primaryID = $state(0);
   let secondaryID = $state(0);
   let selection = $state({ outer: 0, topouter: 0, topmiddle: 0, bottomouter: 0, feet: 0 });
-  const slotLabels = { outer: "Jacket", topouter: "Overshirt", topmiddle: "Shirt", bottomouter: "Trousers", feet: "Footwear" };
+  const slotLabels = { outer: "Outerwear", topouter: "Overshirt", topmiddle: "Shirt", bottomouter: "Trousers", feet: "Footwear" };
   const optionalApparelSlots = ["outer", "topouter"];
   let showOutfit = $state(false);
   let preview = $state<"backdrop" | "female" | "male">("backdrop");
