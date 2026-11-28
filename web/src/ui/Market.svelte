@@ -1599,7 +1599,12 @@
     }
     return () => { current = false; };
   });
-  const groupDocked = $derived($station.online?.stationID != null || $station.online?.structureID != null);
+  // svelte-ignore state_referenced_locally
+  const flight = store.flight;
+  const groupSystemID = $derived($flight.status ? $flight.status.solarSystemID : $station.online?.solarSystemID);
+  const groupStationID = $derived($flight.status ? ($flight.status.docked ? $flight.status.stationID : null) : $station.online?.stationID);
+  const groupStructureID = $derived($flight.status ? $flight.status.structureID : $station.online?.structureID);
+  const groupDocked = $derived(groupStationID != null || groupStructureID != null);
   const scopeLabels: Record<MarketGroupScope, string> = {
     station: "UI/Common/LocationTypes/Station",
     system: "UI/Common/LocationTypes/SolarSystem",
@@ -1744,11 +1749,11 @@
   }
 
   $effect(() => {
-    if ((tab !== "groups" && (!retail || leftTab !== "browse" || !showOnlyAvailable)) || $station.online?.solarSystemID == null) return;
+    if ((tab !== "groups" && (!retail || leftTab !== "browse" || !showOnlyAvailable)) || !$station.online || groupSystemID == null) return;
     const scope = groupScope;
     // The station-scoped answer also changes when docking at another station in this system.
-    void $station.online.stationID;
-    void $station.online.structureID;
+    void groupStationID;
+    void groupStructureID;
     let current = true;
     groupAsks = null;
     groupAsksError = false;

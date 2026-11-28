@@ -12744,10 +12744,10 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
   }
 
   async function marketGroupAsks(scope: MarketGroupScope) {
-    const online = store.station.get().online;
-    if (scope === "station" && online?.stationID == null && online?.structureID == null) scope = "region";
-    if (scope === "region" && online?.solarSystemID != null) {
-      const { regionID } = await api.getSystemStations(online.solarSystemID, callOptions);
+    const { stationID, structureID, solarSystemID } = pilotPlace();
+    if (scope === "station" && stationID === null && structureID === null) scope = "region";
+    if (scope === "region" && solarSystemID !== null) {
+      const { regionID } = await api.getSystemStations(solarSystemID, callOptions);
       // MarketBase._GetAsksForRange uses system asks in wormhole regions.
       if (regionID !== null && regionID >= 11000000 && regionID <= 11999999) scope = "system";
     }
