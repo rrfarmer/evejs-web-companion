@@ -14528,6 +14528,24 @@ app.get("/api/client-data/accounting-entry-types", requireAuth, async (req, res,
 // the corporation's factionID), what its overview's Faction column names for a thing an NPC owns (overviewWindow.py
 // 967 to 975). `available` is false when the table could not be read (no client install, or no Python to host the
 // client's loader); `factions` is then empty.
+// PanelPlanetaryProductionPlanet lists the positive resource qualities for the planet's type.
+app.get("/api/client-data/planet-resources/:id", requireAuth, async (req, res, next) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    res.status(400).json({ ok: false, error: "INVALID_TYPE", message: "A planet type number is required." });
+    return;
+  }
+  try {
+    const types = await clientBuiltData.table("planetResourceDistributions");
+    const distribution = types?.[id]?.resourceDistribution ?? {};
+    const resourceTypeIDs = Object.entries(distribution).flatMap(([typeID, quality]) =>
+      typeof quality === "number" && quality > 0 ? [Number(typeID)] : []);
+    res.json({ ok: true, available: types != null, resourceTypeIDs });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Info.GetCelestialStatisticsForCelestial reads these attributes from the installed client's solarSystemContent.
 for (const [kind, groupID] of [["moon", 8], ["planet", 7]]) {
   app.get(`/api/client-data/${kind}s/:id`, requireAuth, async (req, res, next) => {

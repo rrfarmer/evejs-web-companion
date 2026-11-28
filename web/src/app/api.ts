@@ -4513,6 +4513,12 @@ export interface FactionInfo {
 }
 
 /** A solar system's item as the client lists it (GET /api/client-data/system-objects/:id). */
+export async function getPlanetResourceTypes(planetTypeID: number, options: ApiOptions = {}): Promise<readonly number[] | null> {
+  const data = await getJson(`/api/client-data/planet-resources/${planetTypeID}`, options);
+  if (data.available !== true || !Array.isArray(data.resourceTypeIDs)) return null;
+  return data.resourceTypeIDs.filter((id): id is number => typeof id === "number" && Number.isSafeInteger(id) && id > 0);
+}
+
 export interface CelestialInfo {
   readonly solarSystemID: number;
   readonly celestialIndex: number;

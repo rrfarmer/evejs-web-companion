@@ -21,6 +21,7 @@
   import InfoAttributeHint from "./InfoAttributeHint.svelte";
   import { getCelestialInfo, loadTypeListsHolding, type CelestialInfo } from "../app/api.ts";
   import InfoCelestialAttributes from "./InfoCelestialAttributes.svelte";
+  import InfoPlanetProduction from "./InfoPlanetProduction.svelte";
   import { findInContracts } from "./contractsSearch.ts";
   import { showMarketDetails } from "./marketDetails.ts";
   import EmploymentHistoryEntries from "./EmploymentHistoryEntries.svelte";
@@ -384,6 +385,12 @@
   let mapLocationRead = $state<MapLocationInfo | null>(null);
   const celestialKind = $derived($subject?.kind !== "spaceObject" ? null : $subject.typeID === 14 ? "moon"
     : headFacts?.typeID === $subject.typeID && headFacts?.groupID === 7 ? "planet" : null);
+  const planetType = $derived(headFacts?.typeID === typeID && headFacts?.groupID === 7 &&
+    ($subject?.kind === "type" || $subject?.kind === "spaceObject"));
+  const productionLabel = "UI/InfoWindow/TabNames/PlanetaryProduction";
+  let showPlanetProduction = $state(false);
+  $effect(() => { $subject; showPlanetProduction = false; });
+  $effect(() => { if (planetType) flow.requestWords([productionLabel, "UI/InfoWindow/TabNames/Attributes", "UI/InfoWindow/TabNames/Description"]); });
   const viewPlanetLabel = "UI/PI/Common/ViewInPlanetMode";
   const showPlanetAction = $derived(celestialKind === "planet" && !!onViewPlanet);
   $effect(() => { if (showPlanetAction) flow.requestWords([viewPlanetLabel]); });
@@ -1513,7 +1520,16 @@
     </header>
     {/if}
 
-    {#if usedWithRows.length}
+    {#if planetType}
+      <nav class="character-info-tabs" aria-label="Planet information">
+        <button type="button" aria-pressed={!showPlanetProduction} onclick={() => showPlanetProduction = false}>
+          {$subject.kind === "spaceObject" ? word("UI/InfoWindow/TabNames/Attributes") || "Attributes" : word("UI/InfoWindow/TabNames/Description") || "Description"}
+        </button>
+        <button type="button" aria-pressed={showPlanetProduction} onclick={() => showPlanetProduction = true}>
+          {word(productionLabel) || "Planetary Production"}
+        </button>
+      </nav>
+    {:else if usedWithRows.length}
       <nav class="character-info-tabs" aria-label="Item information">
         <button type="button" aria-pressed={!showUsedWith} onclick={() => showUsedWith = false}>
           {$subject.kind === "module" ? word("UI/InfoWindow/TabNames/Attributes") || "Attributes" : word("UI/InfoWindow/TabNames/Requirements") || "Requirements"}
@@ -1521,7 +1537,9 @@
         <button type="button" aria-pressed={showUsedWith} onclick={() => showUsedWith = true}>{word(usedWithLabel) || "Used With"}</button>
       </nav>
     {/if}
-    {#if showUsedWith}
+    {#if planetType && showPlanetProduction && typeID !== null}
+      <InfoPlanetProduction {store} {flow} {typeID} />
+    {:else if showUsedWith}
       <div class="info-used-with">
         {#each usedWithRows as group (group.metaGroupID)}
           <h3>{group.nameID === null ? "" : word(`#${group.nameID}`)}</h3>
