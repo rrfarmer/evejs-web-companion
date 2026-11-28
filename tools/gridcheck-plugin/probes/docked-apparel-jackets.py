@@ -1,4 +1,26 @@
 import blue
+from charactercreator import const
+from eve.common.script.util import paperDollUtil
+from eveexceptions import UserError
+from utillib import KeyVal
+
+
+def jacket_removal():
+    paperDollUtil.CacheRequiredModifierLocatiosn()
+    by_slot = paperDollUtil.MODIFIER_LOCATION_BY_KEY
+    results = {}
+    for gender in ('male', 'female'):
+        results[gender] = {}
+        for top in ('outer', 'topouter', 'topmiddle', None):
+            slots = ['bottomouter', 'feet']
+            if top:
+                slots.append(top)
+            items = [KeyVal(modifierLocationID=by_slot[slot], paperdollResourceID=None) for slot in slots]
+            try:
+                results[gender][top or 'none'] = paperDollUtil.HasRequiredClothing(gender, items)
+            except UserError as error:
+                results[gender][top or 'none'] = error.msg
+    return results
 
 
 def observe():
@@ -17,7 +39,10 @@ def observe():
         rows.append(dict(id=row.paperdollResourceID, gender=gender, path=path,
                          races=list(row.empireRestrictions or ()), exists=blue.paths.exists(asset)))
     rows.sort(key=lambda row: row['id'])
-    return dict(build=3698585, station=session.stationid, locations=locations, rows=rows)
+    return dict(build=3698585, station=session.stationid, locations=locations,
+                requiredTop=jacket_removal(),
+                removable=[slot for slot in ('outer', 'topouter', 'topmiddle', 'bottomouter', 'feet')
+                           if slot in const.REMOVEABLE], rows=rows)
 
 
 result = observe()

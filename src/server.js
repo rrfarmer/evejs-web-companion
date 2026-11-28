@@ -21,7 +21,7 @@ const { createClientTextures } = require("./clientData/clientTextures");
 const { appearanceWithSkinTone, skinToneCatalog, skinToneID } = require("./clientData/portraitSkinTones");
 const { portraitSnapshotBytes } = require("./clientData/portraitSnapshot");
 const { appearanceWithHair, appearanceWithModifier, portraitHairChoices, portraitHairID, portraitModifierID } = require("./clientData/portraitHair");
-const { apparelSlots, portraitApparelChoices } = require("./clientData/portraitApparel");
+const { apparelSlots, optionalApparelSlots, portraitApparelChoices } = require("./clientData/portraitApparel");
 const { appearanceWithHairColors, hairColorCatalog, hairColorLocation, hairColorSelection, portraitHairTints } = require("./clientData/portraitHairColors");
 const { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewMakeup } = require("./clientData/portraitPreview");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
@@ -19882,7 +19882,7 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
   }
   const requestedApparel = Object.entries({ ...(shirtID === null ? {} : { topmiddle: shirtID }), ...apparelIDs });
   if (requestedApparel.some(([slot, id]) => !apparelSlots.includes(slot) || !Number.isSafeInteger(id) ||
-    id < 0 || (id === 0 && slot !== "topouter"))) {
+    id < 0 || (id === 0 && !optionalApparelSlots.includes(slot)))) {
     return res.status(400).json({ ok: false, error: "INVALID_APPAREL", message: "Choose available apparel." });
   }
   const call = (service, method, args, kwargs = null) => heldTopLevelCall(held, req.webSessionID, service, method, args, kwargs);
@@ -19960,6 +19960,10 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
             appearance = appearanceWithModifier(appearance ?? current, location, id);
             if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
           }
+        }
+        if (requestedApparel.some(([, id]) => id === 0) &&
+            !["outer", "topouter", "topmiddle"].some(slot => portraitModifierID(appearance ?? current, groups[slot].location))) {
+          return res.status(400).json({ ok: false, error: "MISSING_REQUIRED_CLOTHING", message: "Choose at least one upper garment." });
         }
       }
     }

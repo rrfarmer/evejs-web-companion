@@ -15,6 +15,7 @@ const apparelFamilies = {
     feet: ["bootsam01", "bootscm01", "shoesgm01", "bootsmm01"] },
 };
 const apparelSlots = Object.keys(apparelFamilies.male);
+const optionalApparelSlots = ["outer", "topouter"];
 const stockApparelFactions = { a: "Amarr", c: "Caldari", g: "Gallente", m: "Minmatar" };
 
 function isPortraitApparelType(path) {
@@ -41,4 +42,4 @@ function portraitApparelChoices(resources, model, race, slot, fileFor) {
   });
 }
 
-module.exports = { apparelSlots, isPortraitApparelType, portraitApparelChoices };
+module.exports = { apparelSlots, optionalApparelSlots, isPortraitApparelType, portraitApparelChoices };
