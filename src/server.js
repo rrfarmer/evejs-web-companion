@@ -9854,6 +9854,11 @@ function chatContext(held, req) {
     solarSystemID: Number(held.solarSystemID) || 0,
     limit: Number(req.query?.limit) || undefined,
     canManageCorporationChat: room => onGamePort && gamePortPilots?.canManageCorporationChat?.(room, identity, held.bridgeSessionID) === true,
+    canManageFleetChat: async room => onGamePort && await gamePortPilots?.canManageFleetChat?.(room, identity, held.bridgeSessionID) === true,
+    fleetChatMotd: (room, motd) => heldRequest(held, req.webSessionID, motd !== undefined, () => {
+      assertHeldRequestGeneration(req, held);
+      return onGamePort ? gamePortPilots?.fleetChatMotd?.(room, identity, held.bridgeSessionID, motd) : null;
+    }),
     setCorporationChatMotd: (room, jid, motd) => heldRequest(held, req.webSessionID, true, () => {
       assertHeldRequestGeneration(req, held);
       return onGamePort && gamePortPilots?.setCorporationChatMotd?.(room, jid, motd, identity, held.bridgeSessionID);
@@ -9941,13 +9946,16 @@ app.get("/api/bridge/chat/:roomName/settings", requireAuth, async (req, res, nex
   } catch (error) { next(error); }
 });
 
-app.get("/api/bridge/chat/:roomName/settings/availability", requireAuth, (req, res, next) => {
+app.get("/api/bridge/chat/:roomName/settings/availability", requireAuth, async (req, res, next) => {
   const held = requireHeldBridgeSession(req, res);
   if (!held) return;
   const context = chatContext(held, req);
   try {
     context.assertCurrent();
-    res.json({ ok: true, available: context.canManageCorporationChat(req.params.roomName) });
+    const room = req.params.roomName;
+    const available = room.startsWith("fleet_") ? await context.canManageFleetChat(room) : context.canManageCorporationChat(room);
+    context.assertCurrent();
+    res.json({ ok: true, available });
   } catch (error) { next(error); }
 });
 

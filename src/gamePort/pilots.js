@@ -6343,6 +6343,33 @@ function createGamePortPilots({
     return entry.session.callBound(object.objectID, method, args, null);
   }
 
+  function isFleetChatBoss(entry, roomName) {
+    const fleetID = attribute(entry, "fleetid");
+    return Boolean(fleetID && roomName === `fleet_${fleetID}` && entry.fleet && entry.fleetKept.isBoss());
+  }
+
+  async function canManageFleetChat(roomName, sessionFields, bridgeSessionID) {
+    const entry = held(bridgeSessionID, sessionFields);
+    await entry.fleetWork;
+    return isFleetChatBoss(entry, roomName);
+  }
+
+  async function fleetChatMotd(roomName, sessionFields, bridgeSessionID, motd) {
+    const entry = held(bridgeSessionID, sessionFields);
+    await entry.fleetWork;
+    if (!isFleetChatBoss(entry, roomName)) return null;
+    const object = entry.fleet;
+    if (motd !== undefined) {
+      if (await ownFleetCall(entry, object, "SetMotdEx", [motd]) !== true ||
+          entry.fleet !== object || !isFleetChatBoss(entry, roomName)) return null;
+    }
+    const value = motd === undefined ? entry.fleetKept.motd() : null;
+    const current = value ?? await ownFleetCall(entry, object, "GetMotd");
+    if (entry.fleet !== object || !isFleetChatBoss(entry, roomName)) return null;
+    entry.fleetKept.setMotd(current);
+    return packets.text(current) ?? "";
+  }
+
   /** fleetSvc.InitFleet: the fleet's state asked of its object, and kept where that is the fleet's object still. */
   async function initFleet(entry, object) {
     const state = await ownFleetCall(entry, object, "GetInitState");
@@ -7065,6 +7092,8 @@ function createGamePortPilots({
     grantDirectoryChatOwnership,
     canManageCorporationChat,
     setCorporationChatMotd,
+    canManageFleetChat,
+    fleetChatMotd,
     chatSessionChanges,
     localChat,
     chatTaboos,

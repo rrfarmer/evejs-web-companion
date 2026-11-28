@@ -2208,7 +2208,7 @@ export interface ChatChannelSettingsChange {
   readonly motd: string;
 }
 
-export async function corporationChatSettingsAvailable(roomName: string, options: ApiOptions = {}): Promise<boolean> {
+export async function proxyChatSettingsAvailable(roomName: string, options: ApiOptions = {}): Promise<boolean> {
   return (await getJson(`/api/bridge/chat/${encodeURIComponent(roomName)}/settings/availability`, options)).available === true;
 }
 export async function chatChannelSettings(roomName: string, change: ChatChannelSettingsChange | null, options: ApiOptions = {}, open = false): Promise<ChatChannelSettings> {

@@ -1953,6 +1953,7 @@ class XmppChatSession {
   }
 
   async channelSettings(roomName, context = {}) {
+    if (/^fleet_\d+$/.test(roomName)) return this.fleetChannelSettings(roomName, context);
     const corporation = /^corp_\d+$/.test(roomName);
     const channel = corporation ? await this.managedCorporationChannel(roomName, context) : await this.managedDirectoryChannel(roomName, context);
     const settings = { name: channel.name, motd: this.roomSubjects.get(roomName) || "", owner: channel.affiliation === "owner",
@@ -1978,6 +1979,23 @@ class XmppChatSession {
       access: fields.get("muc#roomconfig_membersonly") === "1" ? "blocked" : fields.get("members_by_default") === "1" ? "allowed" : "moderated" };
   }
 
+  async fleetChannelSettings(roomName, context, motd) {
+    const refused = () => new XmppChatError("Only the fleet boss can configure their fleet channel.",
+      { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
+    if (!await context.canManageFleetChat?.(roomName)) throw refused();
+    const room = await this.ensureChannel("fleet", context);
+    this.assertChatCurrent(context);
+    if (room?.roomName !== roomName) throw refused();
+    const current = await context.fleetChatMotd?.(roomName, motd);
+    this.assertChatCurrent(context);
+    if (typeof current !== "string" || this.rooms.get("fleet") !== room) throw refused();
+    if (motd !== undefined && current !== motd) {
+      throw new XmppChatError("The fleet message of the day could not be confirmed.",
+        { code: "CHAT_SETTINGS_UNCONFIRMED", statusCode: 409 });
+    }
+    return { name: "Fleet", motd: current, owner: false, access: null, passwordProtected: false };
+  }
+
   async managedCorporationChannel(roomName, context) {
     const refused = () => new XmppChatError("Only a chat manager can configure their corporation channel.",
       { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
@@ -1994,6 +2012,9 @@ class XmppChatSession {
     const { name, access, password, motd } = change;
     if ((!before.owner && name !== undefined) || (before.access === null && (access !== undefined || password !== undefined))) {
       throw new XmppChatError("This channel does not allow those settings changes.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
+    }
+    if (/^fleet_\d+$/.test(roomName)) {
+      return motd === before.motd ? before : this.fleetChannelSettings(roomName, context, motd);
     }
     const fields = [];
     if (name !== undefined && name !== before.name) fields.push(["muc#roomconfig_roomname", name]);

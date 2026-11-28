@@ -5919,7 +5919,7 @@ export interface AppFlow {
   readChatChannelDirectory(name: string | null): Promise<readonly api.ChatDirectoryChannel[]>;
   createChatDirectoryChannel(name: string): Promise<string>;
   chatDirectoryChannelSettings(room: string, change?: api.ChatChannelSettingsChange, open?: boolean): Promise<api.ChatChannelSettings>;
-  corporationChatSettingsAvailable(room: string): Promise<boolean>;
+  proxyChatSettingsAvailable(room: string): Promise<boolean>;
   chatDirectoryChannelAccess(room: string, list: api.ChatAccessList, change?: api.ChatAccessChange): Promise<readonly { id: number; name: string; temporary: boolean; removable: boolean }[]>;
   readChatChannelMembers(rooms: readonly string[]): Promise<ReadonlyMap<string, number>>;
   /**
@@ -43656,9 +43656,9 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       if (change) conversations.updateDirectoryChannelTitle(room, settings.name);
       return settings;
     },
-    async corporationChatSettingsAvailable(room) {
+    async proxyChatSettingsAvailable(room) {
       const scope = captureMemberOperation();
-      const available = await api.corporationChatSettingsAvailable(room, scope.options);
+      const available = await api.proxyChatSettingsAvailable(room, scope.options);
       scope.current();
       return available;
     },

@@ -16,6 +16,7 @@
   } = $props();
   const paths = {
     title: "UI/Chat/ChannelConfiguration", general: "UI/Generic/General", name: "UI/Chat/ChannelName", corp: "UI/Common/Corp",
+    fleet: "UI/Fleet/Fleet",
     password: "UI/Chat/Password", retype: "UI/Chat/RetypePassword", access: "UI/Chat/DefaultAccess",
     motd: "UI/Chat/Motd", allowed: "UI/Chat/Allowed", moderated: "UI/Chat/Moderated", blocked: "UI/Chat/Blocked", muted: "UI/Chat/Muted", operators: "UI/Chat/Operators", owners: "UI/Chat/Owners",
     ok: "UI/Common/Buttons/OK", cancel: "UI/Common/Buttons/Cancel", muteHint: "UI/Chat/HowtoMuteHint",
@@ -35,13 +36,13 @@
   let tab = $state<"general" | ChatAccessList>("general");
   let changingAccess = $state(false);
   const generalForm = $props.id();
-  const corporation = $derived(/^corp_\d+$/.test(room));
+  const proxyRoom = $derived(/^corp_\d+$/.test(room) ? "corp" : /^fleet_\d+$/.test(room) ? "fleet" : null);
 
   onMount(() => {
     let mounted = true;
     dialog.showModal();
     flow.requestWords(Object.values(paths));
-    void flow.chatDirectoryChannelSettings(room, undefined, !corporation && flow.conversations.canRecoverChannelOwnership()).then(settings => {
+    void flow.chatDirectoryChannelSettings(room, undefined, !proxyRoom && flow.conversations.canRecoverChannelOwnership()).then(settings => {
       if (!mounted) return;
       current = settings;
       name = settings.name;
@@ -95,7 +96,7 @@
   {#if current}
     <nav class="channel-tabs" aria-label="Channel settings">
       <button type="button" aria-pressed={tab === "general"} disabled={pending || changingAccess} onclick={() => { tab = "general"; }}>{label("general", "General")}</button>
-      {#if !corporation}
+      {#if !proxyRoom}
       <button type="button" aria-pressed={tab === "allowed"} disabled={pending || changingAccess} onclick={() => { tab = "allowed"; }}>{label("allowed", "Allowed")}</button>
       <button type="button" aria-pressed={tab === "blocked"} disabled={pending || changingAccess} onclick={() => { tab = "blocked"; }}>{label("blocked", "Blocked")}</button>
       <button type="button" aria-pressed={tab === "muted"} disabled={pending || changingAccess} onclick={() => { tab = "muted"; }}>{label("muted", "Muted")}</button>
@@ -109,7 +110,7 @@
       <fieldset disabled={pending}>
         <legend>{label("general", "General")}</legend>
         <label>{label("name", "Channel Name")}
-          {#if corporation}<input type="text" value={label("corp", current.name)} readonly />
+          {#if proxyRoom}<input type="text" value={label(proxyRoom, current.name)} readonly />
           {:else}<input type="text" maxlength="50" bind:value={name} readonly={!current.owner} />{/if}
         </label>
         {#if current.access !== null}

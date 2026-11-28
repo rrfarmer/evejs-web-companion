@@ -118,7 +118,7 @@
   });
   $effect(() => {
     if (settingsRoom && $chat.corp.roomName !== settingsRoom &&
-        !$conversations.rooms.some(({ channel }) => channel === settingsRoom)) settingsRoom = null;
+        !$conversations.rooms.some(({ state }) => state.roomName === settingsRoom)) settingsRoom = null;
   });
   let sendBox = $state<HTMLInputElement | undefined>(undefined);
 
@@ -160,8 +160,8 @@
       }] : []),
     ];
     const x = pointer?.clientX ?? bounds.left, y = pointer?.clientY ?? bounds.bottom;
-    const corporation = channel === "corp" && Boolean(room?.startsWith("corp_"));
-    if (!room || (!corporation && !/^(?:player_\d+|system_\d+(?:_\d+)+)$/.test(room))) {
+    const proxyControlled = (channel === "corp" || channel === "fleet") && Boolean(room?.startsWith(`${channel}_`));
+    if (!room || (!proxyControlled && !/^(?:player_\d+|system_\d+(?:_\d+)+)$/.test(room))) {
       channelMenu.open(x, y, entries);
       return;
     }
@@ -172,18 +172,18 @@
       label: linkWord(path) || (gear ? "Open Channel Setting Window" : "Configuration"),
       path,
       run: () => {
-        const joined = corporation ? store.chat.get().corp.roomName === room :
-          flow.conversations.state.get().rooms.some(({ channel }) => channel === room);
+        const joined = channel === "corp" ? store.chat.get().corp.roomName === room :
+          flow.conversations.state.get().rooms.some(({ state }) => state.roomName === room);
         if (pilotID === requestedPilot && joined) settingsRoom = room;
       },
     };
     const requestedPilot = pilotID;
-    if (!corporation && flow.conversations.canRecoverChannelOwnership()) {
+    if (!proxyControlled && flow.conversations.canRecoverChannelOwnership()) {
       channelMenu.open(x, y, [settings, ...entries]);
       return;
     }
     const update = channelMenu.open(x, y, entries);
-    const eligible = corporation ? flow.corporationChatSettingsAvailable(room) : flow.readChatChannelDirectory(null).then(rows => {
+    const eligible = proxyControlled ? flow.proxyChatSettingsAvailable(room) : flow.readChatChannelDirectory(null).then(rows => {
       const affiliation = rows.find(row => row.roomName === room)?.affiliation;
       return affiliation === "owner" || affiliation === "admin";
     });
