@@ -19881,7 +19881,8 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
     return res.status(400).json({ ok: false, error: "INVALID_APPAREL", message: "Choose available apparel." });
   }
   const requestedApparel = Object.entries({ ...(shirtID === null ? {} : { topmiddle: shirtID }), ...apparelIDs });
-  if (requestedApparel.some(([slot, id]) => !apparelSlots.includes(slot) || !Number.isSafeInteger(id) || id <= 0)) {
+  if (requestedApparel.some(([slot, id]) => !apparelSlots.includes(slot) || !Number.isSafeInteger(id) ||
+    id < 0 || (id === 0 && slot !== "topouter"))) {
     return res.status(400).json({ ok: false, error: "INVALID_APPAREL", message: "Choose available apparel." });
   }
   const call = (service, method, args, kwargs = null) => heldTopLevelCall(held, req.webSessionID, service, method, args, kwargs);
@@ -19951,7 +19952,7 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
         const { groups } = await dockedApparelChoices(call, held.characterID);
         for (const [slot, id] of requestedApparel) {
           const { location, choices } = groups[slot];
-          if (!choices.some(choice => choice.id === id)) {
+          if (!Number.isSafeInteger(location) || (id !== 0 && !choices.some(choice => choice.id === id))) {
             return res.status(400).json({ ok: false, error: "INVALID_APPAREL", message: "Choose available apparel." });
           }
           apparelToConfirm.push([location, id]);

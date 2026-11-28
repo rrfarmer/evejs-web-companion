@@ -30,8 +30,8 @@
   let hairID = $state(0);
   let primaryID = $state(0);
   let secondaryID = $state(0);
-  let selection = $state({ outer: 0, topmiddle: 0, bottomouter: 0, feet: 0 });
-  const slotLabels = { outer: "Jacket", topmiddle: "Shirt", bottomouter: "Trousers", feet: "Footwear" };
+  let selection = $state({ outer: 0, topouter: 0, topmiddle: 0, bottomouter: 0, feet: 0 });
+  const slotLabels = { outer: "Jacket", topouter: "Overshirt", topmiddle: "Shirt", bottomouter: "Trousers", feet: "Footwear" };
   let showOutfit = $state(false);
   let preview = $state<"backdrop" | "female" | "male">("backdrop");
   let failed = $state(false);
@@ -58,14 +58,23 @@
   const acceptsHairColor = $derived(Boolean(chosenHair && !chosenHair.style.startsWith("hair_implant_")));
   const apparelChoices = $derived(dockedApparelSlots.flatMap(slot => {
     const group = options?.clothing?.slots[slot];
-    return group?.choices.length ? [{ slot, group, choice: group.choices.find(row => row.id === selection[slot]) }] : [];
+    return group && (group.choices.length || (slot === "topouter" && group.id))
+      ? [{ slot, group, choice: group.choices.find(row => row.id === selection[slot]) }] : [];
   }));
-  const apparelIDs = $derived(Object.fromEntries(apparelChoices.flatMap(({ slot, group, choice }) =>
-    choice && choice.id !== group.id ? [[slot, choice.id]] : [])));
-  const apparel = $derived({ ...options?.clothing?.apparel, ...Object.fromEntries(apparelChoices.flatMap(({ slot, choice }) =>
-    slot !== "outer" && choice ? [[slot, choice.asset]] : [])) });
+  const apparelIDs = $derived(Object.fromEntries(apparelChoices.flatMap(({ slot, group, choice }) => {
+    const id = slot === "topouter" && selection.topouter === 0 ? 0 : choice?.id;
+    return id !== undefined && id !== group.id ? [[slot, id]] : [];
+  })));
+  const apparel = $derived.by(() => {
+    const layers = { ...options?.clothing?.apparel };
+    for (const { slot, choice } of apparelChoices) {
+      if (slot !== "outer" && choice) layers[slot] = choice.asset;
+    }
+    if (selection.topouter === 0) delete layers.topouter;
+    return layers;
+  });
   const jacket = $derived(apparelChoices.find(({ slot }) => slot === "outer")?.choice?.asset ?? options?.clothing?.outfit);
-  const outfit = $derived(jacket ?? apparel.topmiddle);
+  const outfit = $derived(jacket ?? apparel.topouter ?? apparel.topmiddle);
   const hasChanges = $derived(initial || selected !== options?.backgroundID || zoomChanged || skinChanged || hairChanged ||
     hairColorChanged || Object.keys(apparelIDs).length > 0);
   const busy = $derived(saving || publishing);
@@ -185,7 +194,8 @@
         {#each apparelChoices as { slot, group } (slot)}
           <label class="appearance-choice">{slotLabels[slot]}
             <select bind:value={selection[slot]} disabled={busy} onchange={() => { saveStatus = ""; }}>
-              {#if !group.choices.some(choice => choice.id === group.id)}
+              {#if slot === "topouter"}<option value={0}>None</option>{/if}
+              {#if (slot !== "topouter" || group.id) && !group.choices.some(choice => choice.id === group.id)}
                 <option value={group.id}>{group.id ? "Saved selection" : "No saved selection"}</option>
               {/if}
               {#each group.choices as choice (choice.id)}<option value={choice.id}>{choice.name}</option>{/each}

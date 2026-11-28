@@ -4,10 +4,12 @@ const fs = require("node:fs");
 
 const apparelFamilies = {
   female: { outer: ["jacketaf01", "jacketcf01", "jacketgf01", "jacketmf01"],
+    topouter: [],
     topmiddle: ["shirtaf01", "shirtcf01", "shirtgf01", "shirtmf01"],
     bottomouter: ["pantsaf01", "pantscf01", "pantsgf01", "pantsmf01"],
     feet: ["bootsaf01", "bootscf01", "bootsgf01", "bootsmf01"] },
   male: { outer: ["jacketam01", "jacketcm01", "jacketgm01", "jacketmm01"],
+    topouter: ["shirtam01"],
     topmiddle: ["shirtcm01", "shirtgm01", "shirtmm01"],
     bottomouter: ["pantsam01", "pantscm01", "pantsgm01", "pantsmm01"],
     feet: ["bootsam01", "bootscm01", "shoesgm01", "bootsmm01"] },
@@ -16,7 +18,7 @@ const apparelSlots = Object.keys(apparelFamilies.male);
 const stockApparelFactions = { a: "Amarr", c: "Caldari", g: "Gallente", m: "Minmatar" };
 
 function isPortraitApparelType(path) {
-  const match = /^res:\/graphics\/character\/(female|male)\/paperdoll\/(outer|topmiddle|bottomouter|feet)\/([a-z0-9_]+)\/types\/[a-z0-9_]+\.type$/.exec(path);
+  const match = /^res:\/graphics\/character\/(female|male)\/paperdoll\/(outer|topouter|topmiddle|bottomouter|feet)\/([a-z0-9_]+)\/types\/[a-z0-9_]+\.type$/.exec(path);
   return Boolean(match && apparelFamilies[match[1]][match[2]].includes(match[3]));
 }
 
@@ -26,7 +28,7 @@ function portraitApparelChoices(resources, model, race, slot, fileFor) {
   return Object.entries(resources ?? {}).flatMap(([key, row]) => {
     if (row.resGender !== gender || row.typeID != null ||
       (row.empireRestrictions?.length && !row.empireRestrictions.includes(race))) return [];
-    const path = /^(outer|topmiddle|bottomouter|feet)\/([a-z0-9_]+)\/types\/([a-z0-9_]+)\.type$/i.exec(row.resPath?.toLowerCase());
+    const path = /^(outer|topouter|topmiddle|bottomouter|feet)\/([a-z0-9_]+)\/types\/([a-z0-9_]+)\.type$/i.exec(row.resPath?.toLowerCase());
     if (!path || path[1] !== slot || !families.includes(path[2])) return [];
     const [, , family, variant] = path;
     const file = fileFor(`res:/graphics/character/${model}/paperdoll/${slot}/${family}/types/${variant}.type`);

@@ -54,7 +54,7 @@ function portraitPreviewModifiers(appearance, gender, locations, resources) {
       const [, slot, style, variant] = piercing;
       piercings[slot] = `/client-assets/portrait-outfit/${gender}/${slot}/${style}/${variant}.json`;
     }
-    const garment = /^(outer|topmiddle|bottomouter|feet)\/([a-z0-9_]+)\/types\/([a-z0-9_]+)\.type$/.exec(resourcePath);
+    const garment = /^(outer|topouter|topmiddle|bottomouter|feet)\/([a-z0-9_]+)\/types\/([a-z0-9_]+)\.type$/.exec(resourcePath);
     if (garment && garment[1] === location.modifierKey) {
       const [, slot, style, variant] = garment;
       const root = `/client-assets/portrait-outfit/${gender}`;

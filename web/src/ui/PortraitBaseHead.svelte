@@ -415,11 +415,18 @@
       const outer = await manifest(source);
       const worn = [outer];
       const occludes = new Set(outer.occludes);
-      if (!outer.skinBase && !occludes.has("topouter") && !occludes.has("topmiddle") && source !== extra?.topmiddle) {
-        if (!extra?.topmiddle) throw new Error("This outfit requires an additional top layer");
-        const top = await manifest(extra.topmiddle);
-        worn.unshift(top);
-        for (const name of top.occludes) occludes.add(name);
+      if (!outer.skinBase) {
+        for (const slot of ["topouter", "topmiddle"] as const) {
+          const url = extra?.[slot];
+          if (occludes.has(slot) || source === url) continue;
+          if (!url) {
+            if (slot === "topmiddle") throw new Error("This outfit requires an additional top layer");
+            continue;
+          }
+          const layer = await manifest(url);
+          worn.unshift(layer);
+          for (const name of layer.occludes) occludes.add(name);
+        }
       }
       for (const slot of ["bottomouter", "feet"] as const) {
         if (occludes.has(slot)) continue;

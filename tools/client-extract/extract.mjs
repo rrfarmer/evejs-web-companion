@@ -1129,7 +1129,7 @@ function parseArgs(argv) {
     if (a === "--client") out.client = argv[++i];
     else if (a === "--portrait-outfit") {
       out.portraitOutfit = argv[++i];
-      if (!/^(?:female|male)\/(?:(?:topmiddle|bottomouter|feet|accessories\/(?:nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+$/.test(out.portraitOutfit ?? "")) {
+      if (!/^(?:female|male)\/(?:(?:topouter|topmiddle|bottomouter|feet|accessories\/(?:nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+$/.test(out.portraitOutfit ?? "")) {
         throw new Error("--portrait-outfit needs gender/[slot/]style/variant");
       }
     }

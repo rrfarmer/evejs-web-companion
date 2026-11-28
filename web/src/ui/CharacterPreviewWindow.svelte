@@ -32,9 +32,9 @@
   {onFocus} {onClose} {onMove} onResizeRect={onResize}>
   <div class="character-preview" data-preview-character={characterID}>
     <div class="character-preview-stage">
-      {#if appearance.model && (appearance.outfit || appearance.apparel.topmiddle)}
+      {#if appearance.model && (appearance.outfit || appearance.apparel.topouter || appearance.apparel.topmiddle)}
         <PortraitBaseHead model={appearance.model} bloodlineID={appearance.bloodlineID}
-          outfit={appearance.outfit ?? appearance.apparel.topmiddle} apparel={appearance.apparel}
+          outfit={appearance.outfit ?? appearance.apparel.topouter ?? appearance.apparel.topmiddle} apparel={appearance.apparel}
           hairstyle={appearance.hairstyle ?? undefined} hairTints={appearance.hairTints} morphs={appearance.morphs}
           piercings={appearance.piercings} iris={appearance.iris ?? undefined} makeup={appearance.makeup} />
       {:else}

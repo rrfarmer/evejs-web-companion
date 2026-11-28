@@ -183,7 +183,7 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
       ? (scalpMode === "implant" ? '"implant":true' : scalpMode === "only" ? '"finish":' : '"hairMeshBuild":3') : undefined;
     return { file: await ensure(rel.slice(1), ["--portrait-head", hair[1], "--portrait-hair", hair[2]], marker) };
   }
-  const outfit = /^\/portrait-outfit\/((?:female|male)\/(?:(?:topmiddle|bottomouter|feet|accessories\/(?:nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+)\.json$/.exec(rel);
+  const outfit = /^\/portrait-outfit\/((?:female|male)\/(?:(?:topouter|topmiddle|bottomouter|feet|accessories\/(?:nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+)\.json$/.exec(rel);
   if (outfit) {
     const marker = outfit[1].includes("/topmiddle/") ? (canExtract() ? '"outfitBuild":5' : undefined) : '"outfitBuild":4';
     return { file: await ensure(rel.slice(1), ["--portrait-outfit", outfit[1]], marker) };
