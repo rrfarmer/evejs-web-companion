@@ -6394,6 +6394,23 @@ function portraitRGB(value: JsonValue | undefined): RGB | undefined {
     value.every(channel => typeof channel === "number" && channel >= 0 && channel <= 1) ? value as unknown as RGB : undefined;
 }
 
+function portraitApparel(value: JsonValue | undefined, model: PortraitHead | null): PortraitApparel {
+  const data = asObject(value);
+  const layers: Partial<Record<keyof PortraitApparel, string>> = {};
+  for (const slot of ["topmiddle", "bottomouter", "feet"] as const) {
+    const url = data?.[slot];
+    if (typeof url !== "string") continue;
+    const match = /^\/client-assets\/portrait-outfit\/(female|male)\/(topmiddle|bottomouter|feet)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(url);
+    if (match && match[1] === model && match[2] === slot) layers[slot] = url;
+  }
+  return layers;
+}
+
+function portraitOutfit(url: JsonValue | undefined, model: PortraitHead | null): string | null {
+  return typeof url === "string" &&
+    /^\/client-assets\/portrait-outfit\/(female|male)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(url)?.[1] === model ? url : null;
+}
+
 export async function loadCharacterPreviewAppearance(characterID: number, options: ApiOptions = {}):
     Promise<CharacterPreviewAppearance | null> {
   const data = await getJson(`/api/bridge/character/${characterID}/preview-appearance`, options);
@@ -6427,18 +6444,10 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
       typeof weight === "number" && weight > 0 && weight <= 1
       ? [{ name, weight, ...(morph?.body === true ? { body: true as const } : {}) }] : [];
   });
-  const apparel = asObject(appearance?.apparel);
-  const layers: Partial<Record<keyof PortraitApparel, string>> = {};
-  for (const slot of ["topmiddle", "bottomouter", "feet"] as const) {
-    const url = apparel?.[slot];
-    if (typeof url !== "string") continue;
-    const match = /^\/client-assets\/portrait-outfit\/(female|male)\/(topmiddle|bottomouter|feet)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(url);
-    if (match && match[1] === model && match[2] === slot) layers[slot] = url;
-  }
   return {
     model, bloodlineID: asNumberOrNull(appearance?.bloodlineID),
-    outfit: typeof outfit === "string" && /^\/client-assets\/portrait-outfit\/(female|male)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(outfit)?.[1] === model ? outfit : null,
-    apparel: layers,
+    outfit: portraitOutfit(outfit, model),
+    apparel: portraitApparel(appearance?.apparel, model),
     morphs,
     piercings,
     makeup,
@@ -6447,6 +6456,23 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
     hairstyle: typeof hairstyle === "string" && /^hair_[a-z0-9_]+$/.test(hairstyle) ? hairstyle : null,
     ...(primary || (accent && accentTip) ? { hairTints: { primary, secondary: accent && accentTip ? [accent, accentTip] : undefined } } : {}),
   };
+}
+
+export interface DockedShirts {
+  readonly shirtID: number;
+  readonly choices: readonly { id: number; name: string; asset: string }[];
+  readonly outfit: string | null;
+  readonly apparel: PortraitApparel;
+}
+
+export async function loadDockedShirts(gender: PortraitHead, options: ApiOptions = {}): Promise<DockedShirts> {
+  const data = await getJson("/api/bridge/character/apparel", options);
+  const choices = (Array.isArray(data.choices) ? data.choices : []).flatMap(row =>
+    row && Number.isSafeInteger(row.id) && typeof row.name === "string" && typeof row.asset === "string" &&
+    /^\/client-assets\/portrait-outfit\/(female|male)\/topmiddle\/(shirtgf01|shirtgm01)\/[a-z0-9_]+\.json$/.exec(row.asset)?.[1] === gender
+      ? [{ id: row.id, name: row.name, asset: row.asset }] : []);
+  return { shirtID: asNumberOrNull(data.shirtID) ?? 0, choices, outfit: portraitOutfit(data.outfit, gender),
+    apparel: portraitApparel(data.apparel, gender) };
 }
 
 type RGB = readonly [number, number, number];
@@ -6513,7 +6539,8 @@ export async function loadPortraitSkinTones(gender: PortraitHead, options: ApiOp
 
 export async function savePortrait(draft: { backgroundID: number; fieldOfView: number | null;
     skinTone: { id: number; gender: PortraitHead } | null; hairID: number | null;
-    hairColor?: PortraitHairColor | null; dockedLocationID: number; initialFrame?: PortraitFrame }, options: ApiOptions = {}): Promise<void> {
+    hairColor?: PortraitHairColor | null; shirtID?: number | null;
+    dockedLocationID: number; initialFrame?: PortraitFrame }, options: ApiOptions = {}): Promise<void> {
   await postJson("/api/bridge/character/portrait", { ...draft, confirm: true }, options);
 }
 

@@ -99,7 +99,7 @@ function modifierValues(row) {
   return row?.type === "objectex2" && fields?.[0]?.value === modifierRowType ? fields : null;
 }
 
-function portraitHairID(payload, location) {
+function portraitModifierID(payload, location) {
   for (const row of readModifiers(payload)?.rows ?? []) {
     const values = modifierValues(row);
     if (values?.[1] === location) return values[2];
@@ -107,7 +107,7 @@ function portraitHairID(payload, location) {
   return 0;
 }
 
-function appearanceWithHair(payload, location, id) {
+function appearanceWithModifier(payload, location, id) {
   const source = payload ?? appearanceWithSkinTone(null, [], 0);
   const existing = readModifiers(source);
   if (!existing) return null;
@@ -117,4 +117,5 @@ function appearanceWithHair(payload, location, id) {
     [key, key === "modifiers" ? { type: "list", items: rows } : value]) } };
 }
 
-module.exports = { appearanceWithHair, readModifiers, modifierValues, portraitHairChoices, portraitHairID, portraitHairStyle, portraitScalpMode };
+module.exports = { appearanceWithHair: appearanceWithModifier, appearanceWithModifier, readModifiers, modifierValues,
+  portraitHairChoices, portraitHairID: portraitModifierID, portraitModifierID, portraitHairStyle, portraitScalpMode };

@@ -30,6 +30,8 @@
   let hairID = $state(0);
   let primaryID = $state(0);
   let secondaryID = $state(0);
+  let shirtID = $state(0);
+  let showOutfit = $state(false);
   let preview = $state<"backdrop" | "female" | "male">("backdrop");
   let failed = $state(false);
   let saving = $state(false);
@@ -53,7 +55,11 @@
   const hairTints = $derived<PortraitHairTints | undefined>(primary || secondary
     ? { primary: primary?.colors[0], secondary: secondary && [secondary.colors[1], secondary.colors[2]] } : undefined);
   const acceptsHairColor = $derived(Boolean(chosenHair && !chosenHair.style.startsWith("hair_implant_")));
-  const hasChanges = $derived(initial || selected !== options?.backgroundID || zoomChanged || skinChanged || hairChanged || hairColorChanged);
+  const shirt = $derived(options?.shirts?.choices.find(choice => choice.id === shirtID));
+  const shirtChanged = $derived(Boolean(shirt && shirt.id !== options?.shirts?.shirtID));
+  const apparel = $derived({ ...options?.shirts?.apparel, topmiddle: shirt?.asset ?? options?.shirts?.apparel.topmiddle });
+  const outfit = $derived(options?.shirts?.outfit ?? apparel.topmiddle);
+  const hasChanges = $derived(initial || selected !== options?.backgroundID || zoomChanged || skinChanged || hairChanged || hairColorChanged || shirtChanged);
   const busy = $derived(saving || publishing);
 
   onMount(() => {
@@ -70,6 +76,7 @@
       hairID = data.hairID;
       primaryID = data.hairColor.primaryID;
       secondaryID = data.hairColor.secondaryID;
+      shirtID = data.shirts?.shirtID ?? 0;
     }).catch(() => { failed = true; });
   });
 
@@ -88,8 +95,10 @@
     try {
       await flow.saveDockedPortrait({ backgroundID, fieldOfView: initialFrame || zoomChanged ? fieldOfView : null,
         skinToneID: skinChanged ? skinToneID : null, hairID: hairChanged ? hairID : null,
-        hairColor: hairColorChanged ? { primaryID, secondaryID } : null, initialFrame: initialFrame ?? undefined });
-      options = { ...options, state: 0, backgroundID, framing, skinToneID, hairID, hairColor: { primaryID, secondaryID } };
+        hairColor: hairColorChanged ? { primaryID, secondaryID } : null, shirtID: shirtChanged ? shirtID : null,
+        initialFrame: initialFrame ?? undefined });
+      options = { ...options, state: 0, backgroundID, framing, skinToneID, hairID, hairColor: { primaryID, secondaryID },
+        shirts: options.shirts && { ...options.shirts, shirtID, apparel } };
       saveStatus = initialFrame ? "Appearance saved. You can now publish your portrait." : "Portrait settings saved.";
     } catch (error) {
       saveStatus = error instanceof Error ? error.message : "The portrait settings could not be saved.";
@@ -140,8 +149,16 @@
           {/each}
         </select>
       </label>
-      <div class="image">
-        {#if pilotHead && backdrop}
+      {#if pilotHead && outfit && !initial}
+        <button class="appearance-choice" type="button" disabled={busy} onclick={() => { showOutfit = !showOutfit; }}>
+          {showOutfit ? "Show portrait" : "Show outfit"}
+        </button>
+      {/if}
+      <div class="image" class:outfit-preview={showOutfit}>
+        {#if showOutfit && pilotHead && outfit}
+          <PortraitBaseHead model={pilotHead} bloodlineID={options.bloodlineID} {outfit} {apparel}
+            hairstyle={chosenHair?.style} {hairTints} {hasSkinTones} skinColors={skinTone?.colors} />
+        {:else if pilotHead && backdrop}
           <PortraitBaseHead bind:this={portraitView} model={pilotHead} backdropUrl={url} backdropIsDds={backdrop.isDds}
             bloodlineID={options.bloodlineID} framing={options.framing} {fieldOfView}
             {hasSkinTones} skinColors={skinTone?.colors} hairstyle={chosenHair?.style} {hairTints} />
@@ -152,6 +169,16 @@
         {/if}
       </div>
       {#if canSave}
+        {#if options.shirts?.choices.length}
+          <label class="appearance-choice">Shirt
+            <select bind:value={shirtID} disabled={busy} onchange={() => { saveStatus = ""; }}>
+              {#if !options.shirts.choices.some(choice => choice.id === options?.shirts?.shirtID)}
+                <option value={options.shirts.shirtID}>{options.shirts.shirtID ? "Saved shirt" : "No saved shirt"}</option>
+              {/if}
+              {#each options.shirts.choices as choice (choice.id)}<option value={choice.id}>{choice.name}</option>{/each}
+            </select>
+          </label>
+        {/if}
         {#if pilotHead && options.hairstyles.length}
           <label class="appearance-choice">Hairstyle
             <select bind:value={hairID} disabled={busy} onchange={() => { saveStatus = ""; }}>
@@ -229,6 +256,7 @@
   label { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 13px; }
   select { min-width: 0; max-width: 100%; flex: 1; }
   .image { display: grid; background: #101716; aspect-ratio: 1; width: 100%; max-width: 332px; }
+  .outfit-preview { aspect-ratio: 4 / 5; }
   img { width: 100%; aspect-ratio: 1; object-fit: contain; }
   .portrait-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .zoom, .skin-tone, .appearance-choice { margin-top: 10px; }
