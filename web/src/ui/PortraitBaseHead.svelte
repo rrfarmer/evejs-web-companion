@@ -35,7 +35,7 @@
     onOutfitMorphs?: (names: ReadonlySet<string>) => void;
   } = $props();
   const visibleHairstyle = $derived(outfit && robeHood > 0 ? undefined : hairstyle);
-  const hasEyewear = $derived(Boolean(apparel?.["accessories/glasses"]));
+  const hasEyewearHairFit = $derived(/\/(?:glasses_(?:pilot|slick)_01|goggles_01)\//.test(apparel?.["accessories/glasses"] ?? ""));
   let canvas: HTMLCanvasElement;
   let renderer = $state.raw<THREE.WebGLRenderer | null>(null);
   let display = $state<"loading" | "ready" | "unavailable">("loading");
@@ -228,7 +228,7 @@
     const style = visibleHairstyle;
     const tints = hairTints;
     const fullBody = Boolean(outfit);
-    const fitEyewear = hasEyewear;
+    const fitEyewear = hasEyewearHairFit;
     if (!active) return;
     if (!style) {
       active.render(scene, camera);
