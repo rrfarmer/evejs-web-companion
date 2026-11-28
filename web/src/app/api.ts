@@ -2195,6 +2195,7 @@ export async function chatChannelAccessList(roomName: string, list: ChatAccessLi
 }
 
 export interface ChatChannelSettings {
+  readonly viewOnly?: boolean;
   readonly name: string;
   readonly motd: string;
   readonly owner: boolean;
@@ -2220,7 +2221,8 @@ export async function chatChannelSettings(roomName: string, change: ChatChannelS
       typeof value.passwordProtected !== "boolean" || !(value.access === null || value.access === "allowed" || value.access === "moderated" || value.access === "blocked")) {
     throw new Error("The channel settings could not be read.");
   }
-  return { name: value.name, motd: value.motd, owner: value.owner, passwordProtected: value.passwordProtected, access: value.access };
+  return { name: value.name, motd: value.motd, owner: value.owner, passwordProtected: value.passwordProtected,
+    access: value.access, viewOnly: value.viewOnly === true };
 }
 
 export async function joinChatRoom(roomName: string, password = "", options: ApiOptions = {}): Promise<JsonValue> {

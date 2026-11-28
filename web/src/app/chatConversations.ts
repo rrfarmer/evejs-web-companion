@@ -388,6 +388,7 @@ export function createChatConversations(hooks: Hooks) {
       await this.refresh();
     },
     isElevatedPlayer() { return (capture().role & ELEVATED_PLAYER_ROLES) !== 0n; },
+    canOpenElevatedChannelSettings() { return (capture().role & (CHAT_OWNERSHIP_GRANT_ROLE | 2097152n)) !== 0n; },
     canRecoverChannelOwnership() { return (capture().role & CHAT_OWNERSHIP_GRANT_ROLE) !== 0n; },
     async destroyDirectoryChannel(room: string) {
       await task(async scope => {

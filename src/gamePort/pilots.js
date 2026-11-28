@@ -4475,6 +4475,12 @@ function createGamePortPilots({
     return names.map((name) => packets.text(name)).filter((name) => typeof name === "string" && name.length > 0);
   }
 
+  function hasDirectoryChatAdministratorRole(sessionFields, bridgeSessionID) {
+    const entry = held(bridgeSessionID, sessionFields);
+    const role = wholeOf(entry.session.attributes.role) ?? 0n;
+    return (role & 2097152n) !== 0n && (role & 18014398509481984n) === 0n;
+  }
+
   async function grantDirectoryChatOwnership(roomName, sessionFields, bridgeSessionID) {
     const entry = held(bridgeSessionID, sessionFields);
     // ChannelSettingsDlg.ApplyAttributes requests ownership only for a GML session.
@@ -7102,6 +7108,7 @@ function createGamePortPilots({
     chatSecret,
     chatChannels,
     grantDirectoryChatOwnership,
+    hasDirectoryChatAdministratorRole,
     canManageOrganizationChat,
     setOrganizationChatMotd,
     canManageFleetChat,

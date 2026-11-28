@@ -1928,7 +1928,7 @@ class XmppChatSession {
     return null;
   }
 
-  async managedDirectoryChannel(roomName, context) {
+  async managedDirectoryChannel(roomName, context, viewOnlyAllowed = false) {
     if (typeof roomName !== "string" || !/^(?:player_\d+|system_\d+(?:_\d+)+)$/.test(roomName)) {
       throw new XmppChatError("Choose a player or system chat channel.", { code: "INVALID_CHANNEL", statusCode: 400 });
     }
@@ -1948,6 +1948,9 @@ class XmppChatSession {
       if (["owner", "admin"].includes(affiliation) && this.rooms.get(roomName) === joined && !joined.pending) {
         return { ...channel, affiliation };
       }
+      if (viewOnlyAllowed && this.rooms.get(roomName) === joined && !joined.pending && context.mayViewAdministratorSettings?.()) {
+        return { ...channel, viewOnly: true };
+      }
     }
     throw new XmppChatError("Join a channel you own or operate to open Settings.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
   }
@@ -1956,9 +1959,10 @@ class XmppChatSession {
     if (/^fleet_\d+$/.test(roomName)) return this.fleetChannelSettings(roomName, context);
     const corporation = /^corp_\d+$/.test(roomName);
     const organization = corporation || /^alliance_\d+$/.test(roomName);
-    const channel = organization ? await this.managedOrganizationChannel(roomName, context) : await this.managedDirectoryChannel(roomName, context);
+    const channel = organization ? await this.managedOrganizationChannel(roomName, context) : await this.managedDirectoryChannel(roomName, context, true);
     const settings = { name: channel.name, motd: this.roomSubjects.get(roomName) || "", owner: channel.affiliation === "owner",
       access: null, passwordProtected: false };
+    if (channel.viewOnly) return { ...settings, viewOnly: true };
     if (!settings.owner && !corporation) return settings;
     const response = await this.requestChatInformation(this.retailStanzas().roomIq(roomName, "owner", "get"), "channel settings");
     this.assertChatCurrent(context);
@@ -2013,6 +2017,9 @@ class XmppChatSession {
     const corporation = /^corp_\d+$/.test(roomName);
     const organization = corporation || /^alliance_\d+$/.test(roomName);
     const before = await this.channelSettings(roomName, context);
+    if (before.viewOnly) {
+      throw new XmppChatError("Only a room owner or operator can change these settings.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });
+    }
     const { name, access, password, motd } = change;
     if ((!before.owner && name !== undefined) || (before.access === null && (access !== undefined || password !== undefined))) {
       throw new XmppChatError("This channel does not allow those settings changes.", { code: "CHAT_SETTINGS_REFUSED", statusCode: 403 });

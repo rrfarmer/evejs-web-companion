@@ -179,7 +179,7 @@
       },
     };
     const requestedPilot = pilotID;
-    if (!proxyControlled && flow.conversations.canRecoverChannelOwnership()) {
+    if (!proxyControlled && flow.conversations.canOpenElevatedChannelSettings()) {
       channelMenu.open(x, y, [settings, ...entries]);
       return;
     }

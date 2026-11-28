@@ -60,6 +60,7 @@
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     if (!current || pending || changingAccess) return;
+    if (current.viewOnly) { close(); return; }
     error = "";
     const trimmedName = name.trim();
     const changedPassword = password === unchangedPassword || (!current.passwordProtected && !password) ? undefined : password;
@@ -126,13 +127,15 @@
             </select>
           </label>
         {/if}
-        <label class="message">{label("motd", "MOTD")}<textarea rows="6" maxlength="4000" bind:value={motd}></textarea></label>
+        <label class="message">{label("motd", "MOTD")}<textarea rows="6" maxlength="4000" readonly={current.viewOnly} bind:value={motd}></textarea></label>
       </fieldset>
     {:else if pending}
       <p role="status">Reading channel settings…</p>
     {/if}
   </form>
-  {#if tab !== "general"}
+  {#if tab !== "general" && current?.viewOnly}
+    <p>Room owners and operators can manage these lists.</p>
+  {:else if tab !== "general"}
     {#if tab === "muted"}<p>{label("muteHint", "To mute a character, right-click their name in the channel.")}</p>{/if}
     {#key tab}<ChatChannelAccessList {store} {flow} {room} {ownershipLost} list={tab} roomOwner={current?.owner === true} bind:mutating={changingAccess} />{/key}
   {/if}

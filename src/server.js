@@ -9853,6 +9853,7 @@ function chatContext(held, req) {
     // computes a room name. See ensureChannel in src/evejsXmppChat.js.
     solarSystemID: Number(held.solarSystemID) || 0,
     limit: Number(req.query?.limit) || undefined,
+    mayViewAdministratorSettings: () => onGamePort && gamePortPilots?.hasDirectoryChatAdministratorRole?.(identity, held.bridgeSessionID) === true,
     canManageOrganizationChat: async room => onGamePort && await gamePortPilots?.canManageOrganizationChat?.(room, identity, held.bridgeSessionID) === true,
     canManageFleetChat: async room => onGamePort && await gamePortPilots?.canManageFleetChat?.(room, identity, held.bridgeSessionID) === true,
     fleetChatMotd: (room, motd) => heldRequest(held, req.webSessionID, motd !== undefined, () => {
