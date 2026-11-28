@@ -22,7 +22,7 @@ const { appearanceWithSkinTone, skinToneCatalog, skinToneID } = require("./clien
 const { portraitSnapshotBytes } = require("./clientData/portraitSnapshot");
 const { appearanceWithHair, appearanceWithModifier, portraitBeardChoices, portraitHairChoices, portraitHairID,
   portraitModifier, portraitModifierID } = require("./clientData/portraitHair");
-const { apparelSlots, optionalApparelSlots, portraitApparelCanTuck, portraitApparelChoices } = require("./clientData/portraitApparel");
+const { apparelSlots, optionalApparelSlots, portraitApparelTucks, portraitApparelChoices } = require("./clientData/portraitApparel");
 const { appearanceWithHairColors, appearanceWithHairDarkness, hairColorCatalog, hairColorLocation, hairColorSelection,
   portraitHairDarkness, portraitHairTints } = require("./clientData/portraitHairColors");
 const { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewMakeup,
@@ -19818,10 +19818,12 @@ app.get("/api/bridge/character/apparel", requireAuth, async (req, res, next) => 
       return [slot, { id, choices: editable ? choices : [] }];
     }));
     const waistLocation = groups.bottomouter.location;
-    const canTuck = locations?.[waistLocation]?.variationKey === "dependants/waisttucking" &&
-      portraitApparelCanTuck(resources?.[slots.bottomouter.id], model, clientTextures.fileFor);
-    res.json({ ok: true, shirtID: slots.topmiddle.id, choices: slots.topmiddle.choices, slots, canTuck,
-      outfit: preview?.outfit ?? null, robeHood: preview?.robeHood ?? null, waistTuck: preview?.waistTuck ?? 0, apparel: preview?.apparel ?? {} });
+    const legwear = portraitApparelTucks(resources?.[slots.bottomouter.id], model, clientTextures.fileFor);
+    const canTuck = locations?.[waistLocation]?.variationKey === "dependants/waisttucking" && legwear.canTuck === true;
+    const canBootTuck = locations?.[groups.feet.location]?.variationKey === "dependants/boottucking" && legwear.canBootTuck === true;
+    res.json({ ok: true, shirtID: slots.topmiddle.id, choices: slots.topmiddle.choices, slots, canTuck, canBootTuck,
+      outfit: preview?.outfit ?? null, robeHood: preview?.robeHood ?? null, waistTuck: preview?.waistTuck ?? 0,
+      bootTuck: preview?.bootTuck ?? 0, apparel: preview?.apparel ?? {} });
   } catch (error) { next(error); }
 });
 
@@ -19926,7 +19928,7 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
   const held = requireHeldBridgeSession(req, res);
   if (!held || !requireWriteConfirmation(req, res, "Use Save portrait to confirm your changes.")) return;
   const { backgroundID, fieldOfView = null, dockedLocationID, skinTone = null, hairID = null, hairColor = null,
-    hairDarkness = null, beardID = null, shirtID = null, apparelIDs = null, robeHood = null, waistTuck = null,
+    hairDarkness = null, beardID = null, shirtID = null, apparelIDs = null, robeHood = null, waistTuck = null, bootTuck = null,
     initialFrame = null, resculpt = false, faceSculpts = [], bodySliders = null, bodySculpts = [] } = req.body;
   if (typeof resculpt !== "boolean") {
     return res.status(400).json({ ok: false, error: "INVALID_RESCULPT_MODE", message: "Reopen Character Recustomization." });
@@ -19987,6 +19989,9 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
   if (waistTuck !== null && ![0, 1].includes(waistTuck)) {
     return res.status(400).json({ ok: false, error: "INVALID_WAIST_TUCK", message: "Choose an available waist position." });
   }
+  if (bootTuck !== null && ![0, 1].includes(bootTuck)) {
+    return res.status(400).json({ ok: false, error: "INVALID_BOOT_TUCK", message: "Choose an available boot tuck position." });
+  }
   if (requestedApparel.some(([slot, id]) => !apparelSlots.includes(slot) || !Number.isSafeInteger(id) ||
     id < 0 || (id === 0 && !optionalApparelSlots.includes(slot)))) {
     return res.status(400).json({ ok: false, error: "INVALID_APPAREL", message: "Choose available apparel." });
@@ -20023,9 +20028,10 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
     let beardLocation;
     let hoodLocation;
     let waistLocation;
+    let bootLocation;
     let sculptLocations;
     const apparelToConfirm = [];
-    if (full || skinTone || hairID !== null || hairColor !== null || hairDarkness !== null || beardID !== null || requestedApparel.length || robeHood !== null || waistTuck !== null) {
+    if (full || skinTone || hairID !== null || hairColor !== null || hairDarkness !== null || beardID !== null || requestedApparel.length || robeHood !== null || waistTuck !== null || bootTuck !== null) {
       const [{ skinLocations: locations, choices }, { result: current }] = await Promise.all([
         skinTone ? dockedSkinTones(call, held.characterID, skinTone.gender) : { skinLocations: [], choices: [] },
         call("paperDollServer", "GetMyPaperDollData", [held.characterID]),
@@ -20095,7 +20101,7 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
         appearance = appearanceWithModifier(appearance ?? current, beardLocation, beardID, 0);
         if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
       }
-      if (requestedApparel.length || robeHood !== null || waistTuck !== null) {
+      if (requestedApparel.length || robeHood !== null || waistTuck !== null || bootTuck !== null) {
         const readOwnedTypeIDs = initial ? undefined : () => dockedOwnedApparel(held, req.webSessionID);
         const { groups, model, locations, resources } = await dockedApparelChoices(call, held.characterID, readOwnedTypeIDs, requestedApparel);
         for (const [slot, id] of requestedApparel) {
@@ -20131,11 +20137,25 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
           const legs = portraitModifier(source, waistLocation);
           if (locations?.[waistLocation]?.variationKey !== "dependants/waisttucking" || !legs ||
               ![groups.topmiddle.location, groups.topouter.location].some(location => portraitModifierID(source, location)) ||
-              !portraitApparelCanTuck(resources?.[legs[2]], model, clientTextures.fileFor)) {
+              !portraitApparelTucks(resources?.[legs[2]], model, clientTextures.fileFor).canTuck) {
             return res.status(400).json({ ok: false, error: "INVALID_WAIST_TUCK", message: "Choose a shirt and legwear with an adjustable waist." });
           }
           if ((legs[3] ?? 0) !== waistTuck) {
             appearance = appearanceWithModifier(source, waistLocation, legs[2], waistTuck);
+            if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
+          }
+        }
+        if (bootTuck !== null) {
+          bootLocation = groups.feet.location;
+          const source = appearance ?? current;
+          const feet = portraitModifier(source, bootLocation);
+          const legs = portraitModifierID(source, groups.bottomouter.location);
+          if (locations?.[bootLocation]?.variationKey !== "dependants/boottucking" || !feet ||
+              !portraitApparelTucks(resources?.[legs], model, clientTextures.fileFor).canBootTuck) {
+            return res.status(400).json({ ok: false, error: "INVALID_BOOT_TUCK", message: "Choose footwear and legwear with adjustable boot tuck." });
+          }
+          if ((feet[3] ?? 0) !== bootTuck) {
+            appearance = appearanceWithModifier(source, bootLocation, feet[2], bootTuck);
             if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
           }
         }
@@ -20175,6 +20195,7 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
             apparelToConfirm.some(([location, id]) => portraitModifierID(result, location) !== id) ||
             (robeHood !== null && (portraitModifier(result, hoodLocation)?.[3] ?? 0) !== robeHood) ||
             (waistTuck !== null && (portraitModifier(result, waistLocation)?.[3] ?? 0) !== waistTuck) ||
+            (bootTuck !== null && (portraitModifier(result, bootLocation)?.[3] ?? 0) !== bootTuck) ||
             (hairColor && (savedColor.primaryID !== hairColor.primaryID || savedColor.secondaryID !== hairColor.secondaryID))) {
           return res.status(409).json({ ok: false, error: "APPEARANCE_UNCONFIRMED", message: "The appearance changes could not be confirmed." });
         }

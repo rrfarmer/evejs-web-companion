@@ -13,7 +13,7 @@
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
   import { capturePointer } from "./pointerCapture.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, hairTints, outfit, robeHood = 0, waistTuck = 0, apparel, morphs, piercings, iris, makeup, facialHairScale, onOutfitMorphs }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, hairTints, outfit, robeHood = 0, waistTuck = 0, bootTuck = 0, apparel, morphs, piercings, iris, makeup, facialHairScale, onOutfitMorphs }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
@@ -27,6 +27,7 @@
     outfit?: string;
     robeHood?: number;
     waistTuck?: number;
+    bootTuck?: number;
     apparel?: PortraitApparel;
     morphs?: readonly PortraitMorph[];
     piercings?: readonly string[];
@@ -323,6 +324,7 @@
     const source = outfit;
     const hood = robeHood;
     const tucked = waistTuck === 1;
+    const outsideBoots = bootTuck === 1;
     const extra = apparel;
     const gender = model;
     const bodyMorphs = morphs?.filter(morph => morph.body) ?? [];
@@ -346,7 +348,8 @@
     };
     outfitDisplay = "loading";
     outfitBounds = null;
-    type WaistTuck = { source: string; occludes: string[]; model?: string; mask?: CroppedMapAsset };
+    type TuckRules = { source: string; occludes: string[] };
+    type WaistTuck = TuckRules & { model?: string; mask?: CroppedMapAsset };
     type Garment = {
       model: string; diffuse: string | null; zones: string | null; normal: string | null;
       colors: [number, number, number, number][]; occludes: string[]; skinMeshes: string[];
@@ -354,6 +357,7 @@
       trouserFit?: readonly PortraitMorph[]; outfitFit?: readonly PortraitMorph[];
       fitOcclusions?: Record<string, readonly PortraitMorph[]>;
       waistTuck?: WaistTuck;
+      bootTuck?: TuckRules;
       bootMask?: CroppedMapAsset; bodyCutout?: CroppedMapAsset; innerSleeve?: string;
       diffuseRect?: number[]; zonesRect?: number[]; normalRect?: number[];
     };
@@ -561,12 +565,17 @@
       }
       const occlusionRules: Record<string, readonly PortraitMorph[]> = Object.assign({}, ...worn.map(layer => layer.fitOcclusions));
       const tuck = tucked ? legwear?.waistTuck : undefined;
-      if (tuck) delete occlusionRules[tuck.source];
+      const bootFit = outsideBoots ? footwear?.bootTuck : undefined;
+      const tuckRules = [tuck, bootFit].flatMap(variant => {
+        if (!variant) return [];
+        delete occlusionRules[variant.source];
+        return variant.occludes;
+      });
       const occludedFit = new Map<string, number>();
       for (const rules of Object.values(occlusionRules)) for (const { name, weight } of rules) {
         occludedFit.set(name, (occludedFit.get(name) ?? 0) + weight);
       }
-      const legacyRules = [...worn.filter(layer => !layer.fitOcclusions).flatMap(layer => layer.occludes), ...(tuck?.occludes ?? [])];
+      const legacyRules = [...worn.filter(layer => !layer.fitOcclusions).flatMap(layer => layer.occludes), ...tuckRules];
       for (const rule of legacyRules) {
         const match = /^utilityshapes\/([a-z0-9_]+shape)(?:#(-?\d+(?:\.\d+)?))?$/i.exec(rule);
         if (!match) continue;
@@ -576,7 +585,7 @@
       const resolvedFit = [...fitWeights].map(([name, weight]) => ({ name, weight: Math.min(1, weight - (occludedFit.get(name) ?? 0)) }));
       outfitHairFit = { source, weight: resolvedFit.find(morph => morph.name === "pushhairupshape")?.weight ?? 0 };
       garmentFit = resolvedFit.filter(morph => morph.name !== "pushhairupshape" && morph.weight !== 0);
-      for (const rule of [...worn.flatMap(layer => layer.occludes), ...(tuck?.occludes ?? [])]) {
+      for (const rule of [...worn.flatMap(layer => layer.occludes), ...tuckRules]) {
         const [path, rawWeight = "1"] = rule.toLowerCase().split("#");
         const weight = Number(rawWeight);
         if (path.startsWith("dependants/") && Number.isFinite(weight)) {
@@ -587,10 +596,11 @@
       body = new THREE.Group();
       const tights = legwear?.skinMeshes?.includes("LegsShape") && !occludes.has("bottommiddle") && extra?.bottommiddle
         ? await manifest(extra.bottommiddle) : undefined;
+      const bootMask = (bodyPartOcclusions.get("dependants/bootmasks") ?? 0) >= 1 ? undefined : footwear?.bootMask;
       for (const layer of worn) {
         const isLegwear = layer === legwear;
         const isUnderlayer = upperUnderlayers?.has(layer);
-        const cutout = isLegwear ? footwear?.bootMask : isUnderlayer ? outer.bodyCutout : undefined;
+        const cutout = isLegwear ? bootMask : isUnderlayer ? outer.bodyCutout : undefined;
         await loadGarment(layer, body, cutout, isLegwear ? tights : undefined, isUnderlayer && layer.skinBase ? outer.innerSleeve : undefined,
           layer.skinBase && layer.model.endsWith("/torso.glb") ? tuck : undefined);
       }

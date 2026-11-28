@@ -38,7 +38,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
-import { paperDollYaml, paperDollMetadataPath, paperDollWaistTuck, readPaperDollYaml } from "./lib/paperDollOutfit.mjs";
+import { paperDollYaml, paperDollBootTuck, paperDollMetadataPath, paperDollWaistTuck, readPaperDollYaml } from "./lib/paperDollOutfit.mjs";
 import portraitHair from "../../src/clientData/portraitHair.js";
 import { openResFiles, clientBuild, findClient } from "./lib/resfiles.mjs";
 import { childEffectRoots, hullOverlays, readEffectFile, readHullChildren, readHullControllers, readSpriteInstances, readTrafficInstances, readTurretStretch3, usedLocatorSets } from "./lib/children.mjs";
@@ -1221,6 +1221,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const bootMaskName = footwear && (metadata?.dependantModifiers ?? []).find(dependency =>
     /^dependants\/bootmasks\/bootmask[a-z]+$/i.test(dependency));
   const bootMask = bootMaskName ? `res:/graphics/character/${gender}/paperdoll/${bootMaskName.toLowerCase()}/comp_body_m.png` : null;
+  const bootTuck = footwear ? paperDollBootTuck(rf, paperDoll) : null;
   if (skinBase && !diffuse) throw new Error(`${typePath}: no authored garment texture`);
   const rect = filename => filename?.endsWith(".png") ? portraitPngRect(rf.read(filename)) : [0, 0, 1, 1];
   let waistTuck = null;
@@ -1236,7 +1237,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   }
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
-    outfitBuild: trousers ? 24 : slot === "topmiddle" ? 22 : bodyCutout ? 20 : sharedFit ? 19 : fittedEyewear ? 12 : masks ? 10 : glasses ? 8 : 4,
+    outfitBuild: footwear ? 25 : trousers ? 24 : slot === "topmiddle" ? 22 : bodyCutout ? 20 : sharedFit ? 19 : fittedEyewear ? 12 : masks ? 10 : glasses ? 8 : 4,
     model: `/client-assets/portrait-outfit/${model}`, source, type: typePath, variation, palette, colors, occludes, skinMeshes,
     diffuse: diffuse ? copyRes(rf, diffuse, outRoot) : null,
     zones: zones ? copyRes(rf, zones, outRoot) : null,
@@ -1248,6 +1249,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     ...(outfitFit.length ? { outfitFit } : {}),
     ...(Object.keys(fitOcclusions).length ? { fitOcclusions } : {}),
     ...(waistTuck ? { waistTuck } : {}),
+    ...(bootTuck ? { bootTuck } : {}),
     ...(bootMask ? { bootMask: { url: copyRes(rf, bootMask, outRoot), rect: rect(bootMask) } } : {}),
     ...(monocle ? { opaqueLensAreas: meshes.flatMap(mesh => mesh.opaqueAreas ?? [])
       .filter(area => /^C_Custom_Glass/i.test(area.effect?.name ?? "")).map(area => area.index ?? 0) } : {}),

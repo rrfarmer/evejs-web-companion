@@ -18,3 +18,16 @@ export function paperDollWaistTuck(store, paperDoll, metadata) {
   if (!metadata?.dependantModifiers?.some(path => /^dependants\/waisttucking\//i.test(path)) || !store.has(variation)) return null;
   return { source, occludes: readPaperDollYaml(store, variation).occludesModifiers ?? [] };
 }
+
+const bootTuckSource = "dependants/boottucking/standard";
+const bootTuckVariant = paperDoll => `${paperDoll}/${bootTuckSource}/v1/metadata.yaml`;
+
+export function paperDollHasBootTuck(store, paperDoll, metadata) {
+  return Boolean(metadata?.dependantModifiers?.some(path => path.split("#", 1)[0].toLowerCase() === bootTuckSource) &&
+    store.has(bootTuckVariant(paperDoll)));
+}
+
+export function paperDollBootTuck(store, paperDoll) {
+  const variation = bootTuckVariant(paperDoll);
+  return store.has(variation) ? { source: bootTuckSource, occludes: readPaperDollYaml(store, variation).occludesModifiers ?? [] } : null;
+}
