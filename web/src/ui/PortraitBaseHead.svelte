@@ -13,7 +13,7 @@
   import { loadPortraitBackdrop } from "../three/portraitBackdrop.ts";
   import { capturePointer } from "./pointerCapture.ts";
 
-  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, hairTints, outfit, robeHood = 0, apparel, morphs, piercings, iris, makeup }: {
+  let { model, backdropUrl, backdropIsDds = false, bloodlineID, framing, fieldOfView, hasSkinTones = false, skinColors, hairstyle, hairTints, outfit, robeHood = 0, apparel, morphs, piercings, iris, makeup, browPrimaryScale }: {
     model: "female" | "male";
     backdropUrl?: string;
     backdropIsDds?: boolean;
@@ -31,6 +31,7 @@
     piercings?: readonly string[];
     iris?: string;
     makeup?: readonly PortraitMakeup[];
+    browPrimaryScale?: number;
   } = $props();
   const visibleHairstyle = $derived(outfit && robeHood > 0 ? undefined : hairstyle);
   let canvas: HTMLCanvasElement;
@@ -68,6 +69,7 @@
     portraitSkinStrength: { value: number };
   };
   let skinUniforms = $state.raw<SkinUniforms | null>(null);
+  let browTint = $state.raw<{ color: THREE.Color; baseline: THREE.Color } | null>(null);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(32, 1, 0.01, 30);
   const cameraTarget = new THREE.Vector3();
@@ -506,6 +508,10 @@
     const tint = skinUniforms;
     const colors = skinColors;
     if (!active || !bounds) return;
+    if (browTint && browPrimaryScale !== undefined) {
+      browTint.color.copy(browTint.baseline).convertLinearToSRGB()
+        .multiplyScalar(browPrimaryScale).convertSRGBToLinear();
+    }
     if (tint) {
       tint.portraitSkinStrength.value = colors ? 1 : 0;
       colors?.forEach((rgb, index) => tint.portraitSkinColors.value[index]!.setRGB(...rgb, THREE.SRGBColorSpace));
@@ -605,6 +611,7 @@
     const maps: Awaited<ReturnType<typeof loadMap>>[] = [];
     headBounds = null;
     skinUniforms = null;
+    browTint = null;
     display = "loading";
     const stem = `/client-assets/portrait-head/${name}`;
     void (async () => {
@@ -824,6 +831,8 @@
           finish.customProgramCacheKey = () => `portrait-brows:${name}`;
           applySurface(overlay, finish, new Set(), new Set(), null, finish);
           avatar.add(overlay);
+          const primary = layer.colors[0];
+          if (primary) browTint = { color: primary, baseline: primary.clone() };
         } catch {
           // Some bloodlines may not have a brow overlay in the client installation.
         }

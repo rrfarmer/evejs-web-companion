@@ -2,6 +2,29 @@
 
 const fs = require("node:fs");
 const { appearanceWithSkinTone, readColors, colorRowValues } = require("./portraitSkinTones");
+const appearanceRowType = "eve.common.script.paperDoll.paperDollDefinitions.AppearanceRow";
+
+function hairAppearanceRow(payload) {
+  const entries = payload?.type === "object" && payload.args?.type === "dict" ? payload.args.entries : null;
+  const row = Array.isArray(entries) ? entries.find(([key]) => key === "appearance")?.[1] : null;
+  return row?.type === "objectex2" && row.header?.[0]?.[0]?.value === appearanceRowType ? row : null;
+}
+
+function portraitHairDarkness(payload) {
+  const field = hairAppearanceRow(payload)?.header[0][1];
+  const value = field?.type === "real" ? field.value : field;
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null;
+}
+
+function appearanceWithHairDarkness(payload, darkness) {
+  const row = hairAppearanceRow(payload);
+  if (!row) return null;
+  const [fields, ...header] = row.header;
+  const updated = [...fields];
+  updated[1] = { type: "real", value: darkness };
+  return { ...payload, args: { ...payload.args, entries: payload.args.entries.map(([key, value]) =>
+    [key, key === "appearance" ? { ...row, header: [updated, ...header] } : value]) } };
+}
 
 function hairColorLocation(locations) {
   return Number(Object.entries(locations ?? {}).find(([, row]) => row.colorKey === "hair" && row.hasSecondary)?.[0]);
@@ -77,4 +100,5 @@ function appearanceWithHairColors(payload, location, selection) {
     [key, key === "colors" ? { type: "list", items: rows } : value]) } };
 }
 
-module.exports = { hairColorCatalog, hairColorLocation, hairColorSelection, appearanceWithHairColors, portraitHairTints };
+module.exports = { hairColorCatalog, hairColorLocation, hairColorSelection, appearanceWithHairColors, portraitHairTints,
+  appearanceWithHairDarkness, portraitHairDarkness };

@@ -2,8 +2,8 @@
 
 const { readModifiers, modifierValues, portraitHairStyle } = require("./portraitHair");
 const { readColors, colorRowValues } = require("./portraitSkinTones");
+const { portraitHairDarkness } = require("./portraitHairColors");
 const sculptingRowType = "eve.common.script.paperDoll.paperDollDefinitions.SculptingRow";
-const appearanceRowType = "eve.common.script.paperDoll.paperDollDefinitions.AppearanceRow";
 const sculptAxes = [["down", "up"], ["right", "left"], ["back", "forward"]];
 const faceLayerOrder = ["eyeshadow", "eyebrows", "blush", "eyeliner", "lipstick"];
 
@@ -103,9 +103,7 @@ function portraitPreviewMakeup(appearance, gender, styles, locations, names) {
   }
   const hair = selections.get("hair");
   if (useHairPalette && styles.eyebrows && styles.hair) {
-    const row = saved?.entries.find(([key]) => key === "appearance")?.[1];
-    const fields = row?.type === "objectex2" ? row.header?.[0] : null;
-    const darkness = fields?.[0]?.value === appearanceRowType ? unitValue(fields[1], 0) : 0;
+    const darkness = portraitHairDarkness(appearance) ?? 0;
     // The client takes brow B/C from hair unchanged and interpolates only A from 20% to 100%.
     selections.set("eyebrows", { palette: `hair_${hair?.palette ?? "default"}`, weight: 1, gloss: null,
       primaryScale: 0.2 + 0.8 * darkness });
