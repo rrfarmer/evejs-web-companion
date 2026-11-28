@@ -196,11 +196,9 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   const outfit = /^\/portrait-outfit\/((?:female|male)\/(?:(?:topouter|topmiddle|bottommiddle|bottomouter|feet|accessories\/(?:glasses|masks|nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+)\.json$/.exec(rel);
   if (outfit) {
     const kind = outfit[1];
-    const build = /\/(?:bottomouter\/spacesuit_01|spacesuit_top_01)\//.test(kind) ? 18
-      : /\/bottomouter\/skirtmilf0[12]\//.test(kind) ? 16 : kind.includes("/bottomouter/") ? 15
-      : kind.includes("/feet/") ? 14 : /\/accessories\/glasses\/(?:monocle_|eyeimp01\/)/.test(kind) ? 12 : kind.includes("/accessories/masks/") ? 10
-      : kind.includes("/bottommiddle/") ? 9 : kind.includes("/accessories/glasses/") ? 8
-      : kind.startsWith("male/robeam01/") ? 7 : kind.includes("/topmiddle/") ? 5 : 4;
+    const build = !kind.includes("/accessories/") ? 19
+      : /\/accessories\/glasses\/(?:monocle_|eyeimp01\/)/.test(kind) ? 12 : kind.includes("/accessories/masks/") ? 10
+      : kind.includes("/accessories/glasses/") ? 8 : 4;
     const marker = build > 4 && !canExtract() ? undefined : `"outfitBuild":${build}`;
     return { file: await ensure(rel.slice(1), ["--portrait-outfit", outfit[1]], marker) };
   }

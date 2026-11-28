@@ -1072,6 +1072,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const trousers = slot === "bottomouter";
   const skirt = trousers && /^skirtmilf0[12]$/.test(style);
   const spacesuit = style === "spacesuit_01" || style === "spacesuit_top_01";
+  const sharedFit = footwear || trousers || ["outer", "topouter", "topmiddle", "bottommiddle"].includes(slot);
   const masks = slot === "accessories/masks";
   const headwear = glasses || masks;
   const stem = slot === "outer" ? `${gender}/${style}` : `${gender}/${slot}/${style}`;
@@ -1112,8 +1113,11 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const colors = Array.isArray(authoredColors) && authoredColors.length >= 3 &&
     authoredColors.slice(0, 3).every(color => Array.isArray(color) && color.length === 4 && color.every(Number.isFinite))
     ? authoredColors.slice(0, 3) : [];
-  const metadataPath = (fittedEyewear || footwear || trousers ? layers : [folder]).map(layer => `${layer}/metadata.yaml`).find(file => rf.has(file));
-  const metadata = metadataPath ? readYaml(metadataPath) : null;
+  const metadataAt = (base, variant = "v0") => [`${base}/${variant || "v0"}/metadata.yaml`, `${base}/metadata.yaml`]
+    .find(resource => rf.has(resource));
+  const metadataPath = sharedFit ? metadataAt(folder, variation)
+    : fittedEyewear ? layers.map(layer => `${layer}/metadata.yaml`).find(resource => rf.has(resource)) : `${folder}/metadata.yaml`;
+  const metadata = metadataPath && rf.has(metadataPath) ? readYaml(metadataPath) : null;
   const occlusions = metadata?.occludesModifiers;
   const occludes = Array.isArray(occlusions) ? occlusions.filter(value => typeof value === "string") : [];
   const skinMeshes = spacesuit ? [] : meshes.filter(mesh => mesh.geometryResPath?.toLowerCase() === source &&
@@ -1182,10 +1186,33 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     const match = /^utilityshapes\/(pantstuck[a-z]+shape)(?:###(\d+(?:\.\d+)?))?$/i.exec(dependency);
     return match ? [{ name: match[1].toLowerCase(), weight: Math.min(1, Number(match[2] ?? 1)) }] : [];
   }) : [];
-  const outfitFit = spacesuit ? (metadata?.dependantModifiers ?? []).flatMap(dependency => {
-    const match = /^utilityshapes\/([a-z0-9_]+shape)(?:###(-?\d+(?:\.\d+)?))?$/i.exec(dependency);
-    return match ? [{ name: match[1].toLowerCase(), weight: Math.min(1, Number(match[2] ?? 1)) }] : [];
-  }) : [];
+  const outfitFit = [];
+  const fitOcclusions = {};
+  if (sharedFit && metadata) {
+    const paperDoll = `res:/graphics/character/${gender}/paperdoll`;
+    const visited = new Set();
+    const collectFit = (source, data) => {
+      if (visited.has(source)) return;
+      visited.add(source);
+      const rules = (data?.occludesModifiers ?? []).flatMap(value => {
+        const match = /^utilityshapes\/([a-z0-9_]+shape)(?:#(-?\d+(?:\.\d+)?))?$/i.exec(value);
+        return match ? [{ name: match[1].toLowerCase(), weight: Number(match[2] ?? 1) }] : [];
+      });
+      if (rules.length) fitOcclusions[source] = rules;
+      for (const value of data?.dependantModifiers ?? []) {
+        if (typeof value !== "string") continue;
+        const [resource, variant, , rawWeight = "1"] = value.toLowerCase().split("#");
+        const weight = Number(rawWeight);
+        const shape = /^utilityshapes\/([a-z0-9_]+shape)$/.exec(resource);
+        if (shape && Number.isFinite(weight)) outfitFit.push({ name: shape[1], weight });
+        else if (/^dependants(?:\/[a-z0-9_]+){2}$/.test(resource) && (!variant || /^[a-z0-9_]+$/.test(variant))) {
+          const dependency = metadataAt(`${paperDoll}/${resource}`, variant);
+          if (dependency) collectFit(resource, readYaml(dependency));
+        }
+      }
+    };
+    collectFit(`${slot}/${style}`, metadata);
+  }
   const bootMaskName = footwear && (metadata?.dependantModifiers ?? []).find(dependency =>
     /^dependants\/bootmasks\/bootmask[a-z]+$/i.test(dependency));
   const bootMask = bootMaskName ? `res:/graphics/character/${gender}/paperdoll/${bootMaskName.toLowerCase()}/comp_body_m.png` : null;
@@ -1193,7 +1220,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const rect = filename => filename?.endsWith(".png") ? portraitPngRect(rf.read(filename)) : [0, 0, 1, 1];
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
-    outfitBuild: spacesuit ? 18 : skirt ? 16 : footwear ? 14 : fittedEyewear ? 12 : masks ? 10 : slot === "bottommiddle" ? 9 : glasses ? 8 : amarrRobe ? 7 : slot === "topmiddle" ? 5 : trousers ? 15 : 4,
+    outfitBuild: sharedFit ? 19 : fittedEyewear ? 12 : masks ? 10 : glasses ? 8 : 4,
     model: `/client-assets/portrait-outfit/${model}`, source, type: typePath, variation, palette, colors, occludes, skinMeshes,
     diffuse: diffuse ? copyRes(rf, diffuse, outRoot) : null,
     zones: zones ? copyRes(rf, zones, outRoot) : null,
@@ -1203,6 +1230,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     ...(fittedEyewear ? { headMorphs } : {}),
     ...(trouserFit.length ? { trouserFit } : {}),
     ...(outfitFit.length ? { outfitFit } : {}),
+    ...(Object.keys(fitOcclusions).length ? { fitOcclusions } : {}),
     ...(bootMask ? { bootMask: { url: copyRes(rf, bootMask, outRoot), rect: rect(bootMask) } } : {}),
     ...(monocle ? { opaqueLensAreas: meshes.flatMap(mesh => mesh.opaqueAreas ?? [])
       .filter(area => /^C_Custom_Glass/i.test(area.effect?.name ?? "")).map(area => area.index ?? 0) } : {}),

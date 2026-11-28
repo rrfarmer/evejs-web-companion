@@ -53,6 +53,13 @@ def observe():
                         meshes.append(dict(path=modifier.respath, source=resource, index=mesh.meshIndex,
                                            weights=weights))
             rows.append(dict(top=top, legs=legs, meshes=meshes,
+                             fittingRules=[(path, weight) for path, weight in sorted(manager.occludeRules.items())
+                                           if path.startswith('utilityshapes/')],
+                             fittingParents=[dict(path=modifier.respath, weight=modifier.weight,
+                                                  parents=sorted(parent.respath for parent in manager.GetParentModifiers(modifier)))
+                                             for modifier in manager.GetModifiersAsList()
+                                             if modifier.respath.startswith(('utilityshapes/pinch', 'utilityshapes/pushhem',
+                                                                             'utilityshapes/pushtop', 'utilityshapes/tightdrape'))],
                              weights={name: weight for name, weight in active.iteritems()
                                       if name.startswith(('pushhairup', 'pinchforearmlow', 'pinchshoulders',
                                                           'pinchchest', 'pinchbootankle', 'beltin',

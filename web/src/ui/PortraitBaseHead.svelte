@@ -349,6 +349,7 @@
       colors: [number, number, number, number][]; occludes: string[]; skinMeshes: string[];
       skinBase?: string; bodyParts?: string[]; hoods?: string[];
       trouserFit?: readonly PortraitMorph[]; outfitFit?: readonly PortraitMorph[];
+      fitOcclusions?: Record<string, readonly PortraitMorph[]>;
       bootMask?: CroppedMapAsset; bodyCutout?: CroppedMapAsset;
       diffuseRect?: number[]; zonesRect?: number[]; normalRect?: number[];
     };
@@ -360,13 +361,13 @@
     let skin: THREE.MeshStandardMaterial | undefined;
     let garmentFit: readonly PortraitMorph[] = [];
     const hiddenBodyParts = new Set<string>();
-    const loadBodyModel = async (path: string, fit: readonly PortraitMorph[] = []): Promise<THREE.Group | null> => {
+    const loadBodyModel = async (path: string): Promise<THREE.Group | null> => {
       const { scene: mesh } = await loader.loadAsync(path);
       bodyModels.add(path);
       if (!retired) {
         const catalog = garmentFit.length ? await loadOutfitMorphNames(path) : [];
         const supportedFit = garmentFit.filter(morph => catalog.includes(morph.name));
-        if (!retired) await applyPortraitMorphs(mesh, path.replace(/\.glb$/, ""), [...bodyMorphs, ...supportedFit, ...fit], () => retired);
+        if (!retired) await applyPortraitMorphs(mesh, path.replace(/\.glb$/, ""), [...bodyMorphs, ...supportedFit], () => retired);
       }
       if (!retired) return mesh;
       release(mesh);
@@ -456,11 +457,10 @@
       garment.customProgramCacheKey = () => `outfit:${Boolean(zones && diffuse)}:${Boolean(normal)}:${Boolean(skinBase)}:${cropped}:${Boolean(cutout)}`;
       return garment;
     };
-    const loadGarment = async (data: Garment, group: THREE.Group,
-      fit?: readonly PortraitMorph[], mask?: CroppedMapAsset, tights?: Garment) => {
+    const loadGarment = async (data: Garment, group: THREE.Group, mask?: CroppedMapAsset, tights?: Garment) => {
       const embeddedLegs = data.skinMeshes?.includes("LegsShape");
       const cutout = mask ? await loadCroppedTexture(mask, maps, () => retired) : null;
-      const object = await loadBodyModel(data.model, fit);
+      const object = await loadBodyModel(data.model);
       if (!object) return;
       group.add(object);
       const hoodMesh = data.hoods?.[hood];
@@ -534,15 +534,22 @@
       const skinDetail = await texture(`/client-assets/graphics/character/${gender}/paperdoll/skintone/basic/colorize_body_l_512.png`, true).catch(() => null);
       if (retired) return;
       const fitWeights = new Map<string, number>();
-      for (const layer of worn) for (const { name, weight } of layer.outfitFit ?? []) {
+      for (const layer of worn) for (const { name, weight } of layer.outfitFit ?? layer.trouserFit ?? []) {
         fitWeights.set(name, Math.max(weight, fitWeights.get(name) ?? weight));
       }
-      const subtractOcclusion = ({ name, weight }: PortraitMorph): PortraitMorph => {
-        const path = `utilityshapes/${name}`;
-        const occlusion = worn.reduce((total, garment) => total + Number(garment.occludes.some(entry => entry.toLowerCase() === path)), 0);
-        return { name, weight: weight - occlusion };
-      };
-      const resolvedFit = [...fitWeights].map(([name, weight]) => subtractOcclusion({ name, weight }));
+      const occlusionRules: Record<string, readonly PortraitMorph[]> = Object.assign({}, ...worn.map(layer => layer.fitOcclusions));
+      const occludedFit = new Map<string, number>();
+      for (const rules of Object.values(occlusionRules)) for (const { name, weight } of rules) {
+        occludedFit.set(name, (occludedFit.get(name) ?? 0) + weight);
+      }
+      const legacyRules = worn.filter(layer => !layer.fitOcclusions).flatMap(layer => layer.occludes);
+      for (const rule of legacyRules) {
+        const match = /^utilityshapes\/([a-z0-9_]+shape)(?:#(-?\d+(?:\.\d+)?))?$/i.exec(rule);
+        if (!match) continue;
+        const name = match[1].toLowerCase();
+        occludedFit.set(name, (occludedFit.get(name) ?? 0) + Number(match[2] ?? 1));
+      }
+      const resolvedFit = [...fitWeights].map(([name, weight]) => ({ name, weight: Math.min(1, weight - (occludedFit.get(name) ?? 0)) }));
       outfitHairFit = { source, weight: resolvedFit.find(morph => morph.name === "pushhairupshape")?.weight ?? 0 };
       garmentFit = resolvedFit.filter(morph => morph.name !== "pushhairupshape" && morph.weight !== 0);
       for (const name of occludes) hiddenBodyParts.add(name.toLowerCase());
@@ -552,9 +559,8 @@
         ? await manifest(extra.bottommiddle) : undefined;
       for (const layer of worn) {
         const isLegwear = layer === legwear;
-        const fit = isLegwear && !layer.skinBase ? footwear?.trouserFit?.map(subtractOcclusion) : undefined;
         const cutout = isLegwear ? footwear?.bootMask : upperUnderlayers?.has(layer) ? outer.bodyCutout : undefined;
-        await loadGarment(layer, body, fit, cutout, isLegwear ? tights : undefined);
+        await loadGarment(layer, body, cutout, isLegwear ? tights : undefined);
       }
       if (retired) return;
       if (!occludes.has("hands") && !occludes.has("hand")) {
