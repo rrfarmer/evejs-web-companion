@@ -347,7 +347,7 @@
     type Garment = {
       model: string; diffuse: string | null; zones: string | null; normal: string | null;
       colors: [number, number, number, number][]; occludes: string[]; skinMeshes: string[];
-      skinBase?: string; bodyParts?: string[]; hoods?: string[];
+      skinBase?: string; bodyParts?: string[]; bodyPartWeights?: Record<string, number>; hoods?: string[];
       trouserFit?: readonly PortraitMorph[]; outfitFit?: readonly PortraitMorph[];
       fitOcclusions?: Record<string, readonly PortraitMorph[]>;
       bootMask?: CroppedMapAsset; bodyCutout?: CroppedMapAsset; innerSleeve?: string;
@@ -360,7 +360,7 @@
     };
     let skin: THREE.MeshStandardMaterial | undefined;
     let garmentFit: readonly PortraitMorph[] = [];
-    const hiddenBodyParts = new Set<string>();
+    const bodyPartOcclusions = new Map<string, number>();
     const loadBodyModel = async (path: string): Promise<THREE.Group | null> => {
       const { scene: mesh } = await loader.loadAsync(path);
       bodyModels.add(path);
@@ -464,9 +464,16 @@
       if (!object) return;
       group.add(object);
       const hoodMesh = data.hoods?.[hood];
-      const parts = new Set([...(data.bodyParts ?? []), ...(hoodMesh ? [hoodMesh] : [])]
-        .filter(path => !hiddenBodyParts.has(`dependants/${path.split("/").at(-2)}`)));
-      if (innerSleeve) parts.add(innerSleeve);
+      const parts = new Set([...(data.bodyParts ?? []), ...(hoodMesh ? [hoodMesh] : [])].filter(path => {
+        const [part, file] = path.split("/").slice(-2);
+        const group = `dependants/${part}`;
+        const groupWeight = bodyPartOcclusions.get(group) ?? 0;
+        const weight = data.bodyPartWeights?.[path];
+        if (weight === undefined) return groupWeight < 1;
+        const partWeight = bodyPartOcclusions.get(`${group}/${file.replace(/\.glb$/, "")}`) ?? 0;
+        return weight > groupWeight + partWeight;
+      }));
+      if (innerSleeve && !data.bodyPartWeights) parts.add(innerSleeve);
       for (const path of parts) {
         const part = await loadBodyModel(path);
         if (!part) return;
@@ -553,7 +560,13 @@
       const resolvedFit = [...fitWeights].map(([name, weight]) => ({ name, weight: Math.min(1, weight - (occludedFit.get(name) ?? 0)) }));
       outfitHairFit = { source, weight: resolvedFit.find(morph => morph.name === "pushhairupshape")?.weight ?? 0 };
       garmentFit = resolvedFit.filter(morph => morph.name !== "pushhairupshape" && morph.weight !== 0);
-      for (const name of occludes) hiddenBodyParts.add(name.toLowerCase());
+      for (const layer of worn) for (const rule of layer.occludes) {
+        const [path, rawWeight = "1"] = rule.toLowerCase().split("#");
+        const weight = Number(rawWeight);
+        if (path.startsWith("dependants/") && Number.isFinite(weight)) {
+          bodyPartOcclusions.set(path, (bodyPartOcclusions.get(path) ?? 0) + weight);
+        }
+      }
       skin = new THREE.MeshStandardMaterial({ map: skinDetail, color: skinDetail ? 0xffffff : 0xb59280, roughness: 0.78 });
       body = new THREE.Group();
       const tights = legwear?.skinMeshes?.includes("LegsShape") && !occludes.has("bottommiddle") && extra?.bottommiddle

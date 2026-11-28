@@ -1130,6 +1130,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   let model = `${stem}/${variantDefinitions.length ? variation + "/" : ""}model.glb`;
   let skinBase = null;
   const bodyParts = [];
+  const bodyPartWeights = {};
   const extractBodyPart = async (part, name) => {
     const relative = `${gender}/body-parts/${part}/${name}.glb`;
     await extractPortraitMesh(rf, `${paperDoll}/dependants/${part}/${name}/${name}.gr2`,
@@ -1142,12 +1143,21 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
       path.join(outRoot, "portrait-outfit", model), "torso");
     const bodyDiffuse = gender === "male" ? "head/head_generic/genericmalebody_d_512.png" : "basenude/caucasianbody_d_512.png";
     skinBase = copyRes(rf, `${paperDoll}/${bodyDiffuse}`, outRoot);
-    const parts = new Map([["sleevesupper", "standard"], ["sleeveslower", "standard"]]);
+    const standardSleeveWeight = gender === "female" ? 2 : 1;
+    const parts = new Map([["sleevesupper/standard", standardSleeveWeight], ["sleeveslower/standard", standardSleeveWeight]]);
     for (const dependency of metadata?.dependantModifiers ?? []) {
-      const match = /^dependants\/(sleevesupper|sleeveslower|drape)\/([a-z0-9_]+)(?:#|$)/i.exec(dependency);
-      if (match) parts.set(match[1].toLowerCase(), match[2].toLowerCase());
+      if (typeof dependency !== "string") continue;
+      const [resource, , , rawWeight = "1"] = dependency.toLowerCase().split("#");
+      const match = /^dependants\/((?:sleevesupper|sleeveslower|drape)\/[a-z0-9_]+)$/.exec(resource);
+      const weight = Number(rawWeight);
+      if (match && Number.isFinite(weight)) parts.set(match[1], Math.max(weight, parts.get(match[1]) ?? 0));
     }
-    for (const [part, name] of parts) bodyParts.push(await extractBodyPart(part, name));
+    for (const [resource, weight] of parts) {
+      const [part, name] = resource.split("/");
+      const asset = await extractBodyPart(part, name);
+      bodyParts.push(asset);
+      bodyPartWeights[asset] = weight;
+    }
   } else if (textureOnlyLegs) {
     model = `${gender}/legs.glb`;
     await extractPortraitMesh(rf, `${paperDoll}/bottominner/legs_nude/legs_nude.gr2`,
@@ -1220,7 +1230,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const rect = filename => filename?.endsWith(".png") ? portraitPngRect(rf.read(filename)) : [0, 0, 1, 1];
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
-    outfitBuild: bodyCutout ? 20 : sharedFit ? 19 : fittedEyewear ? 12 : masks ? 10 : glasses ? 8 : 4,
+    outfitBuild: slot === "topmiddle" ? 22 : bodyCutout ? 20 : sharedFit ? 19 : fittedEyewear ? 12 : masks ? 10 : glasses ? 8 : 4,
     model: `/client-assets/portrait-outfit/${model}`, source, type: typePath, variation, palette, colors, occludes, skinMeshes,
     diffuse: diffuse ? copyRes(rf, diffuse, outRoot) : null,
     zones: zones ? copyRes(rf, zones, outRoot) : null,
@@ -1242,7 +1252,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     ...(skinCutout ? { skinCutout: { url: copyRes(rf, skinCutout, outRoot), rect: rect(skinCutout) } } : {}),
     ...(bodyCutout ? { bodyCutout: { url: copyRes(rf, bodyCutout, outRoot), rect: rect(bodyCutout) } } : {}),
     ...(innerSleeve ? { innerSleeve } : {}),
-    ...(bodyParts.length ? { bodyParts } : {}),
+    ...(bodyParts.length ? { bodyParts, bodyPartWeights } : {}),
     ...(hoods.length ? { hoods } : {}),
     ...(skinBase ? { skinBase } : {}),
     ...(skinBase || spacesuit ? { diffuseRect: rect(diffuse), zonesRect: rect(zones), normalRect: rect(normal) } : {}),
