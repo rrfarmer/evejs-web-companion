@@ -5,6 +5,31 @@ from localization import GetByLabel
 from xmppchatclient import xmppchannelmenu, xmppchatsvc
 
 
+def observe_system_rooms(chat, target):
+    rows = []
+    for label, expected_operator in (('English Help', True), ('German Help', False)):
+        room = chat.GetChannelByDisplayName(label)[0][0]
+        was_joined = chat.IsJoined(room)
+        try:
+            if not was_joined:
+                chat.JoinChannel(room, suppressMessage=True)
+            for _ in range(40):
+                if chat.memberRolesByChannels[room].get(session.charid):
+                    break
+                uthread2.sleep(0.25)
+            role = chat.memberRolesByChannels[room].get(session.charid)
+            if not role or (role == 'moderator') != expected_operator:
+                raise RuntimeError('Unexpected native room role in ' + label)
+            entries = xmppchannelmenu.XmppChannelMenu(room, target)
+            rows.append(dict(room=room, role=role, targetPresent=target in chat.groupChatWindows[room].GetMembers(),
+                             actions=[invoke.__name__ for _, submenu in entries if isinstance(submenu, list)
+                                      for _, invoke in submenu]))
+        finally:
+            if not was_joined and chat.IsJoined(room):
+                chat.LeaveChannel(room)
+    return rows
+
+
 def observe():
     chat = GetChatService()
     name = 'Gridcheck roster moderation 13542'
@@ -36,6 +61,7 @@ def observe():
         own = xmppchannelmenu.XmppChannelMenu(room, session.charid)
         return dict(station=session.stationid, actorOperator=chat.IsOperator(room, session.charid), room=room,
                     actions=[invoke.__name__ for _, invoke in actions], forms=forms, own=len(own),
+                    systems=observe_system_rooms(chat, target),
                     labels=[GetByLabel('UI/Chat/' + key) for key in ('Channel', 'Mute', 'Unmute', 'Kick', 'LengthMinutes', 'Reason')])
     finally:
         xmppchannelmenu.HybridWnd = original_hybrid

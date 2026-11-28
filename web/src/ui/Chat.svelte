@@ -198,7 +198,7 @@
   }
 
   function canModerate(member: ChatMember): boolean {
-    return !!activeRoom?.channel.startsWith("player_") && member.characterID > 1 && member.characterID !== pilotID &&
+    return !!activeRoom && /^(player|system)_/.test(activeRoom.channel) && member.characterID > 1 && member.characterID !== pilotID &&
       member.role !== "moderator" && activeRoom.state.roster.some(row => row.characterID === pilotID && row.role === "moderator");
   }
   function openMemberMenu(event: MouseEvent | KeyboardEvent, member: ChatMember) {

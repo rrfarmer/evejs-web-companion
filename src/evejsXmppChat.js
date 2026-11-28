@@ -2145,9 +2145,6 @@ class XmppChatSession {
   }
 
   async moderateChannelMember(roomName, target, action, minutes, reason, context = {}) {
-    if (typeof roomName !== "string" || !/^player_\d+$/.test(roomName)) {
-      throw new XmppChatError("Choose a player chat channel.", { code: "INVALID_CHANNEL", statusCode: 400 });
-    }
     await this.managedDirectoryChannel(roomName, context);
     const roster = this.rosters.get(roomName);
     const actor = roster?.get(this.characterID);
