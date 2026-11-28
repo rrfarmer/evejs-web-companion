@@ -51,8 +51,21 @@
   import { panelErrorWords } from "../bridge/refusals.ts";
   import { plainText } from "../bridge/clientWords.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
+  import { SKILLS_POINTERS } from "../play/uiPointer.ts";
 
   let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+
+  const topPanelKey = "evejs.skillsTopPanel";
+  let topPanel = $state<"plans" | "catalogue">("plans");
+  onMount(() => {
+    try {
+      if (localStorage.getItem(topPanelKey) === "catalogue") topPanel = "catalogue";
+    } catch { /* use the default panel */ }
+  });
+  function chooseTopPanel(panel: "plans" | "catalogue"): void {
+    topPanel = panel;
+    try { localStorage.setItem(topPanelKey, panel); } catch { /* keep the current selection */ }
+  }
 
   // svelte-ignore state_referenced_locally
   const skills = store.skills;
@@ -637,7 +650,7 @@
     </span>
   </header>
   <!-- svelte-ignore a11y_no_static_element_interactions, a11y_no_noninteractive_tabindex -->
-  <div class="queue-drop" tabindex="0" ondragover={queueDragOver} ondragleave={queueDragLeave} ondrop={(event) => void queueDrop(event, null)}
+  <div class="queue-drop" data-ui-pointer={SKILLS_POINTERS.queue} tabindex="0" ondragover={queueDragOver} ondragleave={queueDragLeave} ondrop={(event) => void queueDrop(event, null)}
     onkeydown={(event) => { if (event.key === "Delete" && selectedEntries.length > 0) { event.preventDefault(); void removeSelected(); } }}>
   {#if purchase !== null}
     {@const open = purchase}
@@ -751,9 +764,17 @@
     onClose={() => { queueMenu = null; }} onRemove={() => void removeSelected()} />
 {/if}
 
-<PersonalSkillPlans {store} {flow} />
+<div class="skill-top-tabs controls" role="tablist" aria-label="Skills">
+  <button type="button" role="tab" data-ui-pointer={SKILLS_POINTERS.plans} aria-selected={topPanel === "plans"}
+    onclick={() => chooseTopPanel("plans")}>Skill Plans</button>
+  <button type="button" role="tab" data-ui-pointer={SKILLS_POINTERS.catalogue} aria-selected={topPanel === "catalogue"}
+    onclick={() => chooseTopPanel("catalogue")}>Skill Catalogue</button>
+</div>
+<div role="tabpanel" aria-label="Skill Plans" hidden={topPanel !== "plans"}>
+  <PersonalSkillPlans {store} {flow} showPlans={() => chooseTopPanel("plans")} />
+</div>
 
-<section>
+<section role="tabpanel" aria-label="Skill Catalogue" hidden={topPanel !== "catalogue"}>
   <header class="panel-head">
     <h2>What you know</h2>
     <span class="controls">
@@ -862,3 +883,8 @@
     {/each}
   {/if}
 </section>
+
+<style>
+  .skill-top-tabs { display: flex; padding-block: 0.5rem; gap: 0.25rem; }
+  .skill-top-tabs [aria-selected="true"] { border-color: var(--accent, #6ab6db); }
+</style>

@@ -12,6 +12,16 @@ export interface UiPointerTarget {
 export const UI_POINTER_COMMAND = "CmdGetUiPointer";
 export const UI_POINTER_DRAG_TYPE = "application/x-evejs-ui-pointer";
 
+export const SKILLS_POINTERS = {
+  plans: "unique_UI_skill_plans_tab",
+  catalogue: "unique_UI_skill_catalogue_tab",
+  certified: "unique_UI_skillplans_certified_tab",
+  personal: "unique_UI_skillplans_personal_tab",
+  corporation: "unique_UI_skillplans_corp_tab",
+  queue: "unique_UI_skillqueue",
+  applyPoints: "unique_UI_applySkillPointsBtn",
+} as const;
+
 export const INVENTORY_POINTERS = {
   stackAll: "unique_UI_inventoryStackAll",
   viewMode: "unique_UI_inventoryListView",

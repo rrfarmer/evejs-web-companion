@@ -650,6 +650,7 @@ export class Neocom {
     // ButtonSkills: under the portrait (the live client, gridcheck g265: skillsBtn at 96, 48 x 48, OpenSkillsWindow)
     const skills = this.skills;
     skills.className = "nc-btn nc-skills";
+    skills.dataset.uiPointer = neocomPointerName("skills");
     skills.setAttribute("aria-label", "Skills");
     const svgNS = "http://www.w3.org/2000/svg";
     const svg = document.createElementNS(svgNS, "svg");

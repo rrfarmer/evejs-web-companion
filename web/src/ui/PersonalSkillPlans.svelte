@@ -122,7 +122,9 @@
     factionIcon,
   } from "./skillPlanIcons.ts";
 
-  let { store, flow }: { store: ClientStore; flow: AppFlow } = $props();
+  import { SKILLS_POINTERS } from "../play/uiPointer.ts";
+
+  let { store, flow, showPlans }: { store: ClientStore; flow: AppFlow; showPlans: () => void } = $props();
 
   /** A plan as it is opened: a personal one, a certified one (with its table's milestones) or a corporation's. */
   type OpenedPlan = PersonalSkillPlanEntry & {
@@ -248,6 +250,7 @@
   }
   let panel = $state<Panel>(storedPanel());
   function choosePanel(next: Panel): void {
+    showPlans();
     panel = next;
     try {
       localStorage.setItem(PANEL_KEY, next);
@@ -419,6 +422,7 @@
    * opened in the panel, over whichever list is shown.
    */
   async function followLink(link: SkillPlanLinkFollowed): Promise<void> {
+    showPlans();
     editing = null;
     let found: OpenedPlan | null = null;
     if (typeof link.skillPlanID === "number") {
@@ -1104,12 +1108,12 @@
 <section bind:this={sectionElement}>
   <header class="panel-head" bind:this={headElement}>
     <div class="skill-plan-tabs" role="tablist">
-      <button type="button" role="tab" aria-selected={shownPanel === "certified"} class:selected={shownPanel === "certified"}
+      <button type="button" role="tab" data-ui-pointer={SKILLS_POINTERS.certified} aria-selected={shownPanel === "certified"} class:selected={shownPanel === "certified"}
         title={word("UI/SkillPlan/CertifiedPlansHoverTooltip")} onclick={() => { close(); editing = null; choosePanel("certified"); }}>{word("UI/SkillPlan/CertifiedPlans")}</button>
-      <button type="button" role="tab" aria-selected={shownPanel === "personal"} class:selected={shownPanel === "personal"}
+      <button type="button" role="tab" data-ui-pointer={SKILLS_POINTERS.personal} aria-selected={shownPanel === "personal"} class:selected={shownPanel === "personal"}
         title={word("UI/SkillPlan/PersonalPlansHoverTooltip")} onclick={() => { close(); editing = null; choosePanel("personal"); }}>{word("UI/SkillPlan/PersonalPlans")}</button>
       {#if inCorp}
-        <button type="button" role="tab" aria-selected={shownPanel === "corporation"} class:selected={shownPanel === "corporation"}
+        <button type="button" role="tab" data-ui-pointer={SKILLS_POINTERS.corporation} aria-selected={shownPanel === "corporation"} class:selected={shownPanel === "corporation"}
           title={word("UI/SkillPlan/CorpPlansHoverTooltip")} onclick={() => { close(); editing = null; choosePanel("corporation"); }}>{word("UI/SkillPlan/CorpPlans")}</button>
       {/if}
     </div>

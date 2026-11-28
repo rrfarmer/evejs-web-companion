@@ -3,22 +3,37 @@ import { helpPointerLinksFromDrop, helpPointerUrl, parseHelpPointerUrl } from ".
 import { LINK_DRAG_TYPE } from "../bridge/skillPlanLink.ts";
 import { clientTexture } from "../ui/skillGroupIcons.ts";
 import { EVE_MENU, NEOCOM_DEFAULT } from "./neocom.ts";
-import { CHARACTER_SHEET_POINTERS, CHAT_POINTERS, CONTRACT_POINTERS, CORPORATION_POINTERS, FITTING_POINTERS, FLEET_POINTERS, INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, LOBBY_POINTERS, MARKET_POINTERS, neocomPointerName, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
+import { CHARACTER_SHEET_POINTERS, CHAT_POINTERS, CONTRACT_POINTERS, CORPORATION_POINTERS, FITTING_POINTERS, FLEET_POINTERS, INDUSTRY_ACTIVITY_POINTERS, INDUSTRY_LOCATION_POINTERS, INDUSTRY_TAB_POINTERS, INVENTORY_POINTERS, LOBBY_POINTERS, MARKET_POINTERS, neocomPointerName, SKILLS_POINTERS, STATION_POINTERS, visiblePointerTarget, WALLET_POINTERS, type UiPointerTarget } from "./uiPointer.ts";
 
 const industryParent = neocomPointerName("industry");
 const contractsParent = neocomPointerName("contracts");
 const corporationParent = neocomPointerName("corporation");
 const fleetParent = neocomPointerName("fleet");
 const characterSheetParent = neocomPointerName("charactersheet");
+const skillsParent = neocomPointerName("skills");
 const menuOnlyPointers = new Set([industryParent, contractsParent, corporationParent, fleetParent]);
 const extraNeocomPointers = new Set([...menuOnlyPointers, characterSheetParent]);
 const extraNeocomEntries = EVE_MENU.flatMap(group => group.items)
   .flatMap(({ id, label, icon }) => id !== null && extraNeocomPointers.has(neocomPointerName(id)) ? [{ id, label, icon }] : []);
-export const NEOCOM_POINTERS: readonly UiPointerTarget[] = [...NEOCOM_DEFAULT, ...extraNeocomEntries].map(item => ({
-  name: neocomPointerName(item.id), label: item.label, icon: item.icon,
-}));
+export const NEOCOM_POINTERS: readonly UiPointerTarget[] = [
+  ...[...NEOCOM_DEFAULT, ...extraNeocomEntries].map(item => ({
+    name: neocomPointerName(item.id), label: item.label, icon: item.icon,
+  })),
+  { name: skillsParent, label: "Skills" },
+];
 const tabIcon = clientTexture("res:/UI/Texture/Classes/HelpPointer/tabFlat.png");
 const buttonIcon = clientTexture("res:/UI/Texture/Classes/HelpPointer/buttonFlat.png");
+const skills = SKILLS_POINTERS;
+const skillPointers: readonly UiPointerTarget[] = [
+  { name: skills.plans, label: "Skill Plans", icon: tabIcon, parent: skillsParent },
+  { name: skills.catalogue, label: "Skill Catalogue", icon: tabIcon },
+  { name: skills.certified, label: "Certified Plans", icon: buttonIcon, parent: skills.plans },
+  { name: skills.personal, label: "Personal Plans", icon: buttonIcon, parent: skills.plans },
+  { name: skills.corporation, label: "Corporation Plans", icon: buttonIcon, parent: skills.plans },
+  { name: skills.queue, label: "Training Queue", parent: skillsParent },
+  { name: skills.applyPoints, label: "Apply skill points", parent: skillsParent,
+    icon: clientTexture("res:/UI/Texture/classes/skilltrading/marketSkillinjector.png") },
+];
 const fleet = FLEET_POINTERS;
 const fleetPointers: readonly UiPointerTarget[] = [
   { name: fleet.finder, label: "Find Fleets", icon: tabIcon, parent: fleetParent },
@@ -135,6 +150,7 @@ export const INTERFACE_POINTERS: readonly UiPointerTarget[] = [
   ...corporationPointers,
   ...chatPointers,
   ...fleetPointers,
+  ...skillPointers,
   { name: sheet.expand, label: "Expand/Collapse Character Sheet", parent: characterSheetParent,
     icon: clientTexture("res:/UI/Texture/Shared/DarkStyle/forward.png") },
   ...characterSheetTabs,
