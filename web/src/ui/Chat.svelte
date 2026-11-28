@@ -62,6 +62,8 @@
   const BLINK_LABEL = "UI/Chat/BlinkOnNewActivity";
   const FILTERS_LABEL = "UI/Chat/ConfigureWordFiltersAndHighlights";
   const MOTD_LABEL = "UI/Chat/ReloadChannelMOTD";
+  const GEAR_MOTD_LABEL = "UI/Chat/ReloadMOTD";
+  const MOTD_CATEGORIES = new Set(["corp", "alliance", "fleet", "player", "system"]);
   const SETTINGS_LABEL = "UI/Chat/ChannelSettingsSection";
   const CONFIGURATION_LABEL = "UI/Chat/Configuration";
   const OPEN_CONFIGURATION_LABEL = "UI/Chat/OpenChannelSettingsWnd";
@@ -140,6 +142,8 @@
     const fleetMotd = channel === "fleet" && room === `fleet_${fleet.authoritativeFleetID}` && fleet.fleet
       ? fleet.fleet.motd.value ?? fleet.fleet.initState.value?.motd : undefined;
     const text = fleetMotd ?? state?.motd;
+    const gear = event.type === "click";
+    const motdLabel = gear ? GEAR_MOTD_LABEL : MOTD_LABEL;
     const entries: ContextEntry[] = [
       {
         label: linkWord(BLINK_LABEL) || "Blink on New Activity", path: BLINK_LABEL,
@@ -149,11 +153,12 @@
         label: linkWord(FILTERS_LABEL) || "Configure Word Filters and Highlights", path: FILTERS_LABEL,
         run: () => { wordFiltersOpen = true; },
       },
-      ...(room && text ? [{
-        label: linkWord(MOTD_LABEL) || "Reload Channel MOTD", path: MOTD_LABEL,
+      ...(room && MOTD_CATEGORIES.has(room.split("_", 1)[0]) ? [{
+        label: linkWord(motdLabel) || (gear ? "Reload MOTD" : "Reload Channel's MOTD"), path: motdLabel,
         pointer: channel === "corp" ? CHAT_POINTERS.corpMotd : channel === "fleet" ? CHAT_POINTERS.fleetMotd : undefined,
         run: () => {
-          if (channel === "local" || channel === "corp") void switchChannel(channel);
+          if (!text) return;
+          if (channel === "corp") void switchChannel(channel);
           else flow.conversations.select(channel);
           displayedMotd = { room, pilotID, text };
         },
@@ -167,7 +172,6 @@
       return;
     }
 
-    const gear = event.type === "click";
     const path = gear ? OPEN_CONFIGURATION_LABEL : CONFIGURATION_LABEL;
     const settings: ContextEntry = {
       label: linkWord(path) || (gear ? "Open Channel Setting Window" : "Configuration"),
@@ -396,7 +400,7 @@
   }
 
   onMount(() => {
-    flow.requestWords([...Object.keys(LINK_WORDS), BLINK_LABEL, FILTERS_LABEL, MOTD_LABEL, SETTINGS_LABEL, CONFIGURATION_LABEL, OPEN_CONFIGURATION_LABEL, CHANNELS_LABEL,
+    flow.requestWords([...Object.keys(LINK_WORDS), BLINK_LABEL, FILTERS_LABEL, MOTD_LABEL, GEAR_MOTD_LABEL, SETTINGS_LABEL, CONFIGURATION_LABEL, OPEN_CONFIGURATION_LABEL, CHANNELS_LABEL,
       ...["Channel", "Mute", "Unmute", "Kick"].map(label => `UI/Chat/${label}`)]);
     void refresh();
     poller.start();
