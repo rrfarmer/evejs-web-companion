@@ -6458,20 +6458,30 @@ export async function loadCharacterPreviewAppearance(characterID: number, option
   };
 }
 
-export interface DockedShirts {
-  readonly shirtID: number;
-  readonly choices: readonly { id: number; name: string; asset: string }[];
+export const dockedApparelSlots = ["topmiddle", "bottomouter", "feet"] as const;
+export type DockedApparelSlot = typeof dockedApparelSlots[number];
+
+export interface DockedApparel {
+  readonly slots: Record<DockedApparelSlot, { id: number; choices: readonly { id: number; name: string; asset: string }[] }>;
   readonly outfit: string | null;
   readonly apparel: PortraitApparel;
 }
 
-export async function loadDockedShirts(gender: PortraitHead, options: ApiOptions = {}): Promise<DockedShirts> {
+export async function loadDockedApparel(gender: PortraitHead, options: ApiOptions = {}): Promise<DockedApparel> {
   const data = await getJson("/api/bridge/character/apparel", options);
-  const choices = (Array.isArray(data.choices) ? data.choices : []).flatMap(row =>
-    row && Number.isSafeInteger(row.id) && typeof row.name === "string" && typeof row.asset === "string" &&
-    /^\/client-assets\/portrait-outfit\/(female|male)\/topmiddle\/(shirtgf01|shirtgm01)\/[a-z0-9_]+\.json$/.exec(row.asset)?.[1] === gender
-      ? [{ id: row.id, name: row.name, asset: row.asset }] : []);
-  return { shirtID: asNumberOrNull(data.shirtID) ?? 0, choices, outfit: portraitOutfit(data.outfit, gender),
+  const source = asObject(data.slots);
+  function readSlot(slot: DockedApparelSlot): DockedApparel["slots"][DockedApparelSlot] {
+    const entry = asObject(source?.[slot]);
+    const rows = entry?.choices ?? (slot === "topmiddle" ? data.choices : undefined);
+    const choices = (Array.isArray(rows) ? rows : []).flatMap(row => {
+      if (!row || !Number.isSafeInteger(row.id) || typeof row.name !== "string" || typeof row.asset !== "string") return [];
+      const match = /^\/client-assets\/portrait-outfit\/(female|male)\/(topmiddle|bottomouter|feet)\/[a-z0-9_]+\/[a-z0-9_]+\.json$/.exec(row.asset);
+      return match?.[1] === gender && match[2] === slot ? [{ id: row.id, name: row.name, asset: row.asset }] : [];
+    });
+    return { id: asNumberOrNull(entry?.id ?? (slot === "topmiddle" ? data.shirtID : undefined)) ?? 0, choices };
+  }
+  const slots = { topmiddle: readSlot("topmiddle"), bottomouter: readSlot("bottomouter"), feet: readSlot("feet") };
+  return { slots, outfit: portraitOutfit(data.outfit, gender),
     apparel: portraitApparel(data.apparel, gender) };
 }
 
@@ -6539,7 +6549,7 @@ export async function loadPortraitSkinTones(gender: PortraitHead, options: ApiOp
 
 export async function savePortrait(draft: { backgroundID: number; fieldOfView: number | null;
     skinTone: { id: number; gender: PortraitHead } | null; hairID: number | null;
-    hairColor?: PortraitHairColor | null; shirtID?: number | null;
+    hairColor?: PortraitHairColor | null; apparelIDs?: Partial<Record<DockedApparelSlot, number>>;
     dockedLocationID: number; initialFrame?: PortraitFrame }, options: ApiOptions = {}): Promise<void> {
   await postJson("/api/bridge/character/portrait", { ...draft, confirm: true }, options);
 }

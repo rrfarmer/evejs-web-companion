@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { readCapturePortrait, type PortraitHairTints } from "../app/api.ts";
+  import { dockedApparelSlots, readCapturePortrait, type PortraitHairTints } from "../app/api.ts";
   import type { AppFlow } from "../app/flow.ts";
   import type { ClientStore } from "../store/clientStore.ts";
   import { clientTexture } from "./skillGroupIcons.ts";
@@ -30,7 +30,8 @@
   let hairID = $state(0);
   let primaryID = $state(0);
   let secondaryID = $state(0);
-  let shirtID = $state(0);
+  let selection = $state({ topmiddle: 0, bottomouter: 0, feet: 0 });
+  const slotLabels = { topmiddle: "Shirt", bottomouter: "Trousers", feet: "Boots" };
   let showOutfit = $state(false);
   let preview = $state<"backdrop" | "female" | "male">("backdrop");
   let failed = $state(false);
@@ -55,11 +56,17 @@
   const hairTints = $derived<PortraitHairTints | undefined>(primary || secondary
     ? { primary: primary?.colors[0], secondary: secondary && [secondary.colors[1], secondary.colors[2]] } : undefined);
   const acceptsHairColor = $derived(Boolean(chosenHair && !chosenHair.style.startsWith("hair_implant_")));
-  const shirt = $derived(options?.shirts?.choices.find(choice => choice.id === shirtID));
-  const shirtChanged = $derived(Boolean(shirt && shirt.id !== options?.shirts?.shirtID));
-  const apparel = $derived({ ...options?.shirts?.apparel, topmiddle: shirt?.asset ?? options?.shirts?.apparel.topmiddle });
-  const outfit = $derived(options?.shirts?.outfit ?? apparel.topmiddle);
-  const hasChanges = $derived(initial || selected !== options?.backgroundID || zoomChanged || skinChanged || hairChanged || hairColorChanged || shirtChanged);
+  const apparelChoices = $derived(dockedApparelSlots.flatMap(slot => {
+    const group = options?.clothing?.slots[slot];
+    return group?.choices.length ? [{ slot, group, choice: group.choices.find(row => row.id === selection[slot]) }] : [];
+  }));
+  const apparelIDs = $derived(Object.fromEntries(apparelChoices.flatMap(({ slot, group, choice }) =>
+    choice && choice.id !== group.id ? [[slot, choice.id]] : [])));
+  const apparel = $derived({ ...options?.clothing?.apparel, ...Object.fromEntries(apparelChoices.flatMap(({ slot, choice }) =>
+    choice ? [[slot, choice.asset]] : [])) });
+  const outfit = $derived(options?.clothing?.outfit ?? apparel.topmiddle);
+  const hasChanges = $derived(initial || selected !== options?.backgroundID || zoomChanged || skinChanged || hairChanged ||
+    hairColorChanged || Object.keys(apparelIDs).length > 0);
   const busy = $derived(saving || publishing);
 
   onMount(() => {
@@ -76,7 +83,7 @@
       hairID = data.hairID;
       primaryID = data.hairColor.primaryID;
       secondaryID = data.hairColor.secondaryID;
-      shirtID = data.shirts?.shirtID ?? 0;
+      for (const slot of dockedApparelSlots) selection[slot] = data.clothing?.slots[slot].id ?? 0;
     }).catch(() => { failed = true; });
   });
 
@@ -95,10 +102,15 @@
     try {
       await flow.saveDockedPortrait({ backgroundID, fieldOfView: initialFrame || zoomChanged ? fieldOfView : null,
         skinToneID: skinChanged ? skinToneID : null, hairID: hairChanged ? hairID : null,
-        hairColor: hairColorChanged ? { primaryID, secondaryID } : null, shirtID: shirtChanged ? shirtID : null,
+        hairColor: hairColorChanged ? { primaryID, secondaryID } : null, apparelIDs,
         initialFrame: initialFrame ?? undefined });
-      options = { ...options, state: 0, backgroundID, framing, skinToneID, hairID, hairColor: { primaryID, secondaryID },
-        shirts: options.shirts && { ...options.shirts, shirtID, apparel } };
+      const clothing = options.clothing;
+      if (clothing) {
+        const slots = { ...clothing.slots };
+        for (const slot of dockedApparelSlots) slots[slot] = { ...slots[slot], id: apparelIDs[slot] ?? slots[slot].id };
+        options = { ...options, clothing: { ...clothing, slots, apparel } };
+      }
+      options = { ...options, state: 0, backgroundID, framing, skinToneID, hairID, hairColor: { primaryID, secondaryID } };
       saveStatus = initialFrame ? "Appearance saved. You can now publish your portrait." : "Portrait settings saved.";
     } catch (error) {
       saveStatus = error instanceof Error ? error.message : "The portrait settings could not be saved.";
@@ -169,16 +181,16 @@
         {/if}
       </div>
       {#if canSave}
-        {#if options.shirts?.choices.length}
-          <label class="appearance-choice">Shirt
-            <select bind:value={shirtID} disabled={busy} onchange={() => { saveStatus = ""; }}>
-              {#if !options.shirts.choices.some(choice => choice.id === options?.shirts?.shirtID)}
-                <option value={options.shirts.shirtID}>{options.shirts.shirtID ? "Saved shirt" : "No saved shirt"}</option>
+        {#each apparelChoices as { slot, group } (slot)}
+          <label class="appearance-choice">{slotLabels[slot]}
+            <select bind:value={selection[slot]} disabled={busy} onchange={() => { saveStatus = ""; }}>
+              {#if !group.choices.some(choice => choice.id === group.id)}
+                <option value={group.id}>{group.id ? "Saved selection" : "No saved selection"}</option>
               {/if}
-              {#each options.shirts.choices as choice (choice.id)}<option value={choice.id}>{choice.name}</option>{/each}
+              {#each group.choices as choice (choice.id)}<option value={choice.id}>{choice.name}</option>{/each}
             </select>
           </label>
-        {/if}
+        {/each}
         {#if pilotHead && options.hairstyles.length}
           <label class="appearance-choice">Hairstyle
             <select bind:value={hairID} disabled={busy} onchange={() => { saveStatus = ""; }}>

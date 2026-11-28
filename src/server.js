@@ -21,7 +21,7 @@ const { createClientTextures } = require("./clientData/clientTextures");
 const { appearanceWithSkinTone, skinToneCatalog, skinToneID } = require("./clientData/portraitSkinTones");
 const { portraitSnapshotBytes } = require("./clientData/portraitSnapshot");
 const { appearanceWithHair, appearanceWithModifier, portraitHairChoices, portraitHairID, portraitModifierID } = require("./clientData/portraitHair");
-const { portraitShirtChoices } = require("./clientData/portraitApparel");
+const { apparelSlots, portraitApparelChoices } = require("./clientData/portraitApparel");
 const { appearanceWithHairColors, hairColorCatalog, hairColorLocation, hairColorSelection, portraitHairTints } = require("./clientData/portraitHairColors");
 const { portraitPreviewModifiers, portraitPreviewMorphs, previewSculptRows, portraitPreviewMakeup } = require("./clientData/portraitPreview");
 const { createMultibuyImport } = require("./clientData/importMultibuy");
@@ -19751,7 +19751,7 @@ async function dockedHairChoices(call, characterID) {
   return { location, choices, colorLocation, colors };
 }
 
-async function dockedShirtChoices(call, characterID) {
+async function dockedApparelChoices(call, characterID) {
   const [{ result: roster }, locations, resources] = await Promise.all([
     call("charUnboundMgr", "GetCharacterSelectionData", []),
     clientBuiltData.table("paperDollModifierLocations"), clientBuiltData.table("paperDollResources"),
@@ -19759,10 +19759,14 @@ async function dockedShirtChoices(call, characterID) {
   const pilot = roster?.[2]?.items?.find(row => readMailKeyVal(row, "characterID") === characterID);
   const gender = readMailKeyVal(pilot, "gender");
   const model = gender === 0 ? "female" : gender === 1 ? "male" : null;
-  const location = Number(Object.entries(locations ?? {}).find(([, row]) => row.modifierKey === "topmiddle")?.[0]);
-  const choices = model && Number.isSafeInteger(location)
-    ? portraitShirtChoices(resources, model, readMailKeyVal(pilot, "raceID"), clientTextures.fileFor) : [];
-  return { model, locations, location, resources, choices };
+  const race = readMailKeyVal(pilot, "raceID");
+  const groups = Object.fromEntries(apparelSlots.map(slot => {
+    const location = Number(Object.entries(locations ?? {}).find(([, row]) => row.modifierKey === slot)?.[0]);
+    const choices = model && Number.isSafeInteger(location)
+      ? portraitApparelChoices(resources, model, race, slot, clientTextures.fileFor) : [];
+    return [slot, { location, choices }];
+  }));
+  return { model, locations, resources, groups };
 }
 
 app.get("/api/bridge/character/apparel", requireAuth, async (req, res, next) => {
@@ -19772,13 +19776,17 @@ app.get("/api/bridge/character/apparel", requireAuth, async (req, res, next) => 
   try {
     const { flight } = await readHeldFlight(held, req.webSessionID);
     if (!flight?.docked) return res.status(409).json({ ok: false, error: "LOCATION_CHANGED" });
-    const [{ model, locations, location, resources, choices }, { result: appearance }] = await Promise.all([
-      dockedShirtChoices(call, held.characterID), call("paperDollServer", "GetMyPaperDollData", [held.characterID]),
+    const [{ model, locations, resources, groups }, { result: appearance }] = await Promise.all([
+      dockedApparelChoices(call, held.characterID), call("paperDollServer", "GetMyPaperDollData", [held.characterID]),
     ]);
-    const shirtID = portraitModifierID(appearance, location);
     const preview = model ? portraitPreviewModifiers(appearance, model, locations, resources) : null;
-    const editable = Number.isSafeInteger(location) && appearanceWithModifier(appearance, location, shirtID) !== null;
-    res.json({ ok: true, shirtID, choices: editable ? choices : [], outfit: preview?.outfit ?? null, apparel: preview?.apparel ?? {} });
+    const slots = Object.fromEntries(Object.entries(groups).map(([slot, { location, choices }]) => {
+      const id = portraitModifierID(appearance, location);
+      const editable = Number.isSafeInteger(location) && appearanceWithModifier(appearance, location, id) !== null;
+      return [slot, { id, choices: editable ? choices : [] }];
+    }));
+    res.json({ ok: true, shirtID: slots.topmiddle.id, choices: slots.topmiddle.choices, slots,
+      outfit: preview?.outfit ?? null, apparel: preview?.apparel ?? {} });
   } catch (error) { next(error); }
 });
 
@@ -19840,7 +19848,7 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
   const held = requireHeldBridgeSession(req, res);
   if (!held || !requireWriteConfirmation(req, res, "Use Save portrait to confirm your changes.")) return;
   const { backgroundID, fieldOfView = null, dockedLocationID, skinTone = null, hairID = null, hairColor = null,
-    shirtID = null, initialFrame = null } = req.body;
+    shirtID = null, apparelIDs = null, initialFrame = null } = req.body;
   if (!Number.isSafeInteger(backgroundID) || backgroundID <= 0 ||
       !Number.isSafeInteger(dockedLocationID) || dockedLocationID <= 0) {
     return res.status(400).json({ ok: false, error: "INVALID_BACKDROP", message: "Choose an available portrait backdrop." });
@@ -19868,8 +19876,13 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
   if (hairColor !== null && ![hairColor?.primaryID, hairColor?.secondaryID].every(id => Number.isSafeInteger(id) && id >= 0)) {
     return res.status(400).json({ ok: false, error: "INVALID_HAIR_COLOR", message: "Choose an available hair color." });
   }
-  if (shirtID !== null && (!Number.isSafeInteger(shirtID) || shirtID <= 0)) {
-    return res.status(400).json({ ok: false, error: "INVALID_APPAREL", message: "Choose an available shirt." });
+  if ((apparelIDs !== null && (typeof apparelIDs !== "object" || Array.isArray(apparelIDs))) ||
+      (shirtID !== null && apparelIDs?.topmiddle !== undefined && shirtID !== apparelIDs.topmiddle)) {
+    return res.status(400).json({ ok: false, error: "INVALID_APPAREL", message: "Choose available apparel." });
+  }
+  const requestedApparel = Object.entries({ ...(shirtID === null ? {} : { topmiddle: shirtID }), ...apparelIDs });
+  if (requestedApparel.some(([slot, id]) => !apparelSlots.includes(slot) || !Number.isSafeInteger(id) || id <= 0)) {
+    return res.status(400).json({ ok: false, error: "INVALID_APPAREL", message: "Choose available apparel." });
   }
   const call = (service, method, args, kwargs = null) => heldTopLevelCall(held, req.webSessionID, service, method, args, kwargs);
   const readPortrait = async () => {
@@ -19893,8 +19906,8 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
     let skinLocations;
     let hairLocation;
     let hairColorLocation;
-    let shirtLocation;
-    if (initial || skinTone || hairID !== null || hairColor !== null || shirtID !== null) {
+    const apparelToConfirm = [];
+    if (initial || skinTone || hairID !== null || hairColor !== null || requestedApparel.length) {
       const [{ skinLocations: locations, choices }, { result: current }] = await Promise.all([
         skinTone ? dockedSkinTones(call, held.characterID, skinTone.gender) : { skinLocations: [], choices: [] },
         call("paperDollServer", "GetMyPaperDollData", [held.characterID]),
@@ -19934,15 +19947,18 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
           if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
         }
       }
-      if (shirtID !== null) {
-        const { location, choices } = await dockedShirtChoices(call, held.characterID);
-        shirtLocation = location;
-        if (!choices.some(choice => choice.id === shirtID)) {
-          return res.status(400).json({ ok: false, error: "INVALID_APPAREL", message: "Choose an available shirt." });
-        }
-        if (portraitModifierID(current, location) !== shirtID) {
-          appearance = appearanceWithModifier(appearance ?? current, location, shirtID);
-          if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
+      if (requestedApparel.length) {
+        const { groups } = await dockedApparelChoices(call, held.characterID);
+        for (const [slot, id] of requestedApparel) {
+          const { location, choices } = groups[slot];
+          if (!choices.some(choice => choice.id === id)) {
+            return res.status(400).json({ ok: false, error: "INVALID_APPAREL", message: "Choose available apparel." });
+          }
+          apparelToConfirm.push([location, id]);
+          if (portraitModifierID(current, location) !== id) {
+            appearance = appearanceWithModifier(appearance ?? current, location, id);
+            if (!appearance) return res.status(409).json({ ok: false, error: "APPEARANCE_UNAVAILABLE", message: "This pilot’s saved appearance cannot be edited here." });
+          }
         }
       }
     }
@@ -19967,7 +19983,7 @@ app.post("/api/bridge/character/portrait", requireAuth, async (req, res, next) =
         const savedColor = hairColorSelection(result, hairColorLocation);
         if (result == null || (skinTone && skinToneID(result, skinLocations) !== skinTone.id) ||
             (hairID !== null && portraitHairID(result, hairLocation) !== hairID) ||
-            (shirtID !== null && portraitModifierID(result, shirtLocation) !== shirtID) ||
+            apparelToConfirm.some(([location, id]) => portraitModifierID(result, location) !== id) ||
             (hairColor && (savedColor.primaryID !== hairColor.primaryID || savedColor.secondaryID !== hairColor.secondaryID))) {
           return res.status(409).json({ ok: false, error: "APPEARANCE_UNCONFIRMED", message: "The appearance changes could not be confirmed." });
         }

@@ -2294,7 +2294,7 @@ export interface DockedPortraitOptions {
   readonly hairstyles: readonly api.PortraitHairstyle[];
   readonly hairColor: api.PortraitHairColor;
   readonly hairColors: { primary: readonly api.PortraitHairPalette[]; secondary: readonly api.PortraitHairPalette[] };
-  readonly shirts: api.DockedShirts | null;
+  readonly clothing: api.DockedApparel | null;
 }
 
 export interface PortraitFraming extends api.PortraitFrame {
@@ -2307,7 +2307,7 @@ interface DockedPortraitDraft {
   readonly skinToneID: number | null;
   readonly hairID: number | null;
   readonly hairColor?: api.PortraitHairColor | null;
-  readonly shirtID?: number | null;
+  readonly apparelIDs?: Partial<Record<api.DockedApparelSlot, number>>;
   readonly initialFrame?: api.PortraitFrame;
 }
 
@@ -10614,14 +10614,14 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
     const characterID = store.station.get().online?.characterID;
     if (place === null || characterID == null) throw new Error("Dock to open character recustomization.");
     const head = portraitHeadFor(characterID);
-    const [state, backgrounds, portrait, bloodlineID, skin, hair, shirts] = await Promise.all([
+    const [state, backgrounds, portrait, bloodlineID, skin, hair, clothing] = await Promise.all([
       bridgeAsk("charMgr", "GetPaperdollState", []),
       api.loadPortraitBackgrounds(callOptions),
       bridgeAsk("paperDollServer", "GetPaperDollPortraitDataFor", [characterID]).catch(() => null),
       readCharacterBloodline(bridgeAsk, characterID).catch(() => null),
       head ? api.loadPortraitSkinTones(head, callOptions).catch(() => null) : null,
       head ? api.loadPortraitHairstyles(callOptions).catch(() => null) : null,
-      head ? api.loadDockedShirts(head, callOptions).catch(() => null) : null,
+      head ? api.loadDockedApparel(head, callOptions).catch(() => null) : null,
     ]);
     current();
     if (dockedNow() !== place) throw new Error("The docked location changed.");
@@ -10645,7 +10645,7 @@ export function createAppFlow(store: ClientStore, options: AppFlowOptions = {}):
       hairstyles: hair?.choices ?? [],
       hairColor: hair?.hairColor ?? { primaryID: 0, secondaryID: 0 },
       hairColors: hair?.colors ?? { primary: [], secondary: [] },
-      shirts,
+      clothing,
       framing: position && target && fieldOfView !== null && fieldOfView >= 0.2 && fieldOfView <= 1.5 ?
         { position, target, fieldOfView } : null,
     };
