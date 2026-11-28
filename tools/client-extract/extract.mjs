@@ -1065,6 +1065,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const gender = parts[0], variant = parts.at(-1), style = parts.at(-2);
   const slot = parts.slice(1, -2).join("/") || "outer";
   const glasses = slot === "accessories/glasses";
+  const monocle = glasses && style.startsWith("monocle_");
   const masks = slot === "accessories/masks";
   const headwear = glasses || masks;
   const stem = slot === "outer" ? `${gender}/${style}` : `${gender}/${slot}/${style}`;
@@ -1079,7 +1080,10 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     throw new Error(`${typePath}: unrecognized outfit type`);
   }
   const [, variation, palette] = fields;
-  const definitions = rf.list(folder + "/", /\.black$/i).filter(res => !res.slice(folder.length + 1).includes("/"));
+  const layers = variation ? [`${folder}/${variation}`, folder] : [folder];
+  const definitionsAt = layer => rf.list(layer + "/", /\.black$/i).filter(res => !res.slice(layer.length + 1).includes("/"));
+  const variantDefinitions = monocle && variation ? definitionsAt(layers[0]) : [];
+  const definitions = variantDefinitions.length ? variantDefinitions : definitionsAt(folder);
   const meshes = definitions.flatMap(res => readBlack(rf.read(res), res).meshes ?? []);
   const sources = new Set(meshes.map(mesh => mesh.geometryResPath?.toLowerCase())
     .filter(resource => resource?.startsWith(folder + "/") && resource.endsWith(".gr2")));
@@ -1087,7 +1091,6 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const textureOnlyLegs = slot === "bottommiddle" && sources.size === 0;
   if (!textureOnlyTop && !textureOnlyLegs && sources.size !== 1) throw new Error(`${typePath}: expected one authored skinned model`);
   const [source] = sources;
-  const layers = variation ? [`${folder}/${variation}`, folder] : [folder];
   const texture = (suffixes) => {
     for (const layer of layers) {
       const files = rf.list(layer + "/", /\.(?:png|dds)$/i).filter(res => !res.slice(layer.length + 1).includes("/"));
@@ -1103,8 +1106,8 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
   const colors = Array.isArray(authoredColors) && authoredColors.length >= 3 &&
     authoredColors.slice(0, 3).every(color => Array.isArray(color) && color.length === 4 && color.every(Number.isFinite))
     ? authoredColors.slice(0, 3) : [];
-  const metadataPath = `${folder}/metadata.yaml`;
-  const metadata = rf.has(metadataPath) ? readYaml(metadataPath) : null;
+  const metadataPath = (monocle ? layers : [folder]).map(layer => `${layer}/metadata.yaml`).find(file => rf.has(file));
+  const metadata = metadataPath ? readYaml(metadataPath) : null;
   const occlusions = metadata?.occludesModifiers;
   const occludes = Array.isArray(occlusions) ? occlusions.filter(value => typeof value === "string") : [];
   const skinMeshes = meshes.filter(mesh => mesh.geometryResPath?.toLowerCase() === source &&
@@ -1113,7 +1116,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     .map(area => area.effect?.parameters?.find(parameter => parameter.name === "MaterialDiffuseColor")?.value)
     .find(value => Array.isArray(value) && value.length >= 3 && value.slice(0, 3).every(Number.isFinite))?.slice(0, 3) : null;
   const dir = path.join(outRoot, "portrait-outfit", stem);
-  let model = `${stem}/model.glb`;
+  let model = `${stem}/${variantDefinitions.length ? variation + "/" : ""}model.glb`;
   let skinBase = null;
   const bodyParts = [];
   if (textureOnlyTop) {
@@ -1141,7 +1144,7 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
       path.join(outRoot, "portrait-outfit", model), "legs");
     skinBase = copyRes(rf, `${paperDoll}/basenude/caucasianbody_d_512.png`, outRoot);
   } else {
-    await extractPortraitMesh(rf, source, path.join(dir, "model.glb"), style);
+    await extractPortraitMesh(rf, source, path.join(outRoot, "portrait-outfit", model), style);
   }
   const amarrRobe = gender === "male" && slot === "outer" && style === "robeam01";
   const hoods = [];
@@ -1160,17 +1163,25 @@ async function extractPortraitOutfit(rf, outfit, outRoot) {
     : [/\/colorize_body_z_512\.png$/i, /\/colorize_body_z_256\.dds$/i, /\/colorize_body_z\.png$/i]);
   const normal = texture([/_n_512\.png$/i, /_n\.png$/i]);
   const skinCutout = masks ? layers.map(layer => `${layer}/comp_head_m.png`).find(file => rf.has(file)) : null;
+  const headDiffuse = monocle ? texture([/\/comp_head_d_512\.png$/i, /\/comp_head_d\.png$/i]) : null;
+  const headMorphs = monocle ? (metadata?.dependantModifiers ?? []).flatMap(dependency => {
+    const match = /^utilityshapes\/((?:(?:left|right)eyepatch|hidebrow(?:left|right))shape)$/i.exec(dependency);
+    return match ? [match[1].toLowerCase()] : [];
+  }) : [];
   if (skinBase && !diffuse) throw new Error(`${typePath}: no authored garment texture`);
   const rect = filename => filename?.endsWith(".png") ? portraitPngRect(rf.read(filename)) : [0, 0, 1, 1];
   fs.mkdirSync(dir, { recursive: true });
   writeExtracted(path.join(dir, variant + ".json"), JSON.stringify({
-    outfitBuild: masks ? 10 : slot === "bottommiddle" ? 9 : glasses ? 8 : amarrRobe ? 7 : slot === "topmiddle" ? 5 : 4,
+    outfitBuild: monocle ? 11 : masks ? 10 : slot === "bottommiddle" ? 9 : glasses ? 8 : amarrRobe ? 7 : slot === "topmiddle" ? 5 : 4,
     model: `/client-assets/portrait-outfit/${model}`, source, type: typePath, variation, palette, colors, occludes, skinMeshes,
     diffuse: diffuse ? copyRes(rf, diffuse, outRoot) : null,
     zones: zones ? copyRes(rf, zones, outRoot) : null,
     normal: normal ? copyRes(rf, normal, outRoot) : null,
     ...(surface ? { surface } : {}),
     ...(glasses ? { lensAreas: meshes.flatMap(mesh => mesh.transparentAreas ?? []).map(area => area.index ?? 0) } : {}),
+    ...(monocle ? { headMorphs, opaqueLensAreas: meshes.flatMap(mesh => mesh.opaqueAreas ?? [])
+      .filter(area => /^C_Custom_Glass/i.test(area.effect?.name ?? "")).map(area => area.index ?? 0) } : {}),
+    ...(headDiffuse ? { headDiffuse: { url: copyRes(rf, headDiffuse, outRoot), rect: rect(headDiffuse) } } : {}),
     ...(skinCutout ? { skinCutout: { url: copyRes(rf, skinCutout, outRoot), rect: rect(skinCutout) } } : {}),
     ...(bodyParts.length ? { bodyParts } : {}),
     ...(hoods.length ? { hoods } : {}),
@@ -1268,7 +1279,7 @@ function parseArgs(argv) {
     }
     else if (a === "--portrait-body") {
       out.portraitBody = argv[++i];
-      if (!/^(?:female|male)(?:\/[a-z0-9_-]+){1,4}$/.test(out.portraitBody ?? "")) {
+      if (!/^(?:female|male)(?:\/[a-z0-9_-]+){1,5}$/.test(out.portraitBody ?? "")) {
         throw new Error("--portrait-body needs an outfit model stem");
       }
     }

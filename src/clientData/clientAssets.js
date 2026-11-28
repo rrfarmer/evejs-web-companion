@@ -196,14 +196,15 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   const outfit = /^\/portrait-outfit\/((?:female|male)\/(?:(?:topouter|topmiddle|bottommiddle|bottomouter|feet|accessories\/(?:glasses|masks|nose|lips|brow|earslow|earshigh))\/)?[a-z0-9_]+\/[a-z0-9_]+)\.json$/.exec(rel);
   if (outfit) {
     const kind = outfit[1];
-    const build = kind.includes("/accessories/masks/") ? 10 : kind.includes("/bottommiddle/") ? 9 : kind.includes("/accessories/glasses/") ? 8
+    const build = kind.includes("/accessories/glasses/monocle_") ? 11 : kind.includes("/accessories/masks/") ? 10
+      : kind.includes("/bottommiddle/") ? 9 : kind.includes("/accessories/glasses/") ? 8
       : kind.startsWith("male/robeam01/") ? 7 : kind.includes("/topmiddle/") ? 5 : 4;
     const marker = build > 4 && !canExtract() ? undefined : `"outfitBuild":${build}`;
     return { file: await ensure(rel.slice(1), ["--portrait-outfit", outfit[1]], marker) };
   }
   const hands = /^\/portrait-outfit\/(female|male)\/hands\.glb$/.exec(rel);
   if (hands) return { file: await ensure(rel.slice(1), ["--portrait-hands", hands[1]]) };
-  const bodyMorph = /^\/portrait-outfit\/((?:female|male)(?:\/[a-z0-9_-]+){1,4})(?:\.morphs|\/morphs\/([a-z0-9_]+shape))\.json$/.exec(rel);
+  const bodyMorph = /^\/portrait-outfit\/((?:female|male)(?:\/[a-z0-9_-]+){1,5})(?:\.morphs|\/morphs\/([a-z0-9_]+shape))\.json$/.exec(rel);
   if (bodyMorph) {
     const base = path.join(dir, "portrait-outfit", bodyMorph[1] + ".glb");
     if (fileExists(base) && isWithin(dir, fs.realpathSync(base))) {

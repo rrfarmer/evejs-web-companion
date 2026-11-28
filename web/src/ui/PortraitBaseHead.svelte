@@ -778,10 +778,10 @@
       }
       if (retired) return;
       const { scene: avatar } = await loader.loadAsync(stem + ".glb");
-      if (!retired && sculpts?.length) await applyPortraitMorphs(avatar, stem, sculpts, () => retired);
       if (retired) { release(avatar); return; }
       head = avatar;
       let skinCutout: PortraitCroppedTexture | null = null;
+      const headMorphs = [...(sculpts ?? [])];
       for (const url of [glasses, mask]) {
         if (!url || retired) continue;
         let piece: THREE.Group | undefined;
@@ -789,7 +789,8 @@
           const response = await fetch(url);
           if (!response.ok) continue;
           const data = await response.json() as { model: string; diffuse: string | null; zones: string | null;
-            colors: [number, number, number, number][]; lensAreas?: number[]; skinCutout?: CroppedMapAsset };
+            colors: [number, number, number, number][]; lensAreas?: number[]; opaqueLensAreas?: number[];
+            skinCutout?: CroppedMapAsset; headDiffuse?: CroppedMapAsset; headMorphs?: string[] };
           const texture = async (url: string | null, color: boolean) => {
             if (!url || retired) return null;
             const map = await loadMap(url, color);
@@ -809,22 +810,31 @@
             metalness: 0.35, roughness: 0.36 });
           if (dyed) applyOutfitPalette(frame, zones, colors);
           const color = colors[2] ?? new THREE.Color(0x2b3037);
-          const lens = data.lensAreas?.length ? new THREE.MeshStandardMaterial({ color, transparent: true, side: THREE.DoubleSide,
-            depthWrite: false, opacity: 0.83 - 0.45 * Math.max(color.r, color.g, color.b), roughness: 0.22 }) : null;
+          const opaqueLens = Boolean(data.opaqueLensAreas?.length);
+          const lensAreas = data.opaqueLensAreas ?? data.lensAreas;
+          const lens = lensAreas?.length ? new THREE.MeshStandardMaterial({ color, transparent: !opaqueLens, side: THREE.DoubleSide,
+            depthWrite: opaqueLens, opacity: opaqueLens ? 1 : 0.83 - 0.45 * Math.max(color.r, color.g, color.b), roughness: 0.22 }) : null;
           if (lens) lens.forceSinglePass = true;
           const originals = new Set<THREE.Material>();
           piece.traverse(node => {
             if (!(node instanceof THREE.Mesh) || Array.isArray(node.material)) return;
             originals.add(node.material);
-            node.material = lens && data.lensAreas?.includes(node.material.userData.index) ? lens : frame;
+            node.material = lens && lensAreas?.includes(node.material.userData.index) ? lens : frame;
           });
           for (const material of originals) material.dispose();
           headwear.add(piece);
           if (data.skinCutout) skinCutout = await loadCroppedTexture(data.skinCutout, maps, () => retired).catch(() => null);
+          for (const name of data.headMorphs ?? []) headMorphs.push({ name, weight: 1 });
+          if (data.headDiffuse) {
+            const layer = await loadColorLayer({ diffuse: data.headDiffuse.url, diffuseRect: data.headDiffuse.rect, colors: [] }, 1, null)
+              .catch(() => null);
+            if (layer) faceLayers.push(["portraitEyewear", layer]);
+          }
         } catch {
           if (piece) release(piece);
         }
       }
+      if (!retired && headMorphs.length) await applyPortraitMorphs(avatar, stem, headMorphs, () => retired);
       if (retired) return;
       const surface = new THREE.MeshStandardMaterial({ map: maps[0]!.texture, normalMap: maps[1]!.texture, roughness: 0.76 });
       const tint = skinUniforms;
@@ -933,7 +943,7 @@
         const browStem = `${stem}-${bloodline}.brows`;
         try {
           const { scene: overlay } = await loader.loadAsync(browStem + ".glb");
-          if (!retired && sculpts?.length) await applyPortraitMorphs(overlay, browStem, sculpts, () => retired);
+          if (!retired && headMorphs.length) await applyPortraitMorphs(overlay, browStem, headMorphs, () => retired);
           if (retired) { release(overlay); return; }
           const finish = new THREE.MeshStandardMaterial({ map: layer.diffuse, transparent: true, side: THREE.DoubleSide, depthWrite: false });
           finish.forceSinglePass = true;
