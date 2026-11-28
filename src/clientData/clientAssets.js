@@ -180,6 +180,11 @@ async function resolveAsset(rel, dir, ensure, canExtract, queueColors) {
   if (makeup) return { file: await ensure(rel.slice(1), ["--portrait-head", makeup[1], "--portrait-makeup", makeup[2]]) };
   const beard = /^\/portrait-head\/male\/makeup\/(beard\/(?:(?:beard_(?:0[1-9]|10))\/hair_(?:default|\d{2}_a)(?:~\d{2}_bc)?|(?:stubble|fiveoc)\/default))\.json$/.exec(rel);
   if (beard) return { file: await ensure(rel.slice(1), ["--portrait-head", "male", "--portrait-makeup", beard[1]]) };
+  const hairFit = /^\/portrait-hair\/(female|male)\/(hair_[a-z0-9_]+)\/morphs\/pushhairglassesshape\.json$/.exec(rel);
+  if (hairFit && portraitHairStyle(hairFit[1], hairFit[2]) && !portraitScalpMode(hairFit[2])) {
+    return { file: await ensure(rel.slice(1), ["--portrait-head", hairFit[1], "--portrait-hair", hairFit[2],
+      "--portrait-morph", "pushhairglassesshape"]) };
+  }
   const hair = /^\/portrait-hair\/(female|male)\/(hair_[a-z0-9_]+)\.(glb|json)$/.exec(rel);
   if (hair && portraitHairStyle(hair[1], hair[2])) {
     const scalpMode = portraitScalpMode(hair[2]);

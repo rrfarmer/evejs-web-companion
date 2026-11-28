@@ -932,12 +932,19 @@ const pngPortraitHairMeshes = new Map([
   ["hair_ponytailshort_01", "hair_ponytail_short"],
 ]);
 
-async function extractPortraitHair(rf, gender, style, outRoot) {
+async function extractPortraitHair(rf, gender, style, outRoot, morph) {
   if (!portraitHair.portraitHairStyle(gender, style)) throw new Error("Unknown portrait hairstyle");
   const paperDoll = `res:/graphics/character/${gender}/paperdoll`;
   const folder = `${paperDoll}/hair/${style}`;
   const scalpMode = portraitHair.portraitScalpMode(style);
   const dir = path.join(outRoot, "portrait-hair", gender);
+  const pngMesh = pngPortraitHairMeshes.get(style);
+  const source = `${folder}/${pngMesh ?? style}.gr2`;
+  if (morph) {
+    if (scalpMode) throw new Error("This hairstyle has no skinned mesh");
+    await extractPortraitMorph(rf, source, morph, path.join(dir, style, "morphs", morph + ".json"));
+    return;
+  }
   const base = rf.read(`${paperDoll}/hair/colors/basecolor.base`).toString("utf8");
   const rgb = /\[([^\]]+)\]/.exec(base)?.[1]?.split(",").slice(0, 3).map(Number);
   if (!rgb || rgb.length !== 3 || !rgb.every(value => Number.isFinite(value))) throw new Error("Invalid base hair color");
@@ -966,8 +973,6 @@ async function extractPortraitHair(rf, gender, style, outRoot) {
     }
   }
   if (!scalpMode) {
-    const pngMesh = pngPortraitHairMeshes.get(style);
-    const source = `${folder}/${pngMesh ?? style}.gr2`;
     await extractPortraitMesh(rf, source, path.join(dir, `${style}.glb`), style);
     material.diffuse = copyRes(rf, `${folder}/${pngMesh ? "colorize_hair_l.png" : "colorize_hair_l_256.dds"}`, outRoot);
     material.meshFinish = finishMaps("hair");
@@ -1563,7 +1568,8 @@ async function main() {
     if (args.portraitBrows) {
       if (args.portraitBloodline === undefined) throw new Error("--portrait-brows needs --portrait-bloodline");
       await extractPortraitBrows(rf, args.portraitHead, args.portraitBloodline, outRoot, args.portraitMorph);
-    } else if (args.portraitMorphCatalog) await extractPortraitMorphCatalog(rf,
+    } else if (args.portraitHair) await extractPortraitHair(rf, args.portraitHead, args.portraitHair, outRoot, args.portraitMorph);
+    else if (args.portraitMorphCatalog) await extractPortraitMorphCatalog(rf,
       `res:/graphics/character/${args.portraitHead}/paperdoll/head/head_generic/head_generic.gr2`,
       path.join(outRoot, "portrait-head", args.portraitHead + ".morphs.json"));
     else if (args.portraitMorph) await extractPortraitMorph(rf,
@@ -1574,7 +1580,6 @@ async function main() {
       const [category, ...style] = args.portraitMakeup.split("/");
       extractPortraitMakeup(rf, args.portraitHead, category, style.join("/"), outRoot);
     }
-    else if (args.portraitHair) await extractPortraitHair(rf, args.portraitHead, args.portraitHair, outRoot);
     else if (args.portraitBloodline !== undefined) extractPortraitArchetype(rf, args.portraitHead, args.portraitBloodline, outRoot);
     else await extractPortraitHead(rf, args.portraitHead, outRoot);
   }

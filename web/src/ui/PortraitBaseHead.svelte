@@ -35,6 +35,7 @@
     onOutfitMorphs?: (names: ReadonlySet<string>) => void;
   } = $props();
   const visibleHairstyle = $derived(outfit && robeHood > 0 ? undefined : hairstyle);
+  const hasEyewear = $derived(Boolean(apparel?.["accessories/glasses"]));
   let canvas: HTMLCanvasElement;
   let renderer = $state.raw<THREE.WebGLRenderer | null>(null);
   let display = $state<"loading" | "ready" | "unavailable">("loading");
@@ -227,6 +228,7 @@
     const style = visibleHairstyle;
     const tints = hairTints;
     const fullBody = Boolean(outfit);
+    const fitEyewear = hasEyewear;
     if (!active) return;
     if (!style) {
       active.render(scene, camera);
@@ -273,6 +275,9 @@
       const zones = tints && meshZones ? await loadCroppedTexture(meshZones, finishMaps, () => retired).catch(() => null) : null;
       if (retired) return;
       const { scene: object } = await loader.loadAsync(stem + ".glb");
+      if (!retired && fitEyewear) {
+        await applyPortraitMorphs(object, stem, [{ name: "pushhairglassesshape", weight: 1 }], () => retired);
+      }
       if (retired) { release(object); return; }
       hair = object;
       const surface = new THREE.MeshStandardMaterial({
